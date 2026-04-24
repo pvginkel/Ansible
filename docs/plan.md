@@ -1,0 +1,86 @@
+# Project plan
+
+Master navigation document. Pair this with the current phase document at the start of each conversation.
+
+## How to use this document
+
+Each new conversation loads the same minimal context:
+
+1. `CLAUDE.md` — repo conventions and commit discipline.
+2. `README.md` — layout and quickstart.
+3. `docs/decisions.md` — authoritative decision record.
+4. **This file** (`docs/plan.md`) — where we are and where we're going.
+5. **The current phase document** from `docs/phases/` — working context for the conversation.
+
+When a phase is complete, mark its status here, commit, and the next conversation picks up from the next phase document.
+
+## Principles
+
+- Each phase must leave the repo in a **stable, usable state**. No phase may depend on the next phase landing to remain functional.
+- **Scratch VMs first.** Real infrastructure is never the first target for a new role or playbook.
+- **Runbooks are code.** When a phase introduces an operational procedure (cluster upgrade, seal migration, VM rebuild), it ships with a runbook in `docs/runbooks/`.
+- **Phase docs stay lean.** Once a phase is done, strip build-time notes from its document and keep only what remains useful for future operations.
+
+## Phase overview
+
+| # | Phase | Status | Doc |
+|---|---|---|---|
+| 0 | Foundation | ✅ Done | `docs/decisions.md` + initial commits |
+| 1 | Bootstrap + baseline + scratch VM | 🚧 In progress | [`phases/phase-1-bootstrap-baseline.md`](phases/phase-1-bootstrap-baseline.md) |
+| 2 | Proxmox host management | ⏳ Planned | — |
+| 3 | VM fleet via Terraform | ⏳ Planned | — |
+| 4 | microk8s roles and upgrade | ⏳ Planned | — |
+| 5 | microceph roles and upgrade | ⏳ Planned | — |
+| 6 | OpenBao + secrets wiring | ⏳ Planned | — |
+| 7 | Ceph storage resources | ⏳ Planned | — |
+| 8 | Keycloak provisioning | ⏳ Planned | — |
+| 9 | DNS automation | ⏳ Planned | — |
+| 10 | CI integration + drift detection | ⏳ Planned | — |
+
+Phase documents are written as each phase is reached. Don't pre-populate detail for phases we haven't committed to.
+
+## Phase summaries
+
+### 0 — Foundation (done)
+
+Repo skeleton, tool selection, scope, secrets strategy, DNS policy, environment mapping. Captured in `docs/decisions.md`.
+
+### 1 — Bootstrap + baseline + scratch VM
+
+Build the two foundational Ansible roles (`bootstrap`, `baseline`) and a disposable Terraform-provisioned scratch VM to exercise them against. After this phase, any new Ubuntu VM can be brought to a consistent managed state with a single command.
+
+### 2 — Proxmox host management
+
+Port `/work/Obsidian/Proxmox.md` into a `proxmox_host` role and adopt `pve`, `pve1`, `pve2` into Ansible management. No destructive changes to the live cluster; `--check` runs must match current state before we apply anything.
+
+### 3 — VM fleet via Terraform
+
+Model existing managed VMs as Terraform resources and adopt them into state. Establish the "rebuild a VM from scratch" workflow (terraform + bootstrap + baseline + role) that becomes the upgrade path for everything downstream.
+
+### 4 — microk8s roles and upgrade
+
+Install, join, and HA-configure microk8s nodes. Deliver the upgrade playbook (cordon/drain/upgrade/uncordon, `serial: 1`) for both the 3-node prod cluster and the single-node dev cluster. Source: `/work/Obsidian/Kubernetes.md`.
+
+### 5 — microceph roles and upgrade
+
+Same shape as Phase 4 for microceph. Source: `/work/Obsidian/Ceph.md`.
+
+### 6 — OpenBao + secrets wiring
+
+Stand up `srvvault`. Azure Key Vault auto-unseal with firewall-pinned SP. AppRole credentials for Ansible, Jenkins, External Secrets Operator. Backup/DR script per the decisions doc. Migrate a first set of HelmCharts secrets to validate the path.
+
+### 7 — Ceph storage resources
+
+Ansible playbooks that provision RBD images and CephFS subvolumes on demand, so Helm charts no longer require manual Ceph operator steps. Hooks for the HelmCharts deploy pipeline.
+
+### 8 — Keycloak provisioning
+
+Realms, clients, users, and roles as code via `community.general.keycloak_*`. Secrets pulled from OpenBao.
+
+### 9 — DNS automation
+
+Extend `/work/DockerImages/dnsmapper` (or a new sidecar) with a static-record API, and write a thin Ansible module on top. Replaces manual DNS registration for Terraform-provisioned VMs.
+
+### 10 — CI integration + drift detection
+
+Jenkins jobs for scheduled `--check --diff` runs against the full inventory, drift alerting, and CI-triggered playbook execution for operational tasks.

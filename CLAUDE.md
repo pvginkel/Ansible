@@ -6,13 +6,21 @@ Context for Claude Code working in this repo.
 
 Ansible + Terraform managing the homelab infrastructure: Proxmox hosts, k8s VMs and cluster, Ceph VMs and cluster, and the Linux dev box baseline. Helm owns Kubernetes workloads (in `/work/HelmCharts`); Jenkins runs deploys.
 
-**Read [`docs/decisions.md`](docs/decisions.md) before proposing changes.** It is the authoritative record of tool split, secrets strategy, scope, and backup/DR. If a decision changes, update that file — do not leave stale notes elsewhere.
+**Read [`docs/decisions.md`](docs/decisions.md) and [`docs/plan.md`](docs/plan.md) before proposing changes.** The decisions file is the authoritative record of tool split, secrets strategy, scope, and backup/DR. The plan file tracks where we are across phases and points at the current phase document in `docs/phases/`. If a decision changes, update `docs/decisions.md` — do not leave stale notes elsewhere.
 
 ## Commit early and often
 
 Small, focused commits with clear messages. Do not batch unrelated changes into one commit. When you finish a coherent chunk of work — a role, a runbook update, a decision-record change, a new playbook — commit it before starting the next. When in doubt, commit.
 
 Commit messages follow the style in existing history: short imperative subject, body explains the why. Always include the `Co-Authored-By` trailer for Claude.
+
+## Explanatory notes decay
+
+Files gain scaffolding while they're being built — TODO markers, inline justifications, walk-through comments, README-style context embedded in role defaults. Once we've moved past a file, strip the sprinkles. Keep only comments that carry a non-obvious *why*.
+
+Rule of thumb: if the comment exists because we were *building* the file together, delete it when we move on. If it would help a reader who opens the file in a year knowing nothing of its history, keep it.
+
+This applies to phase documents too. Once a phase is done, compress its document down to what remains operationally useful.
 
 ## Tooling
 
