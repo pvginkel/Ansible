@@ -1,0 +1,11 @@
+---
+profile: production
+
+exclude_paths:
+  - .venv/
+  - ansible/collections/ansible_collections/
+
+skip_list: []
+
+# Fail hard on warnings once roles stabilize; for now, warnings stay warnings.
+strict: false

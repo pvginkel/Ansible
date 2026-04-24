@@ -1,0 +1,6 @@
+---
+# Variables applied to every host in the production inventory.
+# Keep this file small — per-group settings belong in their own group_vars file.
+
+ansible_user: ansible
+# ansible_python_interpreter set by the bootstrap role once Python is present.

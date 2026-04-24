@@ -1,0 +1,17 @@
+---
+collections:
+  # Proxmox, Keycloak, and many other modules.
+  - name: community.general
+    version: ">=9.0.0"
+
+  # POSIX basics (authorized_key, sysctl, firewalld, mount).
+  - name: ansible.posix
+    version: ">=1.5.0"
+
+  # Kubernetes resources — used for Ceph-backed PVs, External Secrets, etc.
+  - name: kubernetes.core
+    version: ">=5.0.0"
+
+  # OpenBao / Vault lookups.
+  - name: community.hashi_vault
+    version: ">=6.0.0"

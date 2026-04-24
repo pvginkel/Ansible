@@ -11,3 +11,32 @@ node_modules
 *.tsbuildinfo
 coverage_report.md
 *.conversation.json
+
+# Python venv
+.venv/
+*.pyc
+
+# Ansible
+*.retry
+ansible/collections/ansible_collections/
+ansible/.vault_pass
+ansible/facts.d/
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+.terraform.lock.hcl.backup
+crash.log
+
+# Editor / OS
+.DS_Store
+*.swp
+*.swo
+.idea/
+
+# Local overrides
+*.local
+
