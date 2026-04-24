@@ -22,3 +22,6 @@ services:
       - ${HOME}/.cache:/home/ubuntu/.cache:rw
       - ${HOME}/claude-kubeconfig.yaml:/home/ubuntu/claude-kubeconfig.yaml:ro
       - .:/work/Ansible:rw
+      - ../HelmCharts:/work/HelmCharts:ro
+      - ../DockerImages:/work/DockerImages:ro
+      - ../Obsidian:/work/Obsidian:ro
