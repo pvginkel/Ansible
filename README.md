@@ -24,26 +24,26 @@ See [`docs/decisions.md`](docs/decisions.md) for the full decision record — to
 │   └── files/
 ├── terraform/               # VM provisioning (bpg/proxmox)
 ├── docs/                    # design + runbooks
-├── requirements.txt         # pinned Python deps (ansible, lint tools)
+├── pyproject.toml           # Poetry-managed Python deps
 └── .pre-commit-config.yaml  # yamllint + ansible-lint on commit
 ```
 
 ## Prerequisites
 
-- Python 3.11+
-- `python3-venv` and `pip`
+- Python 3.12+
+- [Poetry](https://python-poetry.org/) 2.x
 - SSH key to target hosts, passwordless sudo on targets
 
 ## Quickstart
 
 ```sh
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+poetry install
+poetry run ansible-galaxy collection install -r ansible/collections/requirements.yml
 
 cd ansible
-ansible-galaxy collection install -r collections/requirements.yml
-ansible -i inventories/prd all -m ping      # once inventory is populated
+poetry run ansible all -m ping      # once inventory is populated
 ```
+
+Poetry creates an in-project `.venv/` (configured via `poetry.toml`). Prefix commands with `poetry run` or activate the venv explicitly (`source .venv/bin/activate`).
 
 All Ansible commands run from the `ansible/` directory (where `ansible.cfg` lives).
