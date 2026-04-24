@@ -46,6 +46,26 @@ Source of truth for design decisions on this repo. When a decision changes, upda
 - The existing procedural runbook in `/work/Obsidian/` is the source material for role content. Ported topic-by-topic as roles are built.
 - microk8s/microceph setup is "scripted textually" — scripts still need to be located on disk.
 
+## Environment mapping
+
+Ansible inventories and HelmCharts config folders use the same names (`prd`, `dev`) but refer to *infrastructure environments*, not application deployment stages.
+
+| Where              | `prd` means                                       | `dev` means                                        |
+|--------------------|---------------------------------------------------|----------------------------------------------------|
+| Ansible inventory  | Production infrastructure: PVE cluster, prod k8s (3-node microk8s), Ceph cluster, OpenBao VM | Chart-development single-node k8s cluster (`wrkdevk8s`) + Linux operator workstation (`wrkdev`) |
+| HelmCharts configs | Helm configs for the production cluster          | Helm configs used while developing/testing charts against the dev cluster |
+
+The user's application has four deployment stages: `dev`, `test`, `uat`, `prd`. **All four run on the production Kubernetes cluster**, as separate namespaces. These stages are Helm's concern; Ansible does not see or manage them.
+
+The HelmCharts `configs/dev` folder is **not** for app-dev instances — it is for iterating on Helm charts themselves against the single-node cluster. Do not confuse "dev the infra" with "dev the app stage."
+
+## DNS and hostnames
+
+- DNS search domain is `.home`, configured on the operator workstation and (via the `baseline` role once written) on all managed hosts.
+- All managed hosts **must** have forward DNS entries (`hostname.home`) resolvable from the operator workstation and from each other. Confirmed working today: `pve`, `pve1`, `pve2`.
+- Ansible inventories use **short hostnames**; the `.home` search domain fills in the FQDN. Never hard-code IPs.
+- For Terraform-provisioned VMs, the operator registers a DNS A record manually after `terraform apply`, until DNS-registration is automated. Automation is deferred; the DNS server's API capability still needs to be inventoried.
+
 ## Existing backup context (not in Ansible scope)
 
 - PVE VM snapshots, 3-day retention.
