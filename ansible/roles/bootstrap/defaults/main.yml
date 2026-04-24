@@ -1,0 +1,4 @@
+---
+# Fixed UIDs so file ownership survives a VM rebuild.
+bootstrap_ansible_uid: 900
+bootstrap_pvginkel_uid: 1000

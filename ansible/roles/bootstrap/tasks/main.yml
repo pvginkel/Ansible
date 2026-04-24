@@ -1,0 +1,43 @@
+---
+- name: Ensure ansible automation user exists
+  ansible.builtin.user:
+    name: ansible
+    uid: "{{ bootstrap_ansible_uid }}"
+    shell: /bin/bash
+    groups: sudo
+    append: true
+    create_home: true
+    state: present
+
+- name: Install ansible user authorized_keys
+  ansible.posix.authorized_key:
+    user: ansible
+    key: "{{ lookup('file', 'ansible.pub') }}"
+    exclusive: false
+    state: present
+
+- name: Grant ansible user passwordless sudo
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/ansible
+    content: "ansible ALL=(ALL) NOPASSWD:ALL\n"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "visudo -cf %s"
+
+- name: Ensure pvginkel operator user exists
+  ansible.builtin.user:
+    name: pvginkel
+    uid: "{{ bootstrap_pvginkel_uid }}"
+    shell: /bin/bash
+    groups: sudo
+    append: true
+    create_home: true
+    state: present
+
+- name: Install pvginkel authorized_keys
+  ansible.posix.authorized_key:
+    user: pvginkel
+    key: "{{ lookup('file', 'pvginkel.pub') }}"
+    exclusive: false
+    state: present
