@@ -1,0 +1,79 @@
+---
+- name: Set timezone
+  community.general.timezone:
+    name: "{{ baseline_timezone }}"
+
+- name: Refresh apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Perform apt dist-upgrade
+  ansible.builtin.apt:
+    upgrade: dist
+  environment:
+    NEEDRESTART_MODE: a
+  when: baseline_apt_dist_upgrade | bool
+
+- name: Install baseline packages
+  ansible.builtin.apt:
+    name:
+      - qemu-guest-agent
+      - unattended-upgrades
+    state: present
+  environment:
+    NEEDRESTART_MODE: a
+
+- name: Install per-host extra packages
+  ansible.builtin.apt:
+    name: "{{ baseline_extra_packages }}"
+    state: present
+  environment:
+    NEEDRESTART_MODE: a
+  when: baseline_extra_packages | length > 0
+
+- name: Enable qemu-guest-agent
+  ansible.builtin.systemd:
+    name: qemu-guest-agent
+    enabled: true
+    state: started
+
+- name: Locate noisy motd scripts
+  ansible.builtin.find:
+    paths: /etc/update-motd.d
+    patterns: "{{ baseline_disabled_motd_scripts }}"
+    file_type: file
+  register: baseline_motd_found
+
+- name: Disable noisy motd scripts
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    mode: "0644"
+  loop: "{{ baseline_motd_found.files }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
+
+- name: Install /root/.vimrc
+  ansible.builtin.copy:
+    src: vimrc
+    dest: /root/.vimrc
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install pvginkel .vimrc
+  ansible.builtin.copy:
+    src: vimrc
+    dest: /home/pvginkel/.vimrc
+    owner: pvginkel
+    group: pvginkel
+    mode: "0644"
+
+- name: Configure unattended-upgrades
+  ansible.builtin.copy:
+    src: 50unattended-upgrades
+    dest: /etc/apt/apt.conf.d/50unattended-upgrades
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart unattended-upgrades

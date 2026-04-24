@@ -1,0 +1,14 @@
+---
+galaxy_info:
+  role_name: baseline
+  author: pvginkel
+  description: OS baseline for Ubuntu managed hosts — timezone, vimrc, qemu-guest-agent, motd cleanup, unattended-upgrades.
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - noble
+
+dependencies:
+  - role: bootstrap

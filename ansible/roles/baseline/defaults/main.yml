@@ -1,0 +1,20 @@
+---
+baseline_timezone: "Europe/Amsterdam"
+
+# Per-host/group additions. Override in host_vars/ or group_vars/ —
+# e.g. baseline_extra_packages: [htop, tmux, jq]
+baseline_extra_packages: []
+
+# Run `apt dist-upgrade` during the play. False by default: unattended-upgrades
+# handles ongoing security updates; leave this off unless you're deliberately
+# rolling a host forward during a maintenance window.
+baseline_apt_dist_upgrade: false
+
+# MOTD scripts to strip the execute bit from — matches the chmod -x list
+# in /work/Obsidian/Linux.md.
+baseline_disabled_motd_scripts:
+  - 10-help-text
+  - 50-motd-news
+  - 85-fwupd
+  - 90-updates-available
+  - 97-overlayroot
