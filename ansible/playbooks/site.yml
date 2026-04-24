@@ -1,0 +1,9 @@
+---
+- name: Apply bootstrap and baseline to managed hosts
+  # Default target is all hosts; always pair with --limit in day-to-day use.
+  hosts: all
+  become: true
+  gather_facts: true
+  roles:
+    - role: bootstrap
+    - role: baseline
