@@ -1,0 +1,23 @@
+#cloud-config
+hostname: ${vm_name}
+fqdn: ${vm_name}.${vm_dns_domain}
+manage_etc_hosts: true
+
+# Only create the ansible automation user. Cloud-init would otherwise create a
+# default 'ubuntu' user — omitting 'default' from this list suppresses that.
+users:
+  - name: ansible
+    uid: 900
+    shell: /bin/bash
+    groups: [sudo]
+    lock_passwd: true
+    ssh_authorized_keys:
+      - ${ansible_ssh_public_key}
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+
+ssh_pwauth: false
+disable_root: true
+
+# Package upgrades are the baseline role's job, not cloud-init's.
+package_update: false
+package_upgrade: false
