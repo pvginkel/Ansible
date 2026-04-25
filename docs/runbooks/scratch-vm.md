@@ -4,19 +4,10 @@ The scratch VM is the disposable target for exercising Ansible roles. Spin it up
 
 ## Prerequisites (one-time)
 
-1. Proxmox API token created per [`proxmox-api-token.md`](proxmox-api-token.md), with `terraform/scratch/terraform.tfvars` filled in.
-2. On `pve`, **Snippets** content type enabled on the `local` datastore. Web UI → Datacenter → Storage → `local` → Edit → tick "Snippets" under Content.
-3. DNS A record `wrkscratch.home` → `10.1.0.34` (already in place).
-4. Operator SSH config knows where to find the `ansible` private key. Add to `~/.ssh/config` on `wrkdev`:
-
-   ```
-   Host wrkscratch wrkscratch.home
-     User ansible
-     IdentityFile ~/.ssh/id_ed25519_ansible
-     IdentitiesOnly yes
-   ```
-
-   (Place the private key at that path after restoring from Roboform / the cloud folder.)
+1. Workstation set up per [`operator-workstation.md`](operator-workstation.md). Both SSH identities documented there are required: the operator key (Terraform uploads cloud-init snippets to `pve` over SSH as `root`) and the `ansible` service key (Ansible connects to the VM as `ansible` after cloud-init finishes).
+2. Proxmox API token created per [`proxmox-api-token.md`](proxmox-api-token.md), with `terraform/scratch/terraform.tfvars` filled in.
+3. On `pve`, **Snippets** content type enabled on the `local` datastore. Web UI → Datacenter → Storage → `local` → Edit → tick "Snippets" under Content.
+4. DNS A record `wrkscratch.home` → `10.1.0.34` (already in place).
 
 ## Create
 
@@ -27,6 +18,12 @@ terraform apply
 ```
 
 First apply downloads the Ubuntu 24.04 cloud image (~600 MB) to `local`, uploads the cloud-init snippet, and boots the VM. Cloud-init takes another ~30 seconds after Proxmox reports the VM running.
+
+To recreate just the VM (keeping the image), run:
+
+```sh
+terraform apply -replace=proxmox_virtual_environment_file.cloud_init
+```
 
 Poll for SSH readiness:
 

@@ -30,9 +30,7 @@ See [`docs/decisions.md`](docs/decisions.md) for the full decision record — to
 
 ## Prerequisites
 
-- Python 3.12+
-- [Poetry](https://python-poetry.org/) 2.x
-- SSH key to target hosts, passwordless sudo on targets
+One-time setup of the workstation that runs Terraform and Ansible is documented in [`docs/runbooks/operator-workstation.md`](docs/runbooks/operator-workstation.md): Python/Poetry, the two SSH identities (operator key for Terraform→PVE, `ansible` service key for playbook runs), DNS, and the Proxmox API token.
 
 ## Quickstart
 

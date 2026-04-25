@@ -3,9 +3,11 @@ provider "proxmox" {
   api_token = var.proxmox_api_token
   insecure  = var.proxmox_insecure
 
-  # SSH is a fallback path the provider uses for a handful of operations
-  # (e.g. specific disk import flows). Snippets and VM lifecycle go over the
-  # API with the token above.
+  # The provider uses SSH (not the API) to upload snippets, so this block is
+  # required whenever a `proxmox_virtual_environment_file` with
+  # `content_type = "snippets"` is present. `agent = true` means the loaded
+  # ssh-agent must hold a key authorized as `root` on each PVE node;
+  # ~/.ssh/config is ignored. See docs/runbooks/operator-workstation.md.
   ssh {
     agent    = true
     username = "root"
