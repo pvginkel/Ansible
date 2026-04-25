@@ -6,11 +6,11 @@ The scratch VM is the disposable target for exercising Ansible roles. Spin it up
 
 1. Proxmox API token created per [`proxmox-api-token.md`](proxmox-api-token.md), with `terraform/scratch/terraform.tfvars` filled in.
 2. On `pve`, **Snippets** content type enabled on the `local` datastore. Web UI → Datacenter → Storage → `local` → Edit → tick "Snippets" under Content.
-3. DNS A record `scratch.home` → `10.1.0.34` (already in place).
+3. DNS A record `wrkscratch.home` → `10.1.0.34` (already in place).
 4. Operator SSH config knows where to find the `ansible` private key. Add to `~/.ssh/config` on `wrkdev`:
 
    ```
-   Host scratch scratch.home
+   Host wrkscratch wrkscratch.home
      User ansible
      IdentityFile ~/.ssh/id_ed25519_ansible
      IdentitiesOnly yes
@@ -31,8 +31,8 @@ First apply downloads the Ubuntu 24.04 cloud image (~600 MB) to `local`, uploads
 Poll for SSH readiness:
 
 ```sh
-until ssh -o ConnectTimeout=2 -o StrictHostKeyChecking=accept-new ansible@scratch true 2>/dev/null; do sleep 2; done
-echo "scratch is up"
+until ssh -o ConnectTimeout=2 -o StrictHostKeyChecking=accept-new ansible@wrkscratch true 2>/dev/null; do sleep 2; done
+echo "wrkscratch is up"
 ```
 
 ## Bootstrap + baseline (check mode first)
@@ -60,7 +60,7 @@ poetry run ansible-playbook playbooks/site.yml -i inventories/dev --limit scratc
 `pvginkel` needs a sudo password set (see `ansible/roles/bootstrap/README.md` for why):
 
 ```sh
-ssh ansible@scratch sudo passwd pvginkel
+ssh ansible@wrkscratch sudo passwd pvginkel
 ```
 
 ## Verify idempotency
@@ -84,7 +84,8 @@ VM, cloud-init snippet, and the downloaded cloud image (if unused elsewhere) are
 
 ## When things go wrong
 
-- **Cloud-init never finishes**: open a serial console in the Proxmox web UI (Datacenter → pve → scratch → Console → xterm.js) and look at `/var/log/cloud-init.log` + `/var/log/cloud-init-output.log` inside the VM.
-- **SSH as ansible fails with `Permission denied (publickey)`**: the cloud-init user-data didn't install the key. Confirm the snippet file at `/var/lib/vz/snippets/scratch-user-data.yaml` on `pve` has your ed25519 key. `terraform apply` re-uploads it if edited.
+- **Cloud-init never finishes**: open a serial console in the Proxmox web UI (Datacenter → pve → wrkscratch → Console → xterm.js) and look at `/var/log/cloud-init.log` + `/var/log/cloud-init-output.log` inside the VM.
+- **SSH as ansible fails with `Permission denied (publickey)`**: the cloud-init user-data didn't install the key. Confirm the snippet file at `/var/lib/vz/snippets/wrkscratch-user-data.yaml` on `pve` has your ed25519 key. `terraform apply` re-uploads it if edited.
 - **Ansible run hangs on an apt task**: `NEEDRESTART_MODE=a` is set in the role to avoid the kernel-restart prompt; if it still hangs, something has a different prompt. SSH in and run the apt command manually to see what it's waiting on.
-- **DNS can't resolve `scratch`**: the operator's `/etc/resolv.conf` must include `home` in its search domains. Verify with `resolvectl status` or equivalent.
+- **DNS can't resolve `wrkscratch`**: the operator's `/etc/resolv.conf` must include `home` in its search domains. Verify with `resolvectl status` or equivalent.
+- **`No route to host` from the playbook**: the VM IP isn't reachable. Check it's actually running (`qm status <vmid>` on `pve`), check the cloud-init network apply succeeded (serial console: `ip a`), and verify nothing else on the LAN is squatting on `10.1.0.34`.

@@ -6,7 +6,7 @@ Single-VM Terraform config for Phase 1. Used to exercise the `bootstrap` and `ba
 
 1. Proxmox API token set up — see [`docs/runbooks/proxmox-api-token.md`](../../docs/runbooks/proxmox-api-token.md).
 2. On `pve`, the `local` datastore must have both **ISO image** and **Snippets** content types enabled. Proxmox web UI → Datacenter → Storage → `local` → Edit → tick both under "Content". Default Proxmox enables ISO but not Snippets.
-3. DNS entry `scratch.home` pointed at `10.1.0.34` (already in place).
+3. DNS entry `wrkscratch.home` pointed at `10.1.0.34` (already in place).
 
 ## First-time setup
 
@@ -29,7 +29,7 @@ On first apply Terraform downloads the Ubuntu 24.04 cloud image (~600 MB) to `lo
 Once the VM is up:
 
 ```sh
-ssh ansible@scratch.home    # key-based, no password
+ssh ansible@wrkscratch.home    # key-based, no password
 ```
 
 From there, Ansible takes over — see `ansible/playbooks/site.yml` and the scratch-VM runbook.

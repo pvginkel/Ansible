@@ -28,9 +28,9 @@ variable "vm_id" {
 }
 
 variable "vm_name" {
-  description = "Hostname / VM name. DNS entry scratch.home must point at vm_ipv4_address."
+  description = "Hostname / VM name. DNS entry <vm_name>.home must point at vm_ipv4_address."
   type        = string
-  default     = "scratch"
+  default     = "wrkscratch"
 }
 
 variable "vm_cpu_cores" {
