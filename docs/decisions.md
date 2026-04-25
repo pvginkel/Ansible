@@ -74,6 +74,14 @@ The HelmCharts `configs/dev` folder is **not** for app-dev instances — it is f
 - VMs run DHCP on the NIC; cloud-init carries no IP/gateway/DNS config. dnsmasq is the single source of truth for IP and DNS, keyed off the pinned MAC.
 - Future direction: a Terraform resource for the dnsmasq reservation, so adding a VM becomes "register reservation, then provision" in one apply. Until then, the reservation is added by hand before `terraform apply`.
 
+## Proxmox VM CPU affinity
+
+- **`pve` core zoning**: cores `0-11` are reserved for interactive workloads (operator dev box, jump box, scratch VMs); cores `12-19` are for background workloads (Ceph, Kubernetes, Home Assistant). `pve1` and `pve2` are different machines and not zoned this way — affinity does not apply to VMs running there.
+- **API constraint**: Proxmox restricts the VM `affinity` config field to `root@pam`. The scoped `terraform@pve!automation` token cannot set it under any role (confirmed: `HTTP 500 — only root can set 'affinity' config`). Granting the Terraform user root would broaden blast radius unacceptably.
+- **Decision**: affinity is **reconciled by Ansible**, not Terraform. Terraform creates the VM; an Ansible task on the pve host runs `qm set <vmid> --affinity <range>` idempotently as root.
+- **Source of truth**: per-host VM-affinity map in Ansible inventory (e.g. `host_vars/pve.yml` → `proxmox_vm_affinity: { <vmid>: "<range>" }`). Only `pve`'s host_vars carry this; `pve1`/`pve2` don't.
+- **Lands in Phase 2** (`proxmox_host` role). Until that role exists, affinity is set by hand as root after `terraform apply`.
+
 ## Existing backup context (not in Ansible scope)
 
 - PVE VM snapshots, 3-day retention.

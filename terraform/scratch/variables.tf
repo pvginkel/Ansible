@@ -46,6 +46,12 @@ variable "vm_cpu_cores" {
   default     = 2
 }
 
+variable "vm_cpu_affinity" {
+  description = "Host CPU affinity for the VM (Proxmox 'affinity' field, e.g. '0-11' for fast cores). Empty disables pinning. Only meaningful on hosts whose topology you've zoned; pve uses 0-11 (interactive) and 12-19 (background)."
+  type        = string
+  default     = ""
+}
+
 variable "vm_memory_mb" {
   description = "RAM in MiB."
   type        = number
@@ -56,6 +62,12 @@ variable "vm_disk_size_gb" {
   description = "Boot disk size in GiB. Cloud image is resized on import."
   type        = number
   default     = 20
+}
+
+variable "vm_backup" {
+  description = "Whether vzdump should include this VM's boot disk in cluster backups."
+  type        = bool
+  default     = true
 }
 
 variable "vm_storage" {

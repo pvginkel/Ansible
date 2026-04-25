@@ -45,17 +45,27 @@ resource "proxmox_virtual_environment_vm" "scratch" {
   description = "Phase 1 scratch VM — disposable; managed by terraform/scratch."
   tags        = ["scratch", "ansible-managed", "terraform"]
 
+  bios = "ovmf"
+  machine = "q35"
+
   agent {
     enabled = true
+    type    = "virtio"
   }
 
   cpu {
     cores = var.vm_cpu_cores
     type  = "host"
+    # affinity is intentionally NOT set here: Proxmox restricts the 'affinity'
+    # config field to root@pam, and this stack uses a scoped terraform@pve
+    # token. CPU pinning is reconciled out-of-band (qm set --affinity, or an
+    # Ansible task on the pve node). var.vm_cpu_affinity is kept as the
+    # source-of-truth value that whatever applies it should read.
   }
 
   memory {
     dedicated = var.vm_memory_mb
+    floating  = var.vm_memory_mb
   }
 
   operating_system {
@@ -64,6 +74,12 @@ resource "proxmox_virtual_environment_vm" "scratch" {
 
   scsi_hardware = "virtio-scsi-single"
 
+  efi_disk {
+    datastore_id      = var.vm_storage
+    type              = "4m"
+    pre_enrolled_keys = true
+  }
+
   disk {
     datastore_id = var.vm_storage
     file_id      = proxmox_download_file.ubuntu_cloud_image.id
@@ -71,6 +87,7 @@ resource "proxmox_virtual_environment_vm" "scratch" {
     iothread     = true
     discard      = "on"
     ssd          = true
+    backup       = var.vm_backup
     size         = var.vm_disk_size_gb
   }
 
@@ -78,6 +95,7 @@ resource "proxmox_virtual_environment_vm" "scratch" {
     bridge      = var.vm_bridge
     model       = "virtio"
     mac_address = local.vm_mac
+    firewall    = true
   }
 
   # Ubuntu cloud images expect ttyS0 for cloud-init output and emergency console.

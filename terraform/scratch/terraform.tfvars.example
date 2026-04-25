@@ -8,3 +8,7 @@
 proxmox_endpoint  = "https://pve.home:8006/"
 proxmox_api_token = "terraform@pve!automation=REPLACE-WITH-SECRET"
 proxmox_insecure  = true
+
+# pve has cores 0-11 zoned for interactive workloads and 12-19 for background.
+# Empty / unset means no pinning (correct for nodes you haven't zoned).
+vm_cpu_affinity = "0-11"
