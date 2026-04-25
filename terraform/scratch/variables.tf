@@ -35,7 +35,7 @@ variable "vm_id" {
 }
 
 variable "vm_name" {
-  description = "Hostname / VM name. DNS entry <vm_name>.home must point at vm_ipv4_address."
+  description = "Hostname / VM name. dnsmasq must hold a reservation for the VM's MAC pointing <vm_name>.home at the desired IP."
   type        = string
   default     = "wrkscratch"
 }
@@ -70,26 +70,8 @@ variable "vm_bridge" {
   default     = "vmbr0"
 }
 
-variable "vm_ipv4_address" {
-  description = "Static IPv4 with CIDR (e.g. 10.1.0.34/24)."
-  type        = string
-  default     = "10.1.0.34/24"
-}
-
-variable "vm_ipv4_gateway" {
-  description = "Default IPv4 gateway."
-  type        = string
-  default     = "10.1.0.1"
-}
-
-variable "vm_dns_servers" {
-  description = "DNS servers pushed via cloud-init."
-  type        = list(string)
-  default     = ["10.2.1.2", "10.2.1.3"]
-}
-
 variable "vm_dns_domain" {
-  description = "DNS search domain pushed via cloud-init."
+  description = "DNS search domain. Used to compose the FQDN written into the cloud-init user-data; not pushed as a network config (DHCP supplies the search domain)."
   type        = string
   default     = "home"
 }

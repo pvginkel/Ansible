@@ -8,13 +8,13 @@ output "vm_name" {
   value       = proxmox_virtual_environment_vm.scratch.name
 }
 
-output "vm_ipv4_address" {
-  description = "Static IPv4 assigned via cloud-init (CIDR notation)."
-  value       = var.vm_ipv4_address
+output "vm_mac" {
+  description = "NIC MAC address. dnsmasq pins the IP and DNS reservation off this."
+  value       = proxmox_virtual_environment_vm.scratch.network_device[0].mac_address
 }
 
 output "vm_fqdn" {
-  description = "FQDN. Matches the DNS entry that must resolve to vm_ipv4_address."
+  description = "FQDN that dnsmasq must resolve to the VM's reserved address."
   value       = "${var.vm_name}.${var.vm_dns_domain}"
 }
 

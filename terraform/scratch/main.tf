@@ -87,21 +87,6 @@ resource "proxmox_virtual_environment_vm" "scratch" {
   initialization {
     datastore_id = var.vm_storage
 
-    ip_config {
-      ipv4 {
-        address = var.vm_ipv4_address
-        gateway = var.vm_ipv4_gateway
-      }
-      ipv6 {
-        address = "dhcp"
-      }
-    }
-
-    dns {
-      servers = var.vm_dns_servers
-      domain  = var.vm_dns_domain
-    }
-
     user_data_file_id = proxmox_virtual_environment_file.cloud_init.id
   }
 

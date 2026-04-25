@@ -64,14 +64,15 @@ The HelmCharts `configs/dev` folder is **not** for app-dev instances — it is f
 - DNS search domain is `.home`, configured on the operator workstation and (via the `baseline` role once written) on all managed hosts.
 - All managed hosts **must** have forward DNS entries (`hostname.home`) resolvable from the operator workstation and from each other. Confirmed working today: `pve`, `pve1`, `pve2`.
 - Ansible inventories use **short hostnames**; the `.home` search domain fills in the FQDN. Never hard-code IPs.
-- For Terraform-provisioned VMs, the operator registers a DNS A record manually after `terraform apply`, until DNS-registration is automated. Automation is deferred; the DNS server's API capability still needs to be inventoried.
+- For Terraform-provisioned VMs, the operator adds a dnsmasq reservation (MAC → IP, hostname) **before** `terraform apply`, so the VM's first DHCP request lands on the reserved address and the matching A record resolves. Terraformed reservations come later (see "MAC addressing" below).
 
 ## MAC addressing for managed VMs
 
 - VM NICs use deterministic MACs in the locally-administered range, computed from the Proxmox VMID. Pinned in Terraform so a rebuild keeps the same MAC.
 - Format: `02:A7:F3:VV:VV:EE` — fixed locally-administered prefix `02:A7:F3`, then the VMID as two big-endian bytes (`VV:VV`), then the NIC index (`EE`). Example: VMID 900, NIC 0 → `02:A7:F3:03:84:00`.
 - Constrains VMIDs to `[100, 65535]`. Validated at plan time by the `vm_id` variable.
-- Future direction: a dnsmasq reservation resource (Terraform) keys IP + DNS off the MAC, so adding a VM becomes "register reservation, then provision." DHCP cutover for VMs comes with that work; today VMs still take static IPs via cloud-init.
+- VMs run DHCP on the NIC; cloud-init carries no IP/gateway/DNS config. dnsmasq is the single source of truth for IP and DNS, keyed off the pinned MAC.
+- Future direction: a Terraform resource for the dnsmasq reservation, so adding a VM becomes "register reservation, then provision" in one apply. Until then, the reservation is added by hand before `terraform apply`.
 
 ## Existing backup context (not in Ansible scope)
 
