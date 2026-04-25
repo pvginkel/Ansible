@@ -9,6 +9,8 @@ users:
     shell: /bin/bash
     groups: [sudo]
     lock_passwd: true
+    # To enable a password, het lock_passwd to false and uncomment:
+    # plain_text_passwd: ansible
     ssh_authorized_keys:
       - ${ansible_ssh_public_key}
     sudo: "ALL=(ALL) NOPASSWD:ALL"
