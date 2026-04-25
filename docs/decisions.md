@@ -66,6 +66,13 @@ The HelmCharts `configs/dev` folder is **not** for app-dev instances — it is f
 - Ansible inventories use **short hostnames**; the `.home` search domain fills in the FQDN. Never hard-code IPs.
 - For Terraform-provisioned VMs, the operator registers a DNS A record manually after `terraform apply`, until DNS-registration is automated. Automation is deferred; the DNS server's API capability still needs to be inventoried.
 
+## MAC addressing for managed VMs
+
+- VM NICs use deterministic MACs in the locally-administered range, computed from the Proxmox VMID. Pinned in Terraform so a rebuild keeps the same MAC.
+- Format: `02:A7:F3:VV:VV:EE` — fixed locally-administered prefix `02:A7:F3`, then the VMID as two big-endian bytes (`VV:VV`), then the NIC index (`EE`). Example: VMID 900, NIC 0 → `02:A7:F3:03:84:00`.
+- Constrains VMIDs to `[100, 65535]`. Validated at plan time by the `vm_id` variable.
+- Future direction: a dnsmasq reservation resource (Terraform) keys IP + DNS off the MAC, so adding a VM becomes "register reservation, then provision." DHCP cutover for VMs comes with that work; today VMs still take static IPs via cloud-init.
+
 ## Existing backup context (not in Ansible scope)
 
 - PVE VM snapshots, 3-day retention.

@@ -9,6 +9,14 @@ locals {
     vm_dns_domain          = var.vm_dns_domain
     ansible_ssh_public_key = local.ansible_ssh_public_key
   })
+
+  # Deterministic MAC (locally-administered prefix 02:A7:F3, then VMID big-endian
+  # over two bytes, then NIC index). Fixing the MAC lets dnsmasq carry the IP
+  # reservation by MAC without a separate allocation registry.
+  vm_mac = format("02:A7:F3:%02X:%02X:00",
+    floor(var.vm_id / 256),
+    var.vm_id % 256,
+  )
 }
 
 resource "proxmox_download_file" "ubuntu_cloud_image" {
@@ -68,8 +76,9 @@ resource "proxmox_virtual_environment_vm" "scratch" {
   }
 
   network_device {
-    bridge = var.vm_bridge
-    model  = "virtio"
+    bridge      = var.vm_bridge
+    model       = "virtio"
+    mac_address = local.vm_mac
   }
 
   # Ubuntu cloud images expect ttyS0 for cloud-init output and emergency console.

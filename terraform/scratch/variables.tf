@@ -25,6 +25,13 @@ variable "vm_id" {
   description = "Proxmox VMID for the scratch VM."
   type        = number
   default     = 900
+
+  # MAC encoding allots two bytes to the VMID, so values past 65535 would
+  # silently truncate and collide. Catch that at plan time instead.
+  validation {
+    condition     = var.vm_id >= 100 && var.vm_id <= 65535
+    error_message = "vm_id must be in [100, 65535] so it fits in two bytes of the MAC encoding."
+  }
 }
 
 variable "vm_name" {
