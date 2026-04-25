@@ -75,10 +75,10 @@ variable "vm_ipv4_gateway" {
   default     = "10.1.0.1"
 }
 
-variable "vm_dns_server" {
-  description = "DNS server pushed via cloud-init."
-  type        = string
-  default     = "10.2.1.2"
+variable "vm_dns_servers" {
+  description = "DNS servers pushed via cloud-init."
+  type        = list(string)
+  default     = ["10.2.1.2", "10.2.1.3"]
 }
 
 variable "vm_dns_domain" {

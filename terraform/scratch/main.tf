@@ -89,7 +89,7 @@ resource "proxmox_virtual_environment_vm" "scratch" {
     }
 
     dns {
-      servers = [var.vm_dns_server]
+      servers = var.vm_dns_servers
       domain  = var.vm_dns_domain
     }
 
