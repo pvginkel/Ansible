@@ -18,6 +18,18 @@ users:
 ssh_pwauth: false
 disable_root: true
 
-# Package upgrades are the baseline role's job, not cloud-init's.
-package_update: false
+# qemu-guest-agent must be present on first boot: the bpg/proxmox provider
+# blocks `terraform apply` until the agent reports the VM's IP back to PVE.
+# The Noble cloud image doesn't ship it, so install it here rather than
+# leaving it to the baseline role (which can't run until apply returns).
+packages:
+  - qemu-guest-agent
+
+package_update: true
 package_upgrade: false
+
+# The service unit is `static` — it's normally started by a udev rule when
+# the virtio-serial channel appears at boot. That rule fires before cloud-init
+# installs the package, so on first boot we have to start it explicitly.
+runcmd:
+  - systemctl start qemu-guest-agent
