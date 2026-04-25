@@ -86,6 +86,19 @@ resource "proxmox_virtual_environment_vm" "scratch" {
   initialization {
     datastore_id = var.vm_storage
 
+    # DHCP on both stacks. No address / gateway / dns here — dnsmasq is the
+    # authority for IPv4 (reservation by MAC) and the router handles IPv6
+    # (SLAAC / DHCPv6). The block has to exist or Proxmox writes no network
+    # config and the NIC stays admin-down.
+    ip_config {
+      ipv4 {
+        address = "dhcp"
+      }
+      ipv6 {
+        address = "dhcp"
+      }
+    }
+
     user_data_file_id = proxmox_virtual_environment_file.cloud_init.id
   }
 
