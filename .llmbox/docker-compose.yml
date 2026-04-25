@@ -24,4 +24,4 @@ services:
       - .:/work/Ansible:rw
       - ../HelmCharts:/work/HelmCharts:ro
       - ../DockerImages:/work/DockerImages:ro
-      - ../Obsidian:/work/Obsidian:ro
+      - ../Obsidian:/work/Obsidian:rw
