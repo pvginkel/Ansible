@@ -1,7 +1,5 @@
 #cloud-config
 hostname: ${vm_name}
-fqdn: ${vm_name}.${vm_dns_domain}
-manage_etc_hosts: true
 
 # Only create the ansible automation user. Cloud-init would otherwise create a
 # default 'ubuntu' user — omitting 'default' from this list suppresses that.

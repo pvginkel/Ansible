@@ -6,7 +6,6 @@ locals {
 
   cloud_init_user_data = templatefile("${path.module}/cloud-init.yaml.tftpl", {
     vm_name                = var.vm_name
-    vm_dns_domain          = var.vm_dns_domain
     ansible_ssh_public_key = local.ansible_ssh_public_key
   })
 

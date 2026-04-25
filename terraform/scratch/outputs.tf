@@ -13,12 +13,7 @@ output "vm_mac" {
   value       = proxmox_virtual_environment_vm.scratch.network_device[0].mac_address
 }
 
-output "vm_fqdn" {
-  description = "FQDN that dnsmasq must resolve to the VM's reserved address."
-  value       = "${var.vm_name}.${var.vm_dns_domain}"
-}
-
 output "ssh_command" {
-  description = "Quick one-liner to SSH in as the ansible user once cloud-init has completed."
-  value       = "ssh ansible@${var.vm_name}.${var.vm_dns_domain}"
+  description = "Quick one-liner to SSH in as the ansible user once cloud-init has completed. Relies on the operator workstation's `home` search domain to resolve the short name."
+  value       = "ssh ansible@${var.vm_name}"
 }

@@ -70,12 +70,6 @@ variable "vm_bridge" {
   default     = "vmbr0"
 }
 
-variable "vm_dns_domain" {
-  description = "DNS search domain. Used to compose the FQDN written into the cloud-init user-data; not pushed as a network config (DHCP supplies the search domain)."
-  type        = string
-  default     = "home"
-}
-
 variable "ubuntu_cloud_image_url" {
   description = "Source URL for the Ubuntu cloud image. 'current' tracks the latest LTS point release."
   type        = string
