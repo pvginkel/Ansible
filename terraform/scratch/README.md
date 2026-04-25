@@ -47,7 +47,7 @@ Removes the VM, the cloud-init snippet, and â€” if nothing else references it â€
 The `ubuntu_cloud_image_url` uses Canonical's `current/` alias. Terraform's `ignore_changes` on `disk[0].file_id` means it won't rebuild the VM automatically when Canonical publishes a new release. To pull a fresh image:
 
 ```sh
-terraform taint 'proxmox_virtual_environment_download_file.ubuntu_cloud_image'
+terraform taint 'proxmox_download_file.ubuntu_cloud_image'
 terraform apply
 # then recreate the VM to pick up the new image:
 terraform taint 'proxmox_virtual_environment_vm.scratch'
