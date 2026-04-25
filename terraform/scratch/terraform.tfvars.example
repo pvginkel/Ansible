@@ -1,16 +1,10 @@
 # Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored.
 #
 # The api token comes from the runbook at docs/runbooks/proxmox-api-token.md.
-# The ssh key comes from the repo baseline — it's the ansible automation user's
-# public key, committed at ansible/roles/bootstrap/files/ansible.pub.
+# The ansible public key is read from the repo automatically
+# (ansible/roles/bootstrap/files/ansible.pub); no need to set it here unless
+# you want to override it for a one-off run.
 
 proxmox_endpoint  = "https://pve.home:8006/"
 proxmox_api_token = "terraform@pve!automation=REPLACE-WITH-SECRET"
 proxmox_insecure  = true
-
-# Read the ansible public key from the repo so it stays in sync with the
-# bootstrap role. Uncomment the 'file(...)' form when using this tfvars:
-# ansible_ssh_public_key = file("${path.root}/../../ansible/roles/bootstrap/files/ansible.pub")
-#
-# Or paste it inline:
-ansible_ssh_public_key = "ssh-ed25519 AAAA... ansible"

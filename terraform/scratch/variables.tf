@@ -100,6 +100,7 @@ variable "image_datastore" {
 }
 
 variable "ansible_ssh_public_key" {
-  description = "Public key the cloud-init process installs for the ansible user."
+  description = "Public key the cloud-init process installs for the ansible user. Empty (default) reads from ansible/roles/bootstrap/files/ansible.pub so it stays in sync with the role."
   type        = string
+  default     = ""
 }

@@ -1,8 +1,13 @@
 locals {
+  ansible_ssh_public_key = trimspace(coalesce(
+    var.ansible_ssh_public_key,
+    file("${path.module}/../../ansible/roles/bootstrap/files/ansible.pub"),
+  ))
+
   cloud_init_user_data = templatefile("${path.module}/cloud-init.yaml.tftpl", {
     vm_name                = var.vm_name
     vm_dns_domain          = var.vm_dns_domain
-    ansible_ssh_public_key = trimspace(var.ansible_ssh_public_key)
+    ansible_ssh_public_key = local.ansible_ssh_public_key
   })
 }
 
