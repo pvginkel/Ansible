@@ -13,6 +13,9 @@
   ansible.posix.authorized_key:
     user: ansible
     key: "{{ lookup('file', 'ansible.pub') }}"
+    # Explicit path bypasses the ~user lookup, which fails in --check mode
+    # when the previous task only simulated user creation.
+    path: /home/ansible/.ssh/authorized_keys
     exclusive: false
     state: present
 
@@ -39,5 +42,6 @@
   ansible.posix.authorized_key:
     user: pvginkel
     key: "{{ lookup('file', 'pvginkel.pub') }}"
+    path: /home/pvginkel/.ssh/authorized_keys
     exclusive: false
     state: present
