@@ -22,9 +22,9 @@
     state: present
   environment:
     NEEDRESTART_MODE: a
-  # Hypervisors don't run the guest agent. The only managed Debian we
-  # see today is PVE itself; managed VMs are all Ubuntu.
-  when: ansible_distribution == 'Ubuntu'
+  # The guest agent only makes sense inside a VM; PVE hosts are 'host',
+  # bare metal is 'NA'.
+  when: ansible_virtualization_role == 'guest'
 
 # Updates are managed by Ansible (a future update.yml playbook). Purge
 # unattended-upgrades so there's a single, observable update mechanism — no
@@ -49,7 +49,7 @@
     name: qemu-guest-agent
     enabled: true
     state: started
-  when: ansible_distribution == 'Ubuntu'
+  when: ansible_virtualization_role == 'guest'
 
 - name: Locate noisy motd scripts
   ansible.builtin.find:
