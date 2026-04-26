@@ -19,11 +19,15 @@ terraform apply
 
 First apply downloads the Ubuntu 24.04 cloud image (~600 MB) to `local`, uploads the cloud-init snippet, and boots the VM. Cloud-init takes another ~30 seconds after Proxmox reports the VM running.
 
+`terraform apply` also writes the VM's pinned ed25519 host key out to `ansible/files/known_hosts.d/scratch`. **Commit that file** — Ansible reads it via `UserKnownHostsFile` to verify the VM's identity, and CI containers depend on it being in the repo. The diff appears whenever Terraform regenerates the host key (i.e. on first apply, or after explicitly tainting the `tls_private_key` resource).
+
 To recreate just the VM (keeping the image), run:
 
 ```sh
-terraform apply -replace=proxmox_virtual_environment_file.cloud_init
+terraform apply -replace=proxmox_virtual_environment_vm.scratch
 ```
+
+Cloud-init only runs on first boot, so any change that needs to land via cloud-init (host key rotation, user-data edits) requires `-replace` on the VM resource above.
 
 Poll for SSH readiness:
 
@@ -86,12 +90,5 @@ VM, cloud-init snippet, and the downloaded cloud image (if unused elsewhere) are
 - **Ansible run hangs on an apt task**: `NEEDRESTART_MODE=a` is set in the role to avoid the kernel-restart prompt; if it still hangs, something has a different prompt. SSH in and run the apt command manually to see what it's waiting on.
 - **DNS can't resolve `wrkscratch`**: the operator's `/etc/resolv.conf` must include `home` in its search domains. Verify with `resolvectl status` or equivalent.
 - **`No route to host` from the playbook**: the VM IP isn't reachable. Check it's actually running (`qm status <vmid>` on `pve`), check the VM picked up a lease (serial console: `ip a` should show the reserved address), and verify nothing else on the LAN is squatting on it. If the VM has a different IP than expected, the dnsmasq reservation is missing or doesn't match the pinned MAC.
-- **`REMOTE HOST IDENTIFICATION HAS CHANGED`**: expected after `terraform destroy` + recreate — the new VM has fresh host keys but the operator's `~/.ssh/known_hosts` still trusts the old ones. Wipe the stale entries:
-
-  ```sh
-  ssh-keygen -R wrkscratch
-  ssh-keygen -R wrkscratch.home
-  ssh-keygen -R "$(getent hosts wrkscratch | awk '{print $1}')"
-  ```
-
-  Re-run the playbook; SSH will accept the new keys on first contact (`StrictHostKeyChecking=accept-new` is implied by Ansible's default behavior on unknown hosts).
+- **`REMOTE HOST IDENTIFICATION HAS CHANGED` from a manual `ssh`** (not the playbook): your personal `~/.ssh/known_hosts` is out of date. Ansible doesn't use it — playbook runs read `ansible/files/known_hosts.d/scratch`, which Terraform keeps in sync. For interactive sessions, either wipe the stale entry (`ssh-keygen -R wrkscratch && ssh-keygen -R wrkscratch.home`) or point your shell at the same repo file (`ssh -o UserKnownHostsFile=ansible/files/known_hosts.d/scratch ansible@wrkscratch`).
+- **Playbook says `Host key verification failed`**: `ansible/files/known_hosts.d/scratch` is missing or out of date in the working copy. Run `terraform apply` (it'll regenerate the file from state without changing the VM) and commit the result.

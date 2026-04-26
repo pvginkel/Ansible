@@ -7,6 +7,9 @@ locals {
   cloud_init_user_data = templatefile("${path.module}/cloud-init.yaml.tftpl", {
     vm_name                = var.vm_name
     ansible_ssh_public_key = local.ansible_ssh_public_key
+    # Indented so the template's `|` block reads it as a single literal scalar.
+    host_ed25519_private = indent(6, tls_private_key.host_ed25519.private_key_openssh)
+    host_ed25519_public  = trimspace(tls_private_key.host_ed25519.public_key_openssh)
   })
 
   # Deterministic MAC (locally-administered prefix 02:A7:F3, then VMID big-endian
@@ -16,6 +19,21 @@ locals {
     floor(var.vm_id / 256),
     var.vm_id % 256,
   )
+}
+
+# SSH host key for the VM. Generated once, persisted in tfstate, embedded into
+# cloud-init so the VM boots with a deterministic identity, and exported into
+# ansible/files/known_hosts.d/ so Ansible (running anywhere — workstation, CI
+# container) can verify the host on first contact without TOFU.
+resource "tls_private_key" "host_ed25519" {
+  algorithm = "ED25519"
+}
+
+resource "local_file" "known_hosts_entry" {
+  filename        = "${path.module}/../../ansible/files/known_hosts.d/scratch"
+  file_permission = "0644"
+  # Both short and FQDN forms — operators reach the VM by either name.
+  content = "${var.vm_name},${var.vm_name}.home ${trimspace(tls_private_key.host_ed25519.public_key_openssh)}\n"
 }
 
 resource "proxmox_download_file" "ubuntu_cloud_image" {

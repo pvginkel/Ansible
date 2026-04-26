@@ -18,6 +18,15 @@ users:
 ssh_pwauth: false
 disable_root: true
 
+# Pin the SSH host key. Terraform generates the keypair, writes the private
+# half here, and exports the public half into the repo as a known_hosts entry
+# (ansible/files/known_hosts.d/scratch). A rebuild keeps the same identity, so
+# Ansible never has to TOFU and ssh-keygen -R is no longer part of the flow.
+ssh_keys:
+  ed25519_private: |
+      ${host_ed25519_private}
+  ed25519_public: ${host_ed25519_public}
+
 # qemu-guest-agent must be present on first boot: the bpg/proxmox provider
 # blocks `terraform apply` until the agent reports the VM's IP back to PVE.
 # The Noble cloud image doesn't ship it, so install it here rather than
