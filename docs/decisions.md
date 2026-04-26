@@ -90,6 +90,20 @@ The HelmCharts `configs/dev` folder is **not** for app-dev instances — it is f
 - **Source of truth**: per-host VM-affinity map in Ansible inventory (e.g. `host_vars/pve.yml` → `proxmox_vm_affinity: { <vmid>: "<range>" }`). Only `pve`'s host_vars carry this; `pve1`/`pve2` don't.
 - **Lands in Phase 2** (`proxmox_host` role). Until that role exists, affinity is set by hand as root after `terraform apply`.
 
+## Production execution model (Jenkins-driven)
+
+How Terraform and Ansible run in production once Phase 10 lands. The operator workstation remains the path for ad-hoc and learning runs; production is CI-only.
+
+- **Dedicated Jenkins agent VM** for Terraform and Ansible runs. Not shared with other build workloads.
+- **All logic lives in a Docker image.** The CI job pulls and runs the container on every execution; the agent VM holds no tool versions, no clone, no credentials cache. VM stays fully stateless and disposable.
+- **tfstate is a local file inside a dedicated Git repo.** The container clones the state repo at job start, runs `terraform`, then commits and pushes any changes before exit. No remote-state backend (S3, Terraform Cloud, etc.).
+- **Concurrency control at the Jenkins level.** A job-level lock prevents two TF/Ansible runs from racing — this is what makes the file-based state safe. No `terraform force-unlock` workflow because there is no remote lock to hold.
+
+Implications:
+- The state repo is a sensitive artifact (host private keys, API tokens). Same protections as any other secret-bearing repo.
+- Rebuilding the agent VM is a no-op operationally; everything reproducible from the image + the state repo + Jenkins job config.
+- Image build and tagging are part of the CI surface — pin versions in the image, not on the VM.
+
 ## Existing backup context (not in Ansible scope)
 
 - PVE VM snapshots, 3-day retention.
