@@ -143,6 +143,10 @@ resource "proxmox_virtual_environment_vm" "scratch" {
       # every time Canonical publishes a new point release. Recreate the VM
       # deliberately (terraform taint / replace) to pick up a newer image.
       disk[0].file_id,
+      # CPU pinning is reconciled by Ansible (see decisions.md "Proxmox VM
+      # CPU affinity"). Terraform's scoped token cannot set affinity anyway;
+      # ignoring drift keeps `terraform plan` clean once Ansible has run.
+      cpu[0].affinity,
     ]
   }
 }
