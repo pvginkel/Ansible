@@ -3,4 +3,8 @@
 # Keep this file small — per-group settings belong in their own group_vars file.
 
 ansible_user: ansible
-# ansible_python_interpreter set by the bootstrap role once Python is present.
+# Pin the system Python explicitly so Ansible's auto-discovery does not
+# pick up a sibling install (e.g. /usr/bin/python3.13 from a PPA) that
+# may be missing native deps like python3-cffi. /usr/bin/python3 is the
+# OS-managed default on Debian/Ubuntu — always present, always sane.
+ansible_python_interpreter: /usr/bin/python3

@@ -1,2 +1,7 @@
 ---
 ansible_user: ansible
+# Pin the system Python explicitly so Ansible's auto-discovery does not
+# pick up a sibling install (e.g. /usr/bin/python3.13 from a PPA) that
+# may be missing native deps like python3-cffi. /usr/bin/python3 is the
+# OS-managed default on Debian/Ubuntu — always present, always sane.
+ansible_python_interpreter: /usr/bin/python3
