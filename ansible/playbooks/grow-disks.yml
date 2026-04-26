@@ -1,0 +1,15 @@
+---
+# Operator-triggered. Run after a Terraform-side disk grow to make the
+# guest catch up: growpart + resize2fs only on drift, no-op otherwise.
+#
+#   poetry run ansible-playbook playbooks/grow-disks.yml --limit <host>
+#
+# Use --check --diff first to preview. The role itself is idempotent;
+# repeated runs against a converged host return changed=0.
+
+- name: Reconcile guest filesystems against PVE-side disk size
+  hosts: managed
+  become: true
+  gather_facts: false
+  roles:
+    - role: disk_resize

@@ -1,0 +1,7 @@
+---
+# wrkscratch is also listed in the prd inventory under pve_vms (so
+# proxmox_host on pve can reconcile its CPU affinity). When iterating
+# on roles via `-i inventories/dev`, those host_vars are not loaded —
+# disk_resize needs vm_id and pve_node here too.
+vm_id: 900
+pve_node: pve

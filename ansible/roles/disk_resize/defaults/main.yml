@@ -1,0 +1,21 @@
+---
+# Filesystems to reconcile against PVE-side disk size. Each entry pins:
+#   mountpoint — the guest mount whose backing filesystem we own
+#   scsi_index — the PVE `scsiN` slot whose declared size we honour
+#
+# The role discovers the partition device and parent disk from the
+# guest at runtime; the operator only declares the contract "filesystem
+# at <mountpoint> matches the size of <scsi_index> in qm config."
+#
+# Default: the root filesystem only, backed by scsi0. Per-host overrides
+# extend the list when a VM has additional managed filesystems.
+disk_resize_filesystems:
+  - mountpoint: /
+    scsi_index: 0
+
+# Tolerance applied when comparing PVE-side declared size to the disk
+# size the guest sees. PVE rounds storage allocations and the secondary
+# GPT header takes ~17 KiB at the end of the disk; without slack the
+# role would loop trying to fix a non-existent gap. 1 MiB covers all
+# observed cases without masking a real grow.
+disk_resize_size_tolerance_bytes: 1048576

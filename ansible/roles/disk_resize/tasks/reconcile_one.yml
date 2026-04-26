@@ -1,0 +1,118 @@
+---
+# One filesystem at a time. Sized in bytes throughout; the only place
+# we deal with KiB/MiB/GiB suffixes is parsing `qm config` output.
+
+- name: "Extract qm config line for scsi{{ disk_resize_fs.scsi_index }}"
+  ansible.builtin.set_fact:
+    disk_resize_scsi_line: >-
+      {{
+        disk_resize_qm_config.stdout_lines
+        | select('match', '^scsi' ~ disk_resize_fs.scsi_index ~ ':')
+        | list | first | default('')
+      }}
+
+- name: "Assert scsi slot exists in qm config for slot {{ disk_resize_fs.scsi_index }}"
+  ansible.builtin.assert:
+    that:
+      - disk_resize_scsi_line | length > 0
+    fail_msg: >-
+      qm config for VMID {{ vm_id }} has no scsi{{ disk_resize_fs.scsi_index }}
+      entry. Check the inventory `disk_resize_filesystems` for this host.
+
+- name: Parse declared size in bytes
+  vars:
+    _size_match: "{{ disk_resize_scsi_line | regex_search('size=([0-9]+)([KMGT]?)', '\\1', '\\2') | default(['0', '']) }}"
+    _size_units: {'': 1, 'K': 1024, 'M': 1048576, 'G': 1073741824, 'T': 1099511627776}
+  ansible.builtin.set_fact:
+    disk_resize_pve_size_bytes: "{{ (_size_match[0] | int) * _size_units[_size_match[1]] }}"
+
+- name: "Resolve guest device backing {{ disk_resize_fs.mountpoint }}"
+  ansible.builtin.command:
+    argv: [findmnt, -nro, SOURCE, "{{ disk_resize_fs.mountpoint }}"]
+  register: disk_resize_findmnt
+  changed_when: false
+  check_mode: false
+
+- name: Resolve parent disk and partition kernel name
+  ansible.builtin.command:
+    argv: [lsblk, -nro, "PKNAME,KNAME", "{{ disk_resize_findmnt.stdout }}"]
+  register: disk_resize_lsblk_parent
+  changed_when: false
+  check_mode: false
+
+- name: Derive disk and partition kernel names
+  ansible.builtin.set_fact:
+    disk_resize_disk: "{{ disk_resize_lsblk_parent.stdout.split() | first }}"
+    disk_resize_part_kname: "{{ disk_resize_lsblk_parent.stdout.split() | last }}"
+
+- name: Derive partition number from partition kname
+  ansible.builtin.set_fact:
+    disk_resize_part_num: "{{ disk_resize_part_kname | regex_search('([0-9]+)$', '\\1') | first }}"
+
+- name: Rescan SCSI device for size changes
+  # Cheap and idempotent: the kernel re-reads only if the underlying
+  # capacity has actually changed. Without this, a guest can miss a
+  # PVE-side grow until the next reboot. shell (not copy) because sysfs
+  # files don't tolerate the read-then-compare path the copy module
+  # takes.
+  ansible.builtin.shell: "echo 1 > /sys/block/{{ disk_resize_disk }}/device/rescan"
+  changed_when: false
+  check_mode: false
+
+- name: Read disk and partition sizes in bytes
+  ansible.builtin.command:
+    argv: [lsblk, -bndo, SIZE, "/dev/{{ item }}"]
+  register: disk_resize_sizes
+  changed_when: false
+  check_mode: false
+  loop:
+    - "{{ disk_resize_disk }}"
+    - "{{ disk_resize_part_kname }}"
+  loop_control:
+    label: "/dev/{{ item }}"
+
+- name: Record disk vs partition byte counts
+  ansible.builtin.set_fact:
+    disk_resize_disk_bytes: "{{ disk_resize_sizes.results[0].stdout | int }}"
+    disk_resize_part_bytes: "{{ disk_resize_sizes.results[1].stdout | int }}"
+
+- name: Confirm guest disk has caught up to PVE
+  # After the rescan above, the guest must see at least the PVE-side
+  # size (minus tolerance for GPT secondary header overhead). If not,
+  # something is wrong upstream — fail rather than silently no-op and
+  # leave the filesystem mismatched.
+  ansible.builtin.assert:
+    that:
+      - (disk_resize_disk_bytes | int) + (disk_resize_size_tolerance_bytes | int)
+        >= (disk_resize_pve_size_bytes | int)
+    fail_msg: >-
+      Guest sees /dev/{{ disk_resize_disk }} as
+      {{ disk_resize_disk_bytes }} B but PVE declares
+      {{ disk_resize_pve_size_bytes }} B for scsi{{ disk_resize_fs.scsi_index }}.
+      Rescan did not pick up the new size; reboot the VM and retry.
+
+- name: Grow partition if disk has spare room
+  ansible.builtin.command:
+    argv:
+      - growpart
+      - "/dev/{{ disk_resize_disk }}"
+      - "{{ disk_resize_part_num }}"
+  register: disk_resize_growpart
+  # growpart exits 0 only when it actually changed the partition; exit
+  # 1 + "NOCHANGE" is the no-op path. failed_when keeps the latter
+  # green; changed_when distinguishes a real grow from the no-op.
+  failed_when:
+    - disk_resize_growpart.rc != 0
+    - "'NOCHANGE' not in disk_resize_growpart.stdout"
+  changed_when: disk_resize_growpart.rc == 0
+
+- name: Grow filesystem if partition has spare room
+  # resize2fs is idempotent — the online resize is a no-op when the
+  # filesystem already matches the partition. We force changed_when
+  # off the "Nothing to do!" marker in stderr so green runs stay green.
+  ansible.builtin.command:
+    argv:
+      - resize2fs
+      - "/dev/{{ disk_resize_part_kname }}"
+  register: disk_resize_resize2fs
+  changed_when: "'Nothing to do' not in disk_resize_resize2fs.stderr"

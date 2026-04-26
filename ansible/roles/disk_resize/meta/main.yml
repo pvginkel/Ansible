@@ -1,0 +1,16 @@
+---
+galaxy_info:
+  role_name: disk_resize
+  author: pvginkel
+  description: Reconcile guest filesystems against PVE-side disk size — growpart + resize2fs only on drift.
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - noble
+    - name: Debian
+      versions:
+        - bookworm
+
+dependencies: []
