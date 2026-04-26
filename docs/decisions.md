@@ -57,6 +57,14 @@ Load-bearing rules. Specific decisions in this doc are consequences; if a princi
 - The existing procedural runbook in `/work/Obsidian/` is the source material for role content. Ported topic-by-topic as roles are built.
 - microk8s/microceph setup is "scripted textually" — scripts still need to be located on disk.
 
+## Transitional cleanup tasks age out
+
+When a role removes a thing that won't naturally come back — an orphaned authorized_keys entry, a UI tag from a now-defunct workflow, scratch scripts left over from troubleshooting — the cleanup task is a one-shot. Once it has converged on every host that needed it, the task is dead weight: it runs on every future apply, finds nothing to do, and adds noise to the role.
+
+**Policy**: remove transitional cleanup tasks from roles after they've successfully converged. The convergence is the proof the cleanup did its job; what's gone won't come back without an external regression. Schedule the removal as a separate commit a couple of weeks after the cleanup landed so the soak window is visible in git history.
+
+If the cleanup target *can* recur (drift the operator might re-introduce — a value the UI lets you set, a file someone might re-create), keep the task. The bar for keeping is "this could come back without an unrelated bug introducing it."
+
 ## Environment mapping
 
 Ansible inventories and HelmCharts config folders use the same names (`prd`, `dev`) but refer to *infrastructure environments*, not application deployment stages.
