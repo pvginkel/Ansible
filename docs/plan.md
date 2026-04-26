@@ -27,8 +27,8 @@ When a phase is complete, mark its status here, commit, and the next conversatio
 |---|---|---|---|
 | 0 | Foundation | ✅ Done | `docs/decisions.md` + initial commits |
 | 1 | Bootstrap + baseline + scratch VM | ✅ Done | [`phases/phase-1-bootstrap-baseline.md`](phases/phase-1-bootstrap-baseline.md) |
-| 2 | Proxmox host management | ⏳ Planned | [`phases/phase-2-proxmox-hosts.md`](phases/phase-2-proxmox-hosts.md) |
-| 3 | VM fleet via Terraform | ⏳ Planned | — |
+| 2 | Proxmox host management | ✅ Done | [`phases/phase-2-proxmox-hosts.md`](phases/phase-2-proxmox-hosts.md) |
+| 3 | VM fleet via Terraform | ⏳ Planned | [`phases/phase-3-vm-fleet.md`](phases/phase-3-vm-fleet.md) |
 | 4 | microk8s roles and upgrade | ⏳ Planned | — |
 | 5 | microceph roles and upgrade | ⏳ Planned | — |
 | 6 | OpenBao + secrets wiring | ⏳ Planned | — |
