@@ -5,7 +5,7 @@ Establishes the two baseline user accounts on a managed Ubuntu host.
 | User | UID | SSH key | Sudo |
 |---|---|---|---|
 | `ansible` | 900 | `files/ansible.pub` (ed25519) | `NOPASSWD` via `/etc/sudoers.d/ansible` |
-| `pvginkel` | 1000 | `files/pvginkel.pub` (RSA) | `%sudo` group default — password required |
+| `pvginkel` | 1000 | `files/pvginkel.pub` (ed25519) | `%sudo` group default — password required |
 
 Idempotent: safe to re-run on a host already in the right state. Cloud-init on scratch VMs creates the `ansible` user up front; on those hosts the `ansible` tasks are no-ops. `pvginkel` is always role-managed.
 
