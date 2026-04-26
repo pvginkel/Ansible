@@ -56,11 +56,9 @@ resource "proxmox_virtual_environment_vm" "scratch" {
   cpu {
     cores = var.vm_cpu_cores
     type  = "host"
-    # affinity is intentionally NOT set here: Proxmox restricts the 'affinity'
-    # config field to root@pam, and this stack uses a scoped terraform@pve
-    # token. CPU pinning is reconciled out-of-band (qm set --affinity, or an
-    # Ansible task on the pve node). var.vm_cpu_affinity is kept as the
-    # source-of-truth value that whatever applies it should read.
+    # CPU pinning is set by Ansible, not Terraform: Proxmox restricts the
+    # 'affinity' field to root@pam and this stack uses a scoped terraform@pve
+    # token. See docs/decisions.md ("Proxmox VM CPU affinity").
   }
 
   memory {
