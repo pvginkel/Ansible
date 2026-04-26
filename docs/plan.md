@@ -26,8 +26,8 @@ When a phase is complete, mark its status here, commit, and the next conversatio
 | # | Phase | Status | Doc |
 |---|---|---|---|
 | 0 | Foundation | ✅ Done | `docs/decisions.md` + initial commits |
-| 1 | Bootstrap + baseline + scratch VM | 🚧 In progress | [`phases/phase-1-bootstrap-baseline.md`](phases/phase-1-bootstrap-baseline.md) |
-| 2 | Proxmox host management | ⏳ Planned | — |
+| 1 | Bootstrap + baseline + scratch VM | ✅ Done | [`phases/phase-1-bootstrap-baseline.md`](phases/phase-1-bootstrap-baseline.md) |
+| 2 | Proxmox host management | ⏳ Planned | [`phases/phase-2-proxmox-hosts.md`](phases/phase-2-proxmox-hosts.md) |
 | 3 | VM fleet via Terraform | ⏳ Planned | — |
 | 4 | microk8s roles and upgrade | ⏳ Planned | — |
 | 5 | microceph roles and upgrade | ⏳ Planned | — |
@@ -51,7 +51,7 @@ Build the two foundational Ansible roles (`bootstrap`, `baseline`) and a disposa
 
 ### 2 — Proxmox host management
 
-Port `/work/Obsidian/Proxmox.md` into a `proxmox_host` role and adopt `pve`, `pve1`, `pve2` into Ansible management. No destructive changes to the live cluster; `--check` runs must match current state before we apply anything.
+Build `adopt.yml` (the onboarding playbook for non-cloud-init'd hosts), use it to bring `pve`, `pve1`, `pve2` (and as a bonus, `wrkdev` from Phase 1's deferred smoke test) under Ansible management. Port the host-config tunables from `/work/Obsidian/Proxmox.md` into a `proxmox_host` role, and reconcile per-VM CPU affinity from inventory per the model in `docs/decisions.md`. No destructive changes to the live cluster; `--check` runs match current state before any apply.
 
 ### 3 — VM fleet via Terraform
 
