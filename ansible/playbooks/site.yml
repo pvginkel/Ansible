@@ -1,7 +1,8 @@
 ---
 - name: Apply bootstrap and baseline to managed hosts
-  # Default target is all hosts; always pair with --limit in day-to-day use.
-  hosts: all
+  # `managed` excludes data-only inventory entries (e.g. pve_vms_unmanaged).
+  # Pair with --limit in day-to-day use.
+  hosts: managed
   become: true
   gather_facts: true
   roles:
