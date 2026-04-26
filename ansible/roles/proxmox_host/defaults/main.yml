@@ -23,3 +23,11 @@ proxmox_host_backup_storage: local-backup
 proxmox_host_backup_schedule: "4:00"
 proxmox_host_backup_keep: 3
 proxmox_host_backup_mailto: pvginkel@gmail.com
+
+# Proxmox PAM operator account. The matching Linux user is created by
+# `bootstrap`; PAM-realm PVE users authenticate against the node's
+# /etc/shadow, so the PVE-side entry only owns identity + ACLs. The
+# user's Linux password is a one-time `passwd <name>` per node — not
+# managed here (no long-lived secret in the repo).
+proxmox_host_pam_user: pvginkel
+proxmox_host_pam_user_role: PVEAdmin
