@@ -8,3 +8,10 @@
   roles:
     - role: bootstrap
     - role: baseline
+
+- name: Apply Proxmox node configuration
+  hosts: proxmox
+  become: true
+  gather_facts: true
+  roles:
+    - role: proxmox_host
