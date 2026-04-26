@@ -1,0 +1,4 @@
+---
+# Default PVE node for managed VMs. Override in host_vars for VMs that
+# don't run on `pve` (currently four: two on pve1, two on pve2).
+pve_node: pve

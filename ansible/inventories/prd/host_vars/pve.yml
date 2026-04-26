@@ -1,0 +1,7 @@
+---
+# Workload-class → CPU core range for VMs hosted on `pve`. Read by the
+# `proxmox_host` role to drive `qm set <vmid> --affinity <range>`. Only
+# `pve` is core-zoned; `pve1`/`pve2` carry no equivalent map.
+proxmox_workload_affinity_cores:
+  interactive: "0-11"
+  background: "12-19"

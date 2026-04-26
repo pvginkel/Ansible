@@ -1,0 +1,4 @@
+---
+vm_id: 113
+pve_node: pve1
+workload_class: background
