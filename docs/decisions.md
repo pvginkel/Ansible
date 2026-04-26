@@ -82,6 +82,13 @@ The HelmCharts `configs/dev` folder is **not** for app-dev instances — it is f
 - A rebuild without `terraform taint tls_private_key.host_*` keeps the same identity, so destroy+recreate of a VM no longer trips host-key warnings. Cloud-init only runs on first boot, though, so picking up a new pinned key requires `terraform apply -replace=<vm-resource>`.
 - **Future evolution**: once OpenBao is up (Phase 6+), replace the per-host pubkeys with one `@cert-authority *.home <CA pubkey>` line, signing host certs at provision time. Per-host files in `known_hosts.d/` collapse to one CA line.
 
+## OS updates
+
+- **Ansible owns updates on managed hosts.** No `unattended-upgrades`, no cron, no auto-reboot. The `baseline` role purges the `unattended-upgrades` package so there's no silent fallback to Ubuntu's default config if our settings get removed — observable state is "package gone" or "package present (Ansible isn't yet managing this host)".
+- **Update playbook (Phase 4-ish)**: `update.yml` runs `apt update`, `apt full-upgrade`, and reboots the host iff `/var/run/reboot-required` exists. `serial: 1` plus drain/cordon hooks for k8s and Ceph so a fleet-wide update is graceful. Operator-triggered for now; eventually scheduled in CI (Phase 10).
+- **Stop-gap until the playbook lands**: `baseline_apt_dist_upgrade: true` on a host forces a dist-upgrade through baseline. Manual but adequate for a homelab on a private network.
+- **Caveat for the OpenBao VM**: it talks to Azure, so it has internet egress and a slightly tighter security-update cadence is warranted. Revisit when Phase 6 lands — either bring `update.yml` forward or treat OpenBao as the exception that keeps `unattended-upgrades` (security-only, no auto-reboot — a reboot is an operator action because the seal would have to be re-engaged).
+
 ## Proxmox VM CPU affinity
 
 - **`pve` core zoning**: cores `0-11` are reserved for interactive workloads (operator dev box, jump box, scratch VMs); cores `12-19` are for background workloads (Ceph, Kubernetes, Home Assistant). `pve1` and `pve2` are different machines and not zoned this way — affinity does not apply to VMs running there.

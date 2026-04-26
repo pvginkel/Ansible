@@ -19,10 +19,19 @@
   ansible.builtin.apt:
     name:
       - qemu-guest-agent
-      - unattended-upgrades
     state: present
   environment:
     NEEDRESTART_MODE: a
+
+# Updates are managed by Ansible (a future update.yml playbook). Purge
+# unattended-upgrades so there's a single, observable update mechanism — no
+# silent fallback to Ubuntu's defaults if our config file is removed. See
+# docs/decisions.md "OS updates".
+- name: Purge unattended-upgrades
+  ansible.builtin.apt:
+    name: unattended-upgrades
+    state: absent
+    purge: true
 
 - name: Install per-host extra packages
   ansible.builtin.apt:
@@ -68,12 +77,3 @@
     owner: pvginkel
     group: pvginkel
     mode: "0644"
-
-- name: Configure unattended-upgrades
-  ansible.builtin.copy:
-    src: 50unattended-upgrades
-    dest: /etc/apt/apt.conf.d/50unattended-upgrades
-    owner: root
-    group: root
-    mode: "0644"
-  notify: Restart unattended-upgrades
