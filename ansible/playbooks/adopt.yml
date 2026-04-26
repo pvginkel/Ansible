@@ -92,10 +92,14 @@
   gather_facts: true
   vars:
     adoption_known_hosts_file: "{{ adoption_known_hosts_file | mandatory }}"
-    # Override ansible.cfg's UserKnownHostsFile for this play only — the
-    # file we want to verify against was just written by Play 1 and is
-    # not yet listed in ansible.cfg.
-    ansible_ssh_common_args: >-
+    # Replace ansible.cfg's ssh_args entirely — for repeated `-o` options
+    # OpenSSH takes the first value, so a common_args/extra_args appended
+    # *after* cfg cannot override its UserKnownHostsFile. We need the
+    # file Play 1 just produced to be the one ssh consults; the rest of
+    # ssh_args is mirrored from ansible.cfg verbatim.
+    ansible_ssh_args: >-
+      -o ControlMaster=auto -o ControlPersist=60s
+      -o PreferredAuthentications=publickey
       -o UserKnownHostsFile={{ playbook_dir }}/../files/known_hosts.d/{{ adoption_known_hosts_file }}
       -o GlobalKnownHostsFile=/dev/null
       -o HostKeyAlgorithms=ssh-ed25519
