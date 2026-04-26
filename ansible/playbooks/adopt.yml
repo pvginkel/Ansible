@@ -1,0 +1,101 @@
+---
+# adopt.yml — onboard a host that is not yet under Ansible management.
+#
+# Two plays:
+#   1. localhost: ssh-keyscan each target's existing ed25519 host key,
+#      write it to files/known_hosts.d/<adoption_known_hosts_file> in
+#      the same `name,name.home keytype keydata` format Terraform uses
+#      for cloud-init'd VMs.
+#   2. target hosts: apply the bootstrap role (creates the ansible user
+#      and the pvginkel operator user, drops keys, sets passwordless
+#      sudo for ansible). UserKnownHostsFile is overridden for this
+#      play so the operator does not have to edit ansible.cfg before
+#      adopting.
+#
+# After it runs, append `files/known_hosts.d/<basename>` to ansible.cfg's
+# UserKnownHostsFile and site.yml will reach the host. See
+# docs/runbooks/adoption.md.
+
+- name: Capture target SSH host keys into the repo
+  hosts: localhost
+  gather_facts: false
+  vars:
+    adoption_targets: "{{ adoption_targets | mandatory }}"
+    adoption_known_hosts_file: "{{ adoption_known_hosts_file | mandatory }}"
+    adoption_path: "{{ playbook_dir }}/../files/known_hosts.d/{{ adoption_known_hosts_file }}"
+  tasks:
+    - name: Resolve target hosts
+      ansible.builtin.set_fact:
+        adoption_hosts: "{{ query('inventory_hostnames', adoption_targets) }}"
+
+    - name: Confirm at least one target
+      ansible.builtin.assert:
+        that:
+          - adoption_hosts | length > 0
+        fail_msg: "adoption_targets ({{ adoption_targets }}) resolved to no hosts"
+
+    - name: Stage targets in a dynamic group for Play 2
+      ansible.builtin.add_host:
+        name: "{{ item }}"
+        groups: _adoption_targets
+      loop: "{{ adoption_hosts }}"
+      changed_when: false
+
+    - name: Ensure known_hosts.d directory exists
+      ansible.builtin.file:
+        path: "{{ adoption_path | dirname }}"
+        state: directory
+        mode: "0755"
+
+    - name: Capture ed25519 host key via ssh-keyscan
+      ansible.builtin.command:
+        argv:
+          - ssh-keyscan
+          - -t
+          - ed25519
+          - -T
+          - "5"
+          - "{{ item }}"
+      register: keyscans
+      changed_when: false
+      check_mode: false
+      loop: "{{ adoption_hosts }}"
+
+    - name: Refuse to proceed if any target returned no ed25519 key
+      ansible.builtin.assert:
+        that:
+          - (item.stdout_lines | reject('match', '^#') | list | length) > 0
+        fail_msg: >-
+          ssh-keyscan returned no ed25519 host key for {{ item.item }}.
+          Verify the host serves an ed25519 key (modern Debian/Ubuntu do)
+          and that DNS resolves it from this workstation.
+      loop: "{{ keyscans.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Update known_hosts entry per target
+      ansible.builtin.lineinfile:
+        path: "{{ adoption_path }}"
+        regexp: '^{{ item.item }}(,|\s)'
+        line: '{{ item.item }},{{ item.item }}.home {{ (item.stdout_lines | reject("match", "^#") | list | first).split(" ", 1)[1] }}'
+        create: true
+        mode: "0644"
+      loop: "{{ keyscans.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+- name: Bootstrap each target host
+  hosts: _adoption_targets
+  become: true
+  gather_facts: true
+  vars:
+    adoption_known_hosts_file: "{{ adoption_known_hosts_file | mandatory }}"
+    # Override ansible.cfg's UserKnownHostsFile for this play only — the
+    # file we want to verify against was just written by Play 1 and is
+    # not yet listed in ansible.cfg.
+    ansible_ssh_common_args: >-
+      -o UserKnownHostsFile={{ playbook_dir }}/../files/known_hosts.d/{{ adoption_known_hosts_file }}
+      -o GlobalKnownHostsFile=/dev/null
+      -o HostKeyAlgorithms=ssh-ed25519
+  roles:
+    - role: bootstrap
