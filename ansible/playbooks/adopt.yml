@@ -19,6 +19,8 @@
 - name: Capture target SSH host keys into the repo
   hosts: localhost
   gather_facts: false
+  # Operator-owned repo files only — never sudo on the workstation.
+  become: false
   vars:
     adoption_targets: "{{ adoption_targets | mandatory }}"
     adoption_known_hosts_file: "{{ adoption_known_hosts_file | mandatory }}"
