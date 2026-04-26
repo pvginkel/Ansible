@@ -97,6 +97,14 @@
   gather_facts: true
   vars:
     adoption_known_hosts_file: "{{ adoption_known_hosts_file | mandatory }}"
+    adoption_user: "{{ adoption_user | mandatory }}"
+    # Override ansible_user at play scope. CLI `-u` does NOT beat
+    # inventory group_vars, so a target where group_vars/all.yml sets
+    # `ansible_user: ansible` (true for both prd and dev) would be
+    # contacted as `ansible` even with `-u pvginkel` on the command
+    # line — and the ansible user is exactly what we are about to
+    # create. Sourcing from `adoption_user` (extra-var) does win.
+    ansible_user: "{{ adoption_user }}"
     # Replace ansible.cfg's ssh_args entirely — for repeated `-o` options
     # OpenSSH takes the first value, so a common_args/extra_args appended
     # *after* cfg cannot override its UserKnownHostsFile. We need the

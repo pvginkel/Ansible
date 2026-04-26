@@ -17,8 +17,8 @@ After both plays succeed, append the new known_hosts file path to `ansible.cfg`'
 
 - The target's ed25519 host key is reachable over the network (a modern Debian/Ubuntu serves one by default; verify with `ssh-keyscan -t ed25519 <host>`).
 - The operator can SSH to the target with elevated privileges. Two patterns:
-  - **Linux host with operator account**: log in as `pvginkel` (or another sudoer), elevate via `sudo` — invoke `adopt.yml` with `-u pvginkel -K`.
-  - **PVE node (root-only)**: log in as `root` directly using the `pve-root` key in `ssh-agent` — invoke with `-u root` (no `-K`; root needs no sudo password).
+  - **Linux host with operator account**: log in as `pvginkel` (or another sudoer), elevate via `sudo` — invoke `adopt.yml` with `-e adoption_user=pvginkel -K`.
+  - **PVE node (root-only)**: log in as `root` directly using the `pve-root` key in `ssh-agent` — invoke with `-e adoption_user=root` (no `-K`; root needs no sudo password).
 - The host resolves under `.home` from the workstation. The known_hosts entry that gets written includes both the short name and the FQDN.
 
 ## Run
@@ -28,16 +28,18 @@ From the `ansible/` directory:
 ```sh
 poetry run ansible-playbook playbooks/adopt.yml \
   -i inventories/<inv> \
-  -u <login user> [-K] \
+  [-K] \
   -e adoption_targets=<host_or_group_pattern> \
+  -e adoption_user=<login user> \
   -e adoption_known_hosts_file=<basename>
 ```
 
-The two `-e` extras are required.
+The three `-e` extras are required.
 
 | Variable | What it is |
 |---|---|
 | `adoption_targets` | What Play 2's `hosts:` resolves to. A group name (`proxmox`), a single host (`wrkdev`), or a comma-separated list. Anything `ansible-inventory` would accept. |
+| `adoption_user` | The login user for the SSH connection. **Use this, not `-u`** — group_vars/all.yml's `ansible_user: ansible` outranks the `-u` flag, and the `ansible` user is exactly what bootstrap is about to create. Extra-vars do beat group_vars. |
 | `adoption_known_hosts_file` | Basename written under `files/known_hosts.d/`. Pick something stable per inventory or per group — once added to `ansible.cfg`, the file is referenced by name forever. |
 
 ### Example: adopt `wrkdev` (operator workstation, dev inventory)
@@ -45,8 +47,9 @@ The two `-e` extras are required.
 ```sh
 poetry run ansible-playbook playbooks/adopt.yml \
   -i inventories/dev \
-  -u pvginkel -K \
+  -K \
   -e adoption_targets=wrkdev \
+  -e adoption_user=pvginkel \
   -e adoption_known_hosts_file=dev
 ```
 
@@ -55,10 +58,12 @@ poetry run ansible-playbook playbooks/adopt.yml \
 ```sh
 poetry run ansible-playbook playbooks/adopt.yml \
   -i inventories/prd \
-  -u root \
   -e adoption_targets=proxmox \
+  -e adoption_user=root \
   -e adoption_known_hosts_file=proxmox
 ```
+
+(No `-K` — root needs no sudo password. The `pve-root` key must be loaded in `ssh-agent`.)
 
 The PVE adoption order is operator's choice; the cluster keeps working through it. Default suggestion: pick a non-master node first (`pve2`), confirm `site.yml --check --diff` against it, then the second non-master (`pve1`), then the master (`pve`).
 
