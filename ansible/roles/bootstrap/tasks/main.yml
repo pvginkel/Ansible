@@ -1,4 +1,14 @@
 ---
+# PVE ships without sudo; cloud-init'd Ubuntu has it. Either way, the
+# sudoers drop-in below uses `validate: visudo -cf %s` which needs the
+# binary present. Idempotent on hosts that already have it.
+- name: Ensure sudo is installed
+  ansible.builtin.apt:
+    name: sudo
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
 - name: Ensure ansible automation user exists
   ansible.builtin.user:
     name: ansible
