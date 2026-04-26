@@ -86,3 +86,12 @@ VM, cloud-init snippet, and the downloaded cloud image (if unused elsewhere) are
 - **Ansible run hangs on an apt task**: `NEEDRESTART_MODE=a` is set in the role to avoid the kernel-restart prompt; if it still hangs, something has a different prompt. SSH in and run the apt command manually to see what it's waiting on.
 - **DNS can't resolve `wrkscratch`**: the operator's `/etc/resolv.conf` must include `home` in its search domains. Verify with `resolvectl status` or equivalent.
 - **`No route to host` from the playbook**: the VM IP isn't reachable. Check it's actually running (`qm status <vmid>` on `pve`), check the VM picked up a lease (serial console: `ip a` should show the reserved address), and verify nothing else on the LAN is squatting on it. If the VM has a different IP than expected, the dnsmasq reservation is missing or doesn't match the pinned MAC.
+- **`REMOTE HOST IDENTIFICATION HAS CHANGED`**: expected after `terraform destroy` + recreate — the new VM has fresh host keys but the operator's `~/.ssh/known_hosts` still trusts the old ones. Wipe the stale entries:
+
+  ```sh
+  ssh-keygen -R wrkscratch
+  ssh-keygen -R wrkscratch.home
+  ssh-keygen -R "$(getent hosts wrkscratch | awk '{print $1}')"
+  ```
+
+  Re-run the playbook; SSH will accept the new keys on first contact (`StrictHostKeyChecking=accept-new` is implied by Ansible's default behavior on unknown hosts).
