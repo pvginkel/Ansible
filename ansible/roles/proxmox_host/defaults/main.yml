@@ -1,0 +1,25 @@
+---
+# Sysctl tuning for every PVE node. Source: /work/Obsidian/Proxmox.md
+# "RAM usage" — limits dirty-page accumulation so backups to slow targets
+# (the local-backup HDD) do not push the host into swap. Values are the
+# cluster's on-host state from the Phase 2 inspection — applied
+# uniformly to all three nodes for symmetry, even though `pve` is the
+# only one that runs the backup job today.
+proxmox_host_sysctls:
+  vm.swappiness: 10
+  vm.dirty_bytes: 268435456            # 256 MiB
+  vm.dirty_background_bytes: 134217728 # 128 MiB
+
+# Which node owns cluster-shared (pmxcfs) files. Only this node runs
+# the tasks that write to /etc/pve/* — pmxcfs propagates the result
+# to the rest of the cluster.
+proxmox_host_cluster_writer: pve
+
+# Cluster vzdump backup job. The job ID is operator-generated (UUID
+# style) and pins to the existing entry so backup files stay linked.
+proxmox_host_backup_job_id: backup-774ec731-f7bd
+proxmox_host_backup_node: pve
+proxmox_host_backup_storage: local-backup
+proxmox_host_backup_schedule: "4:00"
+proxmox_host_backup_keep: 3
+proxmox_host_backup_mailto: pvginkel@gmail.com

@@ -1,0 +1,117 @@
+---
+# Sysctl tuning — applied to every PVE node so the cluster behaves
+# uniformly under backup pressure. The `local-backup` HDD on `pve` is
+# the slow target that motivated these values; the same limits on
+# pve1/pve2 cost nothing and keep behaviour symmetrical.
+- name: Apply Proxmox sysctl tuning
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value | string }}"
+    sysctl_file: /etc/sysctl.d/99-proxmox.conf
+    sysctl_set: true
+    reload: true
+    state: present
+  loop: "{{ proxmox_host_sysctls | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}={{ item.value }}"
+
+# Per-VM CPU affinity reconciliation. Only the node that publishes a
+# workload-class → core-range map (just `pve` today) touches `qm
+# affinity`; pve1/pve2 leave their VMs unpinned because they're not
+# core-zoned. The map lives in inventory at host_vars/<node>.yml.
+- name: Reconcile per-VM CPU affinity
+  when: proxmox_workload_affinity_cores is defined
+  block:
+    - name: Build the list of VMs hosted on this node
+      ansible.builtin.set_fact:
+        proxmox_host_local_vms: >-
+          {{
+            groups['pve_vms']
+            | map('extract', hostvars)
+            | selectattr('pve_node', 'defined')
+            | selectattr('pve_node', 'equalto', inventory_hostname)
+            | selectattr('vm_id', 'defined')
+            | selectattr('workload_class', 'defined')
+            | list
+          }}
+
+    - name: Read current affinity per VM
+      ansible.builtin.command:
+        argv:
+          - qm
+          - config
+          - "{{ item.vm_id | string }}"
+      register: proxmox_host_qm_configs
+      changed_when: false
+      check_mode: false
+      loop: "{{ proxmox_host_local_vms }}"
+      loop_control:
+        label: "vmid={{ item.vm_id }}"
+
+    - name: Apply affinity where it drifts from the workload-class map
+      ansible.builtin.command:
+        argv:
+          - qm
+          - set
+          - "{{ item.item.vm_id | string }}"
+          - --affinity
+          - "{{ proxmox_workload_affinity_cores[item.item.workload_class] }}"
+      loop: "{{ proxmox_host_qm_configs.results }}"
+      loop_control:
+        label: "vmid={{ item.item.vm_id }} class={{ item.item.workload_class }}"
+      when: >-
+        (item.stdout_lines | select('match', '^affinity:') | list | first | default('affinity: ') | regex_replace('^affinity:\s*', ''))
+        != proxmox_workload_affinity_cores[item.item.workload_class]
+      changed_when: true
+
+# Cluster vzdump backup job. /etc/pve is a FUSE filesystem (pmxcfs)
+# that mirrors across nodes — write only on the cluster-writer node so
+# we don't get three concurrent writers fighting for the same path.
+- name: Manage cluster vzdump backup job
+  ansible.builtin.template:
+    src: jobs.cfg.j2
+    dest: /etc/pve/jobs.cfg
+    owner: root
+    group: www-data
+    mode: "0640"
+  when: inventory_hostname == proxmox_host_cluster_writer
+
+# Cluster authorized_keys — same pmxcfs reasoning. Two specific stale
+# entries are removed; the rest of the file (root@pve, root@pve1,
+# root@pve2 and the live ed25519 pve-root key) is untouched.
+- name: Remove pre-rotation pvginkel RSA pubkey from cluster authorized_keys
+  ansible.builtin.lineinfile:
+    path: /etc/pve/priv/authorized_keys
+    regexp: '^ssh-rsa\s.*\spvginkel\s*$'
+    state: absent
+  when: inventory_hostname == proxmox_host_cluster_writer
+
+- name: Remove orphaned root@pve3 pubkey from cluster authorized_keys
+  ansible.builtin.lineinfile:
+    path: /etc/pve/priv/authorized_keys
+    regexp: '\sroot@pve3\s*$'
+    state: absent
+  when: inventory_hostname == proxmox_host_cluster_writer
+
+# Datacenter UI cosmetic — tag-style for the `migrated` tag we no
+# longer use. Cluster-wide via pmxcfs.
+- name: Remove obsolete tag-style entry from datacenter.cfg
+  ansible.builtin.lineinfile:
+    path: /etc/pve/datacenter.cfg
+    regexp: '^tag-style:\s*color-map=migrated:'
+    state: absent
+  when: inventory_hostname == proxmox_host_cluster_writer
+
+# Operator scratch artifacts on `pve`. Local files, not cluster-shared,
+# but only `pve` ever had them — the gate keeps the role from probing
+# pve1/pve2 paths that don't exist.
+- name: Remove operator scratch files from /root
+  ansible.builtin.file:
+    path: "/root/{{ item }}"
+    state: absent
+  loop:
+    - install.sh
+    - swap-usage.sh
+    - backup-monitor.sh
+    - log.txt
+  when: inventory_hostname == proxmox_host_cluster_writer

@@ -1,0 +1,17 @@
+{# Managed by Ansible (proxmox_host). PVE's jobs.cfg parser rejects
+   shell-style comments at the file level, so this Jinja comment does
+   not survive into the rendered file. Edits made through the PVE UI
+   will be overwritten on the next playbook run. #}
+vzdump: {{ proxmox_host_backup_job_id }}
+	schedule {{ proxmox_host_backup_schedule }}
+	all 1
+	compress zstd
+	enabled 1
+	fleecing 0
+	mailnotification failure
+	mailto {{ proxmox_host_backup_mailto }}
+	mode snapshot
+	node {{ proxmox_host_backup_node }}
+	notes-template {{ '{{guestname}}' }}
+	prune-backups keep-last={{ proxmox_host_backup_keep }}
+	storage {{ proxmox_host_backup_storage }}
