@@ -10,6 +10,16 @@ Source of truth for design decisions on this repo. When a decision changes, upda
 - Proxmox cluster is a real cluster (3 physical nodes, one PVE cluster).
 - Ubuntu-only for Linux VMs.
 
+## Design principles
+
+Load-bearing rules. Specific decisions in this doc are consequences; if a principle changes, expect downstream decisions to need revisiting.
+
+- **Terraform owns infrastructure state; Ansible owns OS/application state.** Disk geometry is Terraform; the filesystem on the disk is Ansible. VM existence is Terraform; packages on the VM are Ansible.
+- **All roles are idempotent and safe to re-run.** Convergence is the model; drift is the trigger. Expensive work runs only on drift; a no-drift run is a fast no-op.
+- **Cluster changes are serialized.** No parallel mutations of k8s or Ceph nodes. `serial: 1` plus drain/cordon hooks. Never two nodes at once.
+- **The orchestrator cannot orchestrate its own replacement.** The Jenkins agent VM is mutated from the operator workstation, never from a pipeline running on itself. Self-reboot during orchestration is avoided.
+- **Critical infrastructure sits outside the blast radius of what it depends on.** OpenBao does not run inside the k8s cluster that needs its secrets. The Jenkins agent does not run inside the k8s cluster it deploys to. Hosts that the dnsmasq pod depends on must not depend on it for DNS.
+
 ## Tool split
 
 - **Ansible** owns the platform: Proxmox host config, VM OS baseline, microk8s/microceph install + upgrade, Ceph resources (RBD/CephFS), Keycloak realms/clients.
@@ -25,18 +35,19 @@ Source of truth for design decisions on this repo. When a decision changes, upda
 - **Auto-unseal via Azure Key Vault** (Standard tier, software-protected RSA key). Estimated cost: ~$1/year.
 - **Key Vault firewall** allowlists home WAN IP only. A stolen box moved off-network cannot reach Azure to unseal.
 - **Dedicated Azure service principal** with minimum perms (`Get`, `Wrap Key`, `Unwrap Key`) on the one key.
-- **Recovery keys**: Shamir 3-of-5, stored in Bitwarden. Used only for admin ops (rekey, re-seal, new root token) — never during boot.
-- **Wife runbook**: points at Bitwarden emergency access + recovery-key procedure. Lives in `docs/runbooks/`.
+- **Recovery keys**: Shamir 3-of-5, stored in Roboform. Used only for admin ops (rekey, re-seal, new root token) — never during boot.
+- **Wife runbook**: points at Roboform emergency access + recovery-key procedure. Lives in `docs/runbooks/`.
+- **Future direction**: replace Azure auto-unseal with peer-unseal between two sites — a cheap USB-attached HSM at a friend's house unseals ours; ours unseals theirs. Removes the Azure dependency for routine reboots; manual Shamir is then only needed if both sites are simultaneously unreachable. Not pursued now; recorded as the option to revisit if Azure cost or trust becomes the constraint.
 
 ## OpenBao backup / DR
 
 - Weekly automated JSON dump of KV secrets + policies + auth/mount config.
 - Runs via systemd timer on the OpenBao VM; authenticates via an AppRole with read-only policy.
-- Encrypted with `age` before leaving the box. Public key lives on the backup machine (no protection needed, it's public). Private key stored only in Bitwarden.
+- Encrypted with `age` before leaving the box. Public key lives on the backup machine (no protection needed, it's public). Private key stored only in Roboform.
 - Backup file written to an existing cloud-storage path (already daily-synced).
 - **12-week retention**, older pruned via `rclone`.
 - **Seal-migration runbook** (Azure → Shamir) documented in `docs/runbooks/`. Untested but written.
-- **Three independent failure domains**: Azure (wrap key), Bitwarden (age private key + recovery shards), the box itself (ciphertext + age public key). Losing any two still allows recovery.
+- **Three independent failure domains**: Azure (wrap key), Roboform (age private key + recovery shards), the box itself (ciphertext + age public key). Losing any two still allows recovery.
 
 ## Workflow + learning
 
@@ -65,6 +76,7 @@ The HelmCharts `configs/dev` folder is **not** for app-dev instances — it is f
 - All managed hosts **must** have forward DNS entries (`hostname.home`) resolvable from the operator workstation and from each other.
 - Ansible inventories use **short hostnames**; the `.home` search domain fills in the FQDN. Never hard-code IPs.
 - For Terraform-provisioned VMs, the operator adds a dnsmasq reservation (MAC → IP, hostname) **before** `terraform apply`, so the VM's first DHCP request lands on the reserved address and the matching A record resolves. Terraformed reservations come later (see "MAC addressing" below).
+- **Bootstrap-critical hosts do not resolve through the dnsmasq pod.** dnsmasq runs as a Kubernetes pod, so the k8s nodes themselves and the OpenBao VM cannot depend on it: the cluster could not boot from cold if its nodes resolved through a service hosted on the cluster, and OpenBao must be reachable to deliver secrets to the cluster that hosts dnsmasq. These hosts carry static resolver configuration — `/etc/hosts` for the names they need at boot, plus an upstream resolver (LAN router or public DNS) reached directly. The configuration is not standard Ubuntu defaults; the `baseline` role applies it based on host class.
 
 ## MAC addressing for managed VMs
 
@@ -84,31 +96,61 @@ The HelmCharts `configs/dev` folder is **not** for app-dev instances — it is f
 
 ## OS updates
 
-- **Ansible owns updates on managed hosts.** No `unattended-upgrades`, no cron, no auto-reboot. The `baseline` role purges the `unattended-upgrades` package so there's no silent fallback to Ubuntu's default config if our settings get removed — observable state is "package gone" or "package present (Ansible isn't yet managing this host)".
-- **Update playbook (Phase 4-ish)**: `update.yml` runs `apt update`, `apt full-upgrade`, and reboots the host iff `/var/run/reboot-required` exists. `serial: 1` plus drain/cordon hooks for k8s and Ceph so a fleet-wide update is graceful. Operator-triggered for now; eventually scheduled in CI (Phase 10).
-- **Stop-gap until the playbook lands**: `baseline_apt_dist_upgrade: true` on a host forces a dist-upgrade through baseline. Manual but adequate for a homelab on a private network.
-- **Caveat for the OpenBao VM**: it talks to Azure, so it has internet egress and a slightly tighter security-update cadence is warranted. Revisit when Phase 6 lands — either bring `update.yml` forward or treat OpenBao as the exception that keeps `unattended-upgrades` (security-only, no auto-reboot — a reboot is an operator action because the seal would have to be re-engaged).
+Three policies, one per host class. The class is a property of the host, recorded in inventory.
+
+| Class | Members | Update policy |
+|---|---|---|
+| **Cluster members** | k8s nodes, ceph nodes | Ansible-controlled. `update.yml` plays drain → `apt full-upgrade` → conditional reboot → uncordon, with `serial: 1`. Operator-triggered for now; CI-scheduled in Phase 10. |
+| **Standalone VMs** | Jenkins agent VM, OpenBao VM | `unattended-upgrades` + auto-reboot in a quiet window. Ansible installs and configures the package, then steps back. |
+| **Self-managed** | Home Assistant, Windows VMs, IoT, end-user devices | Outside this update system entirely. Documented but not managed. |
+
+Why the split:
+- The Jenkins agent cannot run a pipeline that reboots itself — the orchestrator must not be what is being mutated. Letting the OS handle its own updates avoids this.
+- OpenBao with Azure auto-unseal re-engages its seal automatically on reboot, so it no longer needs the operator-triggered cadence the original "Ansible owns updates everywhere" rule assumed.
+
+Concrete behaviour:
+- **`baseline` enforces the package state per host class.** On cluster members it purges `unattended-upgrades` (no silent fallback to Ubuntu defaults). On standalone VMs it installs and configures it. Observable state is "package state matches host class."
+- **Stop-gap until `update.yml` lands**: `baseline_apt_dist_upgrade: true` on a cluster-member host forces a dist-upgrade through baseline. Manual but adequate for a homelab on a private network.
+
+Operational guards (to be folded into runbooks/playbooks at the relevant phase):
+- **Stagger reboot windows.** The Jenkins agent VM and the OpenBao VM must not reboot in the same window. A simultaneous reboot would compound any unseal/connectivity issue and would mean nothing left running to diagnose it.
+- **Post-boot health check on OpenBao.** After its reboot window, confirm OpenBao came back unsealed within N minutes; alert otherwise. Catches silent Azure-unseal failure (firewall drift, expired SP credential, Azure outage) early instead of when the next consumer fails to fetch a secret.
 
 ## Proxmox VM CPU affinity
 
-- **`pve` core zoning**: cores `0-11` are reserved for interactive workloads (operator dev box, jump box, scratch VMs); cores `12-19` are for background workloads (Ceph, Kubernetes, Home Assistant). `pve1` and `pve2` are different machines and not zoned this way — affinity does not apply to VMs running there.
+- **`pve` core zoning**: cores `0-11` are reserved for interactive workloads (operator dev box, jump box, scratch VMs); cores `12-19` are for background workloads (Ceph, Kubernetes, Home Assistant). `pve1` and `pve2` are different machines and not zoned — affinity does not apply to VMs running there.
 - **API constraint**: Proxmox restricts the VM `affinity` config field to `root@pam`. The scoped `terraform@pve!automation` token cannot set it under any role (confirmed: `HTTP 500 — only root can set 'affinity' config`). Granting the Terraform user root would broaden blast radius unacceptably.
 - **Decision**: affinity is **reconciled by Ansible**, not Terraform. Terraform creates the VM; an Ansible task on the pve host runs `qm set <vmid> --affinity <range>` idempotently as root.
-- **Source of truth**: per-host VM-affinity map in Ansible inventory (e.g. `host_vars/pve.yml` → `proxmox_vm_affinity: { <vmid>: "<range>" }`). Only `pve`'s host_vars carry this; `pve1`/`pve2` don't.
+- **Source of truth**: each managed VM in inventory declares
+  - `vm_id` — its Proxmox VMID,
+  - `pve_node` — which physical PVE host runs it (`pve`, `pve1`, `pve2`); defaulted at the parent-group level to `pve`, overridden on the VMs that run elsewhere,
+  - `workload_class` — `interactive` or `background`.
+
+  The class → core-range map is per-PVE-host inventory data (only `pve` carries one, in `host_vars/pve.yml`). The `proxmox_host` role on `pve` enumerates VMs whose `pve_node` matches itself, resolves each to a core range via that map, and reconciles `qm set <vmid> --affinity <range>`. On `pve1`/`pve2` the role no-ops on affinity because no map is defined.
 - **Lands in Phase 2** (`proxmox_host` role). Until that role exists, affinity is set by hand as root after `terraform apply`.
 
 ## Production execution model (Jenkins-driven)
 
-How Terraform and Ansible run in production once Phase 10 lands. The operator workstation remains the path for ad-hoc and learning runs; production is CI-only.
+How Terraform and Ansible run in production once Phase 10 lands. The operator workstation is reserved for changes that mutate the Jenkins agent VM itself; everything else flows through CI.
 
 - **Dedicated Jenkins agent VM** for Terraform and Ansible runs. Not shared with other build workloads.
 - **All logic lives in a Docker image.** The CI job pulls and runs the container on every execution; the agent VM holds no tool versions, no clone, no credentials cache. VM stays fully stateless and disposable.
 - **tfstate is a local file inside a dedicated Git repo.** The container clones the state repo at job start, runs `terraform`, then commits and pushes any changes before exit. No remote-state backend (S3, Terraform Cloud, etc.).
 - **Concurrency control at the Jenkins level.** A job-level lock prevents two TF/Ansible runs from racing — this is what makes the file-based state safe. No `terraform force-unlock` workflow because there is no remote lock to hold.
 
+Path split — what runs where:
+
+- **Through CI (the default path)**: every routine change. Bootstrap of new hosts, role applies, disk resize, OS updates on cluster nodes, scheduled drift checks. The Jenkins agent SSHes into the target host like any other Ansible run.
+- **From the operator workstation (the carve-out)**: only changes that mutate the Jenkins agent VM itself — first-time bootstrap of the agent, agent VM disk resize, agent VM replace/destroy, break-glass when CI is down. The orchestrator cannot orchestrate its own replacement.
+
+Guards against accidental self-mutation:
+
+- **Terraform `lifecycle { prevent_destroy = true }`** on the Jenkins agent VM and the OpenBao VM resources. Hard stop at apply on a destroy.
+- **CI plan-stage check** that fails the pipeline if `terraform plan` proposes `replace` or `destroy` on either VM. Belt-and-braces with `prevent_destroy` — the lifecycle block stops apply, the plan check stops the run before it ever reaches apply.
+
 Implications:
 - The state repo is a sensitive artifact (host private keys, API tokens). Same protections as any other secret-bearing repo.
-- Rebuilding the agent VM is a no-op operationally; everything reproducible from the image + the state repo + Jenkins job config.
+- Rebuilding the agent VM is a no-op operationally; everything reproducible from the image + the state repo + Jenkins job config — but only via the workstation path.
 - Image build and tagging are part of the CI surface — pin versions in the image, not on the VM.
 
 ## Existing backup context (not in Ansible scope)

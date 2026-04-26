@@ -55,7 +55,9 @@ Build `adopt.yml` (the onboarding playbook for non-cloud-init'd hosts), use it t
 
 ### 3 — VM fleet via Terraform
 
-Model existing managed VMs as Terraform resources and adopt them into state. Establish the "rebuild a VM from scratch" workflow (terraform + bootstrap + baseline + role) that becomes the upgrade path for everything downstream.
+First deliverable: `disk_resize` role. Idempotent reconciliation of guest filesystem against Terraform-managed disk size — `growpart` + `resize2fs` only on drift, no-op otherwise. Lands early because grow-disk is a recurring operation today.
+
+Then: model existing managed VMs as Terraform resources and adopt them into state. Establish the "rebuild a VM from scratch" workflow (terraform + bootstrap + baseline + role) that becomes the upgrade path for everything downstream. Add `lifecycle { prevent_destroy = true }` on the (future) Jenkins agent VM and OpenBao VM resources per `docs/decisions.md` "Production execution model".
 
 ### 4 — microk8s roles and upgrade
 
