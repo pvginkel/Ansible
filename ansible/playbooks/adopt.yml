@@ -48,6 +48,8 @@
         path: "{{ adoption_path | dirname }}"
         state: directory
         mode: "0755"
+      # Run under --check too: Play 2's ssh verification depends on this.
+      check_mode: false
 
     - name: Capture ed25519 host key via ssh-keyscan
       ansible.builtin.command:
@@ -85,6 +87,9 @@
       loop: "{{ keyscans.results }}"
       loop_control:
         label: "{{ item.item }}"
+      # Run under --check too: Play 2's ssh verification depends on this
+      # entry being present in the file before it tries to connect.
+      check_mode: false
 
 - name: Bootstrap each target host
   hosts: _adoption_targets
