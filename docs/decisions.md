@@ -153,12 +153,12 @@ Implications:
 - Rebuilding the agent VM is a no-op operationally; everything reproducible from the image + the state repo + Jenkins job config — but only via the workstation path.
 - Image build and tagging are part of the CI surface — pin versions in the image, not on the VM.
 
-## Existing backup context (not in Ansible scope)
+## Backup
 
-- PVE VM snapshots, 3-day retention.
-- Daily cloud sync across providers.
-- Git.
-- Offsite for production is a later item, not now.
+- **Cluster vzdump job** — Ansible-managed via the `proxmox_host` role from Phase 2. Daily snapshot-mode dump of every VM to the `local-backup` storage on `pve`, mail-on-failure to the operator, retain three. The job lives in `/etc/pve/jobs.cfg` (cluster-shared via pmxcfs); the role writes it from `pve` only and the cluster propagates.
+- **Daily cloud sync across providers** — operator workflow, not Ansible. Untouched.
+- **Git** — covers everything in this repo.
+- **Offsite for production** is a later item.
 
 ## First-week plan
 
