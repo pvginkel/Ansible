@@ -5,3 +5,10 @@
 proxmox_workload_affinity_cores:
   interactive: "0-11"
   background: "12-19"
+
+# /dev/sda is an intentional uncommitted spare — physically attached so
+# a future use doesn't require recabling, but currently wiped and not
+# bound to any VM. Inspection tools may flag it as "unused"; that's by
+# design.
+intentional_spare_disks:
+  - /dev/sda
