@@ -6,7 +6,7 @@ Single-VM Terraform config for Phase 1. Used to exercise the `bootstrap` and `ba
 
 1. Proxmox API token set up — see [`docs/runbooks/proxmox-api-token.md`](../../docs/runbooks/proxmox-api-token.md).
 2. On `pve`, the `local` datastore must have both **ISO image** and **Snippets** content types enabled. Proxmox web UI → Datacenter → Storage → `local` → Edit → tick both under "Content". Default Proxmox enables ISO but not Snippets.
-3. DNS entry `wrkscratch.home` pointed at `10.1.0.34` (already in place).
+3. dnsmasq reservation for the VM's pinned MAC pointing `wrkscratch.home` at the desired IP — must exist *before* `terraform apply` so the first DHCP lease lands on the reserved address. See `docs/runbooks/scratch-vm.md` for the MAC value and the rest of the prereqs.
 
 ## First-time setup
 

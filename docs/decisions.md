@@ -61,8 +61,8 @@ The HelmCharts `configs/dev` folder is **not** for app-dev instances — it is f
 
 ## DNS and hostnames
 
-- DNS search domain is `.home`, configured on the operator workstation and (via the `baseline` role once written) on all managed hosts.
-- All managed hosts **must** have forward DNS entries (`hostname.home`) resolvable from the operator workstation and from each other. Confirmed working today: `pve`, `pve1`, `pve2`.
+- DNS search domain is `.home`. Configured on the operator workstation directly; pushed to every managed Ubuntu VM as DHCP option 15 by dnsmasq, so the `baseline` role does not have to set it.
+- All managed hosts **must** have forward DNS entries (`hostname.home`) resolvable from the operator workstation and from each other.
 - Ansible inventories use **short hostnames**; the `.home` search domain fills in the FQDN. Never hard-code IPs.
 - For Terraform-provisioned VMs, the operator adds a dnsmasq reservation (MAC → IP, hostname) **before** `terraform apply`, so the VM's first DHCP request lands on the reserved address and the matching A record resolves. Terraformed reservations come later (see "MAC addressing" below).
 
