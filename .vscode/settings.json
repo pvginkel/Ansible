@@ -19,7 +19,6 @@
     "**/*.meta.json": true
   },
   "python.analysis.include": [
-    "scripts",
-    "tools"
+    "!",
   ]
 }
