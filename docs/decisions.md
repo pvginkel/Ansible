@@ -164,9 +164,15 @@ Implications:
 ## Backup
 
 - **Cluster vzdump job** — Ansible-managed via the `proxmox_host` role from Phase 2. Daily snapshot-mode dump of every VM to the `local-backup` storage on `pve`, mail-on-failure to the operator, retain three. The job lives in `/etc/pve/jobs.cfg` (cluster-shared via pmxcfs); the role writes it from `pve` only and the cluster propagates.
+- **Per-VM `backup` flag follows the node, not the VM**. A PVE host either has a backup datastore or it doesn't; today only `pve` does. Rule: every managed disk on a VM hosted on a backup-capable node is `backup=true`; everything else (VMs on `pve1`/`pve2`, plus all passthrough disks regardless of node) is `backup=false`. Passthrough disks (Ceph OSD volumes, ZFS-passthrough drives) are always `backup=false` because the stacks on top of them own redundancy and a vzdump of a multi-TB raw passthrough is neither crash-consistent nor cheap. Encoded as a per-node `pve_node_backup_datastore` attribute (Phase 3); read by the per-VM Terraform modules to set the `backup` flag on each disk.
 - **Daily cloud sync across providers** — operator workflow, not Ansible. Untouched.
 - **Git** — covers everything in this repo.
 - **Offsite for production** is a later item.
+
+Deferred / revisit:
+
+- **Ansible-side assertion of the backup-flag policy.** Today the rule is enforced at Terraform time. A drift-detection step in `proxmox_host` could `qm config` each VM and flag any disk whose `backup=` does not match what its node attribute says. Worth folding into Phase 10's drift detection rather than building now — there is no second authoritative source today.
+- **Wire the vzdump job's `node` to the same attribute.** `proxmox_host_backup_node` and `proxmox_host_backup_storage` are hardcoded in the role's defaults today. Both should be derived from `pve_node_backup_datastore` so adding a backup datastore to `pve1` (hypothetically) does not require a second edit. Mechanical change; not urgent.
 
 ## First-week plan
 
