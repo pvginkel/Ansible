@@ -84,7 +84,7 @@ Realms, clients, users, and roles as code via `community.general.keycloak_*`. Se
 
 ### 9 — DNS automation
 
-Extend `/work/DockerImages/dnsmapper` (or a new sidecar) with a static-record API, and write a thin Ansible module on top. Replaces manual DNS registration for Terraform-provisioned VMs.
+Stand up a dnsmasq sidecar that exposes a CRUD API for dynamic reservations alongside the existing operator-curated static file, and a Terraform resource that calls it. After this phase, adding a managed VM is one `terraform apply` (reservation + VM together); no manual edit of `static-hosts.yaml` for managed hosts. Sidecar is Helm-deployed (in HelmCharts), not Ansible. Specs: [`specs/dns-reservation-api.md`](specs/dns-reservation-api.md), [`specs/dns-reservation-terraform.md`](specs/dns-reservation-terraform.md).
 
 ### 10 — CI integration + drift detection
 
