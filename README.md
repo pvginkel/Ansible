@@ -17,8 +17,8 @@ See [`docs/decisions.md`](docs/decisions.md) for the full decision record — to
 │   ├── ansible.cfg
 │   ├── collections/         # ansible-galaxy collections
 │   ├── inventories/
-│   │   ├── prd/             # production hosts
-│   │   └── dev/             # dev / workstation hosts
+│   │   ├── prd/             # every production-grade host
+│   │   └── scratch/         # wrkscratch only (disposable scratch VM)
 │   ├── playbooks/
 │   ├── roles/
 │   └── files/

@@ -107,18 +107,16 @@ Sequencing rationale: rebuild has no real rollback (once the rootfs is destroyed
 
 ## Environment mapping
 
-Ansible inventories and HelmCharts config folders use the same names (`prd`, `dev`). The split is **functional**, not a risk-tolerance gradient — both tiers are production-grade infrastructure where breakage hurts. Operational discipline (check-mode first, audit before rebuild, no sloppy applies) applies equally.
+Two Ansible inventories: `prd` and `scratch`. The split is **production-grade vs deliberately disposable**, not a risk gradient.
 
-| Where              | `prd` means                                       | `dev` means                                        |
-|--------------------|---------------------------------------------------|----------------------------------------------------|
-| Ansible inventory  | Self-hosted production services: PVE cluster, prod k8s (3-node microk8s), Ceph cluster, OpenBao VM, dnsmasq, personal apps | Production-grade infrastructure whose workload is supporting development: single-node `wrkdevk8s`, operator workstation `wrkdev` |
-| HelmCharts configs | Helm configs for the production cluster          | Helm configs used while developing/testing charts against the dev cluster |
+- **`prd`** holds every host that must keep working: the PVE cluster, the 3-node prod k8s cluster (`k8s_prd`), the dev k8s node (`k8s_dev` — `wrkdevk8s`), the Ceph cluster, the OpenBao VM, the operator workstation (`wrkdev`). All production-grade. CI's default path runs against this inventory.
+- **`scratch`** holds `wrkscratch` only — the disposable Terraform-provisioned VM used to exercise roles. The only host where breakage is free.
 
-`dev` does **not** mean "where you can break things." It means "production for development workflows." The only host where breakage is free is `wrkscratch`, which sits outside both inventories. When a procedure says "test it on the scratch VM first," that is `wrkscratch` — never `wrkdev` or `wrkdevk8s`.
+When a procedure says "test it on the scratch VM first," that is `wrkscratch` — never `wrkdev` or `wrkdevk8s`. `wrkdev` is the operator's workstation; `wrkdevk8s` is the single-node cluster used to develop HelmCharts against.
+
+HelmCharts uses its own `configs/dev` and `configs/prd` folders. That split is independent of Ansible's inventories: Helm's `configs/dev` is for iterating on Helm charts themselves against `wrkdevk8s`; `configs/prd` is for the production cluster. Don't conflate the two repos' uses of "dev."
 
 The user's application has four deployment stages: `dev`, `test`, `uat`, `prd`. **All four run on the production Kubernetes cluster**, as separate namespaces. These stages are Helm's concern; Ansible does not see or manage them.
-
-The HelmCharts `configs/dev` folder is **not** for app-dev instances — it is for iterating on Helm charts themselves against the single-node cluster. Do not confuse "dev the infra" with "dev the app stage."
 
 ## DNS and hostnames
 

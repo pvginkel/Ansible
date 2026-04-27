@@ -42,16 +42,18 @@ The three `-e` extras are required.
 | `adoption_user` | The login user for the SSH connection. **Use this, not `-u`** — group_vars/all.yml's `ansible_user: ansible` outranks the `-u` flag, and the `ansible` user is exactly what bootstrap is about to create. Extra-vars do beat group_vars. |
 | `adoption_known_hosts_file` | Basename written under `files/known_hosts.d/`. Pick something stable per inventory or per group — once added to `ansible.cfg`, the file is referenced by name forever. |
 
-### Example: adopt `wrkdev` (operator workstation, dev inventory)
+### Example: adopt `wrkdev` (operator workstation)
 
 ```sh
 poetry run ansible-playbook playbooks/adopt.yml \
-  -i inventories/dev \
+  -i inventories/prd \
   -K \
   -e adoption_targets=wrkdev \
   -e adoption_user=pvginkel \
   -e adoption_known_hosts_file=dev
 ```
+
+(`adoption_known_hosts_file=dev` writes `files/known_hosts.d/dev` — the basename is independent of inventory naming and stays as-is for backwards compatibility with `ansible.cfg`'s `UserKnownHostsFile`.)
 
 ### Example: adopt the three PVE nodes (prd inventory)
 

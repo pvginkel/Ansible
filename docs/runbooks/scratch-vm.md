@@ -42,7 +42,7 @@ From the `ansible/` directory:
 
 ```sh
 cd ../../ansible
-poetry run ansible-playbook playbooks/site.yml -i inventories/dev --limit scratch --check --diff
+poetry run ansible-playbook playbooks/site.yml -i inventories/scratch --limit scratch --check --diff
 ```
 
 Review the diff. It should show:
@@ -53,7 +53,7 @@ Review the diff. It should show:
 If the diff looks right, apply for real:
 
 ```sh
-poetry run ansible-playbook playbooks/site.yml -i inventories/dev --limit scratch
+poetry run ansible-playbook playbooks/site.yml -i inventories/scratch --limit scratch
 ```
 
 ## One-time post-bootstrap step
@@ -69,7 +69,7 @@ ssh ansible@wrkscratch sudo passwd pvginkel
 Re-run the playbook:
 
 ```sh
-poetry run ansible-playbook playbooks/site.yml -i inventories/dev --limit scratch
+poetry run ansible-playbook playbooks/site.yml -i inventories/scratch --limit scratch
 ```
 
 Expected: `PLAY RECAP` shows `changed=0`. If anything reports changed on a second run, it's a role bug — fix the role before moving on.

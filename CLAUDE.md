@@ -25,7 +25,7 @@ This applies to phase documents too. Once a phase is done, compress its document
 ## Tooling
 
 - **Poetry** for Python deps. `poetry install` once; `poetry run <cmd>` or activate `.venv/` for ad-hoc commands.
-- **Ansible** runs from the `ansible/` directory (where `ansible.cfg` lives). Default inventory is `inventories/prd`; dev work requires explicit `-i inventories/dev`.
+- **Ansible** runs from the `ansible/` directory (where `ansible.cfg` lives). Default inventory is `inventories/prd` (every production-grade host). The `inventories/scratch` inventory holds `wrkscratch` only; pass `-i inventories/scratch` for scratch-VM runs.
 - **Terraform** runs from the `terraform/` directory. Provider is `bpg/proxmox`.
 - **Pre-commit** runs yamllint + ansible-lint on every commit.
 
