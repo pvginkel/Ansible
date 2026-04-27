@@ -29,6 +29,16 @@ This applies to phase documents too. Once a phase is done, compress its document
 - **Terraform** runs from the `terraform/` directory. Provider is `bpg/proxmox`.
 - **Pre-commit** runs yamllint + ansible-lint on every commit.
 
+## Operator runs Terraform and Ansible — not Claude
+
+The user runs all `terraform apply`, `terraform destroy`, and `ansible-playbook` invocations against the real environment themselves. This includes anything targeting `wrkscratch` — it lives on the production PVE cluster, even though it is the disposable scratch VM.
+
+Claude prepares the change (edits the role / module / inventory), proposes the exact command to run, and waits for the user to run it and report the result. Hand back full output for parsing, not "looks good."
+
+Claude **may** use the SSH keys in `/work/Obsidian/Attachments/` to read state for investigation — `qm config <vmid>`, `lsblk`, file inspection, anything strictly read-only. Anything that would cause `changed=N>0` or a `terraform` state mutation is the operator's keystroke.
+
+Read-only Ansible is fine when it's clearly read-only: `ansible -m setup`, `ansible-playbook --check --diff` against a host where the role itself has no side effects (e.g. fact gathering). When in doubt, hand the command to the operator.
+
 ## Related repos on this machine
 
 - `/work/HelmCharts` — Helm charts + per-environment configs. Jenkins-driven deploys.
