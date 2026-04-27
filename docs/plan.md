@@ -61,11 +61,11 @@ Then: model existing managed VMs as Terraform resources and adopt them into stat
 
 ### 4 — microk8s roles and upgrade
 
-Install, join, and HA-configure microk8s nodes. Deliver the upgrade playbook (cordon/drain/upgrade/uncordon, `serial: 1`) for both the 3-node prod cluster and the single-node dev cluster. Source: `/work/Obsidian/Kubernetes.md`.
+Install, join, and HA-configure microk8s nodes. Deliver the upgrade playbook (cordon/drain/upgrade/uncordon, `serial: 1`) for both the 3-node prod cluster and the single-node dev cluster. Source: `/work/Obsidian/Kubernetes.md`. Includes rebuilding the existing prod nodes from scratch as the parity event per `docs/decisions.md`.
 
 ### 5 — microceph roles and upgrade
 
-Same shape as Phase 4 for microceph. Source: `/work/Obsidian/Ceph.md`.
+Same shape as Phase 4 for microceph. Source: `/work/Obsidian/Ceph.md`. Includes upgrade-then-rebuild of the existing nodes per `docs/decisions.md` (upgrade to target LTS first, soak, then rebuild reattaching OSDs; migration via temp cluster on `pve`'s spare as the documented fallback).
 
 ### 6 — OpenBao + secrets wiring
 

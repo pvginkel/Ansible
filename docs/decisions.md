@@ -65,14 +65,56 @@ When a role removes a thing that won't naturally come back — an orphaned autho
 
 If the cleanup target *can* recur (drift the operator might re-introduce — a value the UI lets you set, a file someone might re-create), keep the task. The bar for keeping is "this could come back without an unrelated bug introducing it."
 
+## Adoption is a waypoint; rebuild is the parity event
+
+Hosts brought under management without being built from scratch will never be byte-for-byte identical to a from-scratch role apply. Retroactively reconciling them is a pipedream; **rebuild is the only parity mechanism that actually works**.
+
+Adoption is therefore a transitional state. Every adopted VM has a planned rebuild that ends the transition. Trigger per host class:
+
+| Host class  | Rebuild trigger          | Notes                                                                                                  |
+|-------------|--------------------------|--------------------------------------------------------------------------------------------------------|
+| k8s VMs     | As part of Phase 4       | microk8s state lives in `/var/snap/microk8s`; nothing OS-side worth preserving. `serial: 1` with drain/cordon. |
+| Ceph VMs    | As part of Phase 5       | OSD disks reattached to fresh OS, not reformatted (see "Ceph rebuild path" below).                     |
+| `wrkdev`    | Operator-scheduled       | Operator-managed; rebuild on operator's cadence.                                                       |
+| pve hosts   | **No scheduled rebuild** | Bare metal, no shadow-clone, no destroy-and-recreate. Fidelity-only.                                   |
+
+### Pre-rebuild sanity check (option)
+
+For any rebuildable host, **file-based comparison against a shadow VM** is available as a per-host pre-rebuild check: spin up a from-scratch build via the role, rsync-diff against the live host with obvious exclusions (`/var`, `/proc`, `/sys`, machine-id, generated caches), inspect the residue. Not a routine workflow — the work only earns its keep right before a rebuild — but kept as a documented option because it's the only way to see exactly what was hand-modified outside the role.
+
+### Fidelity for unrebuildable hosts (pve)
+
+For the three pve hosts, fidelity to the role definitions is the only reachable goal. Mechanisms:
+
+- `apt-mark showmanual` diff against the role's package list — highest signal.
+- One-shot `/etc` snapshot (or `etckeeper`) → surfaces hand-edits since install.
+- `systemctl list-unit-files --state=enabled` and `crontab -l` per user → catches scheduled side-channels.
+- `ansible-playbook --check --diff` against the live host → anything `changed` is drift to either codify or consciously accept.
+
+### Ceph rebuild path
+
+Specifics deferred to Phase 5; the preferred shape is recorded here so the phase doc inherits the constraint:
+
+1. **Upgrade first** — bring the cluster to its target microceph LTS channel via `snap refresh`, mons before OSDs, `serial: 1`. Soak under real workload for several days; confirm `HEALTH_OK` and that HelmCharts consumers are unaffected.
+2. **Then rebuild** — drain a node, TF-replace the VM, apply baseline + microceph role, reattach the existing OSD disks (BlueStore OSDs carry their identity on-disk). Repeat one node at a time.
+3. **Fallback if microceph won't adopt existing OSDs**: stand up a single-node temp cluster on `pve`'s spare `/dev/sda`, mirror data over (`rbd mirror` for RBD; rsync of a snapshot for CephFS), cut consumers over, rebuild the original nodes, migrate back, decommission the temp cluster, reclaim the spare.
+
+Sequencing rationale: rebuild has no real rollback (once the rootfs is destroyed, you can't go back); upgrade does (`snap revert`). Doing the well-understood step first means the harder step starts from a verified baseline. If rebuild fails and we end up on the migration path, we're already on the target version — no double-handling.
+
+### Ceph version policy
+
+**LTS channels only.** Ceph is infrastructure the operator does not want to think about; chasing latest costs small surprises for negligible benefit on this workload. Track the current Ceph LTS, upgrade when the previous one goes EOL or sooner if a security fix forces it. Phase 5 picks the initial target channel against current state.
+
 ## Environment mapping
 
-Ansible inventories and HelmCharts config folders use the same names (`prd`, `dev`) but refer to *infrastructure environments*, not application deployment stages.
+Ansible inventories and HelmCharts config folders use the same names (`prd`, `dev`). The split is **functional**, not a risk-tolerance gradient — both tiers are production-grade infrastructure where breakage hurts. Operational discipline (check-mode first, audit before rebuild, no sloppy applies) applies equally.
 
 | Where              | `prd` means                                       | `dev` means                                        |
 |--------------------|---------------------------------------------------|----------------------------------------------------|
-| Ansible inventory  | Production infrastructure: PVE cluster, prod k8s (3-node microk8s), Ceph cluster, OpenBao VM | Chart-development single-node k8s cluster (`wrkdevk8s`) + Linux operator workstation (`wrkdev`) |
+| Ansible inventory  | Self-hosted production services: PVE cluster, prod k8s (3-node microk8s), Ceph cluster, OpenBao VM, dnsmasq, personal apps | Production-grade infrastructure whose workload is supporting development: single-node `wrkdevk8s`, operator workstation `wrkdev` |
 | HelmCharts configs | Helm configs for the production cluster          | Helm configs used while developing/testing charts against the dev cluster |
+
+`dev` does **not** mean "where you can break things." It means "production for development workflows." The only host where breakage is free is `wrkscratch`, which sits outside both inventories. When a procedure says "test it on the scratch VM first," that is `wrkscratch` — never `wrkdev` or `wrkdevk8s`.
 
 The user's application has four deployment stages: `dev`, `test`, `uat`, `prd`. **All four run on the production Kubernetes cluster**, as separate namespaces. These stages are Helm's concern; Ansible does not see or manage them.
 
