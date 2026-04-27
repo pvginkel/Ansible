@@ -132,7 +132,8 @@ The user's application has four deployment stages: `dev`, `test`, `uat`, `prd`. 
 - Format: `02:A7:F3:VV:VV:EE` — fixed locally-administered prefix `02:A7:F3`, then the VMID as two big-endian bytes (`VV:VV`), then the NIC index (`EE`). Example: VMID 900, NIC 0 → `02:A7:F3:03:84:00`.
 - Constrains VMIDs to `[100, 65535]`. Validated at plan time by the `vm_id` variable.
 - VMs run DHCP on the NIC; cloud-init carries no IP/gateway/DNS config. dnsmasq is the single source of truth for IP and DNS, keyed off the pinned MAC.
-- Future direction: a Terraform resource for the dnsmasq reservation, so adding a VM becomes "register reservation, then provision" in one apply. Until then, the reservation is added by hand before `terraform apply`.
+- **Legacy (pre-rebuild) VMs**: keep their existing Proxmox-generated `BC:24:11:...` MACs pinned verbatim in their TF modules. The deterministic scheme applies after the Phase 4/5 rebuild, at which point the dnsmasq reservation is updated in lockstep with the new MAC.
+- **dnsmasq reservation as a Terraform resource (Phase 9)**: managed VMs register their (hostname, MAC, IPv4) triple via a sidecar API on the dnsmasq pod, called from a `dnsreservation_reservation` resource inside each per-VM module. One apply registers the reservation and creates the VM, in that order; destroy reverses it. The sidecar is Helm-deployed; the static `static-hosts.yaml` continues to hold operator-curated entries (printers, IoT, network gear) in a separate namespace. Until Phase 9 lands, reservations are added by hand before `terraform apply`. Specs: [`specs/dns-reservation-api.md`](specs/dns-reservation-api.md), [`specs/dns-reservation-terraform.md`](specs/dns-reservation-terraform.md).
 
 ## SSH host keys for managed VMs
 
