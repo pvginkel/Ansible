@@ -20,5 +20,6 @@
   },
   "python.analysis.include": [
     "!",
-  ]
+  ],
+  "ansible.python.activationScript": "$(poetry env info --path)/bin/activate"
 }
