@@ -28,7 +28,8 @@ When a phase is complete, mark its status here, commit, and the next conversatio
 | 0 | Foundation | ✅ Done | `docs/decisions.md` + initial commits |
 | 1 | Bootstrap + baseline + scratch VM | ✅ Done | [`phases/phase-1-bootstrap-baseline.md`](phases/phase-1-bootstrap-baseline.md) |
 | 2 | Proxmox host management | ✅ Done | [`phases/phase-2-proxmox-hosts.md`](phases/phase-2-proxmox-hosts.md) |
-| 3 | VM fleet via Terraform | ⏳ Planned | [`phases/phase-3-vm-fleet.md`](phases/phase-3-vm-fleet.md) |
+| 3 | VM fleet via Terraform — `disk_resize` | ✅ Done | [`phases/phase-3-vm-fleet.md`](phases/phase-3-vm-fleet.md) |
+| 3a | VM fleet under Terraform state | ⏳ Planned | [`phases/phase-3a-vm-fleet-import.md`](phases/phase-3a-vm-fleet-import.md) |
 | 4 | microk8s roles and upgrade | ⏳ Planned | — |
 | 5 | microceph roles and upgrade | ⏳ Planned | — |
 | 6 | OpenBao + secrets wiring | ⏳ Planned | — |
@@ -53,11 +54,13 @@ Build the two foundational Ansible roles (`bootstrap`, `baseline`) and a disposa
 
 Build `adopt.yml` (the onboarding playbook for non-cloud-init'd hosts), use it to bring `pve`, `pve1`, `pve2` (and as a bonus, `wrkdev` from Phase 1's deferred smoke test) under Ansible management. Port the host-config tunables from `/work/Obsidian/Proxmox.md` into a `proxmox_host` role, and reconcile per-VM CPU affinity from inventory per the model in `docs/decisions.md`. No destructive changes to the live cluster; `--check` runs match current state before any apply.
 
-### 3 — VM fleet via Terraform
+### 3 — VM fleet via Terraform — `disk_resize` (done)
 
-First deliverable: `disk_resize` role. Idempotent reconciliation of guest filesystem against Terraform-managed disk size — `growpart` + `resize2fs` only on drift, no-op otherwise. Lands early because grow-disk is a recurring operation today.
+`disk_resize` role: idempotent reconciliation of guest filesystem against the Terraform-managed disk size — `growpart` + `resize2fs` only on drift, no-op otherwise. Read from `qm config` on the VM's `pve_node` so Ansible stays decoupled from `tfstate`. Lands early because grow-disk is a recurring operation today.
 
-Then: model existing managed VMs as Terraform resources and adopt them into state. Establish the "rebuild a VM from scratch" workflow (terraform + bootstrap + baseline + role) that becomes the upgrade path for everything downstream. Add `lifecycle { prevent_destroy = true }` on the (future) Jenkins agent VM and OpenBao VM resources per `docs/decisions.md` "Production execution model".
+### 3a — VM fleet under Terraform state
+
+Model the six existing managed VMs as Terraform resources and adopt them into state. Establish the "rebuild a VM from scratch" workflow (terraform + bootstrap + baseline + role) that becomes the upgrade path for everything downstream. Implement the `pve_node_backup_datastore` attribute to drive per-disk `backup` flags. Normalize `srvk8ss2` to UEFI. Add `lifecycle { prevent_destroy = true }` on the (future) Jenkins agent VM and OpenBao VM resources per `docs/decisions.md` "Production execution model" — those are created in Phases 6 and 10 respectively, so the requirement is carried forward, not solved here.
 
 ### 4 — microk8s roles and upgrade
 
