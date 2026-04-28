@@ -29,7 +29,7 @@ When a phase is complete, mark its status here, commit, and the next conversatio
 | 1 | Bootstrap + baseline + scratch VM | ✅ Done | [`phases/phase-1-bootstrap-baseline.md`](phases/phase-1-bootstrap-baseline.md) |
 | 2 | Proxmox host management | ✅ Done | [`phases/phase-2-proxmox-hosts.md`](phases/phase-2-proxmox-hosts.md) |
 | 3 | VM fleet via Terraform — `disk_resize` | ✅ Done | [`phases/phase-3-vm-fleet.md`](phases/phase-3-vm-fleet.md) |
-| 3a | VM fleet under Terraform state | ⏳ Planned | [`phases/phase-3a-vm-fleet-import.md`](phases/phase-3a-vm-fleet-import.md) |
+| 3a | VM fleet under Terraform state | ✅ Done | [`phases/phase-3a-vm-fleet-import.md`](phases/phase-3a-vm-fleet-import.md) |
 | 4 | microk8s roles and upgrade | ⏳ Planned | — |
 | 5 | microceph roles and upgrade | ⏳ Planned | — |
 | 6 | OpenBao + secrets wiring | ⏳ Planned | — |
