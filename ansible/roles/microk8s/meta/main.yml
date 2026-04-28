@@ -1,0 +1,14 @@
+---
+galaxy_info:
+  role_name: microk8s
+  author: pvginkel
+  description: Install and configure microk8s on Ubuntu k8s nodes — kernel modules, Ceph client tooling, snap install pinned to a channel, .microk8s.yaml, Calico autodetect, addon enablement, user group + kubectl alias.
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - noble
+
+dependencies:
+  - role: baseline

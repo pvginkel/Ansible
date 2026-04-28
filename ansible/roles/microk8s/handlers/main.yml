@@ -1,0 +1,7 @@
+---
+- name: Re-apply Calico cni.yaml
+  # The IP_AUTODETECTION_METHOD patch lives in the snap-shipped cni.yaml
+  # daemonset spec. Editing the file alone doesn't reach the running
+  # cluster — Calico has to pick the change up via kubectl apply.
+  ansible.builtin.command: microk8s kubectl apply -f /var/snap/microk8s/current/args/cni-network/cni.yaml
+  changed_when: true

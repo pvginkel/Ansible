@@ -1,0 +1,11 @@
+---
+- name: Patch Calico interface autodetect method
+  # The snap ships cni.yaml with `value: "first-found"` — fine in single-NIC
+  # tests, fragile when a host has more than one interface. We pin to the
+  # named interface (typically ens18 on Proxmox VMs) and re-apply via the
+  # handler so the running daemonset picks the change up.
+  ansible.builtin.replace:
+    path: /var/snap/microk8s/current/args/cni-network/cni.yaml
+    regexp: '"first-found"'
+    replace: '"interface={{ microk8s_calico_iface }}"'
+  notify: Re-apply Calico cni.yaml

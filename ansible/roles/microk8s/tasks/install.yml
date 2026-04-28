@@ -1,0 +1,27 @@
+---
+- name: Ensure /var/snap/microk8s/common exists
+  ansible.builtin.file:
+    path: /var/snap/microk8s/common
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Stage microk8s launch config (CIDRs + extraSANs)
+  ansible.builtin.template:
+    src: launch-config.yaml.j2
+    dest: /var/snap/microk8s/common/.microk8s.yaml
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Install microk8s snap (channel = {{ microk8s_channel }})
+  community.general.snap:
+    name: microk8s
+    classic: true
+    channel: "{{ microk8s_channel }}"
+    state: present
+
+- name: Wait for microk8s to be ready
+  ansible.builtin.command: microk8s status --wait-ready --timeout 120
+  changed_when: false

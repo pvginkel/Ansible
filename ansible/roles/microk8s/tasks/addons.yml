@@ -1,0 +1,19 @@
+---
+- name: Get microk8s status (yaml; for parsing the enabled-addon list)
+  ansible.builtin.command: microk8s status --format yaml
+  register: microk8s_status_raw
+  changed_when: false
+
+- name: Compute the set of currently-enabled addons
+  ansible.builtin.set_fact:
+    microk8s_enabled_addons: >-
+      {{ (microk8s_status_raw.stdout | from_yaml).addons
+         | selectattr('status', 'eq', 'enabled')
+         | map(attribute='name')
+         | list }}
+
+- name: Enable missing addons
+  ansible.builtin.command: "microk8s enable {{ item }}"
+  loop: "{{ microk8s_addons }}"
+  when: item not in microk8s_enabled_addons
+  changed_when: true

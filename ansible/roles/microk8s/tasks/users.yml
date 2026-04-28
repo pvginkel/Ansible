@@ -1,0 +1,25 @@
+---
+- name: Add users to the microk8s group
+  ansible.builtin.user:
+    name: "{{ item }}"
+    groups: microk8s
+    append: true
+  loop: "{{ microk8s_users }}"
+
+- name: Ensure ~/.kube exists per microk8s user
+  ansible.builtin.file:
+    path: "/home/{{ item }}/.kube"
+    state: directory
+    owner: "{{ item }}"
+    group: "{{ item }}"
+    mode: "0700"
+  loop: "{{ microk8s_users }}"
+
+- name: Check whether kubectl is already aliased
+  ansible.builtin.stat:
+    path: /snap/bin/kubectl
+  register: microk8s_kubectl_alias
+
+- name: Alias microk8s.kubectl as kubectl
+  ansible.builtin.command: snap alias microk8s.kubectl kubectl
+  when: not microk8s_kubectl_alias.stat.exists

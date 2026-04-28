@@ -1,0 +1,27 @@
+---
+# Phase 4 scratch microk8s cluster — disposable, used to exercise the role.
+#
+# CIDRs chosen to not collide with the prd cluster (172.16/16 + 172.17/16)
+# or dev cluster (172.18/16 + 172.19/16) — see /work/KubernetesConfig/microk8s/
+# for those — nor with the homelab LAN at 10.1.0.0/24.
+microk8s_cluster_cidr_v4: 172.20.0.0/16
+microk8s_service_cidr_v4: 172.21.0.0/16
+microk8s_cluster_cidr_v6: fda0::/64
+microk8s_service_cidr_v6: fda1::/108
+
+# Service-network gateway IP, included as an API-server SAN so clients
+# addressing the API through the service network can verify TLS.
+microk8s_extra_sans:
+  - 172.21.0.1
+
+# Minimal addon set for scratch — enough to exercise the role's enable
+# path without enabling everything prd uses (no metallb, no community,
+# no dashboard; those land via prd group_vars at step 4 of phase 4).
+microk8s_addons:
+  - dns
+  - helm
+  - helm3
+  - metrics-server
+
+microk8s_users:
+  - pvginkel

@@ -1,0 +1,22 @@
+---
+- name: Drop /etc/modules-load.d/<module>.conf for each kernel module
+  ansible.builtin.copy:
+    dest: "/etc/modules-load.d/{{ item }}.conf"
+    content: "{{ item }}\n"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ microk8s_kernel_modules }}"
+
+- name: Load kernel modules now (boot-time loading is the modules-load.d job)
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: present
+  loop: "{{ microk8s_kernel_modules }}"
+
+- name: Install Ceph client packages
+  ansible.builtin.apt:
+    name: "{{ microk8s_ceph_client_packages }}"
+    state: present
+  environment:
+    NEEDRESTART_MODE: a

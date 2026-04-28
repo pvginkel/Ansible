@@ -1,0 +1,18 @@
+{{ ansible_managed | comment }}
+# Consumed by microk8s on first init only — staged by Ansible before the
+# snap is installed. Editing this file post-install has no effect; the
+# CIDRs are baked into the cluster state at first boot.
+version: 0.1.0
+extraCNIEnv:
+  IPv4_SUPPORT: true
+  IPv4_CLUSTER_CIDR: {{ microk8s_cluster_cidr_v4 }}
+  IPv4_SERVICE_CIDR: {{ microk8s_service_cidr_v4 }}
+  IPv6_SUPPORT: true
+  IPv6_CLUSTER_CIDR: {{ microk8s_cluster_cidr_v6 }}
+  IPv6_SERVICE_CIDR: {{ microk8s_service_cidr_v6 }}
+{% if microk8s_extra_sans | length > 0 %}
+extraSANs:
+{% for san in microk8s_extra_sans %}
+  - {{ san }}
+{% endfor %}
+{% endif %}

@@ -1,0 +1,49 @@
+---
+# microk8s release channel. Pinned per cluster in group_vars (k8s_prd.yml etc.).
+# 1.32/stable is the LTS-tracked default per docs/decisions.md "k8s version policy."
+microk8s_channel: 1.32/stable
+
+# Calico autodetection: which interface carries pod traffic. All managed VMs
+# expose vmbr0 as ens18; override only for a host class that uses something
+# else. Patched into /var/snap/microk8s/current/args/cni-network/cni.yaml.
+microk8s_calico_iface: ens18
+
+# Cluster CIDRs. Empty defaults force every cluster to set them in
+# group_vars — microk8s's compiled-in defaults (10.1.0.0/16) collide with
+# the homelab LAN. The role asserts non-empty before installing.
+microk8s_cluster_cidr_v4: ""
+microk8s_service_cidr_v4: ""
+microk8s_cluster_cidr_v6: ""
+microk8s_service_cidr_v6: ""
+
+# Extra SubjectAltNames added to the API server cert. Conventionally
+# includes the service-CIDR gateway IP so clients addressing the API
+# through the service network can verify TLS.
+microk8s_extra_sans: []
+
+# Addons enabled on every node the role runs against. Order matters in
+# microk8s — `community` must precede community-namespaced addons.
+microk8s_addons:
+  - dns
+  - helm
+  - helm3
+  - metrics-server
+
+# OS users added to the `microk8s` group. Members can run kubectl/helm via
+# the snap alias without sudo. Empty = no users added.
+microk8s_users: []
+
+# Kernel modules required by microk8s and the Ceph CSI clients. Loaded via
+# /etc/modules-load.d/ so they survive reboots.
+microk8s_kernel_modules:
+  - nf_conntrack
+  - ceph
+  - rbd
+  - nbd
+
+# Packages required for the Ceph CSI client side. The k8s nodes mount
+# RBD/CephFS volumes from the Ceph cluster but are not Ceph mons/osds
+# themselves.
+microk8s_ceph_client_packages:
+  - ceph-common
+  - rbd-nbd
