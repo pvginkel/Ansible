@@ -126,9 +126,36 @@ The user's application has four deployment stages: `dev`, `test`, `uat`, `prd`. 
 - For Terraform-provisioned VMs, the operator adds a dnsmasq reservation (MAC → IP, hostname) **before** `terraform apply`, so the VM's first DHCP request lands on the reserved address and the matching A record resolves. Terraformed reservations come later (see "MAC addressing" below).
 - **Bootstrap-critical hosts do not resolve through the dnsmasq pod.** dnsmasq runs as a Kubernetes pod, so the k8s nodes themselves and the OpenBao VM cannot depend on it: the cluster could not boot from cold if its nodes resolved through a service hosted on the cluster, and OpenBao must be reachable to deliver secrets to the cluster that hosts dnsmasq. These hosts carry static resolver configuration — `/etc/hosts` for the names they need at boot, plus an upstream resolver (LAN router or public DNS) reached directly. The configuration is not standard Ubuntu defaults; the `baseline` role applies it based on host class.
 
+## Network topology for managed VMs
+
+The Proxmox cluster has two physical bridges plus a workload VLAN on the first:
+
+- **`vmbr0`** — 1 Gb house network. Internet-facing. Default route, DNS, DHCP (dnsmasq) all live here.
+- **`vmbr1`** — 10 Gb backplane between the PVE/Ceph/k8s nodes. Separate subnet, not reachable from the house LAN. Carries inter-node Ceph and Kubernetes traffic.
+- **`vmbr0` tag 2** — Kubernetes workload network. Same physical 1 Gb fabric as vmbr0, separate VLAN and subnet. Reserved for k8s services; BGP via MetalLB was partly set up and abandoned, but the subnet allocation is preserved.
+
+Per-host-class shape:
+
+| Class | NICs |
+|---|---|
+| Ceph nodes (`srvceph1/2/3`) | vmbr0 + vmbr1 |
+| k8s nodes (`srvk8sl1`, `srvk8ss1/2`) | vmbr0 + vmbr0 tag=2 + vmbr1 |
+| Everything else (operator workstation, OpenBao, scratch) | vmbr0 only |
+
+Deferred / revisit:
+
+- **Audit that vmbr1 actually carries the traffic it's meant to.** The 10 Gb backplane was built up incrementally; the operator is not confident every Ceph/k8s node is steering traffic over it as designed. Verify once Phase 3a is done and Terraform is the source of truth for VM network config — the audit is much cheaper against a known-declarative baseline.
+
+## VMID convention
+
+- **Operator-created VMs (legacy)** keep their existing VMIDs in the 100–199 range. Today: `103` (srvk8sl1), `104` (srvk8ss1), `107` (srvk8ss2), `113` (srvceph1), `114` (srvceph2), `115` (srvceph3), plus the unmanaged VMs.
+- **Terraform-owned VMs** use the **900-and-up range**. `wrkscratch` is `900`; the convention extends to every TF-managed VM going forward.
+- Phase 3a imports the six existing managed VMs under their legacy VMIDs — no live mutation, just modeling what's there. Phase 4 (k8s) and Phase 5 (Ceph) rebuilds reassign them to VMIDs in the 900-and-up range as a side-effect of the rebuild. This also rotates each NIC to the deterministic-MAC scheme below (the locally-administered MAC is derived from the VMID), and prompts a one-time dnsmasq reservation update per VM.
+- Phase 6's `srvvault` (OpenBao) and Phase 10's Jenkins agent VM are greenfield in the 900-and-up range from creation.
+
 ## MAC addressing for managed VMs
 
-- VM NICs use deterministic MACs in the locally-administered range, computed from the Proxmox VMID. Pinned in Terraform so a rebuild keeps the same MAC.
+- **New / rebuilt VMs**: NICs use deterministic MACs in the locally-administered range, computed from the Proxmox VMID. Pinned in Terraform so a rebuild keeps the same MAC.
 - Format: `02:A7:F3:VV:VV:EE` — fixed locally-administered prefix `02:A7:F3`, then the VMID as two big-endian bytes (`VV:VV`), then the NIC index (`EE`). Example: VMID 900, NIC 0 → `02:A7:F3:03:84:00`.
 - Constrains VMIDs to `[100, 65535]`. Validated at plan time by the `vm_id` variable.
 - VMs run DHCP on the NIC; cloud-init carries no IP/gateway/DNS config. dnsmasq is the single source of truth for IP and DNS, keyed off the pinned MAC.
@@ -177,6 +204,28 @@ Operational guards (to be folded into runbooks/playbooks at the relevant phase):
 
   The class → core-range map is per-PVE-host inventory data (only `pve` carries one, in `host_vars/pve.yml`). The `proxmox_host` role on `pve` enumerates VMs whose `pve_node` matches itself, resolves each to a core range via that map, and reconciles `qm set <vmid> --affinity <range>`. On `pve1`/`pve2` the role no-ops on affinity because no map is defined.
 - **Lands in Phase 2** (`proxmox_host` role). Until that role exists, affinity is set by hand as root after `terraform apply`.
+
+## Terraform applies on cluster members never reboot directly
+
+Generalization of "Cluster changes are serialized." A TF apply that triggers a VM reboot on a k8s or Ceph node disrupts workloads — no different from `apt-get install -y kernel-upgrade && reboot`. Cordon/drain (k8s) or `noout` + osd-down handling (Ceph) must precede the reboot, and that flow is owned by Ansible, not Terraform.
+
+**Implementation**: the `terraform/modules/managed-vm/` child module sets `reboot_after_update = false` on the VM resource. Any config change applied through TF is written to PVE but does not take effect until the VM next reboots — and that reboot is operator-triggered through Ansible's update playbook (Phase 4/5), which performs the drain.
+
+For changes that genuinely cannot wait — a BIOS mode flip, a CPU topology change — the path is: drain via Ansible → run TF apply → reboot via Ansible → uncordon. Never apply-then-reboot in one step on a live cluster member.
+
+`reboot_after_update = false` applies to *all* managed VMs, not just cluster members — there is no harm in deferring reboots on standalone VMs either, and a uniform default keeps the module simple. Override per-VM only if the operator deliberately wants TF to reboot on apply.
+
+## Disk passthrough on managed VMs
+
+Same shape as the affinity constraint above: Proxmox blocks API tokens from passing arbitrary host filesystem paths into a VM's disk config. The check is in PVE itself (`PVE/Storage.pm`: "Only root can pass arbitrary filesystem paths") and applies regardless of the token's role assignment — even a token derived from `root@pam` is rejected, because PVE distinguishes "user logged in" from "token of that user." Granting Terraform direct password auth as `root@pam` would broaden blast radius unacceptably.
+
+**Decision**: passthrough disk attachment is **owned by Ansible**, not Terraform. Terraform models a VM's *managed* disks (root, data, EFI); passthroughs are attached out-of-band via `qm set <vmid> --scsiN /dev/disk/by-id/<serial>,backup=0,size=...` from a `proxmox_host` task running as `root@pam` on the PVE host.
+
+Practical consequences:
+
+- **Phase 3a imports**: TF *imports* existing passthrough disks into state without trouble — import doesn't go through the create/modify code path that triggers the check. Reads (and apply runs that don't propose disk-block changes) stay clean. The block stays declared in the per-VM TF module so plan reflects reality, but TF never creates or modifies it.
+- **Rebuild path (Phase 4 / 5)**: a `terraform apply -replace=<vm-resource>` will fail at create time on any VM with a passthrough block declared. The rebuild therefore runs in two stages: TF creates the bare VM (no passthrough disks); Ansible reconciles passthroughs via `qm set` immediately after. Either the TF module drops the passthrough block before rebuild and re-imports it after, or the rebuild runbook stages the change explicitly. Specifics decided when Phase 4 starts.
+- **Source of truth for the disk identity**: each VM with a passthrough declares its `/dev/disk/by-id/<serial>` paths in inventory (per-VM `host_vars`). The `proxmox_host` role reads them and reconciles. Same model as the affinity / core-range map.
 
 ## Production execution model (Jenkins-driven)
 
