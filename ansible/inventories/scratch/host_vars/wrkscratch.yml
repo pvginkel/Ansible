@@ -1,8 +1,0 @@
----
-# wrkscratch's working host_vars. The prd inventory carries an
-# affinity-only stub (vm_id + workload_class) so proxmox_host on `pve`
-# can reconcile CPU pinning when the VM is running; this file is what
-# disk_resize and other roles actually read when the playbook runs
-# against `-i inventories/scratch`.
-vm_id: 900
-pve_node: pve

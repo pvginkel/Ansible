@@ -1,0 +1,6 @@
+---
+# Phase 4 scratch microk8s node. Disposable; rebuilt as part of role
+# iteration. See terraform/scratch/vms.tf for the matching TF entry.
+vm_id: 901
+pve_node: pve
+workload_class: background

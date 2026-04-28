@@ -1,0 +1,6 @@
+---
+# Phase 4 scratch microk8s node. Disposable; used to exercise the
+# microk8s role's idempotent-join path. See terraform/scratch/vms.tf.
+vm_id: 902
+pve_node: pve
+workload_class: background

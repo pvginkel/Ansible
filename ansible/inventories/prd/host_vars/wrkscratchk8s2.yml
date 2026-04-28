@@ -1,0 +1,7 @@
+---
+# Affinity-only stub. Working host_vars for Ansible playbook runs live
+# in inventories/scratch/host_vars/wrkscratchk8s2.yml; this file exists
+# so proxmox_host on `pve` can reconcile CPU pinning when the VM is
+# running.
+vm_id: 902
+workload_class: background
