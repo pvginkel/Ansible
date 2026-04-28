@@ -4,36 +4,34 @@ locals {
     file("${path.module}/../../ansible/roles/bootstrap/files/ansible.pub"),
   ))
 
-  cloud_init_user_data = templatefile("${path.module}/cloud-init.yaml.tftpl", {
-    vm_name                = var.vm_name
-    ansible_ssh_public_key = local.ansible_ssh_public_key
-    # Indented so the template's `|` block reads it as a single literal scalar.
-    host_ed25519_private = indent(6, tls_private_key.host_ed25519.private_key_openssh)
-    host_ed25519_public  = trimspace(tls_private_key.host_ed25519.public_key_openssh)
-  })
-
-  # Deterministic MAC (locally-administered prefix 02:A7:F3, then VMID big-endian
-  # over two bytes, then NIC index). Fixing the MAC lets dnsmasq carry the IP
-  # reservation by MAC without a separate allocation registry.
-  vm_mac = format("02:A7:F3:%02X:%02X:00",
-    floor(var.vm_id / 256),
-    var.vm_id % 256,
-  )
+  # Deterministic MAC (locally-administered prefix 02:A7:F3, then VMID
+  # big-endian over two bytes, then NIC index). Fixing the MAC lets dnsmasq
+  # carry the IP reservation by MAC without a separate allocation registry.
+  vm_macs = {
+    for name, vm in local.vms :
+    name => format("02:A7:F3:%02X:%02X:00",
+      floor(vm.vm_id / 256),
+      vm.vm_id % 256,
+    )
+  }
 }
 
-# SSH host key for the VM. Generated once, persisted in tfstate, embedded into
-# cloud-init so the VM boots with a deterministic identity, and exported into
-# ansible/files/known_hosts.d/ so Ansible (running anywhere — workstation, CI
-# container) can verify the host on first contact without TOFU.
+# Per-VM SSH host key. Generated once, persisted in tfstate, embedded into
+# cloud-init so the VM boots with a deterministic identity, and exported
+# into ansible/files/known_hosts.d/scratch (one combined file for the
+# inventory) so Ansible can verify each host on first contact without TOFU.
 resource "tls_private_key" "host_ed25519" {
+  for_each  = local.vms
   algorithm = "ED25519"
 }
 
-resource "local_file" "known_hosts_entry" {
+resource "local_file" "known_hosts_entries" {
   filename        = "${path.module}/../../ansible/files/known_hosts.d/scratch"
   file_permission = "0644"
-  # Both short and FQDN forms — operators reach the VM by either name.
-  content = "${var.vm_name},${var.vm_name}.home ${trimspace(tls_private_key.host_ed25519.public_key_openssh)}\n"
+  content = join("", [
+    for name, _ in local.vms :
+    "${name},${name}.home ${trimspace(tls_private_key.host_ed25519[name].public_key_openssh)}\n"
+  ])
 }
 
 resource "proxmox_download_file" "ubuntu_cloud_image" {
@@ -46,24 +44,33 @@ resource "proxmox_download_file" "ubuntu_cloud_image" {
 }
 
 resource "proxmox_virtual_environment_file" "cloud_init" {
+  for_each     = local.vms
   content_type = "snippets"
   datastore_id = var.image_datastore
-  node_name    = var.pve_node
+  node_name    = each.value.pve_node
 
   source_raw {
-    data      = local.cloud_init_user_data
-    file_name = "${var.vm_name}-user-data.yaml"
+    data = templatefile("${path.module}/cloud-init.yaml.tftpl", {
+      vm_name                = each.key
+      ansible_ssh_public_key = local.ansible_ssh_public_key
+      # Indented so the template's `|` block reads it as a single literal scalar.
+      host_ed25519_private = indent(6, tls_private_key.host_ed25519[each.key].private_key_openssh)
+      host_ed25519_public  = trimspace(tls_private_key.host_ed25519[each.key].public_key_openssh)
+    })
+    file_name = "${each.key}-user-data.yaml"
   }
 }
 
 resource "proxmox_virtual_environment_vm" "scratch" {
-  name        = var.vm_name
-  node_name   = var.pve_node
-  vm_id       = var.vm_id
-  description = "Phase 1 scratch VM — disposable; managed by terraform/scratch."
-  tags        = ["scratch", "ansible-managed", "terraform"]
+  for_each = local.vms
 
-  bios = "ovmf"
+  name        = each.key
+  node_name   = each.value.pve_node
+  vm_id       = each.value.vm_id
+  description = each.value.description
+  tags        = each.value.tags
+
+  bios    = "ovmf"
   machine = "q35"
 
   agent {
@@ -72,7 +79,7 @@ resource "proxmox_virtual_environment_vm" "scratch" {
   }
 
   cpu {
-    cores = var.vm_cpu_cores
+    cores = each.value.cpu_cores
     type  = "host"
     # CPU pinning is set by Ansible, not Terraform: Proxmox restricts the
     # 'affinity' field to root@pam and this stack uses a scoped terraform@pve
@@ -80,8 +87,8 @@ resource "proxmox_virtual_environment_vm" "scratch" {
   }
 
   memory {
-    dedicated = var.vm_memory_mb
-    floating  = var.vm_memory_mb
+    dedicated = each.value.memory_mb
+    floating  = each.value.memory_mb
   }
 
   operating_system {
@@ -103,14 +110,18 @@ resource "proxmox_virtual_environment_vm" "scratch" {
     iothread     = true
     discard      = "on"
     ssd          = true
-    backup       = var.vm_backup
-    size         = var.vm_disk_size_gb
+    # Scratch VMs sit on `pve`, the only node with a backup datastore today;
+    # the cluster vzdump job still picks them up. Disposable doesn't mean
+    # "exclude from backup" — keeps the rule "everything on pve gets backed
+    # up" intact and the per-disk flag uniform across the inventory.
+    backup = true
+    size   = each.value.disk_size_gb
   }
 
   network_device {
     bridge      = var.vm_bridge
     model       = "virtio"
-    mac_address = local.vm_mac
+    mac_address = local.vm_macs[each.key]
     firewall    = true
   }
 
@@ -133,7 +144,7 @@ resource "proxmox_virtual_environment_vm" "scratch" {
       }
     }
 
-    user_data_file_id = proxmox_virtual_environment_file.cloud_init.id
+    user_data_file_id = proxmox_virtual_environment_file.cloud_init[each.key].id
   }
 
   lifecycle {

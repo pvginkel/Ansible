@@ -16,56 +16,13 @@ variable "proxmox_insecure" {
 }
 
 variable "pve_node" {
-  description = "Proxmox node that hosts the scratch VM."
+  description = "PVE node that the cloud image is downloaded to. Per-VM `pve_node` in the `vms` locals map controls placement; this variable only governs the one image-download resource (a single download serves all VMs that live on the same node)."
   type        = string
   default     = "pve"
 }
 
-variable "vm_id" {
-  description = "Proxmox VMID for the scratch VM."
-  type        = number
-  default     = 900
-
-  # MAC encoding allots two bytes to the VMID, so values past 65535 would
-  # silently truncate and collide. Catch that at plan time instead.
-  validation {
-    condition     = var.vm_id >= 100 && var.vm_id <= 65535
-    error_message = "vm_id must be in [100, 65535] so it fits in two bytes of the MAC encoding."
-  }
-}
-
-variable "vm_name" {
-  description = "Hostname / VM name. dnsmasq must hold a reservation for the VM's MAC pointing <vm_name>.home at the desired IP."
-  type        = string
-  default     = "wrkscratch"
-}
-
-variable "vm_cpu_cores" {
-  description = "vCPU cores."
-  type        = number
-  default     = 2
-}
-
-variable "vm_memory_mb" {
-  description = "RAM in MiB."
-  type        = number
-  default     = 4096
-}
-
-variable "vm_disk_size_gb" {
-  description = "Boot disk size in GiB. Cloud image is resized on import."
-  type        = number
-  default     = 20
-}
-
-variable "vm_backup" {
-  description = "Whether vzdump should include this VM's boot disk in cluster backups."
-  type        = bool
-  default     = true
-}
-
 variable "vm_storage" {
-  description = "Proxmox storage pool for the VM disk."
+  description = "Proxmox storage pool for the VM disks (root, EFI, cloud-init)."
   type        = string
   default     = "local-lvm"
 }
@@ -83,7 +40,7 @@ variable "ubuntu_cloud_image_url" {
 }
 
 variable "image_datastore" {
-  description = "Proxmox datastore that holds the downloaded cloud image and the cloud-init snippet. Must have both 'iso' and 'snippets' content types enabled."
+  description = "Proxmox datastore that holds the downloaded cloud image and the cloud-init snippets. Must have both 'iso' and 'snippets' content types enabled."
   type        = string
   default     = "local"
 }
