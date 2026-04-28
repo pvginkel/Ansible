@@ -39,6 +39,8 @@ Either:
 
 To touch a single VM during plan/apply, target it: `terraform plan -target='module.vm["<name>"]'`.
 
+For a fresh state file or recovery from state loss, [`./import.sh`](import.sh) runs step 3 for every entry in `local.vms` and skips ones already in state.
+
 ## State
 
 `terraform.tfstate` is local-only on the operator workstation today. The future production execution model commits state to a dedicated git repo per `decisions.md`.
