@@ -3,12 +3,14 @@ locals {
   # gets backup=true iff its PVE node declares pve_node_backup_datastore in
   # Ansible inventory. Passthrough disks are always backup=false.
   #
-  # A missing host_vars file means "no overrides," same as Ansible — pve1
-  # and pve2 carry no node-specific attributes today, so their files don't
-  # exist. Treat that case as an empty dict, not an error.
+  # try() collapses two "no override" cases into the same false result:
+  # the host_vars file doesn't exist (pve1/pve2 today carry no per-node
+  # attributes), or the file exists but doesn't set this key. A
+  # fileexists()/yamldecode() conditional fails type unification once
+  # other modules add unrelated keys to a host_vars file (e.g. pve.yml
+  # carries intentional_spare_disks, proxmox_workload_affinity_cores).
   pve_host_vars_path  = "${path.module}/../../../ansible/inventories/prd/host_vars/${var.pve_node}.yml"
-  pve_host_vars       = fileexists(local.pve_host_vars_path) ? yamldecode(file(local.pve_host_vars_path)) : {}
-  pve_node_has_backup = try(local.pve_host_vars.pve_node_backup_datastore, null) != null
+  pve_node_has_backup = try(yamldecode(file(local.pve_host_vars_path)).pve_node_backup_datastore, null) != null
 }
 
 resource "proxmox_virtual_environment_vm" "this" {
