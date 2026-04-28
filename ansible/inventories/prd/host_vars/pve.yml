@@ -6,6 +6,13 @@ proxmox_workload_affinity_cores:
   interactive: "0-11"
   background: "12-19"
 
+# PVE storage that holds vzdump backups for VMs on this node. Read by the
+# per-VM Terraform modules to decide each managed disk's `backup=` flag:
+# disks on a VM whose `pve_node` declares this attribute get backup=true,
+# everything else (VMs on pve1/pve2, plus all passthrough disks) is
+# backup=false. See docs/decisions.md "Backup".
+pve_node_backup_datastore: local-backup
+
 # /dev/sda is an intentional uncommitted spare — physically attached so
 # a future use doesn't require recabling, but currently wiped and not
 # bound to any VM. Inspection tools may flag it as "unused"; that's by
