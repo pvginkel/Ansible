@@ -18,13 +18,15 @@ Disks can only grow. Shrinking requires destroy + recreate of the VM (the rebuil
 
 ### 1. Bump `size_gb` in Terraform
 
-For the scratch VM, this is `vm_disk_size_gb` in `terraform/scratch/terraform.tfvars`. For the per-VM modules under `terraform/managed-vms/<host>/`, edit the equivalent variable.
+For the scratch VM, this is `vm_disk_size_gb` in `terraform/scratch/terraform.tfvars`. For production VMs, edit the matching `managed_disks[*].size` entry under the VM's key in `terraform/prd/vms.tf`.
 
 ```sh
-cd terraform/scratch
+cd terraform/scratch     # or: cd terraform/prd
 terraform plan        # confirm the only change is the disk size you intended
 terraform apply
 ```
+
+For a production resize, narrow the apply to the affected VM with `terraform apply -target='module.vm["<host>"]'`.
 
 PVE resizes the underlying logical volume online — no VM reboot.
 

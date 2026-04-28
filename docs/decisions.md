@@ -223,7 +223,7 @@ Same shape as the affinity constraint above: Proxmox blocks API tokens from pass
 
 Practical consequences:
 
-- **Phase 3a imports**: TF *imports* existing passthrough disks into state without trouble — import doesn't go through the create/modify code path that triggers the check. Reads (and apply runs that don't propose disk-block changes) stay clean. The block stays declared in the per-VM TF module so plan reflects reality, but TF never creates or modifies it.
+- **Phase 3a imports**: TF *imports* existing passthrough disks into state without trouble — import doesn't go through the create/modify code path that triggers the check. Reads (and apply runs that don't propose disk-block changes) stay clean. The block stays declared on the VM's `local.vms` entry in `terraform/prd/vms.tf` so plan reflects reality, but TF never creates or modifies it.
 - **Rebuild path (Phase 4 / 5)**: a `terraform apply -replace=<vm-resource>` will fail at create time on any VM with a passthrough block declared. The rebuild therefore runs in two stages: TF creates the bare VM (no passthrough disks); Ansible reconciles passthroughs via `qm set` immediately after. Either the TF module drops the passthrough block before rebuild and re-imports it after, or the rebuild runbook stages the change explicitly. Specifics decided when Phase 4 starts.
 - **Source of truth for the disk identity**: each VM with a passthrough declares its `/dev/disk/by-id/<serial>` paths in inventory (per-VM `host_vars`). The `proxmox_host` role reads them and reconciles. Same model as the affinity / core-range map.
 

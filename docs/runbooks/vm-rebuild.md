@@ -5,7 +5,7 @@ How to destroy and recreate a managed VM end-to-end. Rebuild is the canonical pa
 What persists across rebuild:
 
 - VMID, name, MAC, SSH host key (Terraform-generated `tls_private_key` survives in tfstate; cloud-init re-embeds it).
-- Disk **identities** — the LVM-thin volumes (`vm-<vmid>-disk-N`) survive when a VM is destroyed via the bpg provider only if they're declared with `import_from` or attached as `path_in_datastore`; **a plain `disk { datastore_id = "local-lvm", size = N }` is reformatted on recreate**. For the legacy VM modules in `terraform/managed-vms/`, the boot and data disks are reformatted; their content lives in Ansible roles + Ceph/ZFS, not in PVE storage volumes that need to survive.
+- Disk **identities** — the LVM-thin volumes (`vm-<vmid>-disk-N`) survive when a VM is destroyed via the bpg provider only if they're declared with `import_from` or attached as `path_in_datastore`; **a plain `disk { datastore_id = "local-lvm", size = N }` is reformatted on recreate**. For the production VMs in `terraform/prd/`, the boot and data disks are reformatted on rebuild; their content lives in Ansible roles + Ceph/ZFS, not in PVE storage volumes that need to survive.
 - Inventory (`host_vars/<host>.yml`) — never touched by rebuild.
 
 What does **not** persist:
@@ -77,12 +77,12 @@ Non-zero `changed` here means either a baseline imperfection in a role (idempote
 
 ## Rebuild flow — k8s and Ceph cluster members
 
-The current per-VM modules under `terraform/managed-vms/` are the **adoption** shape: they model the live VM but lack the from-scratch assets (cloud-init, `tls_private_key`, `local_file` for known_hosts.d) that `terraform/scratch/` carries. **A rebuild requires updating the per-VM module to the from-scratch shape first** — that's a deliberate commit, not a transparent operation.
+The current `terraform/prd/` root is the **adoption** shape: it models live VMs but lacks the from-scratch assets (cloud-init, `tls_private_key`, `local_file` for known_hosts.d) that `terraform/scratch/` carries. **A rebuild requires extending the configuration to the from-scratch shape first** — that's a deliberate commit, not a transparent operation.
 
 The full procedure lands when Phase 4 (k8s) and Phase 5 (Ceph) need it. Outline so the constraints are visible now:
 
 1. **Pre-rebuild drain.** Cordon + drain (k8s) or `ceph osd set noout` and stop the OSD/mon (Ceph). Owned by Ansible; Phase 4/5 builds the playbook.
-2. **Module update commit.** Per-VM `main.tf` switches from "model what's there" to the from-scratch shape:
+2. **Configuration update commit.** The VM's entry in `terraform/prd/vms.tf` and the supporting per-VM resources switch from "model what's there" to the from-scratch shape:
    - Add `proxmox_download_file`, `proxmox_virtual_environment_file` (cloud-init snippet), `tls_private_key`, `local_file` (known_hosts.d/<host> entry).
    - Add `initialization { user_data_file_id = ... }` to the VM resource.
    - Switch from BC:24:11:... MAC to deterministic `02:A7:F3:VV:VV:EE` (decisions.md "MAC addressing"). VMID likely also moves into the 900-and-up range; if so, the deterministic MAC moves accordingly.
@@ -114,14 +114,14 @@ Capacity in `size=` matches what `qm config <vmid>` shows on the surviving Ceph 
 After PVE has the new path:
 
 ```sh
-# 3. Update the per-VM Terraform module
-$EDITOR terraform/managed-vms/<host>/main.tf
-# change passthrough_disks[*].path_in_datastore to the new path
+# 3. Update the VM's entry in terraform/prd/vms.tf
+$EDITOR terraform/prd/vms.tf
+# change passthrough_disks[*].path_in_datastore to the new path under the VM's key
 
 # 4. Catch tfstate up to PVE
-cd terraform/managed-vms/<host>
-terraform refresh
-terraform plan                               # expect zero diff
+cd terraform/prd
+terraform refresh -target='module.vm["<host>"]'
+terraform plan -target='module.vm["<host>"]'  # expect zero diff
 ```
 
 `terraform refresh` reads PVE current state into tfstate without modifying anything. After it runs, both state and module declare the new path.
