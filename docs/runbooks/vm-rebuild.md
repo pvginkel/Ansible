@@ -16,7 +16,7 @@ What does **not** persist:
 
 | Scenario | Action |
 |---|---|
-| `wrkscratch` after a role change | Rebuild on demand; that's its job. |
+| Scratch VM after a role change | Rebuild on demand; that's its job. |
 | k8s node | Phase 4 — drain → rebuild → uncordon, `serial: 1`. |
 | Ceph node | Phase 5 — `noout` → drain → rebuild → reattach OSDs, `serial: 1`. |
 | `wrkdev` | Operator-scheduled. |
@@ -24,9 +24,9 @@ What does **not** persist:
 
 `pve` hosts have no scheduled rebuild; their drift is reconciled in place against `proxmox_host`. Anything below assumes a guest VM, not a PVE node.
 
-## Rebuild flow — `wrkscratch` (the validated path)
+## Rebuild flow — scratch VM (the validated path)
 
-The simplest case. No cluster impact. Use this exercise to sanity-check role changes before pointing them at a real cluster member.
+The simplest case. No cluster impact. Use this exercise to sanity-check role changes before pointing them at a real cluster member. The example below uses `wrkscratchk8s1`; substitute any host in the scratch fleet.
 
 ### 1. Baseline check before destroying anything
 
@@ -38,7 +38,7 @@ terraform plan -detailed-exitcode ; echo "exit=$?"        # expect 0
 ```sh
 cd ../../ansible
 poetry run ansible-playbook playbooks/site.yml \
-    -i inventories/scratch --limit wrkscratch --check --diff
+    -i inventories/scratch --limit wrkscratchk8s1 --check --diff
 # expect: changed=0, failed=0
 ```
 
@@ -48,10 +48,10 @@ If the baseline isn't clean, fix what surfaces before rebuilding — otherwise t
 
 ```sh
 cd ../terraform/scratch
-terraform apply -replace='proxmox_virtual_environment_vm.scratch'
+terraform apply -replace='proxmox_virtual_environment_vm.scratch["wrkscratchk8s1"]'
 ```
 
-`-replace` destroys and recreates only the VM resource. The Ubuntu cloud image (`proxmox_download_file`), cloud-init snippet, and `tls_private_key` are independent resources — they aren't touched, so the new VM boots with the same MAC, same SSH host key, and the same `ansible/files/known_hosts.d/scratch` entry stays valid.
+`-replace` destroys and recreates only that VM resource. The Ubuntu cloud image (`proxmox_download_file`), the per-VM cloud-init snippet, and the per-VM `tls_private_key` are independent resources — those for *other* scratch VMs aren't touched, and the targeted VM's host key is preserved across the rebuild, so the `ansible/files/known_hosts.d/scratch` entry stays valid.
 
 Terraform blocks until `qemu-guest-agent` reports an IP back to PVE — typically 1–3 minutes including cloud-init.
 
@@ -60,7 +60,7 @@ Terraform blocks until `qemu-guest-agent` reports an IP back to PVE — typicall
 ```sh
 cd ../../ansible
 poetry run ansible-playbook playbooks/site.yml \
-    -i inventories/scratch --limit wrkscratch
+    -i inventories/scratch --limit wrkscratchk8s1
 ```
 
 First run on a fresh VM has `changed > 0` — that's the role landing. Watch for failures.
@@ -69,7 +69,7 @@ First run on a fresh VM has `changed > 0` — that's the role landing. Watch for
 
 ```sh
 poetry run ansible-playbook playbooks/site.yml \
-    -i inventories/scratch --limit wrkscratch --check --diff
+    -i inventories/scratch --limit wrkscratchk8s1 --check --diff
 # expect: changed=0
 ```
 
@@ -88,7 +88,7 @@ The full procedure lands when Phase 4 (k8s) and Phase 5 (Ceph) need it. Outline 
    - Switch from BC:24:11:... MAC to deterministic `02:A7:F3:VV:VV:EE` (decisions.md "MAC addressing"). VMID likely also moves into the 900-and-up range; if so, the deterministic MAC moves accordingly.
    - **Remove the `passthrough_disks` input** if any. Per `decisions.md` "Disk passthrough on managed VMs," PVE rejects API tokens for filesystem-path operations — a recreate would fail. Ansible re-attaches passthroughs after the VM is up.
 3. **dnsmasq reservation update.** New MAC → new reservation (or new IP allocation). Must land before `terraform apply` so the first DHCP lease on the rebuilt VM lands correctly.
-4. **`terraform apply -replace`** on the VM resource. Same as wrkscratch.
+4. **`terraform apply -replace`** on the VM resource. Same shape as the scratch flow above.
 5. **Reattach passthroughs** via Ansible (root over SSH on the PVE host, `qm set <vmid> --scsiN /dev/disk/by-id/...,backup=0`). Phase 4/5 builds this into the role.
 6. **`site.yml`** — bootstrap + baseline + microk8s/microceph role lands the cluster bits.
 7. **Re-join the cluster.** k8s: uncordon. Ceph: `noout` lifted, OSDs come back, wait for `HEALTH_OK`.

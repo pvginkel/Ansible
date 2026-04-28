@@ -131,9 +131,9 @@ No taints. Affinity is opt-in: workloads that need a capability declare `require
 Two Ansible inventories: `prd` and `scratch`. The split is **production-grade vs deliberately disposable**, not a risk gradient.
 
 - **`prd`** holds every host that must keep working: the PVE cluster, the 3-node prod k8s cluster (`k8s_prd`), the dev k8s node (`k8s_dev` — `wrkdevk8s`), the Ceph cluster, the OpenBao VM, the operator workstation (`wrkdev`). All production-grade. CI's default path runs against this inventory.
-- **`scratch`** holds `wrkscratch` only — the disposable Terraform-provisioned VM used to exercise roles. The only host where breakage is free.
+- **`scratch`** holds the disposable Terraform-provisioned scratch fleet — today, two microk8s scratch nodes (`wrkscratchk8s1`, `wrkscratchk8s2`) used in Phase 4 to exercise the role install + idempotent join paths. The only hosts where breakage is free.
 
-When a procedure says "test it on the scratch VM first," that is `wrkscratch` — never `wrkdev` or `wrkdevk8s`. `wrkdev` is the operator's workstation; `wrkdevk8s` is the single-node cluster used to develop HelmCharts against.
+When a procedure says "test it on a scratch VM first," that means a host in the `scratch` inventory — never `wrkdev` or `wrkdevk8s`. `wrkdev` is the operator's workstation; `wrkdevk8s` is the single-node cluster used to develop HelmCharts against.
 
 HelmCharts uses its own `configs/dev` and `configs/prd` folders. That split is independent of Ansible's inventories: Helm's `configs/dev` is for iterating on Helm charts themselves against `wrkdevk8s`; `configs/prd` is for the production cluster. Don't conflate the two repos' uses of "dev."
 
@@ -170,7 +170,7 @@ Deferred / revisit:
 ## VMID convention
 
 - **Operator-created VMs (legacy)** keep their existing VMIDs in the 100–199 range. Today: `103` (srvk8sl1), `104` (srvk8ss1), `107` (srvk8ss2), `113` (srvceph1), `114` (srvceph2), `115` (srvceph3), plus the unmanaged VMs.
-- **Terraform-owned VMs** use the **900-and-up range**. `wrkscratch` is `900`; the convention extends to every TF-managed VM going forward.
+- **Terraform-owned VMs** use the **900-and-up range**. VMIDs `900–909` are reserved for the scratch fleet (today: `wrkscratchk8s1=901`, `wrkscratchk8s2=902`); `910` and up belong to the persistent fleet. The convention extends to every TF-managed VM going forward.
 - Phase 3a imports the six existing managed VMs under their legacy VMIDs — no live mutation, just modeling what's there. Phase 4 (k8s) and Phase 5 (Ceph) rebuilds reassign them to VMIDs in the 900-and-up range as a side-effect of the rebuild. This also rotates each NIC to the deterministic-MAC scheme below (the locally-administered MAC is derived from the VMID), and prompts a one-time dnsmasq reservation update per VM.
 - Phase 6's `srvvault` (OpenBao) and Phase 10's Jenkins agent VM are greenfield in the 900-and-up range from creation.
 

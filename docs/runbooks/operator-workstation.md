@@ -42,7 +42,7 @@ Private key is `id_ed25519_ansible` in the same attachments folder; restore to `
 
 ```
 # ~/.ssh/config
-Host wrkscratch wrkscratch.home k8s* ceph*
+Host wrkscratch* wrkscratch*.home k8s* ceph*
   User ansible
   IdentityFile ~/.ssh/id_ed25519_ansible
   IdentitiesOnly yes
@@ -56,7 +56,7 @@ The two identities have different lifecycles and blast radii. The `ansible` key 
 
 ## DNS
 
-The `.home` search domain must be present in `/etc/resolv.conf` (or the systemd-resolved equivalent). Verify with `resolvectl status`. Without it, short hostnames like `pve`, `wrkscratch` will not resolve.
+The `.home` search domain must be present in `/etc/resolv.conf` (or the systemd-resolved equivalent). Verify with `resolvectl status`. Without it, short hostnames like `pve`, `srvk8sl1` will not resolve.
 
 ## Proxmox API token
 

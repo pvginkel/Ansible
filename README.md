@@ -18,7 +18,7 @@ See [`docs/decisions.md`](docs/decisions.md) for the full decision record — to
 │   ├── collections/         # ansible-galaxy collections
 │   ├── inventories/
 │   │   ├── prd/             # every production-grade host
-│   │   └── scratch/         # wrkscratch only (disposable scratch VM)
+│   │   └── scratch/         # disposable scratch fleet (Phase 4 microk8s scratch pair)
 │   ├── playbooks/
 │   ├── roles/
 │   └── files/
