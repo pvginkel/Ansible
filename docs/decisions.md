@@ -22,11 +22,15 @@ Load-bearing rules. Specific decisions in this doc are consequences; if a princi
 
 ## Tool split
 
-- **Ansible** owns the platform: Proxmox host config, VM OS baseline, microk8s/microceph install + upgrade, Ceph resources (RBD/CephFS), Keycloak realms/clients.
-- **Helm** continues to own Kubernetes workloads. Not replacing it.
+- **Ansible** owns the platform up to "ready to host workloads": Proxmox host config, VM OS baseline, microk8s/microceph install + upgrade, cluster infrastructure on top of that (CNI mode + autodetect, MetalLB IP pool, kernel modules, addon enablement, registry mirror config), Ceph resources (RBD/CephFS), Keycloak realms/clients.
+- **Helm** continues to own Kubernetes user workloads (application charts, per-environment configs). Not replacing it.
 - **Jenkins** continues to run deploys. CI-triggered playbook runs will join.
 - **Terraform** (with the `bpg/proxmox` provider) provisions VMs. Ansible takes over for configuration.
 - Both Terraform and Ansible live in this repo.
+
+The line between Ansible and Helm is "what does the cluster need in order to be usable?" — that's Ansible. The CIDR config, Calico mode, MetalLB allocation, CoreDNS rewrites that resolve cluster-internal names (the registry alias) sit on the Ansible side because without them the cluster can't host anything. What an application carries with it — its own CoreDNS rewrites for app domains, IngressRoute, Helm-deployed pods, ExternalSecrets specs — sits on the Helm side.
+
+The pre-Ansible `/work/KubernetesConfig` repo predates this split: it codified bring-up steps (`.microk8s.yaml`, MetalLB IPAddressPools, registry mirror config, procedural install docs) in a third location that today belongs on the Ansible side. Phase 4 absorbs its contents into the `microk8s` role and inventory; after Phase 4 lands, KubernetesConfig is archived. The operator runs their own ingress controller and own container registry from HelmCharts — `core/ingress` and `core/registry` are not enabled.
 
 ## Secrets — OpenBao
 
@@ -104,6 +108,23 @@ Sequencing rationale: rebuild has no real rollback (once the rootfs is destroyed
 ### Ceph version policy
 
 **LTS channels only.** Ceph is infrastructure the operator does not want to think about; chasing latest costs small surprises for negligible benefit on this workload. Track the current Ceph LTS, upgrade when the previous one goes EOL or sooner if a security fix forces it. Phase 5 picks the initial target channel against current state.
+
+### k8s version policy
+
+**LTS channels only.** Same logic as Ceph. Track the current microk8s LTS channel; upgrade when the previous goes EOL or sooner if a security fix forces it. Channel pinned per cluster in `group_vars/k8s_{prd,dev}.yml` so dev can soak a new minor independently before prd moves.
+
+Today: `1.32/stable`, both clusters. The strict-confinement variant (`1.32-strict/stable`) is rejected — extra surface for limited benefit on this workload.
+
+### k8s node capability labels
+
+Per-node capability labels reconciled by the `microk8s` role from `host_vars/<node>.yml`. Today's set:
+
+- `homelab.local/performance=high` — node has materially more CPU than peers (today: `srvk8s1`, 8 cores vs. 3 on the smalls). Workloads that want fast cores opt in via required nodeAffinity (Jenkins agent template, Plex).
+- `homelab.local/storage=zpool2` — node has the ZFS passthrough disk surfaced as `zpool2` (today: `srvk8s1`). hostPath workloads (storage chart, Prometheus) opt in via required nodeAffinity. The pool name in the label leaves room for `storage=zpool3` if a second pool ever lands.
+
+Labels are operator intent, not auto-derived from facts. The TF-side facts (`cpu_cores`, `passthrough_disks`) are inputs to a deliberate decision about which nodes earn which capability label; host_vars carries the label declarations alongside the other per-node inventory data with inline comments back to the TF source. Auto-derivation is rejected — bumping a small node from 3 cores to 6 should not silently retag it as a Plex target.
+
+No taints. Affinity is opt-in: workloads that need a capability declare `requiredDuringSchedulingIgnoredDuringExecution`; everything else schedules freely. The legacy `size=large/small` labels and the `size=large:PreferNoSchedule` taint are removed during Phase 4.
 
 ## Environment mapping
 
