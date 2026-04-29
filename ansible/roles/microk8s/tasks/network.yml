@@ -1,11 +1,22 @@
 ---
-- name: Patch Calico interface autodetect method
-  # The snap ships cni.yaml with `value: "first-found"` — fine in single-NIC
-  # tests, fragile when a host has more than one interface. We pin to the
-  # named interface (typically ens18 on Proxmox VMs) and re-apply via the
-  # handler so the running daemonset picks the change up.
+- name: Patch Calico IPv4 autodetect to interface={{ microk8s_calico_iface }}
+  # The snap ships cni.yaml with IP_AUTODETECTION_METHOD: "first-found"
+  # — fine in single-NIC tests, fragile when a host has more than one
+  # interface. Pin to a named interface and re-apply via the handler so
+  # the running daemonset picks the change up. Anchored on the env-var
+  # name (across the YAML's two-line `name:`/`value:` shape) so the
+  # pattern keeps working when the value has already been patched to
+  # some other `interface=...` (i.e. someone changed the inventory var
+  # and re-ran the role).
   ansible.builtin.replace:
     path: /var/snap/microk8s/current/args/cni-network/cni.yaml
-    regexp: '"first-found"'
-    replace: '"interface={{ microk8s_calico_iface }}"'
+    regexp: '(name: IP_AUTODETECTION_METHOD\n\s*value:\s*)"[^"]*"'
+    replace: '\1"interface={{ microk8s_calico_iface }}"'
+  notify: Re-apply Calico cni.yaml
+
+- name: Patch Calico IPv6 autodetect to interface={{ microk8s_calico_iface }}
+  ansible.builtin.replace:
+    path: /var/snap/microk8s/current/args/cni-network/cni.yaml
+    regexp: '(name: IP6_AUTODETECTION_METHOD\n\s*value:\s*)"[^"]*"'
+    replace: '\1"interface={{ microk8s_calico_iface }}"'
   notify: Re-apply Calico cni.yaml
