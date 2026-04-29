@@ -1,12 +1,13 @@
 ---
-- name: Assert cluster CIDRs are configured
+- name: Assert cluster CIDRs and primary-host are configured
   ansible.builtin.assert:
     that:
       - microk8s_cluster_cidr_v4 | length > 0
       - microk8s_service_cidr_v4 | length > 0
       - microk8s_cluster_cidr_v6 | length > 0
       - microk8s_service_cidr_v6 | length > 0
-    fail_msg: "Set microk8s_cluster_cidr_v4/v6 and microk8s_service_cidr_v4/v6 in group_vars/k8s_<cluster>.yml. The defaults are empty so a missing cluster config fails loud rather than installing on the wrong network."
+      - microk8s_primary_host | length > 0
+    fail_msg: "Set microk8s_cluster_cidr_v4/v6, microk8s_service_cidr_v4/v6, and microk8s_primary_host in group_vars/k8s_<cluster>.yml. Defaults are empty so a missing cluster config fails loud rather than installing on the wrong network or trying to join an unset primary."
 
 - name: Apply prerequisites (kernel modules, Ceph client packages)
   ansible.builtin.import_tasks: prereqs.yml
@@ -28,9 +29,22 @@
   ansible.builtin.import_tasks: network.yml
   when: _microk8s_installed.stat.exists
 
-- name: Enable addons
+# Non-primary nodes join the primary's cluster. The primary itself
+# bootstraps via install.yml's solo cluster — no join-of-self.
+- name: Join the cluster (non-primary nodes only)
+  ansible.builtin.import_tasks: join.yml
+  when:
+    - _microk8s_installed.stat.exists
+    - inventory_hostname != microk8s_primary_host
+
+# Cluster-scoped state — addons, and (in follow-ups) MetalLB pool spec
+# and capability labels — reconciles only on the primary. Per-node
+# state above applies everywhere.
+- name: Enable addons (primary only)
   ansible.builtin.import_tasks: addons.yml
-  when: _microk8s_installed.stat.exists
+  when:
+    - _microk8s_installed.stat.exists
+    - inventory_hostname == microk8s_primary_host
 
 - name: Add users to microk8s group + alias kubectl
   ansible.builtin.import_tasks: users.yml

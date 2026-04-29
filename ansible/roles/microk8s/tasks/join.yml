@@ -1,0 +1,38 @@
+---
+- name: Read this node's microk8s status (for join idempotency)
+  ansible.builtin.command: microk8s status --format yaml
+  register: _microk8s_self_status
+  changed_when: false
+
+- name: Decide whether this node has already joined the cluster
+  # high-availability.nodes lists every cluster member. The secondary's
+  # post-install solo cluster has one entry pinned to 127.0.0.1; once
+  # joined the list reports the cluster's real members. Count > 1 means
+  # we're in. Defensive parse mirrors addons.yml — a transient blank
+  # status doesn't poison the decision.
+  ansible.builtin.set_fact:
+    _microk8s_joined: >-
+      {{ ((((_microk8s_self_status.stdout | from_yaml) or {})
+            .get('high-availability') or {})
+            .get('nodes') or []) | length > 1 }}
+
+- name: Request a single-use join token from the primary
+  # add-node mints a token with a short TTL — long enough to use once,
+  # nowhere near long enough to leak via process lists or logs. The
+  # delegate_to runs the command on the primary; the URL it returns is
+  # consumed by the next task on this (joining) node.
+  ansible.builtin.command: microk8s add-node --format json --token-ttl 60
+  delegate_to: "{{ microk8s_primary_host }}"
+  register: _microk8s_add_node
+  when: not _microk8s_joined
+  changed_when: false
+
+- name: Join the cluster
+  ansible.builtin.command: "microk8s join {{ ((_microk8s_add_node.stdout | from_json).urls | first) }}"
+  when: not _microk8s_joined
+  changed_when: true
+
+- name: Wait for microk8s to be Ready post-join
+  ansible.builtin.command: microk8s status --wait-ready --timeout 120
+  when: not _microk8s_joined
+  changed_when: false

@@ -4,7 +4,7 @@ Installs and configures microk8s on a k8s node. Lands an Ubuntu host at "ready t
 
 ## Scope
 
-This role covers single-node bring-up. Multi-node join logic and capability-label reconciliation arrive in subsequent commits (Phase 4 step 3 / step 4 respectively); MetalLB IPAddressPool reconciliation is a follow-up too. The set of moving parts handled today:
+This role covers install and idempotent multi-node join. Capability-label reconciliation and MetalLB IPAddressPool reconciliation arrive in subsequent commits (Phase 4 follow-ups). The set of moving parts handled today:
 
 | Concern | Mechanism |
 |---|---|
@@ -13,9 +13,20 @@ This role covers single-node bring-up. Multi-node join logic and capability-labe
 | `.microk8s.yaml` | `template` from `launch-config.yaml.j2`, written before the snap install so first-init reads it |
 | Snap install | `community.general.snap` at the pinned channel |
 | Calico autodetect | `replace` on `cni.yaml` + handler that re-applies the daemonset |
-| Addons | parse `microk8s status --format yaml`, enable any from `microk8s_addons` that are missing |
+| Cluster join | `microk8s add-node` on the primary via `delegate_to` → `microk8s join` on the secondary, gated by an idempotency check on `high-availability.nodes` |
+| Addons (primary only) | parse `microk8s status --format yaml`, enable any from `microk8s_addons` that are missing |
 | Users | `user` module appends membership to the `microk8s` group; `~/.kube` per user |
 | `kubectl` alias | `snap alias microk8s.kubectl kubectl`, guarded by a stat |
+
+## Primary vs. secondary nodes
+
+`microk8s_primary_host` (set per cluster in group_vars) names one node as the cluster's primary. The split:
+
+- **Per-node state** runs on every node (modules, packages, snap install, `.microk8s.yaml`, Calico autodetect patch, group membership, kubectl alias).
+- **Cluster-scoped state** runs only on the primary — addons today, MetalLB pool spec and capability labels in follow-ups. This avoids racing two `microk8s enable X` invocations against the same kube-system state.
+- **Join** runs only on non-primary nodes. The role checks `high-availability.nodes` on the joining node; count > 1 means it's already in the cluster, count == 1 means it's still on its post-install solo cluster and needs to join. The join token comes from `microk8s add-node --format json --token-ttl 60` issued on the primary via `delegate_to`; the URL it returns is consumed immediately by `microk8s join` on the secondary. Tokens are single-use and short-TTL so they don't survive logs or process lists.
+
+For single-node clusters (`k8s_dev` today, `wrkdevk8s` is the only host) the same node is its own primary and the join branch is a no-op.
 
 ## Inventory contract
 
@@ -32,6 +43,7 @@ The role asserts that the four cluster-CIDR variables are set; per-cluster `grou
 | `microk8s_extra_sans` | optional | `[]` | API-server cert SANs, typically the service gateway IP. |
 | `microk8s_addons` | optional | `[dns, helm, helm3, metrics-server]` | Order matters; `community` must precede community-namespaced addons. |
 | `microk8s_users` | optional | `[]` | OS users added to the `microk8s` group. |
+| `microk8s_primary_host` | **required** | `""` | Hostname of the cluster's primary node. Set to the host's own name for single-node clusters. |
 
 ## Idempotency notes
 
@@ -44,4 +56,3 @@ The role asserts that the four cluster-CIDR variables are set; per-cluster `grou
 
 - **MetalLB pool reconciliation.** The `metallb` addon (when in `microk8s_addons`) is enabled, but the IPAddressPool / L2Advertisement specs are not yet reconciled by this role. Adds in a subsequent commit via `kubernetes.core.k8s`.
 - **Capability labels.** `homelab.local/storage`, `homelab.local/performance` are operator intent published from `host_vars`; reconciliation lands when the role gets the labels task.
-- **Idempotent join.** This role currently bootstraps a node as if it stands alone; a second node added to the same cluster would not auto-join. Phase 4 step 3 wires the join path.

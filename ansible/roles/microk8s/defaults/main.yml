@@ -33,6 +33,12 @@ microk8s_addons:
 # the snap alias without sudo. Empty = no users added.
 microk8s_users: []
 
+# Hostname of the cluster's primary node — the one from which addons (and,
+# in follow-ups, the MetalLB pool spec and capability labels) are
+# reconciled, and the one the join token is requested from. Required per
+# cluster; for single-node clusters set it to that node's own hostname.
+microk8s_primary_host: ""
+
 # Kernel modules required by microk8s and the Ceph CSI clients. Loaded via
 # /etc/modules-load.d/ so they survive reboots.
 microk8s_kernel_modules:
