@@ -1,0 +1,100 @@
+---
+# update-k8s.yml — drain-aware rolling upgrade for a microk8s cluster.
+#
+# Per host (serial: 1, one node at a time):
+#   1. Drain via the cluster primary (skipped on single-node clusters).
+#   2. Refresh the microk8s snap to the channel pinned in group_vars
+#      / host_vars — no-op when already current.
+#   3. apt full-upgrade — kernel + security + package updates.
+#   4. Reboot if /var/run/reboot-required is present (kernel/glibc/etc.).
+#   5. Wait for microk8s Ready, both post-refresh and post-reboot.
+#   6. Uncordon via the primary (skipped on single-node clusters).
+#
+# Targeting: `hosts: k8s` resolves to k8s_prd + k8s_dev under prd or
+# k8s_scratch under scratch. Pair with --limit to scope to one cluster.
+#
+# Per decisions.md "Cluster changes are serialized": serial: 1 is
+# non-negotiable; cluster-state writes against dqlite race past two
+# concurrent mutations.
+#
+# kubectl drain runs from the primary so the command source survives
+# the API blip when snap-refresh restarts microk8s on the target.
+
+- name: Rolling upgrade for k8s cluster members
+  hosts: k8s
+  become: true
+  gather_facts: true
+  serial: 1
+  tasks:
+    - name: Compute cluster-peer count
+      # Same cluster boundary as the role's labels.yml: peers are hosts
+      # in the play that share this host's primary. >1 peer → drain;
+      # single peer (e.g. wrkdevk8s alone) → skip drain + uncordon.
+      ansible.builtin.set_fact:
+        _cluster_peer_count: >-
+          {{ ansible_play_hosts_all
+             | map('extract', hostvars)
+             | selectattr('microk8s_primary_host', 'eq', microk8s_primary_host)
+             | list
+             | length }}
+
+    - name: Drain {{ inventory_hostname }}
+      ansible.builtin.command:
+        argv:
+          - microk8s
+          - kubectl
+          - drain
+          - "{{ inventory_hostname }}"
+          - --ignore-daemonsets
+          - --delete-emptydir-data
+          - --timeout=300s
+      delegate_to: "{{ microk8s_primary_host }}"
+      when: _cluster_peer_count | int > 1
+      changed_when: true
+
+    - name: Refresh microk8s snap to {{ microk8s_channel }}
+      community.general.snap:
+        name: microk8s
+        classic: true
+        channel: "{{ microk8s_channel }}"
+        state: present
+
+    - name: Wait for microk8s Ready post-snap-refresh
+      ansible.builtin.command: microk8s status --wait-ready --timeout 120
+      changed_when: false
+
+    - name: Apt full-upgrade
+      ansible.builtin.apt:
+        upgrade: dist
+        update_cache: true
+        cache_valid_time: 3600
+      environment:
+        NEEDRESTART_MODE: a
+
+    - name: Check whether a reboot is required
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: _reboot_required
+
+    - name: Reboot if required
+      ansible.builtin.reboot:
+        msg: "update-k8s.yml: reboot triggered by /var/run/reboot-required"
+        post_reboot_delay: 30
+        reboot_timeout: 600
+      when: _reboot_required.stat.exists
+
+    - name: Wait for microk8s Ready post-reboot
+      ansible.builtin.command: microk8s status --wait-ready --timeout 240
+      changed_when: false
+      when: _reboot_required.stat.exists
+
+    - name: Uncordon {{ inventory_hostname }}
+      ansible.builtin.command:
+        argv:
+          - microk8s
+          - kubectl
+          - uncordon
+          - "{{ inventory_hostname }}"
+      delegate_to: "{{ microk8s_primary_host }}"
+      when: _cluster_peer_count | int > 1
+      changed_when: true
