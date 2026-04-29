@@ -26,6 +26,39 @@
   gather_facts: true
   serial: 1
   tasks:
+    - name: Read currently-installed microk8s version
+      # Output (last line):
+      #   microk8s  v1.32.13 8092   1.32/stable   canonical✓  classic
+      # Column 2 is Version (vMAJOR.MINOR.PATCH); column 4 is Tracking.
+      ansible.builtin.command: snap list microk8s --color=never
+      register: _snap_list
+      changed_when: false
+      check_mode: false
+
+    - name: Refuse microk8s minor-version skips
+      # microk8s/Kubernetes only support N → N+1 minor jumps; skipping
+      # a minor (e.g. 1.30 → 1.32 in one snap refresh) is unsupported
+      # and the kubelet/API-server skew breaks workloads. Multi-minor
+      # upgrades become multi-roll: bump microk8s_channel one minor
+      # in inventory, run the playbook, soak under real workload, then
+      # advance the channel again.
+      #
+      # The check also blocks downgrades (target < current). Use
+      # `snap revert microk8s` for those, not this playbook.
+      ansible.builtin.assert:
+        that:
+          - _target_minor - _current_minor <= 1
+          - _target_minor - _current_minor >= 0
+        fail_msg: >-
+          Refusing to step microk8s on {{ inventory_hostname }} from
+          1.{{ _current_minor }} to 1.{{ _target_minor }} (channel
+          {{ microk8s_channel }}). microk8s only supports one-minor
+          jumps; skipping is unsupported. Bump microk8s_channel one
+          minor at a time in group_vars/host_vars, run, soak, advance.
+      vars:
+        _current_minor: "{{ _snap_list.stdout_lines[-1].split()[1].lstrip('v').split('.')[1] | int }}"
+        _target_minor: "{{ microk8s_channel.split('/')[0].split('-')[0].split('.')[1] | int }}"
+
     - name: Compute cluster-peer count
       # Same cluster boundary as the role's labels.yml: peers are hosts
       # in the play that share this host's primary. >1 peer → drain;

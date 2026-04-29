@@ -4,7 +4,9 @@ How to roll an OS + microk8s upgrade across a microk8s cluster while keeping wor
 
 ## What it does
 
-For each cluster member, one node at a time (`serial: 1`):
+A pre-flight assertion runs first per host: refuses to step microk8s by more than one minor (e.g. `1.30` → `1.32`) or downward. Multi-minor upgrades are multi-roll: bump `microk8s_channel` one minor in inventory, run the playbook, soak, advance.
+
+Then for each cluster member, one node at a time (`serial: 1`):
 
 1. **Drain** the node from the cluster primary, ignoring DaemonSets and accepting emptyDir loss. Skipped on single-node clusters.
 2. **Snap-refresh microk8s** to the channel pinned in `group_vars/k8s_<cluster>.yml` (or overridden in `host_vars/<host>.yml`). No-op when already current.
