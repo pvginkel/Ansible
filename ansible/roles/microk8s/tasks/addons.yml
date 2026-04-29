@@ -3,6 +3,9 @@
   ansible.builtin.command: microk8s status --format yaml
   register: microk8s_status_raw
   changed_when: false
+  # Read-only — run in check mode too. Otherwise downstream parsing
+  # gets empty stdout and reports false drift on every addon.
+  check_mode: false
 
 - name: Compute the set of currently-enabled addons
   # Defensive parse: `microk8s status --format yaml` is normally a

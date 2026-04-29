@@ -3,6 +3,11 @@
   ansible.builtin.command: microk8s status --format yaml
   register: _microk8s_self_status
   changed_when: false
+  # Read-only — run in check mode too. Otherwise the joined-already
+  # decision below sees empty stdout, evaluates to False, and the
+  # subsequent join chain tries to template against an empty register
+  # and crashes with from_json: "Expecting value: line 1 column 1".
+  check_mode: false
 
 - name: Decide whether this node has already joined the cluster
   # high-availability.nodes lists every cluster member. The secondary's

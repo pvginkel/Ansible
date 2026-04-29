@@ -35,7 +35,7 @@ The role asserts that the four cluster-CIDR variables are set; per-cluster `grou
 | Variable | Per-cluster | Default | Notes |
 |---|---|---|---|
 | `microk8s_channel` | optional | `1.32/stable` | Pinned per `decisions.md` "k8s version policy." |
-| `microk8s_calico_iface` | optional | `ens18` | Override only if a host class uses something else. |
+| `microk8s_calico_iface` | optional | `{{ '{{' }} ansible_default_ipv4.interface {{ '}}' }}` | Auto-resolves at role-apply time to the NIC carrying the default route. Override only if pod traffic should ride a non-default-route NIC. |
 | `microk8s_cluster_cidr_v4` | **required** | `""` | E.g. `172.16.0.0/16` (prd) or `172.20.0.0/16` (scratch). |
 | `microk8s_service_cidr_v4` | **required** | `""` | E.g. `172.17.0.0/16` (prd). |
 | `microk8s_cluster_cidr_v6` | **required** | `""` | IPv6 cluster CIDR (`/64`). |

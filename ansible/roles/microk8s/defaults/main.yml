@@ -3,10 +3,15 @@
 # 1.32/stable is the LTS-tracked default per docs/decisions.md "k8s version policy."
 microk8s_channel: 1.32/stable
 
-# Calico autodetection: which interface carries pod traffic. All managed VMs
-# expose vmbr0 as ens18; override only for a host class that uses something
-# else. Patched into /var/snap/microk8s/current/args/cni-network/cni.yaml.
-microk8s_calico_iface: ens18
+# Calico autodetection: which interface carries pod traffic. Defaults to
+# whatever NIC Ansible finds on the default-route path — `eth0` on
+# cloud-init'd VMs, `ens18` on the manually-installed live prod nodes,
+# `eth0` on prod once those are rebuilt via cloud-init. Override
+# per-cluster only if pod traffic should ride a non-default-route NIC
+# (e.g. vmbr1 on prod once that backplane is verified — see
+# decisions.md "Network topology"). Patched into
+# /var/snap/microk8s/current/args/cni-network/cni.yaml.
+microk8s_calico_iface: "{{ ansible_default_ipv4.interface }}"
 
 # Cluster CIDRs. Empty defaults force every cluster to set them in
 # group_vars — microk8s's compiled-in defaults (10.1.0.0/16) collide with

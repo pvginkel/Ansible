@@ -26,11 +26,6 @@ microk8s_addons:
 microk8s_users:
   - pvginkel
 
-# Scratch VMs come up with the Ubuntu cloud-image's eth0 naming, not
-# the systemd-predictable ens18 the prod hosts use. Same role, just
-# different NIC.
-microk8s_calico_iface: eth0
-
 # wrkscratchk8s1 is the cluster's primary — the one that bootstraps the
 # solo cluster on first install, mints join tokens for the secondary,
 # and reconciles cluster-scoped state (addons today; MetalLB pool spec
