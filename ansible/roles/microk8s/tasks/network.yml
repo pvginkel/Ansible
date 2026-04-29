@@ -20,3 +20,16 @@
     regexp: '(name: IP6_AUTODETECTION_METHOD\n\s*value:\s*)"[^"]*"'
     replace: '\1"interface={{ microk8s_calico_iface }}"'
   notify: Re-apply Calico cni.yaml
+
+- name: Drop the BGP suffix from Calico CLUSTER_TYPE
+  # The microk8s snap ships cni.yaml with CLUSTER_TYPE=k8s,bgp — the
+  # bgp suffix is informational and Calico ignores it under VXLAN
+  # mode (which is what we run; BGP is tabled per decisions.md). The
+  # patch normalises the field to "k8s" so the on-disk config matches
+  # operator intent. Anchored on CLUSTER_TYPE so it's a no-op once
+  # the value is already "k8s".
+  ansible.builtin.replace:
+    path: /var/snap/microk8s/current/args/cni-network/cni.yaml
+    regexp: '(name: CLUSTER_TYPE\n\s*value:\s*)"k8s,bgp"'
+    replace: '\1"k8s"'
+  notify: Re-apply Calico cni.yaml
