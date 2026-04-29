@@ -1,0 +1,6 @@
+---
+# Defaults shared across every Ceph cluster. Lives at playbook-level so
+# it applies regardless of which inventory the playbook runs against.
+
+# Ceph nodes stay minimal — same rule as k8s nodes.
+baseline_install_recommends: false

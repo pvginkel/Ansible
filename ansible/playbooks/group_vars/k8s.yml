@@ -1,0 +1,10 @@
+---
+# Defaults shared across every k8s cluster (prd, dev, scratch). Lives at
+# playbook-level so it applies regardless of which inventory the playbook
+# runs against. Per-cluster specifics live in
+# inventories/<env>/group_vars/k8s_<cluster>.yml and override anything
+# here.
+
+# k8s nodes stay minimal — apt installs skip Recommends/Suggests. Reduces
+# package noise to only what the roles explicitly request.
+baseline_install_recommends: false

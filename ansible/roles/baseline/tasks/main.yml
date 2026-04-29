@@ -3,6 +3,30 @@
   community.general.timezone:
     name: "{{ baseline_timezone }}"
 
+# Order matters: this lands before any apt operation in the role so
+# baseline's own installs (qemu-guest-agent, baseline_extra_packages)
+# already honor the rule on the very first run, not just on the next.
+- name: Configure apt to skip Recommends/Suggests on this host class
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/99-no-recommends
+    content: |
+      # Managed by Ansible (baseline role; see baseline_install_recommends).
+      # Suppresses the install of Recommends and Suggests packages on this
+      # host so the OS surface stays minimal — applied to k8s and Ceph
+      # nodes via playbooks/group_vars/{k8s,ceph}.yml.
+      APT::Install-Recommends "false";
+      APT::Install-Suggests "false";
+    owner: root
+    group: root
+    mode: "0644"
+  when: not baseline_install_recommends
+
+- name: Remove the no-recommends override when the host class allows Recommends
+  ansible.builtin.file:
+    path: /etc/apt/apt.conf.d/99-no-recommends
+    state: absent
+  when: baseline_install_recommends
+
 - name: Refresh apt cache
   ansible.builtin.apt:
     update_cache: true

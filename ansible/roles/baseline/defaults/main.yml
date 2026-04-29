@@ -5,6 +5,15 @@ baseline_timezone: "Europe/Amsterdam"
 # e.g. baseline_extra_packages: [htop, tmux, jq]
 baseline_extra_packages: []
 
+# Whether apt installs pull in `Recommends` (and `Suggests`) packages.
+# Default true follows Ubuntu's stock behavior. Set false for host classes
+# that should stay minimal — k8s and Ceph nodes set it via
+# playbooks/group_vars/{k8s,ceph}.yml. The role drops a file in
+# /etc/apt/apt.conf.d/ when false; subsequent apt operations from
+# anywhere (Ansible, the operator, unattended-upgrades, anything) honor
+# the rule globally on the host.
+baseline_install_recommends: true
+
 # Run `apt dist-upgrade` during the play. False by default: unattended-upgrades
 # handles ongoing security updates; leave this off unless you're deliberately
 # rolling a host forward during a maintenance window.
