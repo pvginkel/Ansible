@@ -21,5 +21,12 @@
   register: microk8s_kubectl_alias
 
 - name: Alias microk8s.kubectl as kubectl
+  # `microk8s join` (and other join-time snap operations) leave a brief
+  # service-control change in flight; snap rejects parallel operations
+  # against the same snap with rc=10. Retry until snap has settled.
   ansible.builtin.command: snap alias microk8s.kubectl kubectl
   when: not microk8s_kubectl_alias.stat.exists
+  register: _microk8s_snap_alias
+  retries: 10
+  delay: 3
+  until: _microk8s_snap_alias is succeeded
