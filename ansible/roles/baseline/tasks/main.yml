@@ -48,7 +48,7 @@
     NEEDRESTART_MODE: a
   # The guest agent only makes sense inside a VM; PVE hosts are 'host',
   # bare metal is 'NA'.
-  when: ansible_virtualization_role == 'guest'
+  when: ansible_facts['virtualization_role'] == 'guest'
 
 # Updates are managed by Ansible (a future update.yml playbook). Purge
 # unattended-upgrades so there's a single, observable update mechanism — no
@@ -73,7 +73,7 @@
     name: qemu-guest-agent
     enabled: true
     state: started
-  when: ansible_virtualization_role == 'guest'
+  when: ansible_facts['virtualization_role'] == 'guest'
 
 - name: Locate noisy motd scripts
   ansible.builtin.find:

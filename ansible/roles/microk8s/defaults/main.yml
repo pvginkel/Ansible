@@ -11,7 +11,7 @@ microk8s_channel: 1.32/stable
 # (e.g. vmbr1 on prod once that backplane is verified — see
 # decisions.md "Network topology"). Patched into
 # /var/snap/microk8s/current/args/cni-network/cni.yaml.
-microk8s_calico_iface: "{{ ansible_default_ipv4.interface }}"
+microk8s_calico_iface: "{{ ansible_facts['default_ipv4'].interface }}"
 
 # Cluster CIDRs. Empty defaults force every cluster to set them in
 # group_vars — microk8s's compiled-in defaults (10.1.0.0/16) collide with
