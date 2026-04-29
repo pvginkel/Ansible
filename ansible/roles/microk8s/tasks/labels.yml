@@ -1,0 +1,31 @@
+---
+- name: Reconcile node capability labels (strategic-merge patch)
+  # Patch each cluster member's Node object with the labels declared in
+  # its host_vars under k8s_node_labels. Strategic-merge only touches
+  # the keys we provide — kubernetes-managed labels (kubernetes.io/*,
+  # node-role.kubernetes.io/*) and hand-applied ones are left alone.
+  # Idempotent: kubernetes.core.k8s reports `changed` only when the
+  # patch actually modifies the resource.
+  #
+  # Cluster boundary is "shares this primary." Under inventories/prd
+  # `hosts: k8s` resolves to k8s_prd + k8s_dev simultaneously, so we
+  # filter ansible_play_hosts_all to peers whose microk8s_primary_host
+  # matches ours rather than blindly iterating every targeted node.
+  kubernetes.core.k8s:
+    api_version: v1
+    kind: Node
+    name: "{{ item }}"
+    state: patched
+    kubeconfig: /var/snap/microk8s/current/credentials/client.config
+    definition:
+      metadata:
+        labels: "{{ hostvars[item].k8s_node_labels | default({}) }}"
+  loop: >-
+    {{ ansible_play_hosts_all
+       | map('extract', hostvars)
+       | selectattr('microk8s_primary_host', 'eq', microk8s_primary_host)
+       | map(attribute='inventory_hostname')
+       | list }}
+  loop_control:
+    label: "{{ item }}"
+  when: (hostvars[item].k8s_node_labels | default({})) | length > 0

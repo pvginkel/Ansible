@@ -20,3 +20,15 @@
     state: present
   environment:
     NEEDRESTART_MODE: a
+
+- name: Install python3-kubernetes (primary only — used by kubernetes.core.k8s)
+  # The labels and (Phase 4a) MetalLB reconciliation tasks run on the
+  # primary via kubernetes.core.k8s, which needs the `kubernetes`
+  # Python library on the host that executes the module. Secondaries
+  # never call kubernetes.core.k8s, so we install only where it's used.
+  ansible.builtin.apt:
+    name: python3-kubernetes
+    state: present
+  when: inventory_hostname == microk8s_primary_host
+  environment:
+    NEEDRESTART_MODE: a
