@@ -126,6 +126,12 @@ Labels are operator intent, not auto-derived from facts. The TF-side facts (`cpu
 
 No taints. Affinity is opt-in: workloads that need a capability declare `requiredDuringSchedulingIgnoredDuringExecution`; everything else schedules freely. The legacy `size=large/small` labels and the `size=large:PreferNoSchedule` taint are removed during Phase 4.
 
+### Dashboard tooling
+
+Today: microk8s's `dashboard` addon (the upstream `kubernetes/dashboard` project bundled with the snap). The operator depends on the web UI day-to-day; codified into `microk8s_addons` for prd and dev.
+
+**Revisit after the plan**: [Headlamp](https://headlamp.dev/) (CNCF, modern UI, plugin system) deployed as a Helm chart in `HelmCharts`. Same web-UI workflow, version ownership shifts off microk8s's release cadence onto the operator's Helm flow. `k9s` (terminal UI) and OpenLens / desktop apps are off the table — operator wants browser-based.
+
 ## Environment mapping
 
 Two Ansible inventories: `prd` and `scratch`. The split is **production-grade vs deliberately disposable**, not a risk gradient.

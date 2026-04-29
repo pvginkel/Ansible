@@ -1,0 +1,39 @@
+---
+# Development microk8s cluster — single node (wrkdevk8s), used for
+# HelmCharts iteration. Rebuilt in Phase 4a step 11 to settle the
+# target CIDRs (live cluster CIDR is 10.3.0.0/16 today; the role's
+# launch-config render is cosmetic until first init).
+#
+# Cluster and service CIDRs codified from
+# /work/KubernetesConfig/microk8s/lc-dev.yaml.
+
+microk8s_cluster_cidr_v4: 172.18.0.0/16
+microk8s_service_cidr_v4: 172.19.0.0/16
+microk8s_cluster_cidr_v6: fd02::/64
+microk8s_service_cidr_v6: fd99::/108
+
+microk8s_extra_sans:
+  - 172.19.0.1
+
+# core/ingress excluded per decisions.md "Tool split": operator runs
+# their own ingress controller. Live cluster has it enabled today;
+# settles at the step 11 rebuild. ha-cluster auto-enabled by microk8s.
+microk8s_addons:
+  - dns
+  - helm
+  - helm3
+  - metrics-server
+  - dashboard
+  - community
+  - metallb
+
+microk8s_users:
+  - pvginkel
+
+# Single-node cluster — wrkdevk8s is its own primary.
+microk8s_primary_host: wrkdevk8s
+
+# MetalLB pool from /work/KubernetesConfig/metallb/dev.yaml.
+microk8s_metallb_pool_addresses:
+  - 10.1.2.1-10.1.2.199
+  - 2a10:3781:565a:1:7912:b75a::/96

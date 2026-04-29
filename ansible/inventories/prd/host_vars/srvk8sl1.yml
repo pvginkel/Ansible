@@ -1,3 +1,12 @@
 ---
 vm_id: 103
 workload_class: background
+
+# Capability labels per decisions.md "k8s node capability labels".
+# srvk8sl1 carries both today (8 cores vs. 3 on the smalls; ZFS
+# passthrough as zpool2). Rebuild renames the host to srvk8s1; the
+# label declaration moves with it. The other two prd k8s nodes have
+# no labels — empty intent skips the role's reconcile.
+k8s_node_labels:
+  homelab.local/performance: high
+  homelab.local/storage: zpool2

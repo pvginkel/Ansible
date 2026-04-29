@@ -10,5 +10,8 @@ galaxy_info:
       versions:
         - noble
 
-dependencies:
-  - role: baseline
+# site.yml runs the bootstrap+baseline plays against `managed` before
+# this role's play executes, so a meta dep on baseline would re-run it
+# against `k8s` and produce duplicated tasks. Roles in this repo
+# compose via play ordering in site.yml, not meta dependencies.
+dependencies: []

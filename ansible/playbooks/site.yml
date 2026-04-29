@@ -15,3 +15,13 @@
   gather_facts: true
   roles:
     - role: proxmox_host
+
+- name: Apply microk8s to k8s nodes
+  # `k8s` resolves to k8s_prd + k8s_dev (under inventories/prd) or
+  # k8s_scratch (under inventories/scratch); per-cluster CIDRs, addons,
+  # and primary host live in group_vars/k8s_<cluster>.yml.
+  hosts: k8s
+  become: true
+  gather_facts: true
+  roles:
+    - role: microk8s

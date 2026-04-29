@@ -1,0 +1,45 @@
+---
+# Production microk8s cluster — 3 nodes (srvk8sl1, srvk8ss1, srvk8ss2),
+# rebuilt to srvk8s1/2/3 in Phase 4a step 10.
+#
+# Cluster and service CIDRs are codified from
+# /work/KubernetesConfig/microk8s/lc-prd.yaml — the launch-config the
+# cluster bootstrapped against; preserved so the role's render of
+# .microk8s.yaml matches what's already on disk.
+
+microk8s_cluster_cidr_v4: 172.16.0.0/16
+microk8s_service_cidr_v4: 172.17.0.0/16
+microk8s_cluster_cidr_v6: fd01::/64
+microk8s_service_cidr_v6: fd98::/108
+
+# Service-network gateway IP — added as an API-server SAN so clients
+# addressing the API through the service network can verify TLS.
+microk8s_extra_sans:
+  - 172.17.0.1
+
+# core/registry excluded per decisions.md "Tool split": the operator
+# runs their own registry, so the live `registry` addon stays enabled
+# until disabled out-of-band (the role is additive — only enables
+# what's in this list, never disables what isn't). ha-cluster is
+# omitted because microk8s auto-enables it on multi-node join.
+microk8s_addons:
+  - dns
+  - helm
+  - helm3
+  - metrics-server
+  - dashboard
+  - community
+  - metallb
+
+microk8s_users:
+  - pvginkel
+
+# Cluster primary — bootstraps the solo cluster on first install,
+# mints join tokens, reconciles cluster-scoped state. Stays srvk8sl1
+# until Phase 4a step 10 renames it to srvk8s1.
+microk8s_primary_host: srvk8sl1
+
+# MetalLB pool from /work/KubernetesConfig/metallb/prd.yaml.
+microk8s_metallb_pool_addresses:
+  - 10.2.1.1-10.2.1.199
+  - 2a10:3781:565a:0:7912:b75b::/96
