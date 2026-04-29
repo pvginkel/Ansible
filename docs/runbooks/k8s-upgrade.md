@@ -9,7 +9,7 @@ A pre-flight assertion runs first per host: refuses to step microk8s by more tha
 Then for each cluster member, one node at a time (`serial: 1`):
 
 1. **Drain** the node from the cluster primary, ignoring DaemonSets and accepting emptyDir loss. Skipped on single-node clusters.
-2. **Snap-refresh microk8s** to the channel pinned in `group_vars/k8s_<cluster>.yml` (or overridden in `host_vars/<host>.yml`). No-op when already current.
+2. **Snap-refresh microk8s** to the channel pinned in `group_vars/k8s_<cluster>.yml` (or overridden in `host_vars/<host>.yml`). Forces a refresh every run via `state: refreshed` — picks up patch revisions within the same channel (e.g. `1.32.13` → `1.32.14`); no-op when already at the latest revision in the channel.
 3. **`apt full-upgrade`** — picks up kernel, security, and package updates.
 4. **Reboot** if `/var/run/reboot-required` is present (kernel/glibc/etc.).
 5. **Wait for microk8s `Ready`** — both after snap-refresh and after reboot.
