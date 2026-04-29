@@ -76,6 +76,33 @@ Per cluster, on the primary only:
 
 Brief unavailability per addon during the disable/enable cycle. Run during a maintenance window.
 
+## Drain blocked by a PodDisruptionBudget
+
+Drain uses `kubectl drain --ignore-daemonsets --delete-emptydir-data --timeout=300s`, which honours PodDisruptionBudgets. A PDB that can't be satisfied (e.g. a single-replica Deployment with `minAvailable: 1`, where evicting the only pod would violate the budget) blocks drain indefinitely; after the 5-minute timeout the playbook fails and the node stays cordoned.
+
+Symptom in the run output:
+
+```
+error when evicting pods/"<name>" -n "<namespace>": Cannot evict pod as it would violate the pod's disruption budget.
+```
+
+Recovery for the in-flight run:
+
+```sh
+microk8s kubectl uncordon <stuck-node>
+microk8s kubectl delete pod <stuck-pod> -n <stuck-namespace> --grace-period=0 --force
+poetry run ansible-playbook playbooks/update-k8s.yml \
+    -i inventories/prd --limit '<remaining-nodes>'
+```
+
+The force-delete bypasses the PDB by skipping the eviction API entirely. The Deployment recreates the pod on a still-schedulable node.
+
+Long-term fix: audit `HelmCharts` for charts whose PDB blocks drain. For single-replica services, drop the PDB or switch from `minAvailable: 1` to `maxUnavailable: 1` (allows the one pod to be unavailable during a drain — same effect as no PDB during scheduled maintenance, but still protects against accidental concurrent disruption).
+
+## Workstation DNS during a roll
+
+If your operator workstation's DNS points only at a resolver hosted on the cluster being rolled, every node-reboot window will black out resolution from the workstation — including the workstation's connection to *other* nodes the playbook is trying to mutate. Make sure the workstation has a secondary resolver pointing somewhere not hosted on the cluster (LAN router, public DNS) before running. DHCP option 6 with both resolvers is the obvious answer.
+
 ## Rollback
 
 A microk8s refresh that goes sideways:
