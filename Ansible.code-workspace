@@ -8,6 +8,9 @@
 		},
 		{
 			"path": "../DockerImages"
+		},
+		{
+			"path": "../KubernetesConfig"
 		}
 	],
 	"settings": {}

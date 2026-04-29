@@ -25,3 +25,4 @@ services:
       - ../HelmCharts:/work/HelmCharts:ro
       - ../DockerImages:/work/DockerImages:ro
       - ../Obsidian:/work/Obsidian:rw
+      - ../KubernetesConfig:/work/KubernetesConfig:ro
