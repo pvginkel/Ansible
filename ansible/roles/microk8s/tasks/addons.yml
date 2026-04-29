@@ -5,9 +5,15 @@
   changed_when: false
 
 - name: Compute the set of currently-enabled addons
+  # Defensive parse: `microk8s status --format yaml` is normally a
+  # populated mapping with an `addons:` list, but a transient (snap
+  # mid-restart, daemon reloading after addon changes) can produce
+  # empty stdout or a mapping without the key. Collapse those to []
+  # rather than failing the role — worst case the next task tries to
+  # enable already-enabled addons, which microk8s no-ops.
   ansible.builtin.set_fact:
     microk8s_enabled_addons: >-
-      {{ (microk8s_status_raw.stdout | from_yaml).addons
+      {{ (((microk8s_status_raw.stdout | from_yaml) or {}).get('addons') or [])
          | selectattr('status', 'eq', 'enabled')
          | map(attribute='name')
          | list }}
