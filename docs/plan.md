@@ -30,7 +30,8 @@ When a phase is complete, mark its status here, commit, and the next conversatio
 | 2 | Proxmox host management | ✅ Done | [`phases/phase-2-proxmox-hosts.md`](phases/phase-2-proxmox-hosts.md) |
 | 3 | VM fleet via Terraform — `disk_resize` | ✅ Done | [`phases/phase-3-vm-fleet.md`](phases/phase-3-vm-fleet.md) |
 | 3a | VM fleet under Terraform state | ✅ Done | [`phases/phase-3a-vm-fleet-import.md`](phases/phase-3a-vm-fleet-import.md) |
-| 4 | microk8s roles and upgrade | ⏳ Planned | [`phases/phase-4-microk8s.md`](phases/phase-4-microk8s.md) |
+| 4 | microk8s role (scratch exercise) | ✅ Done | [`phases/phase-4-microk8s.md`](phases/phase-4-microk8s.md) |
+| 4a | microk8s alignment, upgrade, rebuild | ⏳ Planned | [`phases/phase-4a-microk8s-rebuild.md`](phases/phase-4a-microk8s-rebuild.md) |
 | 5 | microceph roles and upgrade | ⏳ Planned | — |
 | 6 | OpenBao + secrets wiring | ⏳ Planned | — |
 | 7 | Ceph storage resources | ⏳ Planned | — |
@@ -62,9 +63,13 @@ Build `adopt.yml` (the onboarding playbook for non-cloud-init'd hosts), use it t
 
 Model the six existing managed VMs as Terraform resources and adopt them into state. Establish the "rebuild a VM from scratch" workflow (terraform + bootstrap + baseline + role) that becomes the upgrade path for everything downstream. Implement the `pve_node_backup_datastore` attribute to drive per-disk `backup` flags. Normalize `srvk8ss2` to UEFI. Add `lifecycle { prevent_destroy = true }` on the (future) Jenkins agent VM and OpenBao VM resources per `docs/decisions.md` "Production execution model" — those are created in Phases 6 and 10 respectively, so the requirement is carried forward, not solved here.
 
-### 4 — microk8s roles and upgrade
+### 4 — microk8s role (scratch exercise) (done)
 
-Install, join, and HA-configure microk8s nodes. Deliver the upgrade playbook (cordon/drain/upgrade/uncordon, `serial: 1`) for both the 3-node prod cluster and the single-node dev cluster. Source: `/work/Obsidian/Kubernetes.md`. Includes rebuilding the existing prod nodes from scratch as the parity event per `docs/decisions.md`.
+Built and exercised the `microk8s` role on a fresh two-node scratch cluster: kernel modules, Ceph client tooling, snap install pinned to channel, `.microk8s.yaml`, Calico autodetect, addon enablement, idempotent multi-node join via primary/secondary split, OS-user group + kubectl alias. `--check --diff` and re-runs report `changed=0`. Capability-label and MetalLB pool reconciliation, live-cluster adoption, the upgrade playbook, the per-VM TF rework, and the actual rebuild are all in 4a.
+
+### 4a — microk8s alignment, upgrade, rebuild
+
+Complete the role's missing reconciliation pieces (capability labels, MetalLB IPAddressPool), adopt the live prod and dev clusters under the role additively, drive the HelmCharts label migration to a clean slate, deliver the drain-aware upgrade playbook, and rebuild the four k8s VMs (`srvk8sl1/ss1/ss2 → srvk8s1/2/3` + `wrkdevk8s`) on the from-scratch shape. Closes the parity event for `k8s_prd` and `k8s_dev`.
 
 ### 5 — microceph roles and upgrade
 
