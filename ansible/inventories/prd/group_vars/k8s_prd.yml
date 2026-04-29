@@ -7,6 +7,13 @@
 # cluster bootstrapped against; preserved so the role's render of
 # .microk8s.yaml matches what's already on disk.
 
+# Pinned per cluster per decisions.md "k8s version policy" so dev can
+# soak a new minor independently before prd moves. Read by the role
+# *and* by playbooks/update-k8s.yml — keep here, not in role defaults
+# alone, so standalone playbooks resolve the channel without applying
+# the role.
+microk8s_channel: 1.32/stable
+
 microk8s_cluster_cidr_v4: 172.16.0.0/16
 microk8s_service_cidr_v4: 172.17.0.0/16
 microk8s_cluster_cidr_v6: fd01::/64

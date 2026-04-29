@@ -4,6 +4,10 @@
 # CIDRs chosen to not collide with the prd cluster (172.16/16 + 172.17/16)
 # or dev cluster (172.18/16 + 172.19/16) — see /work/KubernetesConfig/microk8s/
 # for those — nor with the homelab LAN at 10.1.0.0/24.
+
+# Same channel as prd; scratch tracks current LTS.
+microk8s_channel: 1.32/stable
+
 microk8s_cluster_cidr_v4: 172.20.0.0/16
 microk8s_service_cidr_v4: 172.21.0.0/16
 microk8s_cluster_cidr_v6: fda0::/64

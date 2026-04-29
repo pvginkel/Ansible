@@ -7,6 +7,11 @@
 # Cluster and service CIDRs codified from
 # /work/KubernetesConfig/microk8s/lc-dev.yaml.
 
+# Target channel for k8s_dev. wrkdevk8s is currently pinned to
+# 1.30/stable in host_vars until the Phase 4a step 11 rebuild — the
+# rebuild lifts the override and the cluster lands here.
+microk8s_channel: 1.32/stable
+
 microk8s_cluster_cidr_v4: 172.18.0.0/16
 microk8s_service_cidr_v4: 172.19.0.0/16
 microk8s_cluster_cidr_v6: fd02::/64
