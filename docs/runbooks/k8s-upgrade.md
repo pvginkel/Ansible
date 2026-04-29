@@ -58,6 +58,24 @@ poetry run ansible-playbook playbooks/update-k8s.yml \
 
 Three-node cluster, real drain/uncordon cycle. Roll takes a few minutes per node × 3 nodes (assuming reboots).
 
+## Refreshing addons after a microk8s upgrade
+
+Addons (DNS, MetalLB, dashboard, etc.) and the CNI ship with manifests pinned to whatever microk8s revision was *current at install time*; they don't auto-update when the snap refreshes. After a microk8s minor bump you'll want to refresh them, but **don't** bundle this with the snap upgrade — soak the cluster on the new microk8s version for a few days first so any regression in the addons is isolated from regressions in microk8s itself.
+
+```sh
+poetry run ansible-playbook playbooks/refresh-k8s-addons.yml \
+    -i inventories/prd --limit k8s_prd
+```
+
+Per cluster, on the primary only:
+
+1. `microk8s addons repo update core` — pulls fresh manifests.
+2. Iterates `microk8s_addons` from group_vars: `microk8s disable <addon>` then `microk8s enable <addon>`.
+3. Waits for microk8s `Ready`.
+4. Re-applies the role's `metallb.yml` task — the re-enable resets `default-addresspool` to a sentinel range; this restores it to your real `microk8s_metallb_pool_addresses`.
+
+Brief unavailability per addon during the disable/enable cycle. Run during a maintenance window.
+
 ## Rollback
 
 A microk8s refresh that goes sideways:

@@ -1,0 +1,65 @@
+---
+# refresh-k8s-addons.yml — refresh microk8s addons after a snap upgrade
+# has stabilised.
+#
+# Addons and the CNI ship with manifests pinned to whatever microk8s
+# revision was *current at install time* and do NOT auto-update when
+# microk8s itself is refreshed. This playbook re-pulls the addon repo
+# and disables/re-enables every configured addon so they pick up the
+# manifests current in the installed microk8s revision.
+#
+# Run deliberately — NOT after every update-k8s.yml run. Soak the
+# cluster on the new microk8s version for a few days first to isolate
+# any regression in the snap from regressions in the addons. See
+# docs/runbooks/k8s-upgrade.md.
+#
+# Cluster-scoped state, so only the primary executes the disable/
+# enable cycle and addon-repo refresh — those propagate to all
+# cluster members.
+
+- name: Refresh microk8s addons
+  hosts: k8s
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Skip non-primary peers
+      ansible.builtin.meta: end_host
+      when: inventory_hostname != microk8s_primary_host
+
+    - name: Refresh the core addon repo
+      ansible.builtin.command: microk8s addons repo update core
+      changed_when: true
+
+    - name: Disable each configured addon
+      # Looped, sequential. Each disable evicts the addon's pods and
+      # removes its resources; the cluster briefly loses that addon's
+      # function (DNS, dashboard, MetalLB controller, etc.) until the
+      # matching enable runs in the next task. Operator-driven, run
+      # during a maintenance window.
+      ansible.builtin.command: "microk8s disable {{ item }}"
+      loop: "{{ microk8s_addons }}"
+      changed_when: true
+
+    - name: Re-enable each configured addon
+      # Same metallb-arg quirk as the role's addons.yml — sentinel
+      # range satisfies the addon's required prompt; the metallb
+      # reconcile in the next task overwrites with the real range.
+      ansible.builtin.command: >-
+        microk8s enable {{ item }}{{ ':192.0.2.1-192.0.2.1' if item == 'metallb' else '' }}
+      loop: "{{ microk8s_addons }}"
+      changed_when: true
+
+    - name: Wait for microk8s Ready post-addon-refresh
+      ansible.builtin.command: microk8s status --wait-ready --timeout 240
+      changed_when: false
+
+    - name: Reconcile MetalLB IPAddressPool + L2Advertisement
+      # Re-enabling the metallb addon recreates default-addresspool
+      # with the sentinel range from the previous task; this restores
+      # the operator's real range from microk8s_metallb_pool_addresses.
+      # Loaded as a role-task import so the role's defaults are in
+      # scope (microk8s_metallb_namespace, _pool_name,
+      # _advertisement_name).
+      ansible.builtin.import_role:
+        name: microk8s
+        tasks_from: metallb
