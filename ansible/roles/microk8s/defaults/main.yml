@@ -26,8 +26,11 @@ microk8s_service_cidr_v6: ""
 # through the service network can verify TLS.
 microk8s_extra_sans: []
 
-# Addons enabled on every node the role runs against. Order matters in
-# microk8s — `community` must precede community-namespaced addons.
+# Addons enabled on every node the role runs against. Bare names only;
+# microk8s install quirks that need positional args (today: metallb's
+# IP-range prompt) are handled inline in tasks/addons.yml so inventory
+# stays clean. Order matters in microk8s — `community` must precede
+# community-namespaced addons.
 microk8s_addons:
   - dns
   - helm
@@ -38,11 +41,23 @@ microk8s_addons:
 # the snap alias without sudo. Empty = no users added.
 microk8s_users: []
 
-# Hostname of the cluster's primary node — the one from which addons (and,
-# in follow-ups, the MetalLB pool spec and capability labels) are
-# reconciled, and the one the join token is requested from. Required per
-# cluster; for single-node clusters set it to that node's own hostname.
+# Hostname of the cluster's primary node — the one from which addons,
+# capability labels, and the MetalLB pool spec are reconciled, and the
+# one the join token is requested from. Required per cluster; for
+# single-node clusters set it to that node's own hostname.
 microk8s_primary_host: ""
+
+# MetalLB IPAddressPool + L2Advertisement reconciled by the role on the
+# primary. Empty addresses list skips the task. The `metallb` addon
+# must also be in microk8s_addons for the controller to be installed.
+# Pool/advertisement names default to what the addon creates
+# (`default-addresspool`, `default-advertise-all-pools`) so the role
+# upserts in place — the sentinel range the addon was enabled with
+# (see tasks/addons.yml) is overwritten the first time this runs.
+microk8s_metallb_namespace: metallb-system
+microk8s_metallb_pool_name: default-addresspool
+microk8s_metallb_advertisement_name: default-advertise-all-pools
+microk8s_metallb_pool_addresses: []
 
 # Kernel modules required by microk8s and the Ceph CSI clients. Loaded via
 # /etc/modules-load.d/ so they survive reboots.

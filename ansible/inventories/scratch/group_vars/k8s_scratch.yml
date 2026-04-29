@@ -14,14 +14,22 @@ microk8s_service_cidr_v6: fda1::/108
 microk8s_extra_sans:
   - 172.21.0.1
 
-# Minimal addon set for scratch — enough to exercise the role's enable
-# path without enabling everything prd uses (no metallb, no community,
-# no dashboard; those land via prd group_vars at step 4 of phase 4).
+# Addon set for scratch — exercises the role's enable path. metallb
+# installs the controller; the role's metallb task then upserts the
+# addon's pool/advertisement with the real range below.
 microk8s_addons:
   - dns
   - helm
   - helm3
   - metrics-server
+  - metallb
+
+# Range for the role-owned pool. 10.99.99.0/24 is deliberately unrouted
+# so scratch's L2 advertisement doesn't conflict with anything on the
+# LAN — scratch only exercises that the resources reconcile cleanly,
+# not that they allocate distinct address space.
+microk8s_metallb_pool_addresses:
+  - 10.99.99.1-10.99.99.5
 
 microk8s_users:
   - pvginkel

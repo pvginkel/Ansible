@@ -1,0 +1,36 @@
+---
+# MetalLB IPAddressPool + L2Advertisement reconciliation. The microk8s
+# `metallb` addon installs the controller and creates a default pool +
+# advertisement from its colon-arg; this task upserts those same
+# resources by name, so the addon's range is overwritten the moment
+# the reconcile runs and the role becomes the single source of truth.
+# Empty addresses → both tasks skip.
+
+- name: Reconcile MetalLB IPAddressPool ({{ microk8s_metallb_pool_name }})
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /var/snap/microk8s/current/credentials/client.config
+    definition:
+      apiVersion: metallb.io/v1beta1
+      kind: IPAddressPool
+      metadata:
+        name: "{{ microk8s_metallb_pool_name }}"
+        namespace: "{{ microk8s_metallb_namespace }}"
+      spec:
+        addresses: "{{ microk8s_metallb_pool_addresses }}"
+  when: microk8s_metallb_pool_addresses | length > 0
+
+- name: Reconcile MetalLB L2Advertisement ({{ microk8s_metallb_advertisement_name }})
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /var/snap/microk8s/current/credentials/client.config
+    definition:
+      apiVersion: metallb.io/v1beta1
+      kind: L2Advertisement
+      metadata:
+        name: "{{ microk8s_metallb_advertisement_name }}"
+        namespace: "{{ microk8s_metallb_namespace }}"
+      spec:
+        ipAddressPools:
+          - "{{ microk8s_metallb_pool_name }}"
+  when: microk8s_metallb_pool_addresses | length > 0

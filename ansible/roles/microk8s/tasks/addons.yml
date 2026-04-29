@@ -22,7 +22,16 @@
          | list }}
 
 - name: Enable missing addons
-  ansible.builtin.command: "microk8s enable {{ item }}"
+  # The metallb addon's enable command requires a positional IP-range
+  # arg or it prompts interactively. The role's metallb.yml task
+  # upserts the addon's pool with the real range from inventory
+  # immediately afterward, so the value passed here is never the live
+  # allocation source — a sentinel from RFC 5737 documentation space
+  # is enough to satisfy the prompt. Keeping it inline (rather than
+  # surfacing in microk8s_addons) hides the microk8s install quirk
+  # from inventory.
+  ansible.builtin.command: >-
+    microk8s enable {{ item }}{{ ':192.0.2.1-192.0.2.1' if item == 'metallb' else '' }}
   loop: "{{ microk8s_addons }}"
   when: item not in microk8s_enabled_addons
   changed_when: true

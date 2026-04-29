@@ -37,9 +37,9 @@
     - _microk8s_installed.stat.exists
     - inventory_hostname != microk8s_primary_host
 
-# Cluster-scoped state — addons, capability labels, and (in a follow-up)
-# the MetalLB pool spec — reconcile only on the primary. Per-node state
-# above applies everywhere.
+# Cluster-scoped state — addons, capability labels, and the MetalLB
+# pool spec — reconcile only on the primary. Per-node state above
+# applies everywhere.
 - name: Enable addons (primary only)
   ansible.builtin.import_tasks: addons.yml
   when:
@@ -48,6 +48,12 @@
 
 - name: Reconcile capability labels (primary only)
   ansible.builtin.import_tasks: labels.yml
+  when:
+    - _microk8s_installed.stat.exists
+    - inventory_hostname == microk8s_primary_host
+
+- name: Reconcile MetalLB IPAddressPool + L2Advertisement (primary only)
+  ansible.builtin.import_tasks: metallb.yml
   when:
     - _microk8s_installed.stat.exists
     - inventory_hostname == microk8s_primary_host
