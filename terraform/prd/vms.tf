@@ -53,13 +53,14 @@ locals {
       ]
     }
 
-    srvk8sl1 = {
-      vm_id       = 103
-      pve_node    = "pve"
-      description = "microk8s control-plane / large worker. OS managed by Ansible (k8s_prd group)."
-      tags        = ["ansible-managed", "terraform", "k8s"]
-      smbios_uuid = "db20f84e-5549-4717-92c2-90e6d8957b3c"
-      bios        = "ovmf"
+    srvk8s1 = {
+      vm_id        = 910
+      pve_node     = "pve"
+      from_scratch = true
+      description  = "microk8s node 1 of 3 (carries zpool2 via NVMe passthrough). OS managed by Ansible (k8s_prd group)."
+      tags         = ["ansible-managed", "terraform", "k8s"]
+      bios         = "ovmf"
+      machine      = "q35"
 
       cpu_cores   = 8
       cpu_sockets = 1
@@ -70,19 +71,18 @@ locals {
         { interface = "scsi1", size = 80 },
       ]
 
-      # nvme1n1 — cloud-sync ZFS volume passthrough.
-      passthrough_disks = [
-        {
-          interface         = "scsi2"
-          path_in_datastore = "/dev/disk/by-id/nvme-Samsung_SSD_980_500GB_S64DNX0RC21332X"
-        },
-      ]
+      # NVMe at nvme-Samsung_SSD_980_500GB_S64DNX0RC21332X backs zpool2
+      # (decisions.md "k8s node capability labels"). Owned by Ansible's
+      # proxmox_host role; declared in host_vars/srvk8s1.yml at rebuild
+      # time and attached via `qm set` post-VM-create.
 
-      # Three NICs: house net, k8s workload VLAN (vmbr0 tag=2), 10 Gb backplane.
+      # Three NICs: house net, k8s workload VLAN (vmbr0 tag=2), 10 Gb
+      # backplane. Deterministic MAC: 02:A7:F3:VV:VV:EE where VV:VV is
+      # VMID big-endian and EE is the NIC index. VMID 910 = 0x038E.
       network_devices = [
-        { bridge = "vmbr0", mac_address = "BC:24:11:3D:56:09" },
-        { bridge = "vmbr0", mac_address = "BC:24:11:3F:F2:71", vlan_id = 2 },
-        { bridge = "vmbr1", mac_address = "BC:24:11:C2:03:95" },
+        { bridge = "vmbr0", mac_address = "02:A7:F3:03:8E:00" },
+        { bridge = "vmbr0", mac_address = "02:A7:F3:03:8E:01", vlan_id = 2 },
+        { bridge = "vmbr1", mac_address = "02:A7:F3:03:8E:02" },
       ]
     }
 
