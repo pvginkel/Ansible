@@ -27,16 +27,17 @@ locals {
       ]
     }
 
-    srvk8ss2 = {
-      vm_id       = 107
-      pve_node    = "pve2"
-      description = "microk8s small worker 2 of 2. OS managed by Ansible (k8s_prd group)."
-      tags        = ["ansible-managed", "terraform", "k8s"]
-      smbios_uuid = "8d300dfe-abfa-42ab-9d24-47f5bc8944a0"
-      # Live VM is still seabios — operator's manual UEFI flip was abandoned.
-      # Phase 4's rebuild flips to ovmf (and adds an EFI disk) as part of the
-      # rebuild commit. Until then, model matches reality so plan stays clean.
-      bios = "seabios"
+    srvk8s3 = {
+      vm_id        = 912
+      pve_node     = "pve2"
+      from_scratch = true
+      description  = "microk8s node 3 of 3. OS managed by Ansible (k8s_prd group)."
+      tags         = ["ansible-managed", "terraform", "k8s"]
+      # Live VM is seabios; rebuild flips to ovmf (the operator's
+      # earlier manual flip was abandoned). The from-scratch path
+      # adds the EFI disk implicitly via the module's efi_disk block.
+      bios    = "ovmf"
+      machine = "q35"
 
       cpu_cores   = 3
       cpu_sockets = 1
@@ -46,12 +47,13 @@ locals {
         { interface = "scsi0", size = 20 },
         { interface = "scsi1", size = 80 },
       ]
-      passthrough_disks = []
 
+      # Three NICs: house net, k8s workload VLAN (vmbr0 tag=2), 10 Gb
+      # backplane. Deterministic MAC: VMID 912 = 0x0390.
       network_devices = [
-        { bridge = "vmbr0", mac_address = "BC:24:11:52:D7:84" },
-        { bridge = "vmbr0", mac_address = "BC:24:11:09:BF:9D", vlan_id = 2 },
-        { bridge = "vmbr1", mac_address = "BC:24:11:53:B9:3F" },
+        { bridge = "vmbr0", mac_address = "02:A7:F3:03:90:00" },
+        { bridge = "vmbr0", mac_address = "02:A7:F3:03:90:01", vlan_id = 2 },
+        { bridge = "vmbr1", mac_address = "02:A7:F3:03:90:02" },
       ]
     }
 
