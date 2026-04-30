@@ -3,7 +3,14 @@ provider "proxmox" {
   api_token = var.proxmox_api_token
   insecure  = var.proxmox_insecure
 
-  # No ssh { } block — none of the VMs in local.vms upload cloud-init
-  # snippets today, so the provider has no need to SSH to PVE. Add it back
-  # when a VM here gains a cloud-init resource (see terraform/scratch/).
+  # Snippet uploads (proxmox_virtual_environment_file content_type =
+  # snippets) go over SSH, not the API. Required from phase 4b
+  # onwards: from-scratch VMs ship a cloud-init snippet to PVE.
+  # `agent = true` means the loaded ssh-agent must hold a key
+  # authorized as `root` on each PVE node; ~/.ssh/config is ignored.
+  # See docs/runbooks/operator-workstation.md.
+  ssh {
+    agent    = true
+    username = "root"
+  }
 }

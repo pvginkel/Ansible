@@ -7,5 +7,16 @@ terraform {
     proxmox = {
       source = "bpg/proxmox"
     }
+    # tls + local providers are used by the from-scratch resources in
+    # main.tf (per-VM host keypair + known_hosts.d/prd). Adopted-only
+    # configurations don't exercise them.
+    tls = {
+      source  = "hashicorp/tls"
+      version = "~> 4.0"
+    }
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.5"
+    }
   }
 }

@@ -21,6 +21,7 @@ resource "proxmox_virtual_environment_vm" "this" {
   tags        = var.tags
 
   bios       = var.bios
+  machine    = var.machine
   on_boot    = true
   boot_order = var.boot_order
 
@@ -81,15 +82,22 @@ resource "proxmox_virtual_environment_vm" "this" {
       size         = disk.value.size
       discard      = disk.value.discard
       iothread     = disk.value.iothread
-      backup       = local.pve_node_has_backup
+      # First managed disk holds the cloud image when from-scratch.
+      # Otherwise null = unset → bpg leaves state as-is (adopted disks
+      # imported without a file_id stay that way).
+      file_id = (var.cloud_init != null && disk.key == 0) ? var.cloud_init.image_file_id : null
+      ssd     = (var.cloud_init != null && disk.key == 0) ? true : null
+      backup  = local.pve_node_has_backup
     }
   }
 
   # Passthrough disks must follow managed disks in declaration order so
-  # state's disk[] indexing matches what bpg's import set.
-  # TF can import these but cannot create/modify them via API token (PVE
-  # restriction on arbitrary filesystem paths). On rebuild, the passthrough
-  # block is removed from the module before TF runs, then Ansible reattaches.
+  # state's disk[] indexing matches what bpg's import set. TF can import
+  # these but cannot create/modify them via API token (PVE rejects
+  # arbitrary filesystem paths under non-root users). Adopted VMs (cephs
+  # today) declare them here; rebuilt VMs leave this empty and let
+  # `proxmox_host` reconcile via `qm set` — see lifecycle.ignore_changes
+  # below.
   dynamic "disk" {
     for_each = var.passthrough_disks
     content {
@@ -97,6 +105,35 @@ resource "proxmox_virtual_environment_vm" "this" {
       path_in_datastore = disk.value.path_in_datastore
       interface         = disk.value.interface
       backup            = false
+    }
+  }
+
+  dynamic "serial_device" {
+    # Cloud-init logging + emergency console on ttyS0. Required only on
+    # from-scratch builds; adopted VMs without it carry on as-is.
+    for_each = var.cloud_init != null ? [1] : []
+    content {}
+  }
+
+  dynamic "initialization" {
+    for_each = var.cloud_init != null ? [var.cloud_init] : []
+    content {
+      datastore_id = initialization.value.datastore_id
+
+      # DHCP only — dnsmasq is the IPv4 reservation authority (keyed on
+      # the deterministic MAC); the router handles IPv6 (SLAAC/DHCPv6).
+      # The block has to be present or PVE writes no network config and
+      # the NIC stays admin-down.
+      ip_config {
+        ipv4 {
+          address = "dhcp"
+        }
+        ipv6 {
+          address = "dhcp"
+        }
+      }
+
+      user_data_file_id = initialization.value.user_data_file_id
     }
   }
 
@@ -116,6 +153,11 @@ resource "proxmox_virtual_environment_vm" "this" {
       # Reconciled by Ansible (proxmox_host role on `pve`), not Terraform.
       # See decisions.md "Proxmox VM CPU affinity".
       cpu[0].affinity,
+      # Cloud image rolls forward under `current/`; ignore so a newer
+      # Canonical point release doesn't make every plan want to rebuild
+      # the VM. Pick up a new image deliberately via `terraform apply
+      # -replace`. No-op on adopted VMs (no file_id on disk[0]).
+      disk[0].file_id,
       # Slots 2 and 3 are reserved for passthrough disks owned by the
       # `proxmox_host` role. PVE rejects API-token writes to passthrough
       # blocks, so TF cannot mutate them — ignoring the slots prevents

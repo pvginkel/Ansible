@@ -114,3 +114,19 @@ variable "include_cdrom_ide2" {
   type        = bool
   default     = true
 }
+
+variable "machine" {
+  description = "QEMU machine type. \"q35\" pairs with OVMF for from-scratch cloud-init builds; null leaves it for PVE to pick (the path adopted VMs took at original create time)."
+  type        = string
+  default     = null
+}
+
+variable "cloud_init" {
+  description = "Cloud-init wiring — when non-null, the module builds the from-scratch shape: scsi0 boots from `image_file_id`, an `initialization` block points at `user_data_file_id`, and a serial console is added. Omit (null) for the adoption shape, where the VM is imported into state from a pre-existing PVE entity. See decisions.md \"Adoption is a waypoint; rebuild is the parity event\"."
+  type = object({
+    image_file_id     = string
+    user_data_file_id = string
+    datastore_id      = optional(string, "local-lvm")
+  })
+  default = null
+}
