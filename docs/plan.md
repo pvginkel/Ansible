@@ -31,7 +31,8 @@ When a phase is complete, mark its status here, commit, and the next conversatio
 | 3 | VM fleet via Terraform — `disk_resize` | ✅ Done | [`phases/phase-3-vm-fleet.md`](phases/phase-3-vm-fleet.md) |
 | 3a | VM fleet under Terraform state | ✅ Done | [`phases/phase-3a-vm-fleet-import.md`](phases/phase-3a-vm-fleet-import.md) |
 | 4 | microk8s role (scratch exercise) | ✅ Done | [`phases/phase-4-microk8s.md`](phases/phase-4-microk8s.md) |
-| 4a | microk8s alignment, upgrade, rebuild | ⏳ Planned | [`phases/phase-4a-microk8s-rebuild.md`](phases/phase-4a-microk8s-rebuild.md) |
+| 4a | microk8s alignment + upgrade | ✅ Done | [`phases/phase-4a-microk8s-alignment.md`](phases/phase-4a-microk8s-alignment.md) |
+| 4b | microk8s VM rebuild | ⏳ Planned | [`phases/phase-4b-microk8s-rebuild.md`](phases/phase-4b-microk8s-rebuild.md) |
 | 5 | microceph roles and upgrade | ⏳ Planned | — |
 | 6 | OpenBao + secrets wiring | ⏳ Planned | — |
 | 7 | Ceph storage resources | ⏳ Planned | — |
@@ -67,9 +68,13 @@ Model the six existing managed VMs as Terraform resources and adopt them into st
 
 Built and exercised the `microk8s` role on a fresh two-node scratch cluster: kernel modules, Ceph client tooling, snap install pinned to channel, `.microk8s.yaml`, Calico autodetect, addon enablement, idempotent multi-node join via primary/secondary split, OS-user group + kubectl alias. `--check --diff` and re-runs report `changed=0`. Capability-label and MetalLB pool reconciliation, live-cluster adoption, the upgrade playbook, the per-VM TF rework, and the actual rebuild are all in 4a.
 
-### 4a — microk8s alignment, upgrade, rebuild
+### 4a — microk8s alignment + upgrade (done)
 
-Complete the role's missing reconciliation pieces (capability labels, MetalLB IPAddressPool), adopt the live prod and dev clusters under the role additively, drive the HelmCharts label migration to a clean slate, deliver the drain-aware upgrade playbook, and rebuild the four k8s VMs (`srvk8sl1/ss1/ss2 → srvk8s1/2/3` + `wrkdevk8s`) on the from-scratch shape. Closes the parity event for `k8s_prd` and `k8s_dev`.
+Completed the role's missing reconciliation pieces (capability labels, MetalLB IPAddressPool), adopted the live prod and dev clusters under the role additively, drove the HelmCharts label migration to a clean slate, removed the legacy `size=*` labels and `PreferNoSchedule` taint, and delivered the drain-aware upgrade playbook (`update-k8s.yml`) plus the addon-refresh playbook (`refresh-k8s-addons.yml`). Cluster is in target shape pre-rebuild.
+
+### 4b — microk8s VM rebuild
+
+Rework the per-VM TF modules for the four k8s VMs to the from-scratch shape, build `rebuild-k8s.yml` (drain-aware, `serial: 1`), and rebuild the four VMs in turn (`srvk8sl1/ss1/ss2 → srvk8s1/2/3` plus `wrkdevk8s`). Closes the parity event for `k8s_prd` and `k8s_dev`.
 
 ### 5 — microceph roles and upgrade
 
