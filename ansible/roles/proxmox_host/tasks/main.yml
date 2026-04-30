@@ -64,6 +64,74 @@
         != proxmox_workload_affinity_cores[item.item.workload_class]
       changed_when: true
 
+# Per-VM passthrough disk reconciliation. decisions.md "Disk
+# passthrough on managed VMs": PVE rejects API-token writes against
+# arbitrary filesystem paths, so Terraform can import passthrough
+# blocks but cannot create or modify them. Ansible owns the lifecycle
+# instead — read each pve-resident VM's `passthrough_disks` from
+# host_vars, compare against `qm config`, run `qm set` only on drift.
+# The companion module (`terraform/modules/managed-vm`) reserves
+# disk[2] and disk[3] in lifecycle.ignore_changes so TF does not
+# propose removing what this role attaches.
+- name: Reconcile per-VM passthrough disks
+  block:
+    - name: Build flat list of (vm, disk) pairs for this node
+      ansible.builtin.set_fact:
+        proxmox_host_local_passthroughs: >-
+          {{
+            groups['pve_vms']
+            | map('extract', hostvars)
+            | selectattr('pve_node', 'defined')
+            | selectattr('pve_node', 'equalto', inventory_hostname)
+            | selectattr('vm_id', 'defined')
+            | selectattr('passthrough_disks', 'defined')
+            | rejectattr('passthrough_disks', 'falsy')
+            | subelements('passthrough_disks')
+            | list
+          }}
+
+    - name: Read qm config for VMs with declared passthroughs
+      ansible.builtin.command:
+        argv:
+          - qm
+          - config
+          - "{{ item }}"
+      loop: "{{ proxmox_host_local_passthroughs | map('first') | map(attribute='vm_id') | unique | list }}"
+      register: proxmox_host_passthrough_configs
+      changed_when: false
+      check_mode: false
+
+    - name: Attach passthrough disk where the interface line is missing or mismatched
+      ansible.builtin.command:
+        argv:
+          - qm
+          - set
+          - "{{ item.0.vm_id | string }}"
+          - "--{{ item.1.interface }}"
+          - "{{ item.1.path_in_datastore }},backup=0"
+      loop: "{{ proxmox_host_local_passthroughs }}"
+      loop_control:
+        label: "vmid={{ item.0.vm_id }} {{ item.1.interface }}={{ item.1.path_in_datastore }}"
+      vars:
+        # Path before the first comma; PVE renders the line as
+        # `scsiN: /dev/disk/by-id/...,backup=0,size=...K`.
+        _current_line: >-
+          {{
+            ((proxmox_host_passthrough_configs.results
+              | selectattr('item', 'equalto', item.0.vm_id)
+              | list | first).stdout_lines | default([]))
+            | select('match', '^' ~ item.1.interface ~ ':')
+            | list | first | default('')
+          }}
+        _current_path: >-
+          {{
+            _current_line
+            | regex_replace('^' ~ item.1.interface ~ ':\s*', '')
+            | regex_replace(',.*$', '')
+          }}
+      when: _current_path != item.1.path_in_datastore
+      changed_when: true
+
 # Cluster vzdump backup job. /etc/pve is a FUSE filesystem (pmxcfs)
 # that mirrors across nodes — write only on the cluster-writer node so
 # we don't get three concurrent writers fighting for the same path.

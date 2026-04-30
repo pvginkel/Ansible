@@ -116,6 +116,17 @@ resource "proxmox_virtual_environment_vm" "this" {
       # Reconciled by Ansible (proxmox_host role on `pve`), not Terraform.
       # See decisions.md "Proxmox VM CPU affinity".
       cpu[0].affinity,
+      # Slots 2 and 3 are reserved for passthrough disks owned by the
+      # `proxmox_host` role. PVE rejects API-token writes to passthrough
+      # blocks, so TF cannot mutate them — ignoring the slots prevents
+      # plan churn after Ansible attaches them. Today every managed VM
+      # has 2 managed disks (scsi0=root, scsi1=data); a future VM with
+      # 3+ managed disks needs to revisit this convention. Adopted ceph
+      # VMs still declare passthroughs in their TF entries (until they
+      # rebuild in Phase 5); the ignore is a no-op there because state
+      # and config match from import.
+      disk[2],
+      disk[3],
     ]
   }
 }
