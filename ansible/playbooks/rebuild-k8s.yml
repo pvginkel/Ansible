@@ -1,0 +1,65 @@
+---
+# rebuild-k8s.yml — Ansible-side steps for one k8s VM rebuild.
+#
+# Drain (against the old identity) and `terraform apply` are
+# operator-driven runbook steps. Per decisions.md "Terraform and
+# Ansible are peer tools — neither invokes the other," this
+# playbook starts after the new VM exists and is reachable on its
+# new hostname. The full operator flow lives in
+# docs/runbooks/k8s-rebuild.md.
+#
+# Run per host (one at a time):
+#   ansible-playbook playbooks/rebuild-k8s.yml -e rebuild_target=<new-hostname>
+#
+# Per decisions.md "Cluster changes are serialized," never run
+# against more than one rebuild target at a time.
+
+- name: Apply bootstrap + baseline + microk8s to the rebuilt host
+  hosts: "{{ rebuild_target | mandatory }}"
+  become: true
+  gather_facts: true
+  roles:
+    - role: bootstrap
+    - role: baseline
+    - role: microk8s
+
+- name: Reconcile passthrough disks on the rebuild target's pve_node
+  # Scoped to the single PVE node that hosts the rebuilt VM so we
+  # don't re-run the role on the rest of the cluster. proxmox_host's
+  # passthrough task reads `passthrough_disks` from host_vars and
+  # runs `qm set` on drift. The other tasks in the role (sysctls,
+  # vzdump, PAM users) are idempotent no-ops on a re-run.
+  hosts: "{{ hostvars[rebuild_target].pve_node | default('pve') }}"
+  become: true
+  gather_facts: false
+  roles:
+    - role: proxmox_host
+
+- name: Import ZFS pools and wait for cluster Ready
+  hosts: "{{ rebuild_target }}"
+  become: true
+  gather_facts: false
+  tasks:
+    - name: List currently-imported ZFS pools
+      ansible.builtin.command: zpool list -H -o name
+      register: _zpool_list
+      changed_when: false
+      check_mode: false
+      failed_when: false
+      when: zpools_to_import | default([]) | length > 0
+
+    - name: Import each declared zpool that isn't yet imported
+      # zpools_to_import is declared per-host in host_vars on rebuilt
+      # nodes that carry a passthrough ZFS volume (today: srvk8s1's
+      # zpool2 on the NVMe). On-disk pool metadata makes import a
+      # one-line idempotent reattach; the loop only fires on hosts
+      # that opt in.
+      ansible.builtin.command:
+        argv: [zpool, import, "{{ item }}"]
+      loop: "{{ zpools_to_import | default([]) }}"
+      when: item not in (_zpool_list.stdout_lines | default([]))
+      changed_when: true
+
+    - name: Wait for microk8s Ready
+      ansible.builtin.command: microk8s status --wait-ready --timeout 300
+      changed_when: false
