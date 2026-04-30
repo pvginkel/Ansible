@@ -57,6 +57,38 @@ locals {
       ]
     }
 
+    wrkdevk8s = {
+      vm_id        = 919
+      pve_node     = "pve"
+      from_scratch = true
+      description  = "microk8s dev single-node cluster (k8s_dev group). HelmCharts iteration target."
+      tags         = ["ansible-managed", "terraform", "k8s"]
+      bios         = "ovmf"
+      machine      = "q35"
+
+      cpu_cores   = 4
+      cpu_sockets = 1
+      memory_mb   = 6144
+
+      # Single 60 GB root disk. wrkdevk8s does not use a separate
+      # data disk (live shape preserved) — dev cluster, simpler is
+      # fine. snap state under /var/snap/microk8s + a small image
+      # cache fit comfortably; no zpool, no Ceph, no MetalLB pool of
+      # any size that needs its own volume.
+      managed_disks = [
+        { interface = "scsi0", size = 60 },
+      ]
+
+      # Two NICs: house net + 10 Gb backplane. wrkdevk8s does not
+      # join the prd k8s workload VLAN (vmbr0 tag=2) — that segment
+      # is reserved for prd cluster services.
+      # Deterministic MAC: VMID 919 = 0x0397.
+      network_devices = [
+        { bridge = "vmbr0", mac_address = "02:A7:F3:03:97:00" },
+        { bridge = "vmbr1", mac_address = "02:A7:F3:03:97:01" },
+      ]
+    }
+
     srvk8s1 = {
       vm_id        = 910
       pve_node     = "pve"
