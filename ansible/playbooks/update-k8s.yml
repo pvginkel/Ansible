@@ -60,12 +60,14 @@
         _target_minor: "{{ microk8s_channel.split('/')[0].split('-')[0].split('.')[1] | int }}"
 
     - name: Compute cluster-peer count
-      # Same cluster boundary as the role's labels.yml: peers are hosts
-      # in the play that share this host's primary. >1 peer → drain;
-      # single peer (e.g. wrkdevk8s alone) → skip drain + uncordon.
+      # Cluster boundary: hosts in the inventory's `k8s` parent group
+      # that share this host's primary. Uses `groups['k8s']` rather
+      # than `ansible_play_hosts_all` because the latter is filtered
+      # by --limit — a `--limit srvk8sl1` invocation against a 3-node
+      # cluster would otherwise see peer_count=1 and skip drain.
       ansible.builtin.set_fact:
         _cluster_peer_count: >-
-          {{ ansible_play_hosts_all
+          {{ groups['k8s']
              | map('extract', hostvars)
              | selectattr('microk8s_primary_host', 'eq', microk8s_primary_host)
              | list
@@ -85,18 +87,25 @@
       when: _cluster_peer_count | int > 1
       changed_when: true
 
-    - name: Refresh microk8s snap to {{ microk8s_channel }}
-      # state: refreshed forces `snap refresh microk8s --channel=...`
-      # every run, so patch revisions within a channel (1.32.13 →
-      # 1.32.14, security fixes, etc.) get picked up. state: present
-      # only acts on a channel mismatch and would otherwise leave the
-      # snap pinned to whatever revision was current at install time —
-      # exactly the gap a periodic update playbook is meant to close.
-      community.general.snap:
-        name: microk8s
-        classic: true
-        channel: "{{ microk8s_channel }}"
-        state: refreshed
+    - name: Refresh microk8s to latest revision in {{ microk8s_channel }}
+      # community.general.snap's `state` doesn't include a refresh
+      # option in the version we use (only absent/present/enabled/
+      # disabled). state: present acts on channel mismatches but
+      # leaves the snap pinned to whatever revision was current at
+      # install time — exactly the gap a periodic update playbook is
+      # meant to close. Use the snap CLI directly: `snap refresh
+      # --channel=...` switches channel + pulls latest in one call.
+      # Idempotent via output parsing — snap prints "has no updates
+      # available" when there's nothing to do (output goes to stdout
+      # in modern snap, stderr in older — search both to be safe).
+      ansible.builtin.command:
+        argv:
+          - snap
+          - refresh
+          - microk8s
+          - "--channel={{ microk8s_channel }}"
+      register: _snap_refresh
+      changed_when: '"has no updates available" not in (_snap_refresh.stdout + _snap_refresh.stderr)'
 
     - name: Wait for microk8s Ready post-snap-refresh
       ansible.builtin.command: microk8s status --wait-ready --timeout 120
