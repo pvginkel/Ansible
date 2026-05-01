@@ -32,7 +32,8 @@ When a phase is complete, mark its status here, commit, and the next conversatio
 | 3a | VM fleet under Terraform state | ✅ Done | [`phases/phase-3a-vm-fleet-import.md`](phases/phase-3a-vm-fleet-import.md) |
 | 4 | microk8s role (scratch exercise) | ✅ Done | [`phases/phase-4-microk8s.md`](phases/phase-4-microk8s.md) |
 | 4a | microk8s alignment + upgrade | ✅ Done | [`phases/phase-4a-microk8s-alignment.md`](phases/phase-4a-microk8s-alignment.md) |
-| 4b | microk8s VM rebuild | ⏳ Planned | [`phases/phase-4b-microk8s-rebuild.md`](phases/phase-4b-microk8s-rebuild.md) |
+| 4b | microk8s VM rebuild scaffolding | ✅ Done | [`phases/phase-4b-microk8s-rebuild.md`](phases/phase-4b-microk8s-rebuild.md) |
+| 4c | microk8s VM rebuild execution | ⏳ Planned | [`phases/phase-4c-microk8s-rebuild-execution.md`](phases/phase-4c-microk8s-rebuild-execution.md) |
 | 5 | microceph roles and upgrade | ⏳ Planned | — |
 | 6 | OpenBao + secrets wiring | ⏳ Planned | — |
 | 7 | Ceph storage resources | ⏳ Planned | — |
@@ -72,9 +73,13 @@ Built and exercised the `microk8s` role on a fresh two-node scratch cluster: ker
 
 Completed the role's missing reconciliation pieces (capability labels, MetalLB IPAddressPool), adopted the live prod and dev clusters under the role additively, drove the HelmCharts label migration to a clean slate, removed the legacy `size=*` labels and `PreferNoSchedule` taint, and delivered the drain-aware upgrade playbook (`update-k8s.yml`) plus the addon-refresh playbook (`refresh-k8s-addons.yml`). Cluster is in target shape pre-rebuild.
 
-### 4b — microk8s VM rebuild
+### 4b — microk8s VM rebuild scaffolding (done)
 
-Rework the per-VM TF modules for the four k8s VMs to the from-scratch shape, build `rebuild-k8s.yml` (drain-aware, `serial: 1`), and rebuild the four VMs in turn (`srvk8sl1/ss1/ss2 → srvk8s1/2/3` plus `wrkdevk8s`). Closes the parity event for `k8s_prd` and `k8s_dev`.
+Reworked the per-VM TF modules for the four k8s VMs to the from-scratch shape, built `rebuild-k8s.yml`, wrote the `k8s-rebuild` runbook, and made the "Ansible never invokes Terraform" rule explicit. Staging only — no `terraform apply` ran. Sets phase 4c up to drive the actual rebuilds.
+
+### 4c — microk8s VM rebuild execution
+
+Drive the four k8s VM rebuilds the phase 4b staging is ready for: `srvk8s1` (with NVMe passthrough + zpool2 reattach), `srvk8s2`, `srvk8s3`, `wrkdevk8s`. Per-rebuild inventory renames; manual dnsmasq reservations; manual old-VM destroy + TF state cleanup. Retires the adoption known_hosts files at end-of-phase. Closes the parity event for `k8s_prd` and `k8s_dev`.
 
 ### 5 — microceph roles and upgrade
 
