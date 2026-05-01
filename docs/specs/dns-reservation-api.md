@@ -2,7 +2,7 @@
 
 Specification for the API exposed by the dnsmasq sidecar that adds, looks up, and removes DNS+DHCP reservations within an IPv4 range owned exclusively by this service. Covers the contract only; persistence layout, dnsmasq config rendering, and reload mechanics are implementation choices left to the sidecar.
 
-The first intended client is Terraform; that integration does not yet exist, so this spec defines the contract.
+The sidecar is deployed in dev and prod. The first programmatic client is the [`homelab` Terraform provider](dns-reservation-terraform.md).
 
 ## Scope
 

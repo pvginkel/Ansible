@@ -17,7 +17,9 @@ Two viable shapes:
 
 **Recommendation: (1) custom provider** when this lands, especially since the same provider is the natural home for any future sidecar resource types (CNAMEs, etc.). `restapi` is acceptable as a stopgap — the resource shape below is identical either way, and migrating between them is a state-mv exercise, not a redesign.
 
-## Resource: `dnsreservation_reservation`
+## Resource: `homelab_dns_reservation`
+
+Lives in the [`homelab` Terraform provider](https://github.com/pvginkel/HomelabTerraformProvider) (source `pvginkel/homelab`), alongside future resources for other homelab APIs.
 
 ### Inputs
 
@@ -50,21 +52,23 @@ Two viable shapes:
 
 ### Import
 
-`terraform import dnsreservation_reservation.foo srvk8sl1` issues `GET /reservations/srvk8sl1` and populates state. `404` → import error.
+`terraform import homelab_dns_reservation.foo srvk8sl1` issues `GET /reservations/srvk8sl1` and populates state. `404` → import error.
 
 ## Provider configuration
 
 ```hcl
-provider "dnsreservation" {
-  url   = "http://dns-reservations.home"
-  token = var.dns_reservation_token   # sensitive
+provider "homelab" {
+  dns_reservation_url   = "http://dns-reservations.home"
+  dns_reservation_token = var.dns_reservation_token   # sensitive
 }
 ```
 
 | Argument | Required | Notes |
 |---|---|---|
-| `url` | yes | Base URL of the sidecar. Path `/reservations` is appended by the provider. |
-| `token` | yes | Bearer token. Marked `Sensitive`. |
+| `dns_reservation_url` | yes | Base URL of the sidecar. Path `/reservations` is appended by the provider. |
+| `dns_reservation_token` | yes | Bearer token for the sidecar. Marked `Sensitive`. |
+
+Per-API namespacing of the provider config (`dns_reservation_*` rather than top-level `url`/`token`) is deliberate: the same `homelab` provider will eventually carry config for additional homelab APIs, and each gets its own URL and token.
 
 No retry/backoff configuration; the standard HTTP client is sufficient. The sidecar is on-LAN and failure modes are operator-visible (token expired, sidecar down) and best surfaced as a plain apply error.
 
@@ -73,7 +77,7 @@ No retry/backoff configuration; the standard HTTP client is sufficient. The side
 Each per-VM module gets one reservation resource alongside its `proxmox_virtual_environment_vm`. Sketch:
 
 ```hcl
-resource "dnsreservation_reservation" "this" {
+resource "homelab_dns_reservation" "this" {
   hostname = var.name
   mac      = local.mac     # already computed from var.vm_id
 }
@@ -86,13 +90,13 @@ resource "proxmox_virtual_environment_vm" "this" {
     mac_address = local.mac
   }
 
-  depends_on = [dnsreservation_reservation.this]
+  depends_on = [homelab_dns_reservation.this]
 }
 ```
 
 `depends_on` ensures the reservation exists before the VM fires its first DHCP request. On destroy, Terraform reverses the order automatically: VM destroyed first, reservation removed second.
 
-The VM does cloud-init DHCP on `vmbr0` (see `modules/managed-vm/main.tf`), so the allocated `ipv4` does not need to flow back into the VM resource — dnsmasq hands it to the guest at boot. The computed `dnsreservation_reservation.this.ipv4` is available for outputs or downstream consumers (Ansible inventory generation, etc.) that need to know the address.
+The VM does cloud-init DHCP on `vmbr0` (see `modules/managed-vm/main.tf`), so the allocated `ipv4` does not need to flow back into the VM resource — dnsmasq hands it to the guest at boot. The computed `homelab_dns_reservation.this.ipv4` is available for outputs or downstream consumers (Ansible inventory generation, etc.) that need to know the address.
 
 ## Module inputs added per VM
 
