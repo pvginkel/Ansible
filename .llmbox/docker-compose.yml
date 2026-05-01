@@ -26,3 +26,4 @@ services:
       - ../DockerImages:/work/DockerImages:ro
       - ../Obsidian:/work/Obsidian:rw
       - ../KubernetesConfig:/work/KubernetesConfig:ro
+      - ../HomelabTerraformProvider:/work/HomelabTerraformProvider:rw
