@@ -1,153 +1,251 @@
-# Rebuilding a k8s VM (drain → TF → Ansible)
+# Rebuilding k8s VMs (drain → shutdown → TF → Ansible)
 
-End-to-end procedure for rebuilding one k8s node from the adoption shape onto the from-scratch shape. Folds the Phase 4b parity event for `k8s_prd` and `k8s_dev` per `docs/decisions.md` "Adoption is a waypoint; rebuild is the parity event."
+End-to-end procedure for rebuilding `k8s_prd` and `k8s_dev` nodes from the adoption shape onto the from-scratch shape. Folds the Phase 4b parity event per `docs/decisions.md` "Adoption is a waypoint; rebuild is the parity event."
 
 This runbook is the orchestrator. Each step is operator-driven; nothing automates the full sequence. Per `decisions.md` "Terraform and Ansible are peer tools — neither invokes the other."
 
+Assumes `docs/plans/01-pam-credentials.md` has been applied: passthrough disks are TF-managed, not reattached by Ansible.
+
 ## Order
 
-Do them in this order. Each sub-procedure is below.
+1. **Pre-flight on `srvk8ss2`** — cordon + drain + uncordon. No rebuild. Sanity check that the cluster handles a worker-shaped outage cleanly.
+2. **`srvk8ss1` → `srvk8s2`** (worker, no passthrough; first real rebuild).
+3. **`srvk8ss2` → `srvk8s3`** (worker, no passthrough).
+4. **`srvk8sl1` → `srvk8s1`** (primary; NVMe passthrough + ZFS reattach; old VM is destroyed because the new VM needs the NVMe).
+5. **`wrkdevk8s`** (greenfield single-node dev — different specifics).
 
-1. **Smoke `rebuild-k8s.yml` against scratch.** Before the first prd rebuild only.
-2. **`srvk8s1`** first (the trickiest — NVMe passthrough + ZFS reattach; tackle it on the cluster's primary so we know how to rescue if anything wedges).
-3. **`srvk8s2`**.
-4. **`srvk8s3`** (also resolves the seabios → ovmf flip).
-5. **`wrkdevk8s`** (greenfield in TF; single-node — different specifics).
-
-After step 5, the parity event closes. The HelmCharts cluster on `wrkdevk8s` will need to be re-deployed (single-node, fully wiped — no carryover from the old VM).
+After step 5 the parity event closes. The HelmCharts cluster on `wrkdevk8s` will need to be re-deployed (single-node, fully wiped — no carryover from the old VM).
 
 ## Prerequisites — every rebuild
 
-- All nodes `Ready`, no PDB-blocked pods. Run `microk8s kubectl get nodes -o wide` and `microk8s kubectl get pdb -A` first.
+- All nodes `Ready`, no PDB-blocked pods. `microk8s kubectl get nodes -o wide`, `microk8s kubectl get pdb -A`.
 - SSH agent loaded with both operator and ansible keys (see `operator-workstation.md`).
-- Workstation has a secondary DNS resolver configured (per `decisions.md` "DNS and hostnames"). A node reboot during the rebuild blacks out resolution from the workstation otherwise.
-- Maintenance window for prd. Single-node `wrkdevk8s` cluster is dev only.
-- Branch is clean: `git status` shows nothing pending, `terraform plan` is empty (any unrelated drift would surface alongside the rebuild's diff and is hard to read).
+- Workstation has a secondary DNS resolver configured (per `decisions.md` "DNS and hostnames"). A node reboot blacks out resolution from the workstation otherwise.
+- Maintenance window for prd. `wrkdevk8s` is dev only.
+- `git status` clean. `terraform plan` shows only the queued rebuild entries from plan 01 (no unrelated drift).
 
-## Smoke against scratch (one-time, before first prd rebuild)
+## Pre-flight — observe a drain on `srvk8ss2`
 
-`rebuild-k8s.yml` is exercised cleanly the first time by destroying and rebuilding `wrkscratchk8s2` while `wrkscratchk8s1` stays Ready.
-
-```sh
-# 1. Confirm both scratch nodes are Ready
-poetry run ansible -i inventories/scratch k8s_scratch -m command \
-    -a 'microk8s status --wait-ready --timeout 60' --become
-
-# 2. Drain wrkscratchk8s2 from the scratch cluster (delegated to wrkscratchk8s1)
-poetry run ansible -i inventories/scratch wrkscratchk8s1 -m command \
-    -a 'microk8s kubectl drain wrkscratchk8s2 --ignore-daemonsets --delete-emptydir-data --timeout=300s' \
-    --become
-
-# 3. Replace the VM
-cd terraform/scratch
-terraform apply -replace='proxmox_virtual_environment_vm.scratch["wrkscratchk8s2"]'
-
-# 4. Run rebuild-k8s.yml against the rebuilt scratch node
-cd ../../ansible
-poetry run ansible-playbook playbooks/rebuild-k8s.yml \
-    -i inventories/scratch -e rebuild_target=wrkscratchk8s2
-
-# 5. Remove the stale node entry from the scratch cluster
-poetry run ansible -i inventories/scratch wrkscratchk8s1 -m command \
-    -a 'microk8s kubectl delete node wrkscratchk8s2 --ignore-not-found' --become
-# (re-add happens as the rebuilt node joins through the role's cluster-join task)
-
-# 6. Verify zero residual
-poetry run ansible-playbook playbooks/site.yml \
-    -i inventories/scratch --limit wrkscratchk8s2 --check --diff
-# expect changed=0
-```
-
-If any step fails, fix before pointing the playbook at prd. **Do not** smoke against `srvk8sl1` directly.
-
-## Rebuild — `srvk8s1` (NVMe passthrough)
-
-The hardest path; everything else is a subset of this.
-
-### 1. Drain the old node from the cluster
+Before any rebuild, exercise the drain path against a live worker so you've seen the cluster's reaction before you also remove the VM.
 
 ```sh
 poetry run ansible -i inventories/prd srvk8sl1 -m command \
-    -a 'microk8s kubectl drain srvk8sl1 --ignore-daemonsets --delete-emptydir-data --timeout=300s' \
+    -a 'microk8s kubectl cordon srvk8ss2' --become
+poetry run ansible -i inventories/prd srvk8sl1 -m command \
+    -a 'microk8s kubectl drain srvk8ss2 --ignore-daemonsets --delete-emptydir-data --timeout=300s' \
     --become
+
+# Observe — pods reschedule onto srvk8sl1 / srvk8ss1, no PDB blocks, system stable.
+microk8s kubectl get pods -A -o wide
+
+poetry run ansible -i inventories/prd srvk8sl1 -m command \
+    -a 'microk8s kubectl uncordon srvk8ss2' --become
 ```
 
-Drain runs on `srvk8sl1` itself; that's still valid because the node is alive. If it hangs on a PodDisruptionBudget, see [`k8s-upgrade.md`](k8s-upgrade.md) "Drain blocked by a PodDisruptionBudget."
+If anything misbehaves here (PDB-blocked pod, stuck terminating workload, anything that doesn't resolve on its own), fix before going further. The rebuilds assume a clean drain.
 
-### 2. Update dnsmasq reservation
+## Worker rebuild — `srvk8ss1` → `srvk8s2` and `srvk8ss2` → `srvk8s3`
 
-The dnsmasq pod on the prd k8s cluster carries the IP reservations. Edit the reservation set in HelmCharts (or wherever the operator manages it):
+Same flow for both. The first one through also creates the from-scratch shape's shared TF resources (host keys, cloud-init snippet, image download).
 
-- Remove `srvk8sl1` (old) — MAC `BC:24:11:3D:56:09`.
-- Add `srvk8s1` (new) — MAC `02:A7:F3:03:8E:00`. Allocate a new IPv4 reservation.
+| target    | old hostname | old VMID | new VMID | new MAC              |
+|-----------|--------------|----------|----------|----------------------|
+| `srvk8s2` | `srvk8ss1`   | 104      | 911      | `02:A7:F3:03:8F:NN`  |
+| `srvk8s3` | `srvk8ss2`   | 107      | 912      | `02:A7:F3:03:90:NN`  |
 
-Roll the dnsmasq StatefulSet so the change is picked up. Verify with:
+### 1. Cordon, drain, leave, remove
 
 ```sh
-dig +short srvk8s1.home @<dnsmasq-replica-ip>
+poetry run ansible -i inventories/prd srvk8sl1 -m command \
+    -a 'microk8s kubectl cordon <old-hostname>' --become
+poetry run ansible -i inventories/prd srvk8sl1 -m command \
+    -a 'microk8s kubectl drain <old-hostname> --ignore-daemonsets --delete-emptydir-data --timeout=300s' \
+    --become
+poetry run ansible -i inventories/prd <old-hostname> -m command \
+    -a 'microk8s leave' --become
+poetry run ansible -i inventories/prd srvk8sl1 -m command \
+    -a 'microk8s remove-node <old-hostname>' --become
 ```
 
-`srvk8sl1.home` should stop resolving; `srvk8s1.home` should resolve. (The live VM's lease on the old IP persists until the VM is destroyed, so traffic to the old IP still works for now.)
+`microk8s leave` (on the leaving node) plus `microk8s remove-node` (on the primary) is the canonical removal — clears both the node's local cluster state and the dqlite voter list. `kubectl delete node` only removes the kubelet Node object; it leaves dqlite stale.
 
-### 3. Rename the inventory
+### 2. Shut down the old VM (don't destroy)
+
+```sh
+ssh root@pve qm shutdown <old-vmid>
+```
+
+The shut-down VMID stays on PVE as an escape hatch. Note that after `microk8s leave` its on-disk dqlite state is no longer trusted by the cluster — to reuse the old VM in an emergency, `qm start <old-vmid>` + `microk8s reset` + `microk8s join` it back as a fresh member.
+
+### 3. Update the dnsmasq reservation
+
+Edit the reservation set in HelmCharts (or wherever the operator manages it):
+
+- Remove the old MAC.
+- Add the new MAC, allocate a new IPv4.
+
+Roll the dnsmasq StatefulSet to pick up the change. Verify:
+
+```sh
+dig +short <new-hostname>.home @<dnsmasq-replica-ip>
+# old hostname stops resolving; new one resolves.
+```
+
+### 4. Rename the inventory
 
 ```sh
 cd /work/Ansible
-git mv ansible/inventories/prd/host_vars/srvk8sl1.yml ansible/inventories/prd/host_vars/srvk8s1.yml
+git mv ansible/inventories/prd/host_vars/<old-hostname>.yml \
+       ansible/inventories/prd/host_vars/<new-hostname>.yml
 ```
 
-Edit `ansible/inventories/prd/host_vars/srvk8s1.yml`:
+Edit the renamed `host_vars/<new-hostname>.yml`: bump `vm_id` (104 → 911 or 107 → 912).
 
-- Update `vm_id` from 103 to 910.
-- Add the passthrough disk declaration (read by `proxmox_host` at apply time):
-  ```yaml
-  passthrough_disks:
-    - interface: scsi2
-      path_in_datastore: /dev/disk/by-id/nvme-Samsung_SSD_980_500GB_S64DNX0RC21332X
-  ```
-- Add the ZFS pools to import on first boot (read by `rebuild-k8s.yml`):
-  ```yaml
-  zpools_to_import:
-    - zpool2
-  ```
+Edit `ansible/inventories/prd/hosts.yml`: replace the entry under `k8s_prd.hosts`.
 
-Edit `ansible/inventories/prd/hosts.yml`: replace `srvk8sl1:` with `srvk8s1:` under `k8s_prd.hosts`.
+`group_vars/k8s_prd.yml`'s `microk8s_primary_host` stays `srvk8sl1` for both worker rebuilds — it's still alive and serves as the join token mint.
 
-Edit `ansible/inventories/prd/group_vars/k8s_prd.yml`: change `microk8s_primary_host: srvk8sl1` to `microk8s_primary_host: srvk8s1`.
+```sh
+git add -A
+git commit -m "ansible: rename <old-hostname> → <new-hostname> in inventory"
+```
+
+### 5. `terraform apply` — create the new VM
+
+First worker rebuild — also pulls in the from-scratch shape's shared resources:
+
+```sh
+cd terraform/prd
+terraform apply \
+    -target='module.vm["<new-hostname>"]' \
+    -target=tls_private_key.host_ed25519 \
+    -target=local_file.known_hosts_prd \
+    -target=proxmox_download_file.ubuntu_cloud_image \
+    -target=proxmox_virtual_environment_file.cloud_init
+```
+
+`tls_private_key` runs for all four from-scratch VMs at once — the local_file aggregates host keys from all of them; targeting only one leaves the local_file's content unknown at plan time and TF errors. Snippets and image downloads similarly. Subsequent rebuilds reuse these.
+
+Second worker rebuild — those resources already exist:
+
+```sh
+terraform apply -target='module.vm["<new-hostname>"]'
+```
+
+TF blocks until the new VM's qemu-guest-agent reports its IP back to PVE — typically 1–3 minutes including cloud-init.
+
+### 6. `rebuild-k8s.yml` — bootstrap, baseline, microk8s join
+
+```sh
+cd ../../ansible
+poetry run ansible-playbook playbooks/rebuild-k8s.yml \
+    -e rebuild_target=<new-hostname>
+```
+
+Applies bootstrap+baseline+microk8s on the new VM. The microk8s role mints a join token from `srvk8sl1` (still primary) and joins.
+
+### 7. Verify
+
+```sh
+poetry run ansible -i inventories/prd srvk8sl1 -m command \
+    -a 'microk8s kubectl get nodes -o wide' --become
+# expect: srvk8sl1 Ready, <new-hostname> Ready, plus the other worker (old or new)
+
+poetry run ansible-playbook playbooks/site.yml --limit <new-hostname> --check --diff
+# expect: changed=0
+```
+
+### 8. Drop the old VM from TF state
+
+```sh
+cd terraform/prd
+terraform state rm 'module.vm["<old-hostname>"].proxmox_virtual_environment_vm.this'
+terraform plan
+# expect: zero diff for <old-hostname>; only the remaining queued rebuilds
+```
+
+The shut-down VMID stays on PVE; TF stops managing it. After both worker rebuilds are validated and you're confident, `qm destroy <old-vmid>` reclaims the disk space (no rush).
+
+## Primary rebuild — `srvk8sl1` → `srvk8s1` (NVMe passthrough)
+
+Done after both workers are healthy on the new shape. The old VM is destroyed (not just shut down) because the new `srvk8s1` needs the NVMe — qemu can't open a device claimed by another running VM.
+
+| target    | old hostname | old VMID | new VMID | new MAC              |
+|-----------|--------------|----------|----------|----------------------|
+| `srvk8s1` | `srvk8sl1`   | 103      | 910      | `02:A7:F3:03:8E:00`  |
+
+### 1. Flip the cluster primary off `srvk8sl1`
+
+```sh
+$EDITOR ansible/inventories/prd/group_vars/k8s_prd.yml
+# microk8s_primary_host: srvk8sl1 → microk8s_primary_host: srvk8s2
+git add -A
+git commit -m "ansible: flip k8s_prd primary off srvk8sl1 ahead of rebuild"
+```
+
+`srvk8sl1` is about to disappear; the join-token delegate has to live on a node that won't.
+
+### 2. Cordon, drain, leave, remove
+
+```sh
+poetry run ansible -i inventories/prd srvk8s2 -m command \
+    -a 'microk8s kubectl cordon srvk8sl1' --become
+poetry run ansible -i inventories/prd srvk8s2 -m command \
+    -a 'microk8s kubectl drain srvk8sl1 --ignore-daemonsets --delete-emptydir-data --timeout=300s' \
+    --become
+poetry run ansible -i inventories/prd srvk8sl1 -m command \
+    -a 'microk8s leave' --become
+poetry run ansible -i inventories/prd srvk8s2 -m command \
+    -a 'microk8s remove-node srvk8sl1' --become
+```
+
+`zpool2`-pinned workloads (storage chart, Prometheus) drain off `srvk8sl1` and have nowhere to go (no other node carries `homelab.local/storage=zpool2`). They stay Pending until step 7 imports the pool on the new node — that's expected storage-path downtime.
+
+### 3. Shut down + destroy the old VM
+
+```sh
+ssh root@pve 'qm shutdown 103 ; sleep 5 ; qm destroy 103'
+```
+
+This frees the NVMe (qemu releases the device on destroy; the ZFS pool's on-disk metadata stays for re-import). The new VM in step 6 can now claim it.
+
+### 4. Update the dnsmasq reservation
+
+- Remove `srvk8sl1` (MAC `BC:24:11:3D:56:09`).
+- Add `srvk8s1` (MAC `02:A7:F3:03:8E:00`) with a new IPv4.
+
+Roll the dnsmasq StatefulSet. Verify resolution.
+
+### 5. Update the inventory
+
+```sh
+git mv ansible/inventories/prd/host_vars/srvk8sl1.yml \
+       ansible/inventories/prd/host_vars/srvk8s1.yml
+```
+
+Edit `host_vars/srvk8s1.yml`:
+- `vm_id`: 103 → 910
+- `zpools_to_import: [zpool2]` (read by `rebuild-k8s.yml`'s ZFS import task)
+
+Passthrough is declared in `terraform/prd/vms.tf` (post plan 01) — no `passthrough_disks` in host_vars.
+
+Edit `hosts.yml`: `srvk8sl1` → `srvk8s1` under `k8s_prd.hosts`.
 
 ```sh
 git add -A
 git commit -m "ansible: rename srvk8sl1 → srvk8s1 in inventory"
 ```
 
-### 4. `terraform apply` — create the new VM
-
-The new VM's resources (image download on `pve`, host key, cloud-init snippet, the new VM itself) are not yet in state. Other rebuild commits (srvk8s2/3/wrkdevk8s) are pending in `vms.tf` but should not apply yet. Targeted apply:
+### 6. `terraform apply` — create the new VM with NVMe attached
 
 ```sh
 cd terraform/prd
-terraform plan \
-    -target='module.vm["srvk8s1"]' \
-    -target=tls_private_key.host_ed25519 \
-    -target=local_file.known_hosts_prd \
-    -target=proxmox_download_file.ubuntu_cloud_image \
-    -target=proxmox_virtual_environment_file.cloud_init
-
-terraform apply \
-    -target='module.vm["srvk8s1"]' \
-    -target=tls_private_key.host_ed25519 \
-    -target=local_file.known_hosts_prd \
-    -target=proxmox_download_file.ubuntu_cloud_image \
-    -target=proxmox_virtual_environment_file.cloud_init
+terraform apply -target='module.vm["srvk8s1"]'
 ```
 
-`tls_private_key` runs for all four from-scratch VMs at once (the local_file aggregates host keys from all of them; targeting only one leaves the local_file's content unknown at plan time and TF errors). Snippets and image downloads similarly. Subsequent rebuilds reuse the keys + snippets created here.
+The shared from-scratch resources already exist from the worker rebuilds. TF creates the VM and attaches `/dev/disk/by-id/nvme-Samsung_SSD_980_500GB_S64DNX0RC21332X` at scsi2 in the same apply (the plan 01 payoff).
 
-The old VM (`srvk8sl1`, VMID 103) stays running and untouched by this apply — it's an orphan in TF state. We deal with it after the new node is in the cluster.
-
-TF blocks until the new VM's qemu-guest-agent reports its IP back to PVE — typically 1–3 minutes including cloud-init.
-
-### 5. Reattach the NVMe passthrough + apply roles
+### 7. `rebuild-k8s.yml` — ZFS import, bootstrap, microk8s join
 
 ```sh
 cd ../../ansible
@@ -155,68 +253,39 @@ poetry run ansible-playbook playbooks/rebuild-k8s.yml \
     -e rebuild_target=srvk8s1
 ```
 
-Per the playbook header — applies bootstrap+baseline+microk8s on `srvk8s1`, runs `proxmox_host` on `pve` so the passthrough task attaches `nvme-Samsung_SSD_980_500GB_S64DNX0RC21332X` at scsi2 (`qm set --scsi2 ...,backup=0`), imports `zpool2` on the rebuilt node, then waits for `microk8s status --wait-ready`.
+Imports `zpool2` (the on-disk metadata is still there, `zpool import` reattaches it), then bootstrap+baseline+microk8s. The cluster-join task mints a token from `srvk8s2` (the current primary).
 
-If the role's microk8s install fails to join the cluster: the cluster primary in `group_vars/k8s_prd.yml` is now `srvk8s1` (the new node, which is what's bootstrapping). On a fresh single-node start this works. The remaining nodes (`srvk8ss1`, `srvk8ss2`) still appear under their old names in the cluster but are alive and Ready — `srvk8s1` joins them via cluster-join.
-
-### 6. Remove the stale node from the cluster
+### 8. Drop the old VM from TF state
 
 ```sh
-poetry run ansible -i inventories/prd srvk8s1 -m command \
-    -a 'microk8s kubectl delete node srvk8sl1 --ignore-not-found' --become
-```
-
-Run from the rebuilt `srvk8s1` (the new primary). The cluster now has 3 nodes: `srvk8s1` (rebuilt), `srvk8ss1`, `srvk8ss2`.
-
-### 7. Destroy the old VM and clean up TF state
-
-```sh
-ssh root@pve 'qm shutdown 103 ; sleep 5 ; qm destroy 103'
-
 cd ../terraform/prd
 terraform state rm 'module.vm["srvk8sl1"].proxmox_virtual_environment_vm.this'
-terraform plan   # expect: zero diff for srvk8sl1; pending diffs for srvk8s2/3/wrkdevk8s only
+terraform plan
+# expect: zero diff
 ```
 
-VMID 103 is now free. The old known_hosts.d entry for `srvk8sl1` in `files/known_hosts.d/k8s_prd` lingers; cleaned up at end-of-phase (see "Closing the parity event" below).
+VMID 103 is already destroyed; this is just stub cleanup.
 
-### 8. Verify
+### 9. Verify
 
 ```sh
 poetry run ansible -i inventories/prd k8s_prd -m command \
     -a 'microk8s kubectl get nodes -o wide' --become
-# expect: srvk8s1 Ready, srvk8ss1 Ready, srvk8ss2 Ready
-
-poetry run ansible-playbook playbooks/site.yml --limit srvk8s1 --check --diff
-# expect: changed=0
+# expect: srvk8s1, srvk8s2, srvk8s3 all Ready
 
 poetry run ansible -i inventories/prd srvk8s1 -m command \
     -a 'zpool list -H -o name,health' --become
 # expect: zpool2 ONLINE
+
+poetry run ansible-playbook playbooks/site.yml --limit srvk8s1 --check --diff
+# expect: changed=0
 ```
 
-`srvk8s1` is done. The HelmCharts workloads pinned to `homelab.local/storage=zpool2` (storage chart, Prometheus) reschedule onto it.
-
-## Rebuild — `srvk8s2` and `srvk8s3`
-
-Same flow as srvk8s1, **minus the passthrough and zpool steps** (no NVMe; `host_vars/srvk8s2.yml` and `srvk8s3.yml` carry no `passthrough_disks` or `zpools_to_import`). Specifics that differ:
-
-- Old → new: `srvk8ss1` → `srvk8s2` (VMID 104 → 911, MAC `02:A7:F3:03:8F:NN`); `srvk8ss2` → `srvk8s3` (VMID 107 → 912, MAC `02:A7:F3:03:90:NN`).
-- `srvk8ss2`'s rebuild also flips bios from `seabios` to `ovmf` — folded into the from-scratch shape, no manual step.
-- `microk8s_primary_host` in `group_vars/k8s_prd.yml` stays `srvk8s1` for these rebuilds (don't touch).
-- `terraform apply` step uses fewer `-target`s (the keys, snippets, image downloads, and `local_file` already exist from `srvk8s1`'s apply):
-  ```sh
-  terraform apply -target='module.vm["srvk8s2"]'
-  ```
-- After both, re-run `--check --diff` against the cluster:
-  ```sh
-  poetry run ansible-playbook playbooks/site.yml --limit k8s_prd --check --diff
-  # expect changed=0
-  ```
+`zpool2`-pinned workloads (storage chart, Prometheus) reschedule onto `srvk8s1` once the import is done.
 
 ## Rebuild — `wrkdevk8s` (single-node, greenfield in TF)
 
-Different shape: the live `wrkdevk8s` (VMID 119) is a manual VM never imported into TF state. The rebuild creates VMID 919 from scratch via TF, then we destroy VMID 119 manually.
+Different shape: the live `wrkdevk8s` (VMID 119) is a manual VM never imported into TF state. The rebuild creates VMID 919 from scratch via TF; we destroy VMID 119 manually.
 
 The dev cluster is a single node and is its own primary — there's no drain (nothing to drain to). The cluster gets fully replaced; HelmCharts deployments under `wrkdevk8s` need to be re-deployed afterward (operator workflow, separate from this runbook).
 
@@ -261,27 +330,27 @@ After all four rebuilds:
 # host key in files/known_hosts.d/prd (TF-owned).
 git rm ansible/files/known_hosts.d/k8s_prd ansible/files/known_hosts.d/k8s_dev
 
-# Drop them from ansible.cfg's UserKnownHostsFile too:
+# Drop them from ansible.cfg's UserKnownHostsFile too.
 $EDITOR ansible/ansible.cfg
-# Remove "files/known_hosts.d/k8s_prd" and "files/known_hosts.d/k8s_dev"
-# from the ssh_args UserKnownHostsFile list.
 
 git add -A
 git commit -m "ansible: retire adoption known_hosts files (k8s_prd, k8s_dev)"
 ```
 
+Once the worker rebuilds are stable long-term, `qm destroy 104` and `qm destroy 107` to reclaim the shut-down workers' disk space.
+
 Phase 4b closes. Update `docs/plan.md` and `docs/phases/phase-4b-microk8s-rebuild.md`'s status.
 
 ## If a rebuild goes sideways
 
-`terraform apply -replace` is destructive once TF commits to the destroy phase, but for these rebuilds we use targeted creates (the old VM is still alive until step 7) — that gives a wider rollback window:
+There's no "uncordon to roll back" — by the time `terraform apply` runs the old VM is shut down (workers) or destroyed (`srvk8s1`). Recovery is forward.
 
-- **TF errors at create:** the old VM is still alive and cordoned. Drain is the only mutation so far. Fix the TF error, retry apply. If you need to undo: `microk8s kubectl uncordon srvk8sl1` to bring the old node back.
-- **Cloud-init never finishes (TF times out waiting for IP):** `qm console <new-vmid>` on PVE to inspect; usually the snippet's `qemu-guest-agent` install failed. Fix and `terraform apply -replace='module.vm["srvk8s1"].proxmox_virtual_environment_vm.this'`.
-- **`rebuild-k8s.yml` fails on the cluster-join step:** the new VM exists but isn't in the cluster. `microk8s status` on the rebuild target tells you what's happening. Common cause: stale `/var/snap/microk8s/common/var/lib/dqlite` from a half-completed prior attempt. `microk8s reset` on the new node, then re-run the playbook.
-- **PVE rejects the passthrough attach (`qm set` fails):** the disk-by-id path is wrong or the disk is still claimed by the destroyed VM. `lsblk` and `ls /dev/disk/by-id/` on the PVE node to check; correct `passthrough_disks` in `host_vars/srvk8s1.yml` and re-run the playbook.
+- **TF errors at create:** fix the TF error, retry the targeted apply. For workers, the old shut-down VM is still on PVE; in a real emergency `qm start <old-vmid>` + `microk8s reset` + `microk8s join` it as a fresh worker. For `srvk8s1`, the old VM is gone — fix forward only.
+- **Cloud-init never finishes (TF times out waiting for IP):** `qm console <new-vmid>` on PVE to inspect; usually the snippet's `qemu-guest-agent` install failed. Fix and `terraform apply -replace='module.vm["<new-hostname>"].proxmox_virtual_environment_vm.this'`.
+- **`rebuild-k8s.yml` fails on cluster-join:** the new VM exists but isn't in the cluster. `microk8s status` on the rebuild target tells you what's happening. Common cause: stale `/var/snap/microk8s/common/var/lib/dqlite` from a half-completed prior attempt. `microk8s reset` on the new node, re-run the playbook.
+- **`zpool import zpool2` fails on `srvk8s1`:** ZFS sees the pool was last mounted on a different host (the destroyed VM's hostid). `zpool import -f zpool2` is the override. If this hits, fold the `-f` into `rebuild-k8s.yml`.
 
-Leave the rebuild target cordoned/drained until `site.yml --check --diff` reports zero changes. Only then declare the rebuild successful.
+Verify `site.yml --check --diff` reports zero changes against the rebuild target before declaring success.
 
 ## What this runbook does not cover
 
