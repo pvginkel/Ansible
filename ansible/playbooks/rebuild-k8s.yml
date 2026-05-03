@@ -23,18 +23,6 @@
     - role: baseline
     - role: microk8s
 
-- name: Reconcile passthrough disks on the rebuild target's pve_node
-  # Scoped to the single PVE node that hosts the rebuilt VM so we
-  # don't re-run the role on the rest of the cluster. proxmox_host's
-  # passthrough task reads `passthrough_disks` from host_vars and
-  # runs `qm set` on drift. The other tasks in the role (sysctls,
-  # vzdump, PAM users) are idempotent no-ops on a re-run.
-  hosts: "{{ hostvars[rebuild_target].pve_node | default('pve') }}"
-  become: true
-  gather_facts: false
-  roles:
-    - role: proxmox_host
-
 - name: Import ZFS pools and wait for cluster Ready
   hosts: "{{ rebuild_target }}"
   become: true

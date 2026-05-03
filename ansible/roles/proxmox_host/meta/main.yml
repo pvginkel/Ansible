@@ -2,7 +2,7 @@
 galaxy_info:
   role_name: proxmox_host
   author: pvginkel
-  description: Proxmox node baseline — sysctl tuning, per-VM CPU affinity reconciliation, cluster vzdump job, cluster cleanups.
+  description: Proxmox node baseline — sysctl tuning, cluster vzdump job, cluster cleanups.
   license: MIT
   min_ansible_version: "2.16"
   platforms:
