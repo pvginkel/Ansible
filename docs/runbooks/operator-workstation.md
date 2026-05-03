@@ -58,6 +58,6 @@ The two identities have different lifecycles and blast radii. The `ansible` key 
 
 The `.home` search domain must be present in `/etc/resolv.conf` (or the systemd-resolved equivalent). Verify with `resolvectl status`. Without it, short hostnames like `pve`, `srvk8sl1` will not resolve.
 
-## Proxmox API token
+## Proxmox credentials
 
-Required for Terraform's API path (everything that isn't snippet upload). Follow [`proxmox-api-token.md`](proxmox-api-token.md) once per fresh PVE cluster; the resulting token goes in `terraform/scratch/terraform.tfvars` (gitignored).
+Terraform authenticates to the Proxmox API as `root@pam` with username + password — see [`proxmox-credentials.md`](proxmox-credentials.md). The password goes in `terraform/{prd,scratch}/terraform.tfvars` (gitignored).

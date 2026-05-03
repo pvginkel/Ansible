@@ -9,7 +9,6 @@ The phase split mid-flight. Part 1 — the `disk_resize` role, the most common d
 - [`ansible/roles/disk_resize/`](../../ansible/roles/disk_resize/) — reconciles the guest filesystem against the size PVE declares for the VM's `scsiN` slot. `growpart` + `resize2fs` only on drift. Reads the requested size from `qm config <vmid>` on the VM's `pve_node` via `delegate_to`, so Ansible stays decoupled from `tfstate`.
 - [`ansible/playbooks/grow-disks.yml`](../../ansible/playbooks/grow-disks.yml) — operator-triggered standalone, not part of `site.yml`.
 - [`docs/runbooks/disk-resize.md`](../runbooks/disk-resize.md) — the new "edit Terraform → apply → grow-disks" flow, replacing the manual three-step PVE UI procedure.
-- `terraform/scratch/main.tf` — `lifecycle.ignore_changes` extended to `cpu[0].affinity`, since Ansible owns it (per `decisions.md` "Proxmox VM CPU affinity") and the scoped TF token can't write it anyway.
 - `host_vars/pve.yml` — documents `/dev/sda` as an intentional uncommitted spare.
 - `decisions.md` — codifies "backup follows the PVE node, not the VM"; passthrough disks are always `backup=false`. Implementation lands in Phase 3a.
 - `CLAUDE.md` — operator runs `terraform apply` and `ansible-playbook` against the real environment, not Claude. Read-only investigation stays in Claude's lane.

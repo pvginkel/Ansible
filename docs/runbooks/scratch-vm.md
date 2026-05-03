@@ -7,7 +7,7 @@ The fleet today is two microk8s scratch nodes (`wrkscratchk8s1`, `wrkscratchk8s2
 ## Prerequisites (one-time)
 
 1. Workstation set up per [`operator-workstation.md`](operator-workstation.md). Both SSH identities documented there are required: the operator key (Terraform uploads cloud-init snippets to `pve` over SSH as `root`) and the `ansible` service key (Ansible connects to each VM as `ansible` after cloud-init finishes).
-2. Proxmox API token created per [`proxmox-api-token.md`](proxmox-api-token.md), with `terraform/scratch/terraform.tfvars` filled in.
+2. Proxmox credentials set up per [`proxmox-credentials.md`](proxmox-credentials.md), with `terraform/scratch/terraform.tfvars` filled in.
 3. On `pve`, **Snippets** content type enabled on the `local` datastore. Web UI → Datacenter → Storage → `local` → Edit → tick "Snippets" under Content.
 4. dnsmasq reservations for each VM's pinned MAC. The deterministic MAC is `02:A7:F3:VV:VV:00` where `VV:VV` is the VMID big-endian (`03:85` for VMID 901, `03:86` for 902). Each reservation must exist *before* `terraform apply` so the first DHCP request gets the right answer.
 

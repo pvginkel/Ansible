@@ -225,15 +225,8 @@ Operational guards (to be folded into runbooks/playbooks at the relevant phase):
 ## Proxmox VM CPU affinity
 
 - **`pve` core zoning**: cores `0-11` are reserved for interactive workloads (operator dev box, jump box, scratch VMs); cores `12-19` are for background workloads (Ceph, Kubernetes, Home Assistant). `pve1` and `pve2` are different machines and not zoned — affinity does not apply to VMs running there.
-- **API constraint**: Proxmox restricts the VM `affinity` config field to `root@pam`. The scoped `terraform@pve!automation` token cannot set it under any role (confirmed: `HTTP 500 — only root can set 'affinity' config`). Granting the Terraform user root would broaden blast radius unacceptably.
-- **Decision**: affinity is **reconciled by Ansible**, not Terraform. Terraform creates the VM; an Ansible task on the pve host runs `qm set <vmid> --affinity <range>` idempotently as root.
-- **Source of truth**: each managed VM in inventory declares
-  - `vm_id` — its Proxmox VMID,
-  - `pve_node` — which physical PVE host runs it (`pve`, `pve1`, `pve2`); defaulted at the parent-group level to `pve`, overridden on the VMs that run elsewhere,
-  - `workload_class` — `interactive` or `background`.
-
-  The class → core-range map is per-PVE-host inventory data (only `pve` carries one, in `host_vars/pve.yml`). The `proxmox_host` role on `pve` enumerates VMs whose `pve_node` matches itself, resolves each to a core range via that map, and reconciles `qm set <vmid> --affinity <range>`. On `pve1`/`pve2` the role no-ops on affinity because no map is defined.
-- **Lands in Phase 2** (`proxmox_host` role). Until that role exists, affinity is set by hand as root after `terraform apply`.
+- **Owner**: Terraform. The bpg/proxmox provider authenticates as `root@pam` (see `docs/runbooks/proxmox-credentials.md`), which lifts PVE's restriction on writing the `affinity` config field. The per-VM module's `cpu_affinity` input maps to `cpu.affinity` on the VM resource.
+- **Source of truth**: the workload-class → core-range map lives in `terraform/prd/vms.tf` (mirrored in `terraform/scratch/vms.tf`). Each VM entry declares `workload_class = "interactive" | "background"`; the module call site computes `cpu_affinity = each.value.pve_node == "pve" ? local.workload_affinity_cores[each.value.workload_class] : null`. Pinning applies only on `pve`; VMs on `pve1`/`pve2` pass `null`.
 
 ## Terraform applies on cluster members never reboot directly
 
@@ -247,15 +240,11 @@ For changes that genuinely cannot wait — a BIOS mode flip, a CPU topology chan
 
 ## Disk passthrough on managed VMs
 
-Same shape as the affinity constraint above: Proxmox blocks API tokens from passing arbitrary host filesystem paths into a VM's disk config. The check is in PVE itself (`PVE/Storage.pm`: "Only root can pass arbitrary filesystem paths") and applies regardless of the token's role assignment — even a token derived from `root@pam` is rejected, because PVE distinguishes "user logged in" from "token of that user." Granting Terraform direct password auth as `root@pam` would broaden blast radius unacceptably.
+Passthrough disks are **first-class Terraform resources**. The per-VM module accepts a `passthrough_disks` input — a list of `{ interface, path_in_datastore }` — and declares them as additional `disk` blocks alongside the managed disks. TF creates and attaches them in the same apply as the VM, using the `root@pam` provider auth. There is no staged TF-then-Ansible flow.
 
-**Decision**: passthrough disk attachment is **owned by Ansible**, not Terraform. Terraform models a VM's *managed* disks (root, data, EFI); passthroughs are attached out-of-band via `qm set <vmid> --scsiN /dev/disk/by-id/<serial>,backup=0,size=...` from a `proxmox_host` task running as `root@pam` on the PVE host.
+Backups are always `backup = false` on passthrough blocks: the stacks on top (Ceph BlueStore on the OSD volumes, ZFS on the NVMe) own redundancy, and a vzdump of a multi-TB raw passthrough is neither crash-consistent nor cheap.
 
-Practical consequences:
-
-- **Phase 3a imports**: TF *imports* existing passthrough disks into state without trouble — import doesn't go through the create/modify code path that triggers the check. Reads (and apply runs that don't propose disk-block changes) stay clean. The block stays declared on the VM's `local.vms` entry in `terraform/prd/vms.tf` so plan reflects reality, but TF never creates or modifies it.
-- **Rebuild path (Phase 4 / 5)**: a `terraform apply -replace=<vm-resource>` will fail at create time on any VM with a passthrough block declared. The rebuild therefore runs in two stages: TF creates the bare VM (no passthrough disks); Ansible reconciles passthroughs via `qm set` immediately after. Either the TF module drops the passthrough block before rebuild and re-imports it after, or the rebuild runbook stages the change explicitly. Specifics decided when Phase 4 starts.
-- **Source of truth for the disk identity**: each VM with a passthrough declares its `/dev/disk/by-id/<serial>` paths in inventory (per-VM `host_vars`). The `proxmox_host` role reads them and reconciles. Same model as the affinity / core-range map.
+The disk identity (the `/dev/disk/by-id/<serial>` path) lives in the VM's `terraform/prd/vms.tf` entry. When a physical disk is swapped, edit that path and run a targeted `terraform refresh` + `terraform apply` — see `docs/runbooks/vm-rebuild.md`.
 
 ## Production execution model (Jenkins-driven)
 

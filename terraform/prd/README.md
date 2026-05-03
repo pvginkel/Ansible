@@ -9,7 +9,7 @@ terraform/prd/
 ├── main.tf                  # `module "vm"` call into ../modules/managed-vm with for_each = local.vms; from-scratch resources (image download, host keys, cloud-init snippets, known_hosts.d/prd) gated on `from_scratch = true` per VM.
 ├── vms.tf                   # local.vms — the per-VM inputs (vmid, smbios uuid, disks, NICs, tags, etc.).
 ├── cloud-init.yaml.tftpl    # cloud-init template for from-scratch VMs (creates ansible user, pins SSH host key, installs qemu-guest-agent).
-├── variables.tf             # Provider inputs only (token, endpoint).
+├── variables.tf             # Provider inputs only (username, password, endpoint).
 ├── providers.tf             # bpg/proxmox provider config (incl. SSH for snippet uploads).
 ├── versions.tf              # Provider name bindings: bpg/proxmox + tls + local.
 ├── outputs.tf               # vm_ids and nic_macs maps, keyed by VM name.
@@ -27,7 +27,9 @@ Each module instance reads `pve_node_backup_datastore` from `ansible/inventories
 Either:
 
 - copy `terraform.tfvars.example` to `terraform.tfvars` and fill in (gitignored), or
-- set `TF_VAR_proxmox_api_token` / `TF_VAR_proxmox_endpoint` in the shell — recommended.
+- set `TF_VAR_proxmox_password` / `TF_VAR_proxmox_endpoint` in the shell.
+
+See [`docs/runbooks/proxmox-credentials.md`](../../docs/runbooks/proxmox-credentials.md).
 
 ## Adding or importing a VM
 

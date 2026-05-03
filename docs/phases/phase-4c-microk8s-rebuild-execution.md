@@ -11,9 +11,8 @@ Drive the four k8s VM rebuilds that Phase 4b staged. Closes the parity event for
 The repo is staged; nothing has been applied:
 
 - TF entries under from-scratch shape: `srvk8s1` (910), `srvk8s2` (911), `srvk8s3` (912), `wrkdevk8s` (919).
-- managed-vm module: `cloud_init` + `machine` inputs, `lifecycle.ignore_changes` for `disk[0].file_id` and the passthrough slots.
+- managed-vm module: `cloud_init` + `machine` inputs, `lifecycle.ignore_changes` for `disk[0].file_id`.
 - prd-level scaffold: image download per `pve_node`, `tls_private_key` per from-scratch VM, cloud-init snippet, `local_file` writing `files/known_hosts.d/prd` (gated, materialises on first apply).
-- `proxmox_host` owns passthrough lifecycle.
 - `ansible.cfg`'s `UserKnownHostsFile` lists `files/known_hosts.d/prd` at the head.
 - `rebuild-k8s.yml` drives the post-TF Ansible work.
 - `docs/runbooks/k8s-rebuild.md` is the operator orchestrator.
@@ -22,7 +21,7 @@ The repo is staged; nothing has been applied:
 ## Decisions carried forward
 
 - **Hostname rename at rebuild**: `srvk8sl1 → srvk8s1` (on `pve`), `srvk8ss1 → srvk8s2` (on `pve1`), `srvk8ss2 → srvk8s3` (on `pve2`). `wrkdevk8s` keeps its name.
-- **`srvk8s1`'s NVMe passthrough**: `nvme-Samsung_SSD_980_500GB_S64DNX0RC21332X` carries `zpool2`. Ansible's `proxmox_host` attaches it post-VM-create; `zpool import zpool2` runs from `rebuild-k8s.yml`.
+- **`srvk8s1`'s NVMe passthrough**: TF attaches `/dev/disk/by-id/nvme-Samsung_SSD_980_500GB_S64DNX0RC21332X` at scsi2 atomically with VM creation (declared in `vms.tf` per plan 01); `zpool import zpool2` runs from `rebuild-k8s.yml`.
 - **Manual dnsmasq reservations** until Phase 9. Each (hostname, MAC, IP) update is a hand-edit before `terraform apply`.
 - **Channel override on `wrkdevk8s`** (`1.30/stable` in `host_vars`) is removed at the wrkdevk8s rebuild so `group_vars/k8s_dev.yml`'s `1.32/stable` takes effect.
 - **Adoption known_hosts files** (`k8s_prd`, `k8s_dev`) retire after all four nodes are on TF-managed keys.
@@ -32,7 +31,7 @@ The repo is staged; nothing has been applied:
 In:
 - Smoke `rebuild-k8s.yml` against the scratch fleet (rebuild `wrkscratchk8s2` while `wrkscratchk8s1` stays Ready).
 - Real rebuilds in order: `srvk8s1` (with passthrough), `srvk8s2`, `srvk8s3`, `wrkdevk8s`.
-- Per-rebuild inventory rename commits: `host_vars/srvk8sl1.yml → srvk8s1.yml` etc.; `hosts.yml` entries; `host_vars/srvk8s1.yml` adds `passthrough_disks` + `zpools_to_import`; `group_vars/k8s_prd.yml`'s `microk8s_primary_host` updates at srvk8s1's rebuild.
+- Per-rebuild inventory rename commits: `host_vars/srvk8sl1.yml → srvk8s1.yml` etc.; `hosts.yml` entries; `host_vars/srvk8s1.yml` adds `zpools_to_import`; `group_vars/k8s_prd.yml`'s `microk8s_primary_host` updates at srvk8s1's rebuild.
 - `host_vars/wrkdevk8s.yml` update: drop the `microk8s_channel` override, bump `vm_id` 119 → 919.
 - Manual destroy of old VMs (`qm destroy`) and TF state cleanup of orphans (`terraform state rm`).
 - End-of-phase commit: retire `files/known_hosts.d/k8s_prd` and `k8s_dev`; drop them from `ansible.cfg`.
@@ -48,7 +47,7 @@ Out:
 The runbook ([`docs/runbooks/k8s-rebuild.md`](../runbooks/k8s-rebuild.md)) is the operator playbook. High-level:
 
 1. Smoke against scratch.
-2. `srvk8s1` (the trickiest — NVMe passthrough + ZFS reattach + cluster primary handoff).
+2. `srvk8s1` (the trickiest — ZFS reattach + cluster primary handoff).
 3. `srvk8s2`.
 4. `srvk8s3`.
 5. `wrkdevk8s`.

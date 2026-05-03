@@ -86,15 +86,14 @@ The full procedure lands when Phase 4 (k8s) and Phase 5 (Ceph) need it. Outline 
    - Add `proxmox_download_file`, `proxmox_virtual_environment_file` (cloud-init snippet), `tls_private_key`, `local_file` (known_hosts.d/<host> entry).
    - Add `initialization { user_data_file_id = ... }` to the VM resource.
    - Switch from BC:24:11:... MAC to deterministic `02:A7:F3:VV:VV:EE` (decisions.md "MAC addressing"). VMID likely also moves into the 900-and-up range; if so, the deterministic MAC moves accordingly.
-   - **Remove the `passthrough_disks` input** if any. Per `decisions.md` "Disk passthrough on managed VMs," PVE rejects API tokens for filesystem-path operations — a recreate would fail. Ansible re-attaches passthroughs after the VM is up.
+   - **Keep or add `passthrough_disks`** on the VM's TF entry — TF attaches them atomically with the VM, no staged Ansible reattach.
 3. **dnsmasq reservation update.** New MAC → new reservation (or new IP allocation). Must land before `terraform apply` so the first DHCP lease on the rebuilt VM lands correctly.
 4. **`terraform apply -replace`** on the VM resource. Same shape as the scratch flow above.
-5. **Reattach passthroughs** via Ansible (root over SSH on the PVE host, `qm set <vmid> --scsiN /dev/disk/by-id/...,backup=0`). Phase 4/5 builds this into the role.
-6. **`site.yml`** — bootstrap + baseline + microk8s/microceph role lands the cluster bits.
-7. **Re-join the cluster.** k8s: uncordon. Ceph: `noout` lifted, OSDs come back, wait for `HEALTH_OK`.
-8. **Verify zero residual** with `--check --diff` against the rebuilt host.
+5. **`site.yml`** — bootstrap + baseline + microk8s/microceph role lands the cluster bits.
+6. **Re-join the cluster.** k8s: uncordon. Ceph: `noout` lifted, OSDs come back, wait for `HEALTH_OK`.
+7. **Verify zero residual** with `--check --diff` against the rebuilt host.
 
-Phase 4 / 5 will produce concrete playbooks for steps 1, 5, 7. Until then, this section is forward-looking — don't try to rebuild a k8s or Ceph node by hand without the playbook backing.
+Phase 4 / 5 will produce concrete playbooks for steps 1, 6. Until then, this section is forward-looking — don't try to rebuild a k8s or Ceph node by hand without the playbook backing.
 
 ## Disk passthrough — replacing a failing OSD disk
 

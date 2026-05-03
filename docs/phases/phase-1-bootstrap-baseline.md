@@ -13,7 +13,7 @@ Two foundational Ansible roles + a disposable Terraform-provisioned VM to exerci
 
 Operational docs:
 - `docs/runbooks/operator-workstation.md` — workstation prereqs (Poetry, two SSH identities, DNS).
-- `docs/runbooks/proxmox-api-token.md` — Terraform's API token + custom role.
+- `docs/runbooks/proxmox-credentials.md` — Terraform's root@pam credentials.
 - `docs/runbooks/scratch-vm.md` — full scratch VM lifecycle.
 
 ## What didn't land in this phase

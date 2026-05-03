@@ -12,13 +12,12 @@
 
 ## Constraints surfaced (now in `decisions.md`)
 
-- **Disk passthrough on managed VMs** — PVE blocks API tokens from passing arbitrary filesystem paths. Existing passthroughs survive imports cleanly but cannot be created or modified by Terraform; rebuilds drop the passthrough block from the module and Ansible reattaches.
 - **Terraform applies on cluster members never reboot directly** — `reboot_after_update = false` baked into the child module. Reboots stay owned by Ansible's drain-aware update flow.
 - **Network topology** (vmbr0 + vmbr1 + vmbr0 tag=2) and **VMID convention** (legacy 100–199 vs the 900-and-up TF range) both written down for the first time.
 - **Legacy MAC carry-forward** — existing BC:24:11:... MACs pinned verbatim. The deterministic `02:A7:F3:VV:VV:EE` scheme applies post-rebuild.
 
 ## Carried forward to Phase 4 / 5
 
-The current per-VM modules are the **adoption shape**. To rebuild a cluster member, the module needs the from-scratch shape (cloud-init snippet, `tls_private_key`, `local_file` for `known_hosts.d/`, deterministic MAC, optional VMID rotation into the 900-range, passthrough block removed). That commit lands per-VM as part of Phase 4 (k8s) and Phase 5 (Ceph). `vm-rebuild.md` outlines the procedure; the playbook hooks (cordon/drain, OSD reattach) are owned by those phases.
+The current per-VM modules are the **adoption shape**. To rebuild a cluster member, the module needs the from-scratch shape (cloud-init snippet, `tls_private_key`, `local_file` for `known_hosts.d/`, deterministic MAC, optional VMID rotation into the 900-range). That commit lands per-VM as part of Phase 4 (k8s) and Phase 5 (Ceph). `vm-rebuild.md` outlines the procedure; the playbook hooks (cordon/drain, OSD reattach) are owned by those phases.
 
 `srvk8ss2` is currently `bios = "seabios"` matching reality — the BIOS→UEFI flip is part of its Phase 4 rebuild commit (memory: `project_srvk8ss2_uefi.md`).

@@ -4,7 +4,7 @@ Multi-VM Terraform config for the disposable scratch fleet. Used to exercise Ans
 
 ## Prerequisites
 
-1. Proxmox API token set up — see [`docs/runbooks/proxmox-api-token.md`](../../docs/runbooks/proxmox-api-token.md).
+1. Proxmox credentials set up — see [`docs/runbooks/proxmox-credentials.md`](../../docs/runbooks/proxmox-credentials.md).
 2. On `pve`, the `local` datastore must have both **ISO image** and **Snippets** content types enabled. Proxmox web UI → Datacenter → Storage → `local` → Edit → tick both under "Content". Default Proxmox enables ISO but not Snippets.
 3. dnsmasq reservations for each VM's pinned MAC pointing `<vm-name>.home` at the desired IP — must exist *before* `terraform apply` so the first DHCP lease lands on the reserved address. See `docs/runbooks/scratch-vm.md` for the MAC values and the rest of the prereqs.
 
@@ -13,7 +13,7 @@ Multi-VM Terraform config for the disposable scratch fleet. Used to exercise Ans
 ```sh
 cd terraform/scratch
 cp terraform.tfvars.example terraform.tfvars
-# Fill in proxmox_api_token.
+# Fill in proxmox_password.
 terraform init
 ```
 
