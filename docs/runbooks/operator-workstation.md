@@ -61,3 +61,24 @@ The `.home` search domain must be present in `/etc/resolv.conf` (or the systemd-
 ## Proxmox credentials
 
 Terraform authenticates to the Proxmox API as `root@pam` with username + password — see [`proxmox-credentials.md`](proxmox-credentials.md). The password goes in `terraform/{prd,scratch}/terraform.tfvars` (gitignored).
+
+## Terraform dev override — `pvginkel/homelab`
+
+The `homelab` provider is built locally from `/work/HomelabTerraformProvider` and consumed by Terraform via a dev override in `~/.terraformrc`. No registry, no version pin. Build steps are in `/work/HomelabTerraformProvider/CLAUDE.md`; once a binary exists at `~/go/bin/terraform-provider-homelab` (or wherever your `go install` lands), point Terraform at the directory:
+
+```hcl
+# ~/.terraformrc
+provider_installation {
+  dev_overrides {
+    "pvginkel/homelab" = "/home/<you>/go/bin"
+  }
+
+  # Required when using dev_overrides — everything else falls through
+  # to the default registry.
+  direct {}
+}
+```
+
+`terraform plan` against `terraform/prd` or `terraform/scratch` will warn that the override is in effect; that's expected. CI gets a published or embedded provider per [`docs/plans/04-embed-homelab-provider.md`](../plans/04-embed-homelab-provider.md).
+
+The bearer token for the sidecar API goes in `terraform/{prd,scratch}/terraform.tfvars` next to the Proxmox password (`dns_reservation_token`).

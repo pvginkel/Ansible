@@ -77,18 +77,17 @@ ssh root@pve qm shutdown <old-vmid>
 
 The shut-down VMID stays on PVE as an escape hatch. Note that after `microk8s leave` its on-disk dqlite state is no longer trusted by the cluster — to reuse the old VM in an emergency, `qm start <old-vmid>` + `microk8s reset` + `microk8s join` it back as a fresh member.
 
-### 3. Update the dnsmasq reservation
+### 3. Drop the old hostname from the static-hosts file
 
-Edit the reservation set in HelmCharts (or wherever the operator manages it):
-
-- Remove the old MAC.
-- Add the new MAC, allocate a new IPv4.
-
-Roll the dnsmasq StatefulSet to pick up the change. Verify:
+The new VM's reservation is registered with the sidecar API by the
+`terraform apply` in step 5; nothing to do here for the new entry.
+The old hostname still resolves via the HelmCharts static-hosts file
+though — remove it (`<old-hostname>` line) in HelmCharts and roll the
+dnsmasq StatefulSet so the old entry stops resolving.
 
 ```sh
-dig +short <new-hostname>.home @<dnsmasq-replica-ip>
-# old hostname stops resolving; new one resolves.
+dig +short <old-hostname>.home @<dnsmasq-replica-ip>
+# expect: no answer.
 ```
 
 ### 4. Rename the inventory
@@ -209,12 +208,12 @@ ssh root@pve 'qm shutdown 103 ; sleep 5 ; qm destroy 103'
 
 This frees the NVMe (qemu releases the device on destroy; the ZFS pool's on-disk metadata stays for re-import). The new VM in step 6 can now claim it.
 
-### 4. Update the dnsmasq reservation
+### 4. Drop `srvk8sl1` from the static-hosts file
 
-- Remove `srvk8sl1` (MAC `BC:24:11:3D:56:09`).
-- Add `srvk8s1` (MAC `02:A7:F3:03:8E:00`) with a new IPv4.
-
-Roll the dnsmasq StatefulSet. Verify resolution.
+`srvk8s1`'s reservation is registered with the sidecar API by the
+`terraform apply` in step 6. Remove the `srvk8sl1` line from
+HelmCharts' static-hosts and roll the dnsmasq StatefulSet so the old
+hostname stops resolving.
 
 ### 5. Update the inventory
 
@@ -290,9 +289,9 @@ Different shape: the live `wrkdevk8s` (VMID 119) is a manual VM never imported i
 The dev cluster is a single node and is its own primary — there's no drain (nothing to drain to). The cluster gets fully replaced; HelmCharts deployments under `wrkdevk8s` need to be re-deployed afterward (operator workflow, separate from this runbook).
 
 ```sh
-# 1. Update dnsmasq:
-#    Remove wrkdevk8s old MAC BC:24:11:F0:36:14
-#    Add    wrkdevk8s new MAC 02:A7:F3:03:97:00, new IPv4
+# 1. Drop wrkdevk8s from the HelmCharts static-hosts file (and roll the
+#    dnsmasq StatefulSet). The new reservation is registered with the
+#    sidecar API by the terraform apply in step 4.
 
 # 2. Update inventory: drop the microk8s_channel override from
 #    host_vars/wrkdevk8s.yml so group_vars/k8s_dev.yml's 1.32/stable

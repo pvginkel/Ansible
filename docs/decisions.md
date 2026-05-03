@@ -152,7 +152,7 @@ The user's application has four deployment stages: `dev`, `test`, `uat`, `prd`. 
 - DNS search domain is `.home`. Configured on the operator workstation directly; pushed to every managed Ubuntu VM as DHCP option 15 by dnsmasq, so the `baseline` role does not have to set it.
 - All managed hosts **must** have forward DNS entries (`hostname.home`) resolvable from the operator workstation and from each other.
 - Ansible inventories use **short hostnames**; the `.home` search domain fills in the FQDN. Never hard-code IPs.
-- For Terraform-provisioned VMs, the operator adds a dnsmasq reservation (MAC → IP, hostname) **before** `terraform apply`, so the VM's first DHCP request lands on the reserved address and the matching A record resolves. Terraformed reservations come later (see "MAC addressing" below).
+- For Terraform-provisioned VMs, the per-VM module declares a `homelab_dns_reservation` resource that registers the (hostname, MAC) pair with the dnsmasq sidecar API; the API allocates the IPv4 from `10.1.3.0/24`. `depends_on` on the VM resource orders the reservation before VM create, so the VM's first DHCP request lands on a known reservation. See "MAC addressing" below for the resource shape.
 - **Bootstrap-critical hosts do not resolve through the dnsmasq pod.** dnsmasq runs as a Kubernetes pod, so the k8s nodes themselves and the OpenBao VM cannot depend on it: the cluster could not boot from cold if its nodes resolved through a service hosted on the cluster, and OpenBao must be reachable to deliver secrets to the cluster that hosts dnsmasq. These hosts carry static resolver configuration — `/etc/hosts` for the names they need at boot, plus an upstream resolver (LAN router or public DNS) reached directly. The configuration is not standard Ubuntu defaults; the `baseline` role applies it based on host class.
 - **The operator workstation needs a secondary resolver too**, for the same reason. The dnsmasq pod runs as a 2-replica StatefulSet pinned to different k8s nodes, so a single node reboot is invisible to it — but if the workstation only knows about one of the two replicas, a roll that touches the node hosting that replica blacks out resolution from the workstation mid-run. DHCP option 6 advertising both replicas covers it; configuring both resolvers statically on the workstation works too. Either way, list both — never one.
 
@@ -160,16 +160,16 @@ The user's application has four deployment stages: `dev`, `test`, `uat`, `prd`. 
 
 The Proxmox cluster has two physical bridges plus a workload VLAN on the first:
 
-- **`vmbr0`** — 1 Gb house network. Internet-facing. Default route, DNS, DHCP (dnsmasq) all live here.
-- **`vmbr1`** — 10 Gb backplane between the PVE/Ceph/k8s nodes. Separate subnet, not reachable from the house LAN. Carries inter-node Ceph and Kubernetes traffic.
-- **`vmbr0` tag 2** — Kubernetes workload network. Same physical 1 Gb fabric as vmbr0, separate VLAN and subnet. Reserved for k8s services; BGP via MetalLB was partly set up and abandoned, but the subnet allocation is preserved.
+- **`vmbr0`** — 1 Gb house network. Internet-facing. Default route, DNS, DHCP (dnsmasq) all live here. Each managed VM's `network_devices[0]` lives on this bridge with `vlan_id=0`; the per-VM module's `homelab_dns_reservation` keys off that NIC's MAC.
+- **`vmbr1`** — 10 Gb backplane between the PVE/Ceph/k8s nodes. Separate subnet, not reachable from the house LAN. Carries inter-node Ceph and Kubernetes traffic. Per-VM static address declared in `vms.tf` (or rendered guest-side at provision time); no IPAM, no reservation resource. Addresses are stable across rebuilds — the backplane is a shared subnet across PVE/Ceph/k8s/etc., so they're hand-curated.
+- **`vmbr0` tag 2** — Kubernetes workload network. Same physical 1 Gb fabric as vmbr0, separate VLAN and subnet (`10.2.0.0/16`). Reserved for k8s services; BGP via MetalLB was partly set up and abandoned, but the subnet allocation is preserved. Per-VM static address declared in `vms.tf`, sequential within `10.2.0.0/16`. No IPAM.
 
 Per-host-class shape:
 
 | Class | NICs |
 |---|---|
 | Ceph nodes (`srvceph1/2/3`) | vmbr0 + vmbr1 |
-| k8s nodes (`srvk8sl1`, `srvk8ss1/2`) | vmbr0 + vmbr0 tag=2 + vmbr1 |
+| k8s nodes (`srvk8s1/2/3`) | vmbr0 + vmbr0 tag=2 + vmbr1 |
 | Everything else (operator workstation, OpenBao, scratch) | vmbr0 only |
 
 Deferred / revisit:
@@ -190,7 +190,7 @@ Deferred / revisit:
 - Constrains VMIDs to `[100, 65535]`. Validated at plan time by the `vm_id` variable.
 - VMs run DHCP on the NIC; cloud-init carries no IP/gateway/DNS config. dnsmasq is the single source of truth for IP and DNS, keyed off the pinned MAC.
 - **Legacy (pre-rebuild) VMs**: keep their existing Proxmox-generated `BC:24:11:...` MACs pinned verbatim in their TF modules. The deterministic scheme applies after the Phase 4/5 rebuild, at which point the dnsmasq reservation is updated in lockstep with the new MAC.
-- **dnsmasq reservation as a Terraform resource (Phase 9)**: managed VMs register their (hostname, MAC, IPv4) triple via a sidecar API on the dnsmasq pod, called from a `dnsreservation_reservation` resource inside each per-VM module. One apply registers the reservation and creates the VM, in that order; destroy reverses it. The sidecar is Helm-deployed; the static `static-hosts.yaml` continues to hold operator-curated entries (printers, IoT, network gear) in a separate namespace. Until Phase 9 lands, reservations are added by hand before `terraform apply`. Specs: [`specs/dns-reservation-api.md`](specs/dns-reservation-api.md), [`specs/dns-reservation-terraform.md`](specs/dns-reservation-terraform.md).
+- **dnsmasq reservation as a Terraform resource**: managed VMs register their (hostname, MAC) pair with the dnsmasq sidecar API via a `homelab_dns_reservation` resource inside each per-VM module; the API allocates the IPv4. One apply registers the reservation and creates the VM, in that order; destroy reverses it. The sidecar is Helm-deployed; the static `static-hosts.yaml` continues to hold operator-curated entries (printers, IoT, network gear) in a separate namespace, and is overridden by API entries on hostname collision. Specs: [`specs/dns-reservation-api.md`](specs/dns-reservation-api.md), [`specs/dns-reservation-terraform.md`](specs/dns-reservation-terraform.md).
 
 ## SSH host keys for managed VMs
 
