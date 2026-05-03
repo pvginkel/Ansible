@@ -1,10 +1,11 @@
 # Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored.
 #
-# The api token comes from the runbook at docs/runbooks/proxmox-api-token.md.
+# proxmox_password is the root@pam Linux password on the PVE cluster.
 # The ansible public key is read from the repo automatically
 # (ansible/roles/bootstrap/files/ansible.pub); no need to set it here unless
 # you want to override it for a one-off run.
 
-proxmox_endpoint  = "https://pve.home:8006/"
-proxmox_api_token = "terraform@pve!automation=REPLACE-WITH-SECRET"
-proxmox_insecure  = true
+proxmox_endpoint = "https://pve.home:8006/"
+proxmox_username = "root@pam"
+proxmox_password = "REPLACE-WITH-SECRET"
+proxmox_insecure = true

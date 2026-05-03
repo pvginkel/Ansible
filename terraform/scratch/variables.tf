@@ -3,8 +3,14 @@ variable "proxmox_endpoint" {
   type        = string
 }
 
-variable "proxmox_api_token" {
-  description = "Proxmox API token in the form 'user@realm!tokenid=secret'."
+variable "proxmox_username" {
+  description = "Proxmox login (realm-qualified, e.g. root@pam). See decisions.md \"Proxmox VM CPU affinity\" for why this is root@pam rather than a scoped API token."
+  type        = string
+  default     = "root@pam"
+}
+
+variable "proxmox_password" {
+  description = "Password for proxmox_username. Lives in terraform.tfvars (gitignored)."
   type        = string
   sensitive   = true
 }

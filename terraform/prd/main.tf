@@ -82,9 +82,10 @@ module "vm" {
   bios        = each.value.bios
   machine     = try(each.value.machine, null)
 
-  cpu_cores   = each.value.cpu_cores
-  cpu_sockets = each.value.cpu_sockets
-  memory_mb   = each.value.memory_mb
+  cpu_cores    = each.value.cpu_cores
+  cpu_sockets  = each.value.cpu_sockets
+  cpu_affinity = each.value.pve_node == "pve" ? local.workload_affinity_cores[each.value.workload_class] : null
+  memory_mb    = each.value.memory_mb
 
   managed_disks     = each.value.managed_disks
   passthrough_disks = try(each.value.passthrough_disks, [])

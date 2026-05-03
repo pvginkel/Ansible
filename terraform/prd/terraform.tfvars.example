@@ -1,6 +1,7 @@
 # Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored.
-# Or set TF_VAR_proxmox_api_token / TF_VAR_proxmox_endpoint in the shell.
+# Or set TF_VAR_proxmox_password / TF_VAR_proxmox_endpoint in the shell.
 
-proxmox_endpoint  = "https://pve.home:8006/"
-proxmox_api_token = "terraform@pve!automation=REPLACE-ME"
-proxmox_insecure  = true
+proxmox_endpoint = "https://pve.home:8006/"
+proxmox_username = "root@pam"
+proxmox_password = "REPLACE-ME"
+proxmox_insecure = true

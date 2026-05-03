@@ -66,6 +66,12 @@ variable "cpu_type" {
   default     = "host"
 }
 
+variable "cpu_affinity" {
+  description = "PVE core range to pin this VM to (e.g. \"0-11\", \"12-19\"). Null leaves the VM unpinned. See decisions.md \"Proxmox VM CPU affinity\"."
+  type        = string
+  default     = null
+}
+
 variable "memory_mb" {
   description = "Dedicated memory in MiB."
   type        = number
@@ -84,7 +90,7 @@ variable "managed_disks" {
 }
 
 variable "passthrough_disks" {
-  description = "Block devices passed through from the PVE host (Ceph OSDs, ZFS volumes). Always backup=false. See decisions.md \"Disk passthrough on managed VMs\" — TF cannot create or modify these via API token; existing passthroughs survive imports cleanly, but rebuilds need Ansible to reattach."
+  description = "Block devices passed through from the PVE host (Ceph OSDs, ZFS volumes). Always backup=false. See decisions.md \"Disk passthrough on managed VMs\"."
   type = list(object({
     interface         = string
     path_in_datastore = string

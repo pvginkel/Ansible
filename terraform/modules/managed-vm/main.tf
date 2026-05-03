@@ -8,7 +8,7 @@ locals {
   # attributes), or the file exists but doesn't set this key. A
   # fileexists()/yamldecode() conditional fails type unification once
   # other modules add unrelated keys to a host_vars file (e.g. pve.yml
-  # carries intentional_spare_disks, proxmox_workload_affinity_cores).
+  # carries intentional_spare_disks).
   pve_host_vars_path  = "${path.module}/../../../ansible/inventories/prd/host_vars/${var.pve_node}.yml"
   pve_node_has_backup = try(yamldecode(file(local.pve_host_vars_path)).pve_node_backup_datastore, null) != null
 }
@@ -35,9 +35,10 @@ resource "proxmox_virtual_environment_vm" "this" {
   }
 
   cpu {
-    cores   = var.cpu_cores
-    sockets = var.cpu_sockets
-    type    = var.cpu_type
+    cores    = var.cpu_cores
+    sockets  = var.cpu_sockets
+    type     = var.cpu_type
+    affinity = var.cpu_affinity
   }
 
   memory {
@@ -91,13 +92,6 @@ resource "proxmox_virtual_environment_vm" "this" {
     }
   }
 
-  # Passthrough disks must follow managed disks in declaration order so
-  # state's disk[] indexing matches what bpg's import set. TF can import
-  # these but cannot create/modify them via API token (PVE rejects
-  # arbitrary filesystem paths under non-root users). Adopted VMs (cephs
-  # today) declare them here; rebuilt VMs leave this empty and let
-  # `proxmox_host` reconcile via `qm set` — see lifecycle.ignore_changes
-  # below.
   dynamic "disk" {
     for_each = var.passthrough_disks
     content {
@@ -150,25 +144,11 @@ resource "proxmox_virtual_environment_vm" "this" {
 
   lifecycle {
     ignore_changes = [
-      # Reconciled by Ansible (proxmox_host role on `pve`), not Terraform.
-      # See decisions.md "Proxmox VM CPU affinity".
-      cpu[0].affinity,
       # Cloud image rolls forward under `current/`; ignore so a newer
       # Canonical point release doesn't make every plan want to rebuild
       # the VM. Pick up a new image deliberately via `terraform apply
       # -replace`. No-op on adopted VMs (no file_id on disk[0]).
       disk[0].file_id,
-      # Slots 2 and 3 are reserved for passthrough disks owned by the
-      # `proxmox_host` role. PVE rejects API-token writes to passthrough
-      # blocks, so TF cannot mutate them — ignoring the slots prevents
-      # plan churn after Ansible attaches them. Today every managed VM
-      # has 2 managed disks (scsi0=root, scsi1=data); a future VM with
-      # 3+ managed disks needs to revisit this convention. Adopted ceph
-      # VMs still declare passthroughs in their TF entries (until they
-      # rebuild in Phase 5); the ignore is a no-op there because state
-      # and config match from import.
-      disk[2],
-      disk[3],
     ]
   }
 }
