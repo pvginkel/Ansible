@@ -64,13 +64,18 @@ Terraform authenticates to the Proxmox API as `root@pam` with username + passwor
 
 ## Terraform dev override — `pvginkel/homelab`
 
-The `homelab` provider is built locally from `/work/HomelabTerraformProvider` and consumed by Terraform via a dev override in `~/.terraformrc`. No registry, no version pin. Build steps are in `/work/HomelabTerraformProvider/CLAUDE.md`; once a binary exists at `~/go/bin/terraform-provider-homelab` (or wherever your `go install` lands), point Terraform at the directory:
+The `homelab` provider is built in place at `/work/HomelabTerraformProvider` and consumed by Terraform via a dev override in `~/.terraformrc`. No registry, no version pin. See [`/work/HomelabTerraformProvider/CLAUDE.md`](../../../HomelabTerraformProvider/CLAUDE.md) for the canonical dev workflow.
+
+```sh
+cd /work/HomelabTerraformProvider
+go build -o terraform-provider-homelab
+```
 
 ```hcl
 # ~/.terraformrc
 provider_installation {
   dev_overrides {
-    "pvginkel/homelab" = "/home/<you>/go/bin"
+    "pvginkel/homelab" = "/work/HomelabTerraformProvider"
   }
 
   # Required when using dev_overrides — everything else falls through
@@ -79,6 +84,6 @@ provider_installation {
 }
 ```
 
-`terraform plan` against `terraform/prd` or `terraform/scratch` will warn that the override is in effect; that's expected. CI gets a published or embedded provider per [`docs/plans/04-embed-homelab-provider.md`](../plans/04-embed-homelab-provider.md).
+`terraform plan` against `terraform/prd` or `terraform/scratch` will warn that the override is in effect; that's expected. Note: dev overrides bypass `.terraform.lock.hcl`, so `terraform init` does not record a hash for the homelab provider. CI gets a published or embedded provider per [`docs/plans/04-embed-homelab-provider.md`](../plans/04-embed-homelab-provider.md).
 
 The bearer token for the sidecar API goes in `terraform/{prd,scratch}/terraform.tfvars` next to the Proxmox password (`dns_reservation_token`).
