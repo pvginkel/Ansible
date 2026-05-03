@@ -21,6 +21,17 @@ variable "proxmox_insecure" {
   default     = true
 }
 
+variable "dns_reservation_url" {
+  description = "Base URL of the dnsmasq sidecar reservation API (e.g. https://dns-reservation.home/). See docs/specs/dns-reservation-api.md."
+  type        = string
+}
+
+variable "dns_reservation_token" {
+  description = "Bearer token for the dnsmasq sidecar reservation API. Lives in terraform.tfvars (gitignored)."
+  type        = string
+  sensitive   = true
+}
+
 variable "pve_node" {
   description = "PVE node that the cloud image is downloaded to. Per-VM `pve_node` in the `vms` locals map controls placement; this variable only governs the one image-download resource (a single download serves all VMs that live on the same node)."
   type        = string

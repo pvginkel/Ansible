@@ -15,3 +15,8 @@ provider "proxmox" {
     username = "root"
   }
 }
+
+provider "homelab" {
+  dns_reservation_url   = var.dns_reservation_url
+  dns_reservation_token = var.dns_reservation_token
+}

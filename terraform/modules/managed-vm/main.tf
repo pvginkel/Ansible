@@ -13,7 +13,25 @@ locals {
   pve_node_has_backup = try(yamldecode(file(local.pve_host_vars_path)).pve_node_backup_datastore, null) != null
 }
 
+# dnsmasq reservation registered with the sidecar API. Lands before the
+# VM (depends_on below) so the first DHCP request hits a known reservation.
+# network_devices[0] is the vmbr0 reservation NIC by convention; tag-2 and
+# vmbr1 NICs carry static addresses declared per-VM in vms.tf, no IPAM.
+resource "homelab_dns_reservation" "this" {
+  hostname = var.name
+  mac      = var.network_devices[0].mac_address
+
+  lifecycle {
+    precondition {
+      condition     = var.network_devices[0].bridge == "vmbr0" && var.network_devices[0].vlan_id == 0
+      error_message = "network_devices[0] must be on vmbr0 with vlan_id=0 — that NIC is the dnsmasq-reservation NIC."
+    }
+  }
+}
+
 resource "proxmox_virtual_environment_vm" "this" {
+  depends_on = [homelab_dns_reservation.this]
+
   name        = var.name
   node_name   = var.pve_node
   vm_id       = var.vm_id

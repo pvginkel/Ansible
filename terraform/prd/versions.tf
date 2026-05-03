@@ -18,5 +18,8 @@ terraform {
       source  = "hashicorp/local"
       version = "~> 2.5"
     }
+    homelab = {
+      source = "pvginkel/homelab"
+    }
   }
 }

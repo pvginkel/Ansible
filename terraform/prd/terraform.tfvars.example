@@ -5,3 +5,6 @@ proxmox_endpoint = "https://pve.home:8006/"
 proxmox_username = "root@pam"
 proxmox_password = "REPLACE-ME"
 proxmox_insecure = true
+
+dns_reservation_url   = "https://dns-reservation.home/"
+dns_reservation_token = "REPLACE-ME"

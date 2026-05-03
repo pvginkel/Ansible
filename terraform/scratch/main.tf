@@ -61,8 +61,20 @@ resource "proxmox_virtual_environment_file" "cloud_init" {
   }
 }
 
+# dnsmasq reservations land before the VM so first-boot DHCP hits a known
+# entry. Single NIC on vmbr0 (untagged), MAC computed from the deterministic
+# scheme above.
+resource "homelab_dns_reservation" "scratch" {
+  for_each = local.vms
+
+  hostname = each.key
+  mac      = local.vm_macs[each.key]
+}
+
 resource "proxmox_virtual_environment_vm" "scratch" {
   for_each = local.vms
+
+  depends_on = [homelab_dns_reservation.scratch]
 
   name        = each.key
   node_name   = each.value.pve_node

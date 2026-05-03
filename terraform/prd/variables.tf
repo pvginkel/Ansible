@@ -20,3 +20,14 @@ variable "proxmox_insecure" {
   type        = bool
   default     = true
 }
+
+variable "dns_reservation_url" {
+  description = "Base URL of the dnsmasq sidecar reservation API (e.g. https://dns-reservation.home/). See docs/specs/dns-reservation-api.md."
+  type        = string
+}
+
+variable "dns_reservation_token" {
+  description = "Bearer token for the dnsmasq sidecar reservation API. Lives in terraform.tfvars (gitignored)."
+  type        = string
+  sensitive   = true
+}
