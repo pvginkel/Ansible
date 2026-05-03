@@ -20,6 +20,7 @@ services:
       - ${HOME}/.vimrc:/home/ubuntu/.vimrc:ro
       - ${HOME}/.gitconfig:/home/ubuntu/.gitconfig:ro
       - ${HOME}/.cache:/home/ubuntu/.cache:rw
+      - ${HOME}/.terraformrc:/home/ubuntu/.terraformrc:ro
       - ${HOME}/claude-kubeconfig.yaml:/home/ubuntu/claude-kubeconfig.yaml:ro
       - .:/work/Ansible:rw
       - ../HelmCharts:/work/HelmCharts:ro
