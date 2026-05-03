@@ -2,13 +2,17 @@
 # update-k8s.yml — drain-aware rolling upgrade for a microk8s cluster.
 #
 # Per host (serial: 1, one node at a time):
-#   1. Drain via the cluster primary (skipped on single-node clusters).
-#   2. Refresh the microk8s snap to the channel pinned in group_vars
+#   1. Hand off opt-in workloads (cordon + rollout restart of any
+#      Deployment carrying iac.webathome.org/pre-drain=true) so they
+#      surge to a healthy peer before the drain. See
+#      tasks/pre-drain-handoff.yml.
+#   2. Drain via the cluster primary (skipped on single-node clusters).
+#   3. Refresh the microk8s snap to the channel pinned in group_vars
 #      / host_vars — no-op when already current.
-#   3. apt full-upgrade — kernel + security + package updates.
-#   4. Reboot if /var/run/reboot-required is present (kernel/glibc/etc.).
-#   5. Wait for microk8s Ready, both post-refresh and post-reboot.
-#   6. Uncordon via the primary (skipped on single-node clusters).
+#   4. apt full-upgrade — kernel + security + package updates.
+#   5. Reboot if /var/run/reboot-required is present (kernel/glibc/etc.).
+#   6. Wait for microk8s Ready, both post-refresh and post-reboot.
+#   7. Uncordon via the primary (skipped on single-node clusters).
 #
 # Targeting: `hosts: k8s` resolves to k8s_prd + k8s_dev under prd or
 # k8s_scratch under scratch. Pair with --limit to scope to one cluster.
@@ -72,6 +76,11 @@
              | selectattr('microk8s_primary_host', 'eq', microk8s_primary_host)
              | list
              | length }}
+
+    - name: Hand off labeled workloads off {{ inventory_hostname }}
+      # Cordons the node and rollout-restarts opt-in Deployments off
+      # it before the drain below fires. See tasks/pre-drain-handoff.yml.
+      ansible.builtin.import_tasks: tasks/pre-drain-handoff.yml
 
     - name: Drain {{ inventory_hostname }}
       ansible.builtin.command:

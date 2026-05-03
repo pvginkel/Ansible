@@ -1,0 +1,124 @@
+---
+# pre-drain-handoff.yml — controlled hand-off of opt-in workloads off
+# the target node before `kubectl drain` runs against it.
+#
+# Imported by update-k8s.yml and evict-k8s.yml. Inputs via importer's
+# vars: (or the play's facts):
+#
+#   pre_drain_node     — host being prepped.
+#                        Default: inventory_hostname.
+#   pre_drain_primary  — host the kubectl commands run from.
+#                        Default: microk8s_primary_host.
+#
+# Requires `_cluster_peer_count` already set as a fact by the caller.
+# All steps gate on `_cluster_peer_count | int > 1` so that single-node
+# clusters (today: wrkdevk8s) skip the hand-off cleanly — same shape
+# as the drain task that follows.
+#
+# Workloads opt in by carrying `iac.webathome.org/pre-drain=true` on
+# both `.metadata.labels` (so `get deploy -l ...` finds them) and
+# `.spec.template.metadata.labels` (so `get pods -l ...` finds the
+# running pods, which is the query this file uses). Today's opt-ins:
+# keycloak, keycloak-db (HelmCharts).
+#
+# DaemonSets and StatefulSets must NOT carry the label — the Pod →
+# ReplicaSet → Deployment walk silently ignores them and labeling
+# them is dormant config.
+
+- name: Cordon {{ pre_drain_node | default(inventory_hostname) }}
+  ansible.builtin.command:
+    argv:
+      - microk8s
+      - kubectl
+      - cordon
+      - "{{ pre_drain_node | default(inventory_hostname) }}"
+  delegate_to: "{{ pre_drain_primary | default(microk8s_primary_host) }}"
+  when: _cluster_peer_count | int > 1
+  changed_when: true
+
+- name: Enumerate labeled Deployments with running pods on the target
+  # Pod → ReplicaSet → Deployment walk. The opt-in label is on the
+  # pod template, so we field-select pods by node + phase=Running,
+  # collect unique (namespace, RS-name) from ownerReferences, then
+  # look up each ReplicaSet's owning Deployment in a second pass.
+  # Per-RS lookup avoids pulling unrelated RSes from a wide
+  # `kubectl get rs -A`.
+  ansible.builtin.shell: |
+    set -euo pipefail
+    node="{{ pre_drain_node | default(inventory_hostname) }}"
+    pods=$(microk8s kubectl get pods -A \
+      -l iac.webathome.org/pre-drain=true \
+      --field-selector "spec.nodeName=${node},status.phase=Running" \
+      -o json)
+    pairs=$(echo "${pods}" | jq -r '
+      [ .items[]
+        | { ns: .metadata.namespace,
+            rs: (.metadata.ownerReferences[]? | select(.kind=="ReplicaSet") | .name) }
+        | select(.rs != null)
+      ] | unique | .[] | "\(.ns)\t\(.rs)"
+    ')
+    out="[]"
+    if [ -n "${pairs}" ]; then
+      while IFS=$'\t' read -r ns rs; do
+        [ -z "${ns}" ] && continue
+        deploy=$(microk8s kubectl get rs -n "${ns}" "${rs}" -o json \
+          | jq -r '.metadata.ownerReferences[]? | select(.kind=="Deployment") | .name')
+        if [ -n "${deploy}" ]; then
+          out=$(echo "${out}" | jq --arg ns "${ns}" --arg name "${deploy}" \
+            '. + [{namespace: $ns, name: $name}]')
+        fi
+      done <<< "${pairs}"
+    fi
+    echo "${out}" | jq -c 'unique_by(.namespace + "/" + .name)'
+  args:
+    executable: /bin/bash
+  register: _pre_drain_handoff_lookup
+  delegate_to: "{{ pre_drain_primary | default(microk8s_primary_host) }}"
+  when: _cluster_peer_count | int > 1
+  changed_when: false
+  # Read-only kubectl — run in check mode too, so the rollout loops
+  # below see a defined fact when the operator previews with --check.
+  check_mode: false
+
+- name: Record the labeled-Deployment list
+  ansible.builtin.set_fact:
+    _pre_drain_deployments: "{{ _pre_drain_handoff_lookup.stdout | from_json }}"
+  when: _cluster_peer_count | int > 1
+
+- name: Restart each labeled Deployment
+  ansible.builtin.command:
+    argv:
+      - microk8s
+      - kubectl
+      - rollout
+      - restart
+      - "deploy/{{ item.name }}"
+      - -n
+      - "{{ item.namespace }}"
+  delegate_to: "{{ pre_drain_primary | default(microk8s_primary_host) }}"
+  loop: "{{ _pre_drain_deployments | default([]) }}"
+  loop_control:
+    label: "{{ item.namespace }}/{{ item.name }}"
+  when: _cluster_peer_count | int > 1
+  changed_when: true
+
+- name: Wait for each labeled Deployment to be Ready post-restart
+  # 5-minute timeout per rollout. Non-zero exit aborts the play before
+  # `kubectl drain` ever runs — never drain into an unhealthy surge
+  # target. If this fails, fix the workload, then re-run.
+  ansible.builtin.command:
+    argv:
+      - microk8s
+      - kubectl
+      - rollout
+      - status
+      - "deploy/{{ item.name }}"
+      - -n
+      - "{{ item.namespace }}"
+      - --timeout=5m
+  delegate_to: "{{ pre_drain_primary | default(microk8s_primary_host) }}"
+  loop: "{{ _pre_drain_deployments | default([]) }}"
+  loop_control:
+    label: "{{ item.namespace }}/{{ item.name }}"
+  when: _cluster_peer_count | int > 1
+  changed_when: false

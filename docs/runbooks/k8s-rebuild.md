@@ -24,16 +24,28 @@ After step 5 the parity event closes. The HelmCharts cluster on `wrkdevk8s` will
 - Maintenance window for prd. `wrkdevk8s` is dev only.
 - `git status` clean. `terraform plan` shows only the queued rebuild entries from plan 01 (no unrelated drift).
 
-## Pre-flight — observe a drain on `srvk8ss2`
+## Pre-drain hand-off
 
-Before any rebuild, exercise the drain path against a live worker so you've seen the cluster's reaction before you also remove the VM.
+Each rebuild's eviction (and every `update-k8s.yml` run) hands off opt-in workloads to a healthy peer before `kubectl drain` fires: cordon → `kubectl rollout restart` of any Deployment carrying `iac.webathome.org/pre-drain=true` → wait Ready → drain. The shared task file is `ansible/playbooks/tasks/pre-drain-handoff.yml`; the rebuild flow consumes it through `evict-k8s.yml`.
+
+Today's opt-ins:
+
+- `keycloak` (Deployment, `RollingUpdate maxSurge:1 / maxUnavailable:0`). Two-pod window during surge — ~60s. No sticky sessions on the in-house ingress, so a mid-login request may re-auth. Accepted.
+- `keycloak-db` (Deployment, `Recreate`, RWO PVC, single Postgres). ~30s outage during the controlled swap. Better than the same swap landing mid-drain.
+
+Forward contract: a Deployment that needs a controlled hand-off (single replica, RWO PVC, etc.) opts in by setting `iac.webathome.org/pre-drain: "true"` on **both** `metadata.labels` and `spec.template.metadata.labels`. The first lets `kubectl get deploy -l ...` enumerate opt-ins; the second is what the hand-off's pod-list query actually matches on. DaemonSets and StatefulSets must NOT carry the label — the Pod → ReplicaSet → Deployment walk silently ignores them, so labeling them is dormant config.
+
+If a labeled rollout fails to reach Ready inside 5 minutes, the play aborts before draining. Fix the workload, then re-run.
+
+Single-node clusters (today: `wrkdevk8s`) skip the hand-off and the drain together — same peer-count gate.
+
+## Pre-flight — observe an eviction on `srvk8ss2`
+
+Before any rebuild, exercise the eviction path against a live worker so you've seen the cluster's reaction (hand-off + drain) before you also remove the VM.
 
 ```sh
-poetry run ansible -i inventories/prd srvk8sl1 -m command \
-    -a 'microk8s kubectl cordon srvk8ss2' --become
-poetry run ansible -i inventories/prd srvk8sl1 -m command \
-    -a 'microk8s kubectl drain srvk8ss2 --ignore-daemonsets --delete-emptydir-data --timeout=300s' \
-    --become
+poetry run ansible-playbook playbooks/evict-k8s.yml \
+    -e evict_target=srvk8ss2
 
 # Observe — pods reschedule onto srvk8sl1 / srvk8ss1, no PDB blocks, system stable.
 microk8s kubectl get pods -A -o wide
@@ -42,7 +54,7 @@ poetry run ansible -i inventories/prd srvk8sl1 -m command \
     -a 'microk8s kubectl uncordon srvk8ss2' --become
 ```
 
-If anything misbehaves here (PDB-blocked pod, stuck terminating workload, anything that doesn't resolve on its own), fix before going further. The rebuilds assume a clean drain.
+If anything misbehaves here (PDB-blocked pod, stuck terminating workload, hand-off rollout that won't reach Ready, anything that doesn't resolve on its own), fix before going further. The rebuilds assume a clean eviction.
 
 ## Worker rebuild — `srvk8ss1` → `srvk8s2` and `srvk8ss2` → `srvk8s3`
 
@@ -53,21 +65,18 @@ Same flow for both. The first one through also creates the from-scratch shape's 
 | `srvk8s2` | `srvk8ss1`   | 104      | 911      | `02:A7:F3:03:8F:NN`  |
 | `srvk8s3` | `srvk8ss2`   | 107      | 912      | `02:A7:F3:03:90:NN`  |
 
-### 1. Cordon, drain, leave, remove
+### 1. Evict, leave, remove
 
 ```sh
-poetry run ansible -i inventories/prd srvk8sl1 -m command \
-    -a 'microk8s kubectl cordon <old-hostname>' --become
-poetry run ansible -i inventories/prd srvk8sl1 -m command \
-    -a 'microk8s kubectl drain <old-hostname> --ignore-daemonsets --delete-emptydir-data --timeout=300s' \
-    --become
+poetry run ansible-playbook playbooks/evict-k8s.yml \
+    -e evict_target=<old-hostname>
 poetry run ansible -i inventories/prd <old-hostname> -m command \
     -a 'microk8s leave' --become
 poetry run ansible -i inventories/prd srvk8sl1 -m command \
     -a 'microk8s remove-node <old-hostname>' --become
 ```
 
-`microk8s leave` (on the leaving node) plus `microk8s remove-node` (on the primary) is the canonical removal — clears both the node's local cluster state and the dqlite voter list. `kubectl delete node` only removes the kubelet Node object; it leaves dqlite stale.
+`evict-k8s.yml` runs the pre-drain hand-off (cordon + rollout restart of opt-in Deployments) and the drain; see "Pre-drain hand-off" above. `microk8s leave` (on the leaving node) plus `microk8s remove-node` (on the primary) is the canonical removal — clears both the node's local cluster state and the dqlite voter list. `kubectl delete node` only removes the kubelet Node object; it leaves dqlite stale.
 
 ### 2. Shut down the old VM (don't destroy)
 
@@ -184,21 +193,18 @@ git commit -m "ansible: flip k8s_prd primary off srvk8sl1 ahead of rebuild"
 
 `srvk8sl1` is about to disappear; the join-token delegate has to live on a node that won't.
 
-### 2. Cordon, drain, leave, remove
+### 2. Evict, leave, remove
 
 ```sh
-poetry run ansible -i inventories/prd srvk8s2 -m command \
-    -a 'microk8s kubectl cordon srvk8sl1' --become
-poetry run ansible -i inventories/prd srvk8s2 -m command \
-    -a 'microk8s kubectl drain srvk8sl1 --ignore-daemonsets --delete-emptydir-data --timeout=300s' \
-    --become
+poetry run ansible-playbook playbooks/evict-k8s.yml \
+    -e evict_target=srvk8sl1
 poetry run ansible -i inventories/prd srvk8sl1 -m command \
     -a 'microk8s leave' --become
 poetry run ansible -i inventories/prd srvk8s2 -m command \
     -a 'microk8s remove-node srvk8sl1' --become
 ```
 
-`zpool2`-pinned workloads (storage chart, Prometheus) drain off `srvk8sl1` and have nowhere to go (no other node carries `homelab.local/storage=zpool2`). They stay Pending until step 7 imports the pool on the new node — that's expected storage-path downtime.
+The hand-off step runs delegated to `srvk8s2` (the new primary, set in step 1) — the join-token / kubectl delegate already lives there. `zpool2`-pinned workloads (storage chart, Prometheus) drain off `srvk8sl1` and have nowhere to go (no other node carries `homelab.local/storage=zpool2`). They stay Pending until step 7 imports the pool on the new node — that's expected storage-path downtime.
 
 ### 3. Shut down + destroy the old VM
 
@@ -286,7 +292,7 @@ poetry run ansible-playbook playbooks/site.yml --limit srvk8s1 --check --diff
 
 Different shape: the live `wrkdevk8s` (VMID 119) is a manual VM never imported into TF state. The rebuild creates VMID 919 from scratch via TF; we destroy VMID 119 manually.
 
-The dev cluster is a single node and is its own primary — there's no drain (nothing to drain to). The cluster gets fully replaced; HelmCharts deployments under `wrkdevk8s` need to be re-deployed afterward (operator workflow, separate from this runbook).
+The dev cluster is a single node and is its own primary — there's no drain or hand-off (nothing to drain to). The peer-count gate skips the whole eviction shape, so `evict-k8s.yml` is not part of this flow. The cluster gets fully replaced; HelmCharts deployments under `wrkdevk8s` need to be re-deployed afterward (operator workflow, separate from this runbook).
 
 ```sh
 # 1. Drop wrkdevk8s from the HelmCharts static-hosts file (and roll the
