@@ -54,3 +54,10 @@
             | selectattr('_microk8s_node_state', 'eq', 'running-solo')
             | map(attribute='inventory_hostname') | list -%}
       {{ (in_cluster + running + peers) | first }}
+
+- name: Report the elected primary
+  ansible.builtin.debug:
+    msg: >-
+      cluster={{ group_names | select('match', '^k8s_') | first }}
+      node={{ inventory_hostname }} ({{ _microk8s_node_state }})
+      → primary={{ microk8s_primary_host }}
