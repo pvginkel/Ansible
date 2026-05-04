@@ -42,3 +42,23 @@ microk8s_primary_host: wrkdevk8s
 microk8s_metallb_pool_addresses:
   - 10.1.2.1-10.1.2.199
   - 2a10:3781:565a:1:7912:b75a::/96
+
+# Containerd registry mirror. dev pulls from the dev registry only
+# — image refs in HelmCharts dev configs always carry the
+# `registry-dev:5000/` prefix.
+microk8s_registry_mirrors:
+  - registry-dev:5000
+
+# Node-local /etc/hosts entry. dev resolves the dev registry direct
+# to its LAN address; no in-cluster service IP is involved on dev.
+# Cold-boot independent because 192.168.178.43 is a stable LAN host.
+microk8s_etc_hosts_entries:
+  - "192.168.178.43 registry-dev"
+
+# No CoreDNS hosts/templates on dev. A pre-rebuild cluster carries a
+# stale `10.153.182.3 registry` hosts entry from the legacy service
+# CIDR; the role's authoritative Corefile render drops it. Phase 4c
+# rebuilds dev under the target CIDRs and from there the empty
+# overrides are correct.
+microk8s_coredns_hosts: []
+microk8s_coredns_templates: []
