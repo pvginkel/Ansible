@@ -1,0 +1,46 @@
+---
+# Reconcile the kube-system/coredns ConfigMap's Corefile to the role-
+# rendered shape: stock blocks + Ansible-managed `hosts { ... }` and
+# `template IN A <domain> { ... }` blocks driven by inventory.
+#
+# The whole Corefile is owned by the role here, not just the
+# Ansible-managed sub-blocks. Surgical edits inside the Corefile DSL
+# would need a custom parser; whole-file render is simpler and the
+# stock content microk8s ships is small enough to carry in one place.
+# Operator hand-edits to the Corefile will be reverted on apply —
+# encode the change in inventory instead.
+#
+# Containerd does NOT consult CoreDNS for image pulls — those go
+# through node DNS and /etc/hosts. The CoreDNS overrides matter only
+# for in-cluster runtime references (Kaniko pushes, workload HTTP
+# clients, etc.) where bare names need to resolve without depending on
+# the upstream LAN DNS.
+
+- name: Render desired Corefile
+  ansible.builtin.set_fact:
+    _microk8s_coredns_corefile_desired: "{{ lookup('ansible.builtin.template', 'coredns-corefile.j2') }}"
+
+- name: Read current coredns ConfigMap
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: ConfigMap
+    namespace: kube-system
+    name: coredns
+  register: _microk8s_coredns_cm
+  check_mode: false
+
+- name: Apply desired Corefile when drift is detected
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: coredns
+        namespace: kube-system
+      data:
+        Corefile: "{{ _microk8s_coredns_corefile_desired }}"
+  when:
+    - _microk8s_coredns_cm.resources | length > 0
+    - (_microk8s_coredns_cm.resources[0].data.Corefile | default('')) != _microk8s_coredns_corefile_desired
+  notify: Rollout-restart coredns

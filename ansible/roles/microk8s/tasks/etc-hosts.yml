@@ -1,0 +1,16 @@
+---
+# Node-local /etc/hosts entries the role owns. Containerd uses node
+# DNS + /etc/hosts (NEVER CoreDNS) to resolve image-pull hostnames, so
+# these are mandatory for cold-boot independence from LAN DNS — the
+# registry alias must resolve before the snap's containerd starts and
+# before any pod can pull from it.
+#
+# Managed as a single marked block. state=absent when the list is
+# empty so the markers don't linger on hosts that opt out.
+
+- name: Manage microk8s-owned /etc/hosts entries
+  ansible.builtin.blockinfile:
+    path: /etc/hosts
+    marker: "# {mark} ANSIBLE microk8s"
+    block: "{{ microk8s_etc_hosts_entries | join('\n') }}"
+    state: "{{ 'present' if microk8s_etc_hosts_entries | length > 0 else 'absent' }}"

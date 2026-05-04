@@ -1,0 +1,35 @@
+.:53 {
+    errors
+    health {
+      lameduck 5s
+    }
+{% if microk8s_coredns_hosts | length > 0 %}
+    hosts {
+{% for h in microk8s_coredns_hosts %}
+      {{ h.ip }} {{ h.names | join(' ') }}
+{% endfor %}
+      fallthrough
+    }
+{% endif %}
+{% for t in microk8s_coredns_templates %}
+    template IN A {{ t.domain }} {
+      match "^(.*\.)?{{ t.domain | replace('.', '\\.') }}\.$"
+      answer "{% raw %}{{ .Name }}{% endraw %} {{ t.ttl | default(600) }} IN A {{ t.answer_a }}"
+      fallthrough
+    }
+{% endfor %}
+    ready
+    log . {
+      class error
+    }
+    kubernetes cluster.local in-addr.arpa ip6.arpa {
+      pods insecure
+      fallthrough in-addr.arpa ip6.arpa
+    }
+    prometheus :9153
+    forward . /etc/resolv.conf
+    cache 30
+    loop
+    reload
+    loadbalance
+}

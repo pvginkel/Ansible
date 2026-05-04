@@ -5,3 +5,18 @@
   # cluster — Calico has to pick the change up via kubectl apply.
   ansible.builtin.command: microk8s kubectl apply -f /var/snap/microk8s/current/args/cni-network/cni.yaml
   changed_when: true
+
+- name: Restart microk8s
+  # Containerd reads certs.d/<host>/hosts.toml at start; editing the
+  # file doesn't reach the running daemon. `microk8s stop && start`
+  # bounces containerd without disturbing the snap's cluster state.
+  # Brief in-cluster outage on this node.
+  ansible.builtin.command: "{{ item }}"
+  loop:
+    - microk8s stop
+    - microk8s start
+  changed_when: true
+
+- name: Rollout-restart coredns
+  ansible.builtin.command: microk8s kubectl rollout restart -n kube-system deployment/coredns
+  changed_when: true

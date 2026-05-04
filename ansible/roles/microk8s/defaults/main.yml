@@ -73,3 +73,27 @@ microk8s_kernel_modules:
 microk8s_ceph_client_packages:
   - ceph-common
   - rbd-nbd
+
+# Containerd registry mirrors. Each entry is a `<host>:<port>` string
+# matching the image-reference prefix; the role renders
+# /var/snap/microk8s/current/args/certs.d/<entry>/hosts.toml pointing
+# at `http://<entry>` with pull+resolve capabilities. Empty = no
+# mirrors managed; operator-added entries (e.g. localhost:32000 from
+# the microk8s registry addon) are left alone either way.
+microk8s_registry_mirrors: []
+
+# /etc/hosts entries owned by the role. Each list item is a full line
+# (`<ip> <name1> [name2 ...]`). Managed as a single marked block;
+# empty list removes the block entirely.
+microk8s_etc_hosts_entries: []
+
+# CoreDNS hosts overrides. Reconciled on the cluster primary into the
+# kube-system/coredns ConfigMap. Each entry is `{ip, names}`. Empty =
+# no hosts block in the rendered Corefile.
+microk8s_coredns_hosts: []
+
+# CoreDNS A-record templates. Each entry is `{domain, answer_a, ttl}`.
+# Renders a `template IN A <domain>` block that answers any subdomain
+# of <domain> with <answer_a>. Used to point public hostnames at an
+# in-cluster ingress LB so in-cluster traffic doesn't loop out and back.
+microk8s_coredns_templates: []

@@ -25,6 +25,14 @@
   register: _microk8s_installed
   check_mode: false
 
+- name: Reconcile containerd registry mirrors (certs.d)
+  ansible.builtin.import_tasks: registry-mirrors.yml
+  when: _microk8s_installed.stat.exists
+
+- name: Reconcile node-local /etc/hosts entries
+  ansible.builtin.import_tasks: etc-hosts.yml
+  when: _microk8s_installed.stat.exists
+
 - name: Configure cluster network (Calico autodetect)
   ansible.builtin.import_tasks: network.yml
   when: _microk8s_installed.stat.exists
@@ -54,6 +62,15 @@
 
 - name: Reconcile MetalLB IPAddressPool + L2Advertisement (primary only)
   ansible.builtin.import_tasks: metallb.yml
+  when:
+    - _microk8s_installed.stat.exists
+    - inventory_hostname == microk8s_primary_host
+
+# CoreDNS reconciliation runs on the primary after `addons.yml` has
+# enabled the `dns` addon (which is what creates the coredns
+# ConfigMap in the first place).
+- name: Reconcile CoreDNS Corefile (primary only)
+  ansible.builtin.import_tasks: coredns.yml
   when:
     - _microk8s_installed.stat.exists
     - inventory_hostname == microk8s_primary_host

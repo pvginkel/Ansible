@@ -1,0 +1,32 @@
+---
+# Per-registry hosts.toml under /var/snap/microk8s/current/args/certs.d/
+# tells containerd how to reach a registry by hostname (and that it
+# speaks plain HTTP). Without these, containerd defaults to HTTPS and
+# fails on the operator's plain-HTTP registries.
+#
+# The set is additive. Mirrors not in microk8s_registry_mirrors are
+# left alone — operator-added entries (e.g. localhost:32000 from the
+# microk8s registry addon) survive.
+
+- name: Ensure certs.d directory exists for each registry mirror
+  ansible.builtin.file:
+    path: "/var/snap/microk8s/current/args/certs.d/{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop: "{{ microk8s_registry_mirrors }}"
+
+- name: Render hosts.toml for each registry mirror
+  ansible.builtin.copy:
+    dest: "/var/snap/microk8s/current/args/certs.d/{{ item }}/hosts.toml"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      server = "http://{{ item }}"
+
+      [host."http://{{ item }}"]
+      capabilities = ["pull", "resolve"]
+  loop: "{{ microk8s_registry_mirrors }}"
+  notify: Restart microk8s
