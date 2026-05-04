@@ -45,8 +45,12 @@
     microk8s_primary_host: >-
       {%- set my_cluster = group_names | select('match', '^k8s_') | first -%}
       {%- set peers = groups[my_cluster] | sort -%}
-      {{ ([h for h in peers
-            if hostvars[h]['_microk8s_node_state'] | default('down') == 'in-cluster']
-          + [h for h in peers
-            if hostvars[h]['_microk8s_node_state'] | default('down') == 'running-solo']
-          + peers) | first }}
+      {%- set classified = peers | map('extract', hostvars)
+            | selectattr('_microk8s_node_state', 'defined') | list -%}
+      {%- set in_cluster = classified
+            | selectattr('_microk8s_node_state', 'eq', 'in-cluster')
+            | map(attribute='inventory_hostname') | list -%}
+      {%- set running = classified
+            | selectattr('_microk8s_node_state', 'eq', 'running-solo')
+            | map(attribute='inventory_hostname') | list -%}
+      {{ (in_cluster + running + peers) | first }}
