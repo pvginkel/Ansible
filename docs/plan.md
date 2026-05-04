@@ -33,7 +33,7 @@ When a phase is complete, mark its status here, commit, and the next conversatio
 | 4 | microk8s role (scratch exercise) | ✅ Done | [`phases/phase-4-microk8s.md`](phases/phase-4-microk8s.md) |
 | 4a | microk8s alignment + upgrade | ✅ Done | [`phases/phase-4a-microk8s-alignment.md`](phases/phase-4a-microk8s-alignment.md) |
 | 4b | microk8s VM rebuild scaffolding | ✅ Done | [`phases/phase-4b-microk8s-rebuild.md`](phases/phase-4b-microk8s-rebuild.md) |
-| 4b1 | Rebuild prerequisites (registry, CoreDNS, ZFS) | ⏳ Planned | [`phases/phase-4b1-rebuild-prerequisites.md`](phases/phase-4b1-rebuild-prerequisites.md) |
+| 4b1 | Rebuild prerequisites (registry, CoreDNS, ZFS) | ✅ Done | [`phases/phase-4b1-rebuild-prerequisites.md`](phases/phase-4b1-rebuild-prerequisites.md) |
 | 4c | microk8s VM rebuild execution | ⏳ Planned | [`phases/phase-4c-microk8s-rebuild-execution.md`](phases/phase-4c-microk8s-rebuild-execution.md) |
 | 5 | microceph roles and upgrade | ⏳ Planned | — |
 | 6 | OpenBao + secrets wiring | ⏳ Planned | — |
@@ -78,9 +78,9 @@ Completed the role's missing reconciliation pieces (capability labels, MetalLB I
 
 Reworked the per-VM TF modules for the four k8s VMs to the from-scratch shape, built `rebuild-k8s.yml`, wrote the `k8s-rebuild` runbook, and made the "Ansible never invokes Terraform" rule explicit. Staging only — no `terraform apply` ran. Sets phase 4c up to drive the actual rebuilds.
 
-### 4b1 — Rebuild prerequisites (registry, CoreDNS, ZFS)
+### 4b1 — Rebuild prerequisites (registry, CoreDNS, ZFS) (done)
 
-Close the bring-up gaps that today's live nodes carry as out-of-band hand-edits: containerd registry-mirror config (`certs.d/<registry>/hosts.toml`), the CoreDNS hosts entry that resolves `registry`/`registry.home`, the node-local `/etc/hosts` entry, the `daemon.json` runtime config from `KubernetesConfig/docker/`, and `zfsutils-linux` on every k8s node. Without these, a freshly cloud-init'd rebuild target can't pull from the operator's registry and the ZFS reattach step in `rebuild-k8s.yml` has no `zpool` binary. Per `docs/decisions.md` "Tool split," this is Ansible-owned cluster baseline.
+Closed the bring-up gaps the live nodes carried as hand-edits: containerd registry mirrors, node-local `/etc/hosts`, full-Corefile authoritative CoreDNS reconcile, `zfsutils-linux` on every k8s node. Replaced the static `microk8s_primary_host` inventory key with per-cluster runtime election so rebuilding the labeled primary doesn't strand survivors. Reverted Ceph from the dynamic dnsmasq reservation API to static infrastructure (cold-boot ordering: registry depends on Ceph; dnsmasq depends on registry). Live dev reconciled clean; live prd's first contact happens via the 4c rebuilds.
 
 ### 4c — microk8s VM rebuild execution
 

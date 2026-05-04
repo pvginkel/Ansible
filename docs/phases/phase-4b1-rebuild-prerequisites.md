@@ -1,45 +1,38 @@
 # Phase 4b1 — Rebuild prerequisites (registry, CoreDNS, ZFS)
 
-**Status**: ⏳ Planned
+**Status**: ✅ Done
 
-## Goal
+## Result
 
-Close the bring-up gaps the live nodes carry as out-of-band hand-edits, so a freshly cloud-init'd k8s VM under Phase 4c rebuild reaches a fully functional steady state from `rebuild-k8s.yml` alone — no manual `kubectl edit cm coredns`, no manual `tee` into `/var/snap/microk8s/current/args/certs.d/`, no missing `zpool` binary.
+Closed the bring-up gaps that today's live nodes carry as out-of-band hand-edits, so a freshly cloud-init'd k8s VM under Phase 4c reaches a fully functional steady state from `rebuild-k8s.yml` alone — no manual `kubectl edit cm coredns`, no manual `tee` into `/var/snap/microk8s/current/args/certs.d/`, no missing `zpool` binary on the node that carries the passthrough pool.
 
-Per `docs/decisions.md` "Tool split," all of this is Ansible's: registry mirror config, CoreDNS rewrites for cluster-internal names, kernel-module/package prerequisites for storage. The work was implicit in Phase 4 but has not yet landed in any role.
+What the `microk8s` role now reconciles, driven by inventory:
 
-## Scope
+- **Containerd registry mirrors** (`microk8s_registry_mirrors`) — renders `/var/snap/microk8s/current/args/certs.d/<host>/hosts.toml` per entry; notifies a `microk8s stop && start` handler so containerd reloads. Set to `[registry:5000, registry-dev:5000]` for prd, `[registry-dev:5000]` for dev, empty on scratch.
+- **Node-local `/etc/hosts`** (`microk8s_etc_hosts_entries`) — `blockinfile`-managed, mandatory for cold-boot independence from LAN DNS. prd pins `172.17.0.3 registry`; dev pins `192.168.178.43 registry-dev` (LAN-direct).
+- **CoreDNS Corefile** (`microk8s_coredns_hosts`, `microk8s_coredns_templates`) — primary-only, full-Corefile authoritative render via `kubernetes.core.k8s` with content-compare drift; notifies a `kubectl rollout restart deployment/coredns` handler. prd carries the registry alias, the three Ceph mon hostnames at hardcoded IPs (`10.1.0.24/.25/.26`), and the `webathome.org` / `ginbov.nl` template rewrites pointing at `10.2.1.7`. dev's lists are empty.
+- **`zfsutils-linux`** in `playbooks/group_vars/k8s.yml`'s `baseline_extra_packages` — every k8s node gets the package so `rebuild-k8s.yml`'s `zpool import` step has the binary regardless of which node ends up with a passthrough pool.
+- **Per-cluster runtime primary election** (`tasks/elect-primary.yml`) — replaces the static `microk8s_primary_host` inventory key with discovery: lowest-hostname in-cluster member → lowest-hostname running-solo → alphabetical seed. Cluster boundary is the `k8s_<env>` child group each host belongs to. Standalone playbooks (`update-k8s.yml`, `evict-k8s.yml`, `rebuild-k8s.yml`, `refresh-k8s-addons.yml`) call `tasks_from: elect-primary` in a pre-flight play before any task that references the primary. `python3-kubernetes` lands on every k8s node (not just the elected primary) so a freshly-rebuilt node is always election-eligible.
 
-In:
+Exercised against `inventories/scratch` (rebuild-of-primary case included — `wrkscratchk8s1` rebuilt fresh, election promoted `wrkscratchk8s2`, k1 joined k2) and `inventories/prd --limit k8s_dev` (live `wrkdevk8s` reconciled clean; the legacy `10.153.182.3 registry` CoreDNS hosts entry was dropped by the authoritative render). Final `--check --diff` reports `changed=0` on both.
 
-1. **Containerd registry-mirror config** — `/var/snap/microk8s/current/args/certs.d/<registry>/hosts.toml` for `registry:5000` and `registry-dev:5000`, per `KubernetesConfig/installatie/01-server-prep.md`. Lands in the `microk8s` role; the file set is driven by an inventory variable so prd and dev can carry different mirrors. The role notifies a handler that runs `microk8s stop && microk8s start` on change.
-2. **CoreDNS hosts override** — adds the `hosts { 172.17.0.3 registry registry.home; fallthrough }` block to the `coredns` ConfigMap in `kube-system`, with a rollout-restart of the deployment on change. Reconciled on the cluster primary, alongside the existing addon and label tasks.
-3. **Node-local `/etc/hosts` entry** — `172.17.0.3 registry` on every k8s node, so the snap's containerd resolves the alias before CoreDNS is even up (chicken-and-egg during cluster boot). Standard `ansible.builtin.lineinfile` against `/etc/hosts`.
-4. **`daemon.json` runtime config** — the `runtimes.runc` block from `KubernetesConfig/docker/daemon.json` (`--default-runtime --allow-shared-mounts`). **Host-class TBD**: this is Docker daemon config and microk8s uses containerd, so it does not apply to k8s nodes as-is. Identify which host actually consumes it (`wrkdev`? a Docker host outside the inventory? a Jenkins agent?) before wiring it into a role. Carried into this phase as a checklist item; placement decided at implementation time.
-5. **`zfsutils-linux` package** — added to `baseline_extra_packages` for the k8s group (both `k8s_prd.yml` and `k8s_dev.yml`, since there is no shared `k8s.yml` group_vars file today). Today `rebuild-k8s.yml:32,46` calls `zpool list` / `zpool import` directly with no preceding install; on a freshly cloud-init'd Ubuntu image `zpool` does not exist. Resource cost on hosts with no pools is ~25 MB disk and ~50 MB RAM (steady-state, no growth) — noise on 8 GB+ k8s VMs, so installing on every k8s node is simpler than per-host gating and means any future node that gets a passthrough pool is already provisioned.
+## Ceph IPs are static infrastructure
 
-Out:
+Phase 9's plan originally queued `srvceph1/2/3` for the dynamic `homelab_dns_reservation` resource. Reverted in this phase: the registry container depends on Ceph storage to boot, dnsmasq runs in-cluster behind the registry, and any chain that puts Ceph addressing behind the dynamic API creates a cold-boot ordering failure. `terraform/modules/managed-vm` carries a `static_ip` opt-out flag set on the three Ceph entries in `terraform/prd/vms.tf`; their IPs live exclusively in HelmCharts `configs/{prd,dev}/dnsmasq.yaml`. See `decisions.md` "Ceph nodes are static infrastructure" and `docs/plans/02-dns-reservation-provider.md`.
 
-- The Ceph user/pool/CephFS-subvolume bootstrap from `KubernetesConfig/installatie/00-prepare-ceph.md`. That is Phase 7's scope ("Storage — Ceph resources + CSIs").
-- CSI driver installs themselves. Phase 7.
-- Anything beyond what a freshly rebuilt k8s VM needs to be Ready and able to pull images.
+## prd not yet exercised
 
-## Sequencing
+The role + inventory landed against live dev only. Live prd's first contact with the new role happens during the 4c rebuilds — each rebuilt VM picks up the role from a fresh state, validating 4b1's logic in the process. Avoids touching live prd twice (once for 4b1 reconcile, once for 4c rebuild). The `daemon.json` runtime config item from the original phase scope was dropped: no Docker host exists in the managed inventory; revisit if/when one appears.
 
-1. Land the role/inventory changes against `inventories/scratch` first; verify `--check --diff` reports `changed=0` once applied and a re-run is clean.
-2. Re-run the `microk8s` role against the live `inventories/prd` k8s nodes additively. The first run reconciles the certs.d files, the CoreDNS ConfigMap, the `/etc/hosts` line, and (for the k8s group) installs `zfsutils-linux`. Expected: small `changed` count corresponding to the items each live node is missing. Subsequent runs are clean.
-3. Same against `inventories/dev`.
-4. Once 4b1 is green on both clusters, Phase 4c can proceed knowing the role brings new VMs up to a fully functional state.
+## Follow-up issues surfaced during the exercise
 
-## Dependencies + risks
+Captured here so 4c (or the next role-touch phase) can fold them in:
 
-- **CoreDNS reconciliation idempotence**: editing `kube-system/coredns` ConfigMap from Ansible needs to match microk8s's stock format closely enough that re-runs don't show false drift. Use a YAML-aware approach (parse, mutate the `Corefile` value, re-emit) rather than naive string replace. Verify with at least three back-to-back applies on scratch.
-- **Registry alias collision**: `172.17.0.3` is in the `172.17.0.0/16` service-CIDR (per `inventories/prd/group_vars/k8s_prd.yml`). The address is hand-picked from outside the dynamic allocation range; if we ever expand allocations to overlap, the alias breaks. Document the reservation in the role's defaults so it's discoverable.
-- **`microk8s stop && start` handler**: needed for certs.d changes to be picked up by containerd. This is a brief in-cluster outage on the affected node — fine on scratch and during rebuilds, but if 4b1 is applied to live clusters before 4c runs, the handler triggers once per node as the certs.d files first land. Acceptable, but operators should be aware.
-- **`zfsutils-linux` install timing**: installing the package on the live srvk8sl1 is a no-op (already installed manually). On the live srvk8ss1/srvk8ss2/wrkdevk8s the package install fires once; nothing should depend on the kernel module being absent.
+- **MetalLB CRD/webhook race** — fresh `microk8s enable metallb` returns before the CRDs are queryable from the discovery cache, and the validating webhook can be transiently unreachable when CoreDNS rollout-restarts. Both manifest as `kubernetes.core.k8s` errors against the IPAddressPool. Defensive `kubectl wait` for the CRD + the controller deployment at the top of `tasks/metallb.yml` covers both.
+- **`elect-primary.yml` retries** — a freshly-reset or just-rebooted node can race the election if its `microk8s` daemon isn't yet up: `microk8s status` fails, the node classifies `down`, and tier-3 fallback may pick the wrong primary. Add a small retry loop on the status read.
+- **`join.yml` idempotency is local-only** — checks the joining node's own `high-availability.nodes` count. Doesn't cross-verify membership from the primary's view, so a real cluster split where each side thinks it's joined would not be detected. Cross-check via `microk8s kubectl get nodes` on the elected primary.
+- **Audit other primary-only gates** — `prereqs.yml`'s `python3-kubernetes` install was originally gated on `inventory_hostname == microk8s_primary_host`, which became fragile under dynamic election. Sweep for similar gates that should be every-node now.
 
-## Pointers
+## Continuation
 
-- Source material: `/work/KubernetesConfig/installatie/01-server-prep.md`, `02-cluster-setup.md`, `docker/daemon.json`.
-- Decisions: `docs/decisions.md` lines on tool split (Ansible owns "registry mirror config" and "CoreDNS rewrites that resolve cluster-internal names").
-- Continuation: [`phase-4c-microk8s-rebuild-execution.md`](phase-4c-microk8s-rebuild-execution.md).
+[`phase-4c-microk8s-rebuild-execution.md`](phase-4c-microk8s-rebuild-execution.md) drives the four prd k8s VM rebuilds.
