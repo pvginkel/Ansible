@@ -6,7 +6,7 @@
 
 Drive the four k8s VM rebuilds that Phase 4b staged. Closes the parity event for `k8s_prd` and `k8s_dev` per `docs/decisions.md` "Adoption is a waypoint; rebuild is the parity event."
 
-## Inputs from Phase 4b
+## Inputs from Phase 4b / 4b1
 
 The repo is staged; nothing has been applied:
 
@@ -17,12 +17,13 @@ The repo is staged; nothing has been applied:
 - `rebuild-k8s.yml` drives the post-TF Ansible work.
 - `docs/runbooks/k8s-rebuild.md` is the operator orchestrator.
 - Phase 4a smoke for `update-k8s.yml` against scratch passed (real run, no `--check`) so the snap-refresh rework is verified end-to-end.
+- **From 4b1**: containerd registry-mirror config, CoreDNS hosts entry for `registry`/`registry.home`, node-local `/etc/hosts` entry, and `zfsutils-linux` are all reconciled by the `microk8s` role / `baseline_extra_packages` — a freshly rebuilt VM reaches Ready with image-pull working and `zpool import` succeeding without operator hand-edits. (`daemon.json` placement is tracked in 4b1 as a separate item; not on the rebuild path unless its host class turns out to be a k8s node.)
 
 ## Decisions carried forward
 
 - **Hostname rename at rebuild**: `srvk8sl1 → srvk8s1` (on `pve`), `srvk8ss1 → srvk8s2` (on `pve1`), `srvk8ss2 → srvk8s3` (on `pve2`). `wrkdevk8s` keeps its name.
 - **`srvk8s1`'s NVMe passthrough**: TF attaches `/dev/disk/by-id/nvme-Samsung_SSD_980_500GB_S64DNX0RC21332X` at scsi2 atomically with VM creation (declared in `vms.tf` per plan 01); `zpool import zpool2` runs from `rebuild-k8s.yml`.
-- **Manual dnsmasq reservations** until Phase 9. Each (hostname, MAC, IP) update is a hand-edit before `terraform apply`.
+- **Reservations flow through Terraform** via the `homelab_dns_reservation` resource that landed in plan 02; the per-VM module creates the dnsmasq entry alongside the VM.
 - **Channel override on `wrkdevk8s`** (`1.30/stable` in `host_vars`) is removed at the wrkdevk8s rebuild so `group_vars/k8s_dev.yml`'s `1.32/stable` takes effect.
 - **Adoption known_hosts files** (`k8s_prd`, `k8s_dev`) retire after all four nodes are on TF-managed keys.
 
@@ -38,7 +39,7 @@ In:
 
 Out:
 - Microceph rebuilds (Phase 5).
-- DNS reservation TF resource (Phase 9). dnsmasq updates remain manual.
+- Sidecar/StatefulSet side of DNS automation (Phase 9). The `homelab_dns_reservation` resource (plan 02) is already in use; the rest of Phase 9 is out of scope here.
 - Self-hosted Jenkins agent + CI-driven runs (Phase 10).
 - HelmCharts redeploy on `wrkdevk8s` after rebuild — operator workflow, separate repo.
 
@@ -57,7 +58,7 @@ The runbook ([`docs/runbooks/k8s-rebuild.md`](../runbooks/k8s-rebuild.md)) is th
 
 - **dqlite quorum risk during prd rebuild**: with two voters left while rebuilding the third, a second failure during the window risks quorum. Mitigation: serial rebuilds with `microk8s status` health checks between each; rebuild prd in a maintenance window.
 - **HelmCharts hostPath workloads on `srvk8s1`**: `homelab.local/storage=zpool2` workloads (storage chart, Prometheus) are pinned via required affinity. While `srvk8s1` is being rebuilt those pods are unschedulable. Acceptable for the rebuild window; document expected unavailability in the maintenance announcement.
-- **dnsmasq reservation drift**: forgetting to update the reservation before `terraform apply` lands the new VM with no DHCP lease at its expected IP, breaking host-key verification + role apply. Runbook checklist covers it.
+- **dnsmasq reservation drift**: the `homelab_dns_reservation` resource creates the reservation alongside the VM, but stale entries from the live VMs must be cleaned up (sidecar `DELETE` on the old hostname, or imported and destroyed via TF) so DNS doesn't resolve to a vanished MAC. Runbook checklist covers it.
 - **TF apply destroying everything at once**: with all four entries renamed in `vms.tf` simultaneously, an unscoped `terraform apply` proposes destroying all four old VMs and creating four new ones. Always scope with `-target='module.vm["<name>"]'`. Runbook commands include the targeting.
 
 ## Live state vs. target state
@@ -84,4 +85,4 @@ The drift items still settled by phase 4c (everything else closed in 4a/4b):
 - MetalLB BGP. Tabled.
 - etcd / dqlite snapshot backup beyond vzdump. Phase 10 follow-up if needed.
 - CI-scheduled drift detection. Phase 10.
-- DNS reservation TF resource. Phase 9; until then dnsmasq updates are manual.
+- Sidecar/StatefulSet side of DNS automation. The reservation TF resource itself is already in use (plan 02).

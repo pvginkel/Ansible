@@ -33,10 +33,11 @@ When a phase is complete, mark its status here, commit, and the next conversatio
 | 4 | microk8s role (scratch exercise) | ✅ Done | [`phases/phase-4-microk8s.md`](phases/phase-4-microk8s.md) |
 | 4a | microk8s alignment + upgrade | ✅ Done | [`phases/phase-4a-microk8s-alignment.md`](phases/phase-4a-microk8s-alignment.md) |
 | 4b | microk8s VM rebuild scaffolding | ✅ Done | [`phases/phase-4b-microk8s-rebuild.md`](phases/phase-4b-microk8s-rebuild.md) |
+| 4b1 | Rebuild prerequisites (registry, CoreDNS, ZFS) | ⏳ Planned | [`phases/phase-4b1-rebuild-prerequisites.md`](phases/phase-4b1-rebuild-prerequisites.md) |
 | 4c | microk8s VM rebuild execution | ⏳ Planned | [`phases/phase-4c-microk8s-rebuild-execution.md`](phases/phase-4c-microk8s-rebuild-execution.md) |
 | 5 | microceph roles and upgrade | ⏳ Planned | — |
 | 6 | OpenBao + secrets wiring | ⏳ Planned | — |
-| 7 | Ceph storage resources | ⏳ Planned | — |
+| 7 | Storage — Ceph resources + CSIs (RBD, CephFS, SMB) | ⏳ Planned | — |
 | 8 | Keycloak provisioning | ⏳ Planned | — |
 | 9 | DNS automation | ⏳ Planned | — |
 | 10 | CI integration + drift detection | ⏳ Planned | — |
@@ -77,6 +78,10 @@ Completed the role's missing reconciliation pieces (capability labels, MetalLB I
 
 Reworked the per-VM TF modules for the four k8s VMs to the from-scratch shape, built `rebuild-k8s.yml`, wrote the `k8s-rebuild` runbook, and made the "Ansible never invokes Terraform" rule explicit. Staging only — no `terraform apply` ran. Sets phase 4c up to drive the actual rebuilds.
 
+### 4b1 — Rebuild prerequisites (registry, CoreDNS, ZFS)
+
+Close the bring-up gaps that today's live nodes carry as out-of-band hand-edits: containerd registry-mirror config (`certs.d/<registry>/hosts.toml`), the CoreDNS hosts entry that resolves `registry`/`registry.home`, the node-local `/etc/hosts` entry, the `daemon.json` runtime config from `KubernetesConfig/docker/`, and `zfsutils-linux` on every k8s node. Without these, a freshly cloud-init'd rebuild target can't pull from the operator's registry and the ZFS reattach step in `rebuild-k8s.yml` has no `zpool` binary. Per `docs/decisions.md` "Tool split," this is Ansible-owned cluster baseline.
+
 ### 4c — microk8s VM rebuild execution
 
 Drive the four k8s VM rebuilds the phase 4b staging is ready for: `srvk8s1` (with NVMe passthrough + zpool2 reattach), `srvk8s2`, `srvk8s3`, `wrkdevk8s`. Per-rebuild inventory renames; manual dnsmasq reservations; manual old-VM destroy + TF state cleanup. Retires the adoption known_hosts files at end-of-phase. Closes the parity event for `k8s_prd` and `k8s_dev`.
@@ -89,9 +94,9 @@ Same shape as Phase 4 for microceph. Source: `/work/Obsidian/Ceph.md`. Includes 
 
 Stand up `srvvault`. Azure Key Vault auto-unseal with firewall-pinned SP. AppRole credentials for Ansible, Jenkins, External Secrets Operator. Backup/DR script per the decisions doc. Migrate a first set of HelmCharts secrets to validate the path.
 
-### 7 — Ceph storage resources
+### 7 — Storage — Ceph resources + CSIs (RBD, CephFS, SMB)
 
-Ansible playbooks that provision RBD images and CephFS subvolumes on demand, so Helm charts no longer require manual Ceph operator steps. Hooks for the HelmCharts deploy pipeline.
+Ansible playbooks that provision RBD images and CephFS subvolumes on demand, so Helm charts no longer require manual Ceph operator steps; hooks for the HelmCharts deploy pipeline. Plus: install all three CSI drivers (`ceph-csi-rbd`, `ceph-csi-cephfs`, `csi-driver-smb`) from their upstream Helm charts under Ansible — they're cluster infrastructure with version coupling to the kernel + Ceph layer below, not application workloads. Once Ansible owns them, the matching subcharts in `/work/HelmCharts/charts` retire; `shared/_helpers.tpl`'s StorageClass names (`csi-cephfs-sc`, `csi-rbd-sc`, `smb`) become the contract Ansible holds stable for HelmCharts.
 
 ### 8 — Keycloak provisioning
 
