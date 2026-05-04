@@ -7,7 +7,7 @@ Ansible + Terraform managing the Proxmox cluster, the microk8s + microceph VMs o
 - **Managed**: Proxmox hosts, k8s VMs + cluster, Ceph VMs + cluster, Linux dev box base setup.
 - **Out of scope**: Home Assistant VMs, Windows VMs, end-user devices, IoT. UDM Pro + managed switch deferred.
 
-See [`docs/decisions.md`](docs/decisions.md) for the full decision record — tooling, secrets, workflow.
+See [`/work/AnsibleSpecs/decisions.md`](../AnsibleSpecs/decisions.md) for the full decision record — tooling, secrets, workflow. Plan + progress: [`/work/AnsibleSpecs/`](../AnsibleSpecs/) (separate repo) tracks phases (sequenced build-out) and slices (forward-looking design).
 
 ## Layout
 
@@ -23,7 +23,7 @@ See [`docs/decisions.md`](docs/decisions.md) for the full decision record — to
 │   ├── roles/
 │   └── files/
 ├── terraform/               # VM provisioning (bpg/proxmox)
-├── docs/                    # design + runbooks
+├── docs/runbooks/           # operational procedures (perpetual; design + plans live in /work/AnsibleSpecs)
 ├── pyproject.toml           # Poetry-managed Python deps
 └── .pre-commit-config.yaml  # yamllint + ansible-lint on commit
 ```

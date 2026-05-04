@@ -6,7 +6,14 @@ Context for Claude Code working in this repo.
 
 Ansible + Terraform managing the homelab infrastructure: Proxmox hosts, k8s VMs and cluster, Ceph VMs and cluster, and the Linux dev box baseline. Helm owns Kubernetes workloads (in `/work/HelmCharts`); Jenkins runs deploys.
 
-**Read [`docs/decisions.md`](docs/decisions.md) and [`docs/plan.md`](docs/plan.md) before proposing changes.** The decisions file is the authoritative record of tool split, secrets strategy, scope, and backup/DR. The plan file tracks where we are across phases and points at the current phase document in `docs/phases/`. If a decision changes, update `docs/decisions.md` — do not leave stale notes elsewhere.
+**Before proposing changes, read these in order:**
+1. [`/work/AnsibleSpecs/decisions.md`](../AnsibleSpecs/decisions.md) — homelab doctrine: tool split, secrets, networking, MAC scheme, OS update policy.
+2. [`/work/AnsibleSpecs/phases/README.md`](../AnsibleSpecs/phases/README.md) — current phase order and status.
+3. The current phase doc under `/work/AnsibleSpecs/phases/` — working context for the conversation.
+
+Forward-looking design lives in [`/work/AnsibleSpecs/slices/`](../AnsibleSpecs/slices/) (pending slices at top, closed work in `completed/`, `deferred/`, `cancelled/`). Operational runbooks stay in [`docs/runbooks/`](docs/runbooks/).
+
+If a decision changes, update `/work/AnsibleSpecs/decisions.md` — don't leave stale notes elsewhere.
 
 ## Commit early and often
 
@@ -20,7 +27,7 @@ Files gain scaffolding while they're being built — TODO markers, inline justif
 
 Rule of thumb: if the comment exists because we were *building* the file together, delete it when we move on. If it would help a reader who opens the file in a year knowing nothing of its history, keep it.
 
-This applies to phase documents too. Once a phase is done, compress its document down to what remains operationally useful.
+This applies to phase + slice documents in `/work/AnsibleSpecs/` too. Once a phase or slice is done, compress its document down to what remains operationally useful.
 
 ## Tooling
 
