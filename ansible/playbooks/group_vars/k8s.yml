@@ -8,3 +8,12 @@
 # k8s nodes stay minimal — apt installs skip Recommends/Suggests. Reduces
 # package noise to only what the roles explicitly request.
 baseline_install_recommends: false
+
+# zfsutils-linux is needed for `zpool import` during rebuild-k8s.yml on
+# nodes that carry a passthrough ZFS pool (today: srvk8s1's zpool2).
+# Installing on every k8s node is simpler than per-host gating: the
+# resource cost on hosts with no pool is small (~25 MB disk,
+# steady-state) and any future node that ends up with a passthrough
+# pool is already provisioned.
+baseline_extra_packages:
+  - zfsutils-linux
