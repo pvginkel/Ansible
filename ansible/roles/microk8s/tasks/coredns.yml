@@ -26,12 +26,14 @@
     kind: ConfigMap
     namespace: kube-system
     name: coredns
+    kubeconfig: /var/snap/microk8s/current/credentials/client.config
   register: _microk8s_coredns_cm
   check_mode: false
 
 - name: Apply desired Corefile when drift is detected
   kubernetes.core.k8s:
     state: present
+    kubeconfig: /var/snap/microk8s/current/credentials/client.config
     definition:
       apiVersion: v1
       kind: ConfigMap
