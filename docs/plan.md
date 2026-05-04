@@ -34,7 +34,8 @@ When a phase is complete, mark its status here, commit, and the next conversatio
 | 4a | microk8s alignment + upgrade | ✅ Done | [`phases/phase-4a-microk8s-alignment.md`](phases/phase-4a-microk8s-alignment.md) |
 | 4b | microk8s VM rebuild scaffolding | ✅ Done | [`phases/phase-4b-microk8s-rebuild.md`](phases/phase-4b-microk8s-rebuild.md) |
 | 4b1 | Rebuild prerequisites (registry, CoreDNS, ZFS) | ✅ Done | [`phases/phase-4b1-rebuild-prerequisites.md`](phases/phase-4b1-rebuild-prerequisites.md) |
-| 4c | microk8s VM rebuild execution | ⏳ Planned | [`phases/phase-4c-microk8s-rebuild-execution.md`](phases/phase-4c-microk8s-rebuild-execution.md) |
+| 4c | microk8s VM rebuild — first worker + static-IP pivot | ✅ Done | [`phases/phase-4c-microk8s-rebuild-execution.md`](phases/phase-4c-microk8s-rebuild-execution.md) |
+| 4d | microk8s VM rebuild completion | ⏳ Planned | [`phases/phase-4d-microk8s-rebuild-completion.md`](phases/phase-4d-microk8s-rebuild-completion.md) |
 | 5 | microceph roles and upgrade | ⏳ Planned | — |
 | 6 | OpenBao + secrets wiring | ⏳ Planned | — |
 | 7 | Storage — Ceph resources + CSIs (RBD, CephFS, SMB) | ⏳ Planned | — |
@@ -82,9 +83,13 @@ Reworked the per-VM TF modules for the four k8s VMs to the from-scratch shape, b
 
 Closed the bring-up gaps the live nodes carried as hand-edits: containerd registry mirrors, node-local `/etc/hosts`, full-Corefile authoritative CoreDNS reconcile, `zfsutils-linux` on every k8s node. Replaced the static `microk8s_primary_host` inventory key with per-cluster runtime election so rebuilding the labeled primary doesn't strand survivors. Reverted Ceph from the dynamic dnsmasq reservation API to static infrastructure (cold-boot ordering: registry depends on Ceph; dnsmasq depends on registry). Live dev reconciled clean; live prd's first contact happens via the 4c rebuilds.
 
-### 4c — microk8s VM rebuild execution
+### 4c — microk8s VM rebuild — first worker + static-IP pivot (done)
 
-Drive the four k8s VM rebuilds the phase 4b staging is ready for: `srvk8s1` (with NVMe passthrough + zpool2 reattach), `srvk8s2`, `srvk8s3`, `wrkdevk8s`. Per-rebuild inventory renames; manual dnsmasq reservations; manual old-VM destroy + TF state cleanup. Retires the adoption known_hosts files at end-of-phase. Closes the parity event for `k8s_prd` and `k8s_dev`.
+Drove the first rebuild (`srvk8ss1` → `srvk8s2`) and resolved the structural gap that surfaced mid-rebuild: cloud-init wasn't configuring the secondary NICs, the workload-VLAN address used for cluster DNS was unreachable from a fresh node, and image pulls failed. Pivoted k8s VMs to the same shape Ceph uses (`static_ip = true`, per-NIC `addresses`/`gateway`/`nameservers` in `vms.tf`, cloud-init renders netplan), extended decisions.md's bring-up-tier rationale to k8s nodes, fixed two latent TF issues along the way (`dns_ipv4` output's empty-tuple ternary; `proxmox_download_file` over an existing image). srvk8s2 is on the new shape and soaking.
+
+### 4d — microk8s VM rebuild completion
+
+Finish the parity event: `srvk8s3`, `srvk8s1`, `wrkdevk8s`. Static-IP scaffolding is in place from 4c so the remaining rebuilds use the originally-planned simpler flow. Includes the close-the-parity-event commit (retire adoption known_hosts files), the runbook fold-in for everything 4c learned, and the parked old-VM destroys.
 
 ### 5 — microceph roles and upgrade
 

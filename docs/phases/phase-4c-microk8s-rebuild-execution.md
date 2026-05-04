@@ -1,88 +1,42 @@
-# Phase 4c — k8s VM rebuild execution
+# Phase 4c — k8s rebuild execution (first worker + scaffolding pivot)
 
-**Status**: ⏳ Planned
+**Status**: ✅ Done
 
-## Goal
+## Result
 
-Drive the four k8s VM rebuilds that Phase 4b staged. Closes the parity event for `k8s_prd` and `k8s_dev` per `docs/decisions.md` "Adoption is a waypoint; rebuild is the parity event."
+Drove worker rebuild #1 (`srvk8ss1` → `srvk8s2`) end-to-end and resolved a structural gap in the from-scratch shape that surfaced mid-rebuild. Cluster is back to three Ready prd workers (`srvk8sl1`, `srvk8s2`, `srvk8ss2`); srvk8s2 is on the new shape and soaking. Phase 4d picks up the remaining three rebuilds and the close-the-parity-event commit.
 
-## Inputs from Phase 4b / 4b1
+## What happened
 
-The repo is staged; nothing has been applied:
+1. **Pre-flight eviction on `srvk8ss2`** — exercised the eviction path against a live worker before any rebuild. Surfaced a bare-Pod drain failure (Jenkins K8s plugin pod, no controller). Resolved by waiting out the in-flight build; rerun was clean. No code change taken; option B (`--force`) noted for later if this becomes a recurring blocker.
 
-- TF entries under from-scratch shape: `srvk8s1` (910), `srvk8s2` (911), `srvk8s3` (912), `wrkdevk8s` (919).
-- managed-vm module: `cloud_init` + `machine` inputs, `lifecycle.ignore_changes` for `disk[0].file_id`.
-- prd-level scaffold: image download per `pve_node`, `tls_private_key` per from-scratch VM, cloud-init snippet, `local_file` writing `files/known_hosts.d/prd` (gated, materialises on first apply).
-- `ansible.cfg`'s `UserKnownHostsFile` lists `files/known_hosts.d/prd` at the head.
-- `rebuild-k8s.yml` drives the post-TF Ansible work.
-- `docs/runbooks/k8s-rebuild.md` is the operator orchestrator.
-- Phase 4a smoke for `update-k8s.yml` against scratch passed (real run, no `--check`) so the snap-refresh rework is verified end-to-end.
-- **From 4b1**: containerd registry-mirror config, CoreDNS hosts entry for `registry`/`registry.home`, node-local `/etc/hosts` entry, and `zfsutils-linux` are all reconciled by the `microk8s` role / `baseline_extra_packages` — a freshly rebuilt VM reaches Ready with image-pull working and `zpool import` succeeding without operator hand-edits. (`daemon.json` placement is tracked in 4b1 as a separate item; not on the rebuild path unless its host class turns out to be a k8s node.)
+2. **`srvk8ss1` → `srvk8s2` rebuild** — followed the runbook through eviction + leave + remove-node + inventory rename, then hit two TF surprises before the first apply landed:
+   - `dns_ipv4` output errored on Ceph modules (`var.static_ip ? null : reservation[0].ipv4` failed because Terraform evaluates the unselected ternary branch's tuple-index against an empty list). Fixed: `value = one(homelab_dns_reservation.this[*].ipv4)`.
+   - `proxmox_download_file` refused to overwrite the Ubuntu cloud image scratch had landed earlier on `pve`. Fixed: `overwrite_unmanaged = true`.
+   - `terraform plan` proposed destroying all three orphan k8s VM module instances (`srvk8sl1/ss1/ss2`) despite `-target` — `for_each` orphan reconciliation isn't suppressed by targeting. Fixed: `terraform state rm` on the three orphans before the first apply (a no-op on PVE; the live VMs kept running, TF just stopped tracking them).
 
-## Decisions carried forward
+3. **Static-IP pivot for k8s nodes** — first apply created srvk8s2 with eth0 on dnsmasq DHCP and DHCP-pushed cluster DNS at `10.2.1.2/3`. The workload-VLAN NIC (`enp6s19`) stayed DOWN because cloud-init only configured the first NIC, so containerd couldn't resolve external registries (the LB IP it was being told to use was unreachable from a host without a workload-VLAN address). Diagnosed against the live srvk8sl1 / srvk8ss2 netplan and pivoted to the same shape Ceph already uses:
+   - `terraform/modules/managed-vm/variables.tf` — extended `network_devices` with optional `addresses` / `gateway` / `accept_ra` / `nameservers` / `search`.
+   - `terraform/prd/cloud-init.yaml.tftpl` — renders `/etc/netplan/50-cloud-init.yaml` from the per-NIC IP fields when at least one NIC carries them; `runcmd` does `netplan generate && netplan apply`.
+   - `terraform/prd/main.tf` — threads the IP fields into the templatefile call.
+   - `terraform/prd/vms.tf` — `static_ip = true` on all four from-scratch k8s VMs; `.27` / `.28` / `.29` / `.17` IPv4 + matching IPv6 across all three networks per the live nodes' last-octet convention.
+   - `docs/decisions.md` — extended the "bring-up-tier hosts" rationale from Ceph to k8s nodes (host the registry + dnsmasq pods themselves; can't bootstrap their own networking from services they're required to bring up).
+   
+   srvk8s2 was destroyed and recreated with the new cloud-init via `terraform apply -replace`; first boot's cloud-init wrote the static netplan, `netplan apply` flipped eth0 from the temporary DHCP IP to `10.1.0.28`, and the role apply landed clean.
 
-- **Hostname rename at rebuild**: `srvk8sl1 → srvk8s1` (on `pve`), `srvk8ss1 → srvk8s2` (on `pve1`), `srvk8ss2 → srvk8s3` (on `pve2`). `wrkdevk8s` keeps its name.
-- **`srvk8s1`'s NVMe passthrough**: TF attaches `/dev/disk/by-id/nvme-Samsung_SSD_980_500GB_S64DNX0RC21332X` at scsi2 atomically with VM creation (declared in `vms.tf` per plan 01); `zpool import zpool2` runs from `rebuild-k8s.yml`.
-- **Reservations flow through Terraform** via the `homelab_dns_reservation` resource that landed in plan 02; the per-VM module creates the dnsmasq entry alongside the VM.
-- **Channel override on `wrkdevk8s`** (`1.30/stable` in `host_vars`) is removed at the wrkdevk8s rebuild so `group_vars/k8s_dev.yml`'s `1.32/stable` takes effect.
-- **Adoption known_hosts files** (`k8s_prd`, `k8s_dev`) retire after all four nodes are on TF-managed keys.
+4. **HelmCharts static-hosts** — operator added entries for srvk8s1/2/3 + wrkdevk8s in lockstep with the static-IP pivot. Old `srvk8ss1` entry retired.
 
-## Scope
+5. **`rebuild-k8s.yml` against srvk8s2** — bootstrap + baseline + microk8s; node joined the cluster as a worker. `--check --diff` reports `changed=0` post-rebuild.
 
-In:
-- Smoke `rebuild-k8s.yml` against the scratch fleet (rebuild `wrkscratchk8s2` while `wrkscratchk8s1` stays Ready).
-- Real rebuilds in order: `srvk8s1` (with passthrough), `srvk8s2`, `srvk8s3`, `wrkdevk8s`.
-- Per-rebuild inventory rename commits: `host_vars/srvk8sl1.yml → srvk8s1.yml` etc.; `hosts.yml` entries; `host_vars/srvk8s1.yml` adds `zpools_to_import`; `group_vars/k8s_prd.yml`'s `microk8s_primary_host` updates at srvk8s1's rebuild.
-- `host_vars/wrkdevk8s.yml` update: drop the `microk8s_channel` override, bump `vm_id` 119 → 919.
-- Manual destroy of old VMs (`qm destroy`) and TF state cleanup of orphans (`terraform state rm`).
-- End-of-phase commit: retire `files/known_hosts.d/k8s_prd` and `k8s_dev`; drop them from `ansible.cfg`.
+## Carry-over to 4d
 
-Out:
-- Microceph rebuilds (Phase 5).
-- Sidecar/StatefulSet side of DNS automation (Phase 9). The `homelab_dns_reservation` resource (plan 02) is already in use; the rest of Phase 9 is out of scope here.
-- Self-hosted Jenkins agent + CI-driven runs (Phase 10).
-- HelmCharts redeploy on `wrkdevk8s` after rebuild — operator workflow, separate repo.
+- Three rebuilds remain: srvk8s3, srvk8s1, wrkdevk8s. Static-IP scaffolding is in place; subsequent applies use the originally-planned simpler flow (no `-replace`, no template-fix detour).
+- VMID 104 (old srvk8ss1) is shut down on `pve1`, kept as escape hatch.
+- Operator-side `qm destroy 104`, `qm destroy 107`, and the close-the-parity-event commit (retire adoption known_hosts files) move to 4d.
+- `srvk8s2` is in soak; morning checks + label-parity verification documented in [`phase-4d-microk8s-rebuild-completion.md`](phase-4d-microk8s-rebuild-completion.md).
 
-## Sequencing
+## Follow-ups surfaced
 
-The runbook ([`docs/runbooks/k8s-rebuild.md`](../runbooks/k8s-rebuild.md)) is the operator playbook. High-level:
-
-1. Smoke against scratch.
-2. `srvk8s1` (the trickiest — ZFS reattach + cluster primary handoff).
-3. `srvk8s2`.
-4. `srvk8s3`.
-5. `wrkdevk8s`.
-6. Close-the-parity-event commit (retire adoption known_hosts files).
-
-## Recovery + risks
-
-- **dqlite quorum risk during prd rebuild**: with two voters left while rebuilding the third, a second failure during the window risks quorum. Mitigation: serial rebuilds with `microk8s status` health checks between each; rebuild prd in a maintenance window.
-- **HelmCharts hostPath workloads on `srvk8s1`**: `homelab.local/storage=zpool2` workloads (storage chart, Prometheus) are pinned via required affinity. While `srvk8s1` is being rebuilt those pods are unschedulable. Acceptable for the rebuild window; document expected unavailability in the maintenance announcement.
-- **dnsmasq reservation drift**: the `homelab_dns_reservation` resource creates the reservation alongside the VM, but stale entries from the live VMs must be cleaned up (sidecar `DELETE` on the old hostname, or imported and destroyed via TF) so DNS doesn't resolve to a vanished MAC. Runbook checklist covers it.
-- **TF apply destroying everything at once**: with all four entries renamed in `vms.tf` simultaneously, an unscoped `terraform apply` proposes destroying all four old VMs and creating four new ones. Always scope with `-target='module.vm["<name>"]'`. Runbook commands include the targeting.
-
-## Live state vs. target state
-
-The drift items still settled by phase 4c (everything else closed in 4a/4b):
-
-| What | Live (today) | Target |
-|---|---|---|
-| Channel (dev) | `1.30/stable` (pinned via host_vars) | `1.32/stable` from group_vars |
-| Cluster CIDR (dev) | `10.3.0.0/16` | `172.18.0.0/16` |
-| Service CIDR (dev) | `10.153.183.0/24` | `172.19.0.0/16` |
-| `core/ingress` (dev) | enabled | disabled |
-| VMIDs | 103/104/107/119 | 910/911/912/919 |
-| MAC addresses | Proxmox-generated `BC:24:11:...` | deterministic `02:A7:F3:VV:VV:00` |
-| Hostnames (prd) | `srvk8sl1/ss1/ss2` | `srvk8s1/2/3` |
-| BIOS (`srvk8ss2`) | `seabios` | `ovmf` |
-| TF state | adoption shape (only OLD VMs imported) | from-scratch shape |
-| `srvk8sl1`'s `zpool2` | ONLINE on `nvme1n1` | preserved through rebuild via reattach + `zpool import` |
-| Host keys | `files/known_hosts.d/k8s_prd`, `k8s_dev` (adoption) | `files/known_hosts.d/prd` (TF-owned) |
-
-## What this phase deliberately does not solve
-
-- Cluster autoscaling, NFD, gpu-operator, anything addon-shaped beyond the configured set.
-- MetalLB BGP. Tabled.
-- etcd / dqlite snapshot backup beyond vzdump. Phase 10 follow-up if needed.
-- CI-scheduled drift detection. Phase 10.
-- Sidecar/StatefulSet side of DNS automation. The reservation TF resource itself is already in use (plan 02).
+- **Pre-drain hand-off readiness check** — `kubectl rollout status` returned 0 before the new pod was Ready under the keycloak/keycloak-db restart. Captured in `docs/plans/07-pre-drain-readiness-check.md`. Not a blocker for the rebuilds.
+- **Runbook updates** for the static-IP pivot, the orphan `state rm` step, and the cloud-init resource targeting — listed in 4d's "Runbook + decisions.md follow-ups" so they land alongside the phase close.
+- **Bare-Pod drain** — Jenkins build agents block `kubectl drain` until the build finishes. Acceptable today (wait + retry); revisit if it blocks a real maintenance window.
