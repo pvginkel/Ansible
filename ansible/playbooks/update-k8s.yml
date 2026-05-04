@@ -23,6 +23,23 @@
 #
 # kubectl drain runs from the primary so the command source survives
 # the API blip when snap-refresh restarts microk8s on the target.
+#
+# Primary is elected runtime per cluster (lowest-hostname in-cluster
+# member, then running-solo, then alphabetical seed). The election
+# play runs first against the full k8s group so every host's
+# hostvars carry the elected primary before the serial: 1 batch
+# starts — without that, the per-host peer-count and drain delegation
+# can't see other hosts' values.
+
+- name: Elect microk8s primary per cluster
+  hosts: k8s
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Elect primary
+      ansible.builtin.import_role:
+        name: microk8s
+        tasks_from: elect-primary
 
 - name: Rolling upgrade for k8s cluster members
   hosts: k8s

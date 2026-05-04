@@ -42,9 +42,12 @@ microk8s_addons:
 microk8s_users: []
 
 # Hostname of the cluster's primary node — the one from which addons,
-# capability labels, and the MetalLB pool spec are reconciled, and the
-# one the join token is requested from. Required per cluster; for
-# single-node clusters set it to that node's own hostname.
+# capability labels, the MetalLB pool spec, and the CoreDNS Corefile
+# are reconciled, and the one the join token is requested from. Set
+# to "" by default and OVERWRITTEN AT RUNTIME by the role's
+# elect-primary.yml task list per the rules documented there. Don't
+# pin it in inventory — the whole point of election is that a
+# rebuilt labeled-primary stops being load-bearing.
 microk8s_primary_host: ""
 
 # MetalLB IPAddressPool + L2Advertisement reconciled by the role on the

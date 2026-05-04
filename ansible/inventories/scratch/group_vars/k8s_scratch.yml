@@ -38,8 +38,8 @@ microk8s_metallb_pool_addresses:
 microk8s_users:
   - pvginkel
 
-# wrkscratchk8s1 is the cluster's primary — the one that bootstraps the
-# solo cluster on first install, mints join tokens for the secondary,
-# and reconciles cluster-scoped state (addons today; MetalLB pool spec
-# and capability labels in follow-ups).
-microk8s_primary_host: wrkscratchk8s1
+# Cluster primary is elected at runtime by the role — see
+# roles/microk8s/tasks/elect-primary.yml. Election picks the
+# alphabetically-first node on greenfield (wrkscratchk8s1), and
+# whichever existing in-cluster member is alphabetically first
+# thereafter — so a rebuilt primary doesn't strand the survivor.

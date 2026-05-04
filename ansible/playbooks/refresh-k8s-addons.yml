@@ -22,6 +22,11 @@
   become: true
   gather_facts: false
   tasks:
+    - name: Elect this cluster's primary
+      ansible.builtin.import_role:
+        name: microk8s
+        tasks_from: elect-primary
+
     - name: Skip non-primary peers
       ansible.builtin.meta: end_host
       when: inventory_hostname != microk8s_primary_host

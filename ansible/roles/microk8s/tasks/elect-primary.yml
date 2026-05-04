@@ -1,0 +1,52 @@
+---
+# Per-cluster primary election. Replaces the static
+# microk8s_primary_host inventory key so that rebuilding the labeled
+# primary doesn't strand the surviving cluster members.
+#
+# Election rules, in priority:
+#   1. Lowest hostname among nodes that report `running: True` AND
+#      `high-availability.nodes` length > 1 (= already a working
+#      cluster member). Found one → use it.
+#   2. Else lowest hostname among nodes that report `running: True`
+#      (single-node clusters, or the survivors of a brand-new
+#      install). Found one → use it.
+#   3. Else lowest hostname in the cluster group (greenfield
+#      bootstrap — no microk8s anywhere yet).
+#
+# Cluster boundary is "the k8s_<env> child group this host belongs
+# to." Under inventories/prd, `hosts: k8s` resolves to k8s_prd and
+# k8s_dev together; election runs independently per cluster so each
+# host gets its own cluster's elected primary.
+#
+# Tasks 1 and 2 run on every host. Task 3 runs on every host too —
+# the computation is deterministic given hostvars, so each host
+# independently arrives at the same answer for its cluster.
+
+- name: Read this node's microk8s status (for primary election)
+  ansible.builtin.command: microk8s status --format yaml
+  register: _microk8s_status_for_election
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Classify this node's microk8s state
+  ansible.builtin.set_fact:
+    _microk8s_node_state: >-
+      {%- set s = (_microk8s_status_for_election.stdout | default('') | from_yaml) or {} -%}
+      {%- set running = s.get('microk8s', {}).get('running', false) -%}
+      {%- set nodes = (s.get('high-availability', {}).get('nodes') or []) -%}
+      {%- if running and (nodes | length > 1) -%}in-cluster
+      {%- elif running -%}running-solo
+      {%- else -%}down
+      {%- endif -%}
+
+- name: Elect this cluster's primary
+  ansible.builtin.set_fact:
+    microk8s_primary_host: >-
+      {%- set my_cluster = group_names | select('match', '^k8s_') | first -%}
+      {%- set peers = groups[my_cluster] | sort -%}
+      {{ ([h for h in peers
+            if hostvars[h]['_microk8s_node_state'] | default('down') == 'in-cluster']
+          + [h for h in peers
+            if hostvars[h]['_microk8s_node_state'] | default('down') == 'running-solo']
+          + peers) | first }}

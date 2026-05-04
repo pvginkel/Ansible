@@ -4,7 +4,7 @@ Installs and configures microk8s on a k8s node. Lands an Ubuntu host at "ready t
 
 ## Scope
 
-This role covers install, idempotent multi-node join, capability-label reconciliation, and MetalLB IPAddressPool/L2Advertisement reconciliation. The set of moving parts handled today:
+This role covers install, idempotent multi-node join, capability-label reconciliation, MetalLB pool reconciliation, registry-mirror config, node-local `/etc/hosts` entries, and full-Corefile CoreDNS reconciliation. The set of moving parts handled today:
 
 | Concern | Mechanism |
 |---|---|
@@ -13,24 +13,34 @@ This role covers install, idempotent multi-node join, capability-label reconcili
 | `.microk8s.yaml` | `template` from `launch-config.yaml.j2`, written before the snap install so first-init reads it |
 | Snap install | `community.general.snap` at the pinned channel |
 | Calico autodetect | `replace` on `cni.yaml` + handler that re-applies the daemonset |
+| Primary election | per-cluster runtime election from `microk8s status` across the inventory's `k8s_<env>` group; sets `microk8s_primary_host` as a fact (see `tasks/elect-primary.yml`) |
 | Cluster join | `microk8s add-node` on the primary via `delegate_to` → `microk8s join` on the secondary, gated by an idempotency check on `high-availability.nodes` |
 | Addons (primary only) | parse `microk8s status --format yaml`, enable any from `microk8s_addons` that are missing; the `metallb` addon's required IP-range arg is supplied inline as a sentinel and replaced by the role's MetalLB reconcile |
 | Capability labels (primary only) | strategic-merge patch via `kubernetes.core.k8s` of each cluster member's Node object, sourcing labels from per-host `k8s_node_labels` |
 | MetalLB pool (primary only) | `kubernetes.core.k8s` upserts the `IPAddressPool` and `L2Advertisement` the `metallb` addon creates, replacing the addon's colon-arg range with `microk8s_metallb_pool_addresses` |
+| Registry mirrors | renders `/var/snap/microk8s/current/args/certs.d/<host>/hosts.toml` per `microk8s_registry_mirrors` entry; notifies a `microk8s stop && start` handler |
+| Node-local `/etc/hosts` | blockinfile-managed entries from `microk8s_etc_hosts_entries` (containerd resolves image-pull names via node DNS, never via CoreDNS) |
+| CoreDNS Corefile (primary only) | full-Corefile authoritative render via `kubernetes.core.k8s`, driven by `microk8s_coredns_hosts` and `microk8s_coredns_templates`; notifies a `kubectl rollout restart deployment/coredns` handler |
 | Users | `user` module appends membership to the `microk8s` group; `~/.kube` per user |
 | `kubectl` alias | `snap alias microk8s.kubectl kubectl`, guarded by a stat |
 
 ## Primary vs. secondary nodes
 
-`microk8s_primary_host` (set per cluster in group_vars) names one node as the cluster's primary. The split:
+`microk8s_primary_host` is **elected at runtime** per cluster — see [`tasks/elect-primary.yml`](tasks/elect-primary.yml). The election picks (in priority): the lowest-hostname node already in a working cluster, then the lowest-hostname running-solo node, then the alphabetical first node in the `k8s_<env>` group as a greenfield seed. This means rebuilding the labeled-primary doesn't strand the surviving cluster members — the next role apply elects one of them.
 
-- **Per-node state** runs on every node (modules, packages, snap install, `.microk8s.yaml`, Calico autodetect patch, group membership, kubectl alias).
-- **Cluster-scoped state** runs only on the primary — addons, capability labels, and the MetalLB pool spec. This avoids racing two `microk8s enable X` invocations or two competing patches against the same kube-system state.
+Cluster boundary is the inventory `k8s_<env>` child group each host belongs to. Under `inventories/prd`, `hosts: k8s` resolves to `k8s_prd` and `k8s_dev` simultaneously; election runs independently per cluster so each host gets its own cluster's elected primary.
+
+The split:
+
+- **Per-node state** runs on every node (modules, packages, snap install, `.microk8s.yaml`, Calico autodetect patch, registry mirrors, `/etc/hosts`, group membership, kubectl alias).
+- **Cluster-scoped state** runs only on the primary — addons, capability labels, the MetalLB pool spec, and the CoreDNS Corefile. This avoids racing two `microk8s enable X` invocations or two competing patches against the same kube-system state.
 - **Join** runs only on non-primary nodes. The role checks `high-availability.nodes` on the joining node; count > 1 means it's already in the cluster, count == 1 means it's still on its post-install solo cluster and needs to join. The join token comes from `microk8s add-node --format json --token-ttl 60` issued on the primary via `delegate_to`; the URL it returns is consumed immediately by `microk8s join` on the secondary. Tokens are single-use and short-TTL so they don't survive logs or process lists.
 
-The label and MetalLB tasks run `kubernetes.core.k8s` on the primary; that requires the `python3-kubernetes` apt package, which `prereqs.yml` installs on the primary only.
+The label, MetalLB, and CoreDNS tasks all run `kubernetes.core.k8s` on the primary; that requires the `python3-kubernetes` apt package, which `prereqs.yml` installs on the primary only.
 
-For single-node clusters (`k8s_dev` today, `wrkdevk8s` is the only host) the same node is its own primary and the join branch is a no-op.
+For single-node clusters (`k8s_dev` today, `wrkdevk8s` is the only host) election picks the only host; the join branch is a no-op.
+
+Standalone playbooks that don't apply the role (`update-k8s.yml`, `evict-k8s.yml`, `refresh-k8s-addons.yml`) call `tasks_from: elect-primary` in a pre-flight play before any task that references `microk8s_primary_host`.
 
 ## Inventory contract
 
@@ -47,12 +57,16 @@ The role asserts that the four cluster-CIDR variables are set; per-cluster `grou
 | `microk8s_extra_sans` | optional | `[]` | API-server cert SANs, typically the service gateway IP. |
 | `microk8s_addons` | optional | `[dns, helm, helm3, metrics-server]` | Bare addon names. Order matters; `community` must precede community-namespaced addons. The `metallb` addon's required IP-range arg is added inline by the role; inventory just lists `metallb`. |
 | `microk8s_users` | optional | `[]` | OS users added to the `microk8s` group. |
-| `microk8s_primary_host` | **required** | `""` | Hostname of the cluster's primary node. Set to the host's own name for single-node clusters. |
+| `microk8s_primary_host` | auto-elected | `""` | **Computed at runtime** by `tasks/elect-primary.yml` — do not set in inventory. |
 | `k8s_node_labels` (per host, in `host_vars`) | optional | unset → `{}` | Map of capability labels to apply to that node's `Node` object. Keys/values are passed through verbatim to a strategic-merge patch — only labels you list are reconciled; existing kubernetes-managed and hand-applied labels are untouched. |
 | `microk8s_metallb_namespace` | optional | `metallb-system` | Namespace where the addon installs the controller and creates the pool / advertisement. |
 | `microk8s_metallb_pool_name` | optional | `default-addresspool` | Name of the `IPAddressPool` to upsert — matches the resource the `metallb` addon creates, so the reconcile lands on the addon's resource and overwrites its colon-arg range. |
 | `microk8s_metallb_advertisement_name` | optional | `default-advertise-all-pools` | Name of the `L2Advertisement` to upsert — same rationale, matches the addon's auto-created advertisement. |
 | `microk8s_metallb_pool_addresses` | optional | `[]` | List of CIDRs / `start-end` ranges (IPv4 and/or IPv6) — source of truth for the pool. Empty skips the task. |
+| `microk8s_registry_mirrors` | optional | `[]` | List of `<host>:<port>` strings; per entry, a `certs.d/<host>:<port>/hosts.toml` is rendered pointing at `http://<entry>` with pull+resolve capabilities. |
+| `microk8s_etc_hosts_entries` | optional | `[]` | List of `<ip> <name1> [name2 ...]` strings managed as a single marked block in `/etc/hosts`. Empty list removes the block. |
+| `microk8s_coredns_hosts` | optional | `[]` | List of `{ip, names}` entries for the CoreDNS `hosts { ... fallthrough }` block. Reconciled on the primary. |
+| `microk8s_coredns_templates` | optional | `[]` | List of `{domain, answer_a, ttl}` entries; each renders a `template IN A <domain>` block answering any subdomain with `<answer_a>`. Reconciled on the primary. |
 
 ## Idempotency notes
 

@@ -35,8 +35,9 @@ microk8s_addons:
 microk8s_users:
   - pvginkel
 
-# Single-node cluster — wrkdevk8s is its own primary.
-microk8s_primary_host: wrkdevk8s
+# Cluster primary is elected at runtime by the role — see
+# roles/microk8s/tasks/elect-primary.yml. wrkdevk8s is the only node
+# in the cluster, so election always picks it.
 
 # MetalLB pool from /work/KubernetesConfig/metallb/dev.yaml.
 microk8s_metallb_pool_addresses:

@@ -41,10 +41,8 @@ microk8s_addons:
 microk8s_users:
   - pvginkel
 
-# Cluster primary — bootstraps the solo cluster on first install,
-# mints join tokens, reconciles cluster-scoped state. Stays srvk8sl1
-# until Phase 4a step 10 renames it to srvk8s1.
-microk8s_primary_host: srvk8sl1
+# Cluster primary is elected at runtime by the role — see
+# roles/microk8s/tasks/elect-primary.yml.
 
 # MetalLB pool from /work/KubernetesConfig/metallb/prd.yaml.
 microk8s_metallb_pool_addresses:
