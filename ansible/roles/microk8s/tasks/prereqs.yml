@@ -21,14 +21,15 @@
   environment:
     NEEDRESTART_MODE: a
 
-- name: Install python3-kubernetes (primary only — used by kubernetes.core.k8s)
-  # The labels and (Phase 4a) MetalLB reconciliation tasks run on the
-  # primary via kubernetes.core.k8s, which needs the `kubernetes`
-  # Python library on the host that executes the module. Secondaries
-  # never call kubernetes.core.k8s, so we install only where it's used.
+- name: Install python3-kubernetes
+  # The cluster-scoped tasks (labels, MetalLB, CoreDNS) run via
+  # kubernetes.core.k8s on whichever node is elected primary. With
+  # dynamic election any node may become primary at any time, so
+  # every k8s node carries the library — gating on the elected
+  # primary at install time would leave a freshly-rebuilt node
+  # uninstrumented until the next role apply re-elects it.
   ansible.builtin.apt:
     name: python3-kubernetes
     state: present
-  when: inventory_hostname == microk8s_primary_host
   environment:
     NEEDRESTART_MODE: a
