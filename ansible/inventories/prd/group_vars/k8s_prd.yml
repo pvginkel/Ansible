@@ -50,3 +50,45 @@ microk8s_primary_host: srvk8sl1
 microk8s_metallb_pool_addresses:
   - 10.2.1.1-10.2.1.199
   - 2a10:3781:565a:0:7912:b75b::/96
+
+# Containerd registry mirrors. The operator's in-cluster registry
+# (ServiceIP 172.17.0.3, see microk8s_etc_hosts_entries below) and
+# the dev-cluster registry (LAN-direct on the dev side) — prd pulls
+# images tagged with both prefixes. Both are plain HTTP.
+microk8s_registry_mirrors:
+  - registry:5000
+  - registry-dev:5000
+
+# Node-local /etc/hosts entries. The registry alias must resolve
+# without LAN DNS — the LAN's dnsmasq runs in-cluster behind the
+# registry itself, so any chain that puts node DNS for `registry`
+# through dnsmasq creates a cold-boot ordering failure. Hand-picked
+# 172.17.0.3 lives outside the dynamic service-IP allocation range.
+microk8s_etc_hosts_entries:
+  - "172.17.0.3 registry"
+
+# CoreDNS hosts overrides. In-cluster runtime references (Kaniko
+# pushing builds, etc.) need bare `registry`/`registry.home` to
+# resolve without going out to dnsmasq. The Ceph mon hostnames are
+# here for the same chicken-and-egg: the registry container itself
+# depends on Ceph storage to boot, and dnsmasq depends on the
+# registry — Ceph addressing must therefore be resolvable from
+# inside the cluster without touching the LAN DNS path. Ceph IPs
+# are static infrastructure and never flow through the dynamic
+# reservation API; the same triples live in HelmCharts
+# configs/{prd,dev}/dnsmasq.yaml.
+microk8s_coredns_hosts:
+  - { ip: 172.17.0.3, names: [registry, registry.home] }
+  - { ip: 10.1.0.24, names: [srvceph1, srvceph1.home] }
+  - { ip: 10.1.0.25, names: [srvceph2, srvceph2.home] }
+  - { ip: 10.1.0.26, names: [srvceph3, srvceph3.home] }
+
+# CoreDNS A-record templates. Public hostnames that should resolve
+# in-cluster to the local ingress LB (10.2.1.7 sits inside the
+# MetalLB pool above) so traffic doesn't loop out through the WAN
+# and back. Without these, in-cluster requests to webathome.org /
+# ginbov.nl follow public DNS and the in-cluster path diverges
+# from the outside-cluster path.
+microk8s_coredns_templates:
+  - { domain: webathome.org, answer_a: 10.2.1.7, ttl: 600 }
+  - { domain: ginbov.nl, answer_a: 10.2.1.7, ttl: 600 }
