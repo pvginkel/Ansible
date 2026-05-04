@@ -106,7 +106,11 @@ exact list.
 
 VMs to import:
 
-- prd: `srvk8sl1`, `srvk8ss1`, `srvk8ss2`, `srvceph1`, `srvceph2`, `srvceph3`.
+- prd: `srvk8sl1`, `srvk8ss1`, `srvk8ss2`. The Ceph nodes (`srvceph1/2/3`)
+  are deliberately excluded — they carry `static_ip = true` on the
+  `managed-vm` module and skip the `homelab_dns_reservation` resource,
+  per `decisions.md` "Ceph nodes are static infrastructure". Their
+  hostname → IP triples live in HelmCharts `configs/{prd,dev}/dnsmasq.yaml`.
 - scratch: `wrkscratchk8s1`, `wrkscratchk8s2` (only if the scratch fleet
   carries reservations — verify with `GET /reservations` against the
   sidecar before adding).
