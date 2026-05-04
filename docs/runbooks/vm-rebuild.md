@@ -1,6 +1,6 @@
 # Rebuilding a Terraform-managed VM
 
-How to destroy and recreate a managed VM end-to-end. Rebuild is the canonical path for upgrading the OS, recovering from drift that adoption can't reach, and (eventually) for routine cluster upgrades. Per `docs/decisions.md` "Adoption is a waypoint; rebuild is the parity event," every adopted VM has a planned rebuild that ends the transition.
+How to destroy and recreate a managed VM end-to-end. Rebuild is the canonical path for upgrading the OS, recovering from drift that adoption can't reach, and (eventually) for routine cluster upgrades. Per `/work/AnsibleSpecs/decisions.md` "Adoption is a waypoint; rebuild is the parity event," every adopted VM has a planned rebuild that ends the transition.
 
 What persists across rebuild:
 

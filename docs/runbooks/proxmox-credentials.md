@@ -1,6 +1,6 @@
 # Proxmox credentials for Terraform
 
-Terraform's bpg/proxmox provider authenticates as `root@pam` with username + password. PVE restricts a few config fields (VM `affinity`, arbitrary-path passthrough disks) to root, and the scoped API-token approach we tried earlier could not write either — even tokens derived from `root@pam` are rejected because PVE distinguishes "user logged in" from "token of that user." See `docs/decisions.md` "Proxmox VM CPU affinity" and "Disk passthrough on managed VMs".
+Terraform's bpg/proxmox provider authenticates as `root@pam` with username + password. PVE restricts a few config fields (VM `affinity`, arbitrary-path passthrough disks) to root, and the scoped API-token approach we tried earlier could not write either — even tokens derived from `root@pam` are rejected because PVE distinguishes "user logged in" from "token of that user." See `/work/AnsibleSpecs/decisions.md` "Proxmox VM CPU affinity" and "Disk passthrough on managed VMs".
 
 `root@pam` has no MFA on this cluster, so direct password auth works without ceremony.
 

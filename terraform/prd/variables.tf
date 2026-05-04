@@ -22,7 +22,7 @@ variable "proxmox_insecure" {
 }
 
 variable "dns_reservation_url" {
-  description = "Base URL of the dnsmasq sidecar reservation API (e.g. https://dns-reservation.home/). See docs/specs/dns-reservation-api.md."
+  description = "Base URL of the dnsmasq sidecar reservation API (e.g. https://dns-reservation.home/). See /work/AnsibleSpecs/slices/completed/dns-reservation-provider/dns-reservation-api.md."
   type        = string
 }
 

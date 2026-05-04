@@ -64,7 +64,7 @@ Terraform authenticates to the Proxmox API as `root@pam` with username + passwor
 
 ## Terraform `pvginkel/homelab` provider
 
-The `homelab` provider ships baked into the `modern-app-dev` container image. `TF_CLI_CONFIG_FILE=/etc/terraform.rc` in the image points Terraform at a filesystem mirror under `/usr/local/share/terraform/plugins`; `terraform init` resolves `pvginkel/homelab` from there with no per-workstation setup. See [`docs/plans/04-embed-homelab-provider.md`](../plans/04-embed-homelab-provider.md) for the mirror layout and how the binary lands in the image.
+The `homelab` provider ships baked into the `modern-app-dev` container image. `TF_CLI_CONFIG_FILE=/etc/terraform.rc` in the image points Terraform at a filesystem mirror under `/usr/local/share/terraform/plugins`; `terraform init` resolves `pvginkel/homelab` from there with no per-workstation setup. See [`/work/AnsibleSpecs/slices/completed/embed-homelab-provider.md`](../../../AnsibleSpecs/slices/completed/embed-homelab-provider.md) for the mirror layout and how the binary lands in the image.
 
 No `~/.terraformrc` is needed. If a stale dev-override block is still present from plan 02, it is harmless inside the container (the env var wins), but delete it so it doesn't fire elsewhere.
 

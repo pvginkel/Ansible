@@ -20,7 +20,7 @@ Provider **version** constraint and required Terraform CLI version are declared 
 
 ## Backup flag — single source of truth
 
-Each module instance reads `pve_node_backup_datastore` from `ansible/inventories/prd/host_vars/<pve_node>.yml` and uses its presence to set `backup` on managed disks. Passthrough disks are always `backup = false` regardless of node — vzdump of a multi-TB raw passthrough is neither crash-consistent nor useful (Ceph/ZFS owns redundancy). See `docs/decisions.md` "Backup".
+Each module instance reads `pve_node_backup_datastore` from `ansible/inventories/prd/host_vars/<pve_node>.yml` and uses its presence to set `backup` on managed disks. Passthrough disks are always `backup = false` regardless of node — vzdump of a multi-TB raw passthrough is neither crash-consistent nor useful (Ceph/ZFS owns redundancy). See `/work/AnsibleSpecs/decisions.md` "Backup".
 
 ## Provider credentials
 

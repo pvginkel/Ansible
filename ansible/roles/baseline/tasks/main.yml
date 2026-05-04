@@ -53,7 +53,7 @@
 # Updates are managed by Ansible (a future update.yml playbook). Purge
 # unattended-upgrades so there's a single, observable update mechanism — no
 # silent fallback to Ubuntu's defaults if our config file is removed. See
-# docs/decisions.md "OS updates".
+# /work/AnsibleSpecs/decisions.md "OS updates".
 - name: Purge unattended-upgrades
   ansible.builtin.apt:
     name: unattended-upgrades

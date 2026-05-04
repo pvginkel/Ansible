@@ -20,7 +20,7 @@ Applies OS hygiene to a managed Ubuntu host. Ported from `/work/Obsidian/Linux.m
 
 ## Updates
 
-Baseline does not configure or run package upgrades on its own. The dedicated `update.yml` playbook (forthcoming) owns `apt update`/`full-upgrade`/conditional reboot, with `serial: 1` + drain/uncordon for k8s and Ceph nodes once those phases land. Until then, `baseline_apt_dist_upgrade: true` is the operator's manual hatch — set it on a host (or via `-e`) to force a one-time dist-upgrade through baseline. See `docs/decisions.md` "OS updates".
+Baseline does not configure or run package upgrades on its own. The dedicated `update.yml` playbook (forthcoming) owns `apt update`/`full-upgrade`/conditional reboot, with `serial: 1` + drain/uncordon for k8s and Ceph nodes once those phases land. Until then, `baseline_apt_dist_upgrade: true` is the operator's manual hatch — set it on a host (or via `-e`) to force a one-time dist-upgrade through baseline. See `/work/AnsibleSpecs/decisions.md` "OS updates".
 
 ## Depends on
 

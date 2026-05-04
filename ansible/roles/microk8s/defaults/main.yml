@@ -1,6 +1,6 @@
 ---
 # microk8s release channel. Pinned per cluster in group_vars (k8s_prd.yml etc.).
-# 1.32/stable is the LTS-tracked default per docs/decisions.md "k8s version policy."
+# 1.32/stable is the LTS-tracked default per /work/AnsibleSpecs/decisions.md "k8s version policy."
 microk8s_channel: 1.32/stable
 
 # Calico autodetection: which interface carries pod traffic. Defaults to

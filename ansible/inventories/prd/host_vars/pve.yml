@@ -3,7 +3,7 @@
 # per-VM Terraform modules to decide each managed disk's `backup=` flag:
 # disks on a VM whose `pve_node` declares this attribute get backup=true,
 # everything else (VMs on pve1/pve2, plus all passthrough disks) is
-# backup=false. See docs/decisions.md "Backup".
+# backup=false. See /work/AnsibleSpecs/decisions.md "Backup".
 pve_node_backup_datastore: local-backup
 
 # /dev/sda is an intentional uncommitted spare — physically attached so

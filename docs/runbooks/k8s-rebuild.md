@@ -1,10 +1,10 @@
 # Rebuilding k8s VMs (drain → shutdown → TF → Ansible)
 
-End-to-end procedure for rebuilding `k8s_prd` and `k8s_dev` nodes from the adoption shape onto the from-scratch shape. Folds the Phase 4b parity event per `docs/decisions.md` "Adoption is a waypoint; rebuild is the parity event."
+End-to-end procedure for rebuilding `k8s_prd` and `k8s_dev` nodes from the adoption shape onto the from-scratch shape. Folds the Phase 4b parity event per `/work/AnsibleSpecs/decisions.md` "Adoption is a waypoint; rebuild is the parity event."
 
 This runbook is the orchestrator. Each step is operator-driven; nothing automates the full sequence. Per `decisions.md` "Terraform and Ansible are peer tools — neither invokes the other."
 
-Assumes `docs/plans/01-pam-credentials.md` has been applied: passthrough disks are TF-managed, not reattached by Ansible.
+Assumes `/work/AnsibleSpecs/slices/completed/pam-credentials.md` has been applied: passthrough disks are TF-managed, not reattached by Ansible.
 
 ## Order
 
@@ -344,7 +344,7 @@ git commit -m "ansible: retire adoption known_hosts files (k8s_prd, k8s_dev)"
 
 Once the worker rebuilds are stable long-term, `qm destroy 104` and `qm destroy 107` to reclaim the shut-down workers' disk space.
 
-Phase 4b closes. Update `docs/plan.md` and `docs/phases/phase-4b-microk8s-rebuild.md`'s status.
+Phase 4b closes. Update `/work/AnsibleSpecs/phases/README.md` and `/work/AnsibleSpecs/phases/completed/microk8s-rebuild.md`'s status.
 
 ## If a rebuild goes sideways
 

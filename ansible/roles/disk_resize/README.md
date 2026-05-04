@@ -16,7 +16,7 @@ Operationally:
 
 Per host:
 
-- `vm_id` — Proxmox VMID. Already required for affinity reconciliation in `proxmox_host`; see `docs/decisions.md`.
+- `vm_id` — Proxmox VMID. Already required for affinity reconciliation in `proxmox_host`; see `/work/AnsibleSpecs/decisions.md`.
 - `pve_node` — which physical PVE node hosts the VM (`pve` by default via `group_vars/pve_vms.yml`; `pve1` / `pve2` overridden in host_vars).
 - `disk_resize_filesystems` (defaults to root only) — list of `{mountpoint, scsi_index}` pairs declaring which filesystems to keep aligned with which PVE slots.
 

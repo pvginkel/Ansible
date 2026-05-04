@@ -8,7 +8,7 @@ terraform {
     }
     # No version pin: provider binary is baked into the modern-app-dev
     # image, which is the version source of truth. See
-    # docs/plans/04-embed-homelab-provider.md.
+    # /work/AnsibleSpecs/slices/completed/embed-homelab-provider.md.
     homelab = {
       source = "pvginkel/homelab"
     }
