@@ -68,6 +68,22 @@ resource "proxmox_virtual_environment_file" "cloud_init" {
       # Indented so the template's `|` block reads it as a single literal scalar.
       host_ed25519_private = indent(6, tls_private_key.host_ed25519[each.key].private_key_openssh)
       host_ed25519_public  = trimspace(tls_private_key.host_ed25519[each.key].public_key_openssh)
+      # NICs that carry static-IP fields. Order preserved; netplan keys are
+      # synthetic ("nic0", "nic1", ...) since match-by-MAC is what selects
+      # the kernel device. Empty list → template skips the netplan write_files
+      # and falls back to PVE's ip_config DHCP path.
+      static_nics = [
+        for i, n in each.value.network_devices : {
+          id          = "nic${i}"
+          mac_address = n.mac_address
+          addresses   = try(n.addresses, [])
+          gateway     = try(n.gateway, null)
+          accept_ra   = try(n.accept_ra, true)
+          nameservers = try(n.nameservers, [])
+          search      = try(n.search, [])
+        }
+        if length(try(n.addresses, [])) > 0
+      ]
     })
     file_name = "${each.key}-user-data.yaml"
   }

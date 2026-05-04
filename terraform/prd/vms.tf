@@ -15,6 +15,7 @@ locals {
       pve_node       = "pve1"
       workload_class = "background"
       from_scratch   = true
+      static_ip      = true
       description    = "microk8s node 2 of 3. OS managed by Ansible (k8s_prd group)."
       tags           = ["ansible-managed", "terraform", "k8s"]
       bios           = "ovmf"
@@ -30,11 +31,29 @@ locals {
       ]
 
       # Three NICs: house net, k8s workload VLAN (vmbr0 tag=2), 10 Gb
-      # backplane. Deterministic MAC: VMID 911 = 0x038F.
+      # backplane. Deterministic MAC: VMID 911 = 0x038F. .28 across all
+      # three networks (inherits srvk8ss1's slot).
       network_devices = [
-        { bridge = "vmbr0", mac_address = "02:A7:F3:03:8F:00" },
-        { bridge = "vmbr0", mac_address = "02:A7:F3:03:8F:01", vlan_id = 2 },
-        { bridge = "vmbr1", mac_address = "02:A7:F3:03:8F:02" },
+        {
+          bridge      = "vmbr0"
+          mac_address = "02:A7:F3:03:8F:00"
+          addresses   = ["10.1.0.28/16", "2a10:3781:565a:1::28/64"]
+          gateway     = "10.1.0.1"
+          accept_ra   = false
+          nameservers = ["8.8.8.8", "8.8.4.4"]
+          search      = ["home"]
+        },
+        {
+          bridge      = "vmbr0"
+          mac_address = "02:A7:F3:03:8F:01"
+          vlan_id     = 2
+          addresses   = ["10.2.0.28/16", "2a10:3781:565a::28/64"]
+        },
+        {
+          bridge      = "vmbr1"
+          mac_address = "02:A7:F3:03:8F:02"
+          addresses   = ["192.168.188.28/24", "fdd0:6a51:35de::28/64"]
+        },
       ]
     }
 
@@ -43,6 +62,7 @@ locals {
       pve_node       = "pve2"
       workload_class = "background"
       from_scratch   = true
+      static_ip      = true
       description    = "microk8s node 3 of 3. OS managed by Ansible (k8s_prd group)."
       tags           = ["ansible-managed", "terraform", "k8s"]
       # Live VM is seabios; rebuild flips to ovmf (the operator's
@@ -61,11 +81,29 @@ locals {
       ]
 
       # Three NICs: house net, k8s workload VLAN (vmbr0 tag=2), 10 Gb
-      # backplane. Deterministic MAC: VMID 912 = 0x0390.
+      # backplane. Deterministic MAC: VMID 912 = 0x0390. .29 across all
+      # three networks (inherits srvk8ss2's slot).
       network_devices = [
-        { bridge = "vmbr0", mac_address = "02:A7:F3:03:90:00" },
-        { bridge = "vmbr0", mac_address = "02:A7:F3:03:90:01", vlan_id = 2 },
-        { bridge = "vmbr1", mac_address = "02:A7:F3:03:90:02" },
+        {
+          bridge      = "vmbr0"
+          mac_address = "02:A7:F3:03:90:00"
+          addresses   = ["10.1.0.29/16", "2a10:3781:565a:1::29/64"]
+          gateway     = "10.1.0.1"
+          accept_ra   = false
+          nameservers = ["8.8.8.8", "8.8.4.4"]
+          search      = ["home"]
+        },
+        {
+          bridge      = "vmbr0"
+          mac_address = "02:A7:F3:03:90:01"
+          vlan_id     = 2
+          addresses   = ["10.2.0.29/16", "2a10:3781:565a::29/64"]
+        },
+        {
+          bridge      = "vmbr1"
+          mac_address = "02:A7:F3:03:90:02"
+          addresses   = ["192.168.188.29/24", "fdd0:6a51:35de::29/64"]
+        },
       ]
     }
 
@@ -74,6 +112,7 @@ locals {
       pve_node       = "pve"
       workload_class = "background"
       from_scratch   = true
+      static_ip      = true
       description    = "microk8s dev single-node cluster (k8s_dev group). HelmCharts iteration target."
       tags           = ["ansible-managed", "terraform", "k8s"]
       bios           = "ovmf"
@@ -95,10 +134,24 @@ locals {
       # Two NICs: house net + 10 Gb backplane. wrkdevk8s does not
       # join the prd k8s workload VLAN (vmbr0 tag=2) — that segment
       # is reserved for prd cluster services.
-      # Deterministic MAC: VMID 919 = 0x0397.
+      # Deterministic MAC: VMID 919 = 0x0397. .17 inherited from the
+      # live wrkdevk8s; LAN keeps its /24 (the live shape — srvk8s*
+      # use /16, the difference is intentional and predates Ansible).
       network_devices = [
-        { bridge = "vmbr0", mac_address = "02:A7:F3:03:97:00" },
-        { bridge = "vmbr1", mac_address = "02:A7:F3:03:97:01" },
+        {
+          bridge      = "vmbr0"
+          mac_address = "02:A7:F3:03:97:00"
+          addresses   = ["10.1.0.17/24", "2a10:3781:565a:1::17/64"]
+          gateway     = "10.1.0.1"
+          accept_ra   = false
+          nameservers = ["8.8.8.8", "8.8.4.4"]
+          search      = ["home"]
+        },
+        {
+          bridge      = "vmbr1"
+          mac_address = "02:A7:F3:03:97:01"
+          addresses   = ["192.168.188.17/24", "fdd0:6a51:35de::17/64"]
+        },
       ]
     }
 
@@ -107,6 +160,7 @@ locals {
       pve_node       = "pve"
       workload_class = "background"
       from_scratch   = true
+      static_ip      = true
       description    = "microk8s node 1 of 3 (carries zpool2 via NVMe passthrough). OS managed by Ansible (k8s_prd group)."
       tags           = ["ansible-managed", "terraform", "k8s"]
       bios           = "ovmf"
@@ -131,10 +185,28 @@ locals {
       # Three NICs: house net, k8s workload VLAN (vmbr0 tag=2), 10 Gb
       # backplane. Deterministic MAC: 02:A7:F3:VV:VV:EE where VV:VV is
       # VMID big-endian and EE is the NIC index. VMID 910 = 0x038E.
+      # .27 across all three networks (inherits srvk8sl1's slot).
       network_devices = [
-        { bridge = "vmbr0", mac_address = "02:A7:F3:03:8E:00" },
-        { bridge = "vmbr0", mac_address = "02:A7:F3:03:8E:01", vlan_id = 2 },
-        { bridge = "vmbr1", mac_address = "02:A7:F3:03:8E:02" },
+        {
+          bridge      = "vmbr0"
+          mac_address = "02:A7:F3:03:8E:00"
+          addresses   = ["10.1.0.27/16", "2a10:3781:565a:1::27/64"]
+          gateway     = "10.1.0.1"
+          accept_ra   = false
+          nameservers = ["8.8.8.8", "8.8.4.4"]
+          search      = ["home"]
+        },
+        {
+          bridge      = "vmbr0"
+          mac_address = "02:A7:F3:03:8E:01"
+          vlan_id     = 2
+          addresses   = ["10.2.0.27/16", "2a10:3781:565a::27/64"]
+        },
+        {
+          bridge      = "vmbr1"
+          mac_address = "02:A7:F3:03:8E:02"
+          addresses   = ["192.168.188.27/24", "fdd0:6a51:35de::27/64"]
+        },
       ]
     }
 

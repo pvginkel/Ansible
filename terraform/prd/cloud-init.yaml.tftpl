@@ -34,9 +34,61 @@ packages:
 
 package_update: true
 package_upgrade: false
+%{ if length(static_nics) > 0 ~}
+
+# Static netplan, written over cloud-init's auto-generated DHCP file before
+# the final boot's apply. k8s nodes are bring-up tier (they host the
+# registry + dnsmasq pods themselves), so they cannot use DHCP from the
+# cluster's dnsmasq — circular dependency at cold boot. Static IPs and
+# external nameservers come from vms.tf. See decisions.md.
+write_files:
+  - path: /etc/netplan/50-cloud-init.yaml
+    permissions: "0600"
+    owner: "root:root"
+    content: |
+      network:
+        version: 2
+        ethernets:
+%{ for nic in static_nics ~}
+          ${nic.id}:
+            match:
+              macaddress: "${lower(nic.mac_address)}"
+            addresses:
+%{ for addr in nic.addresses ~}
+              - ${addr}
+%{ endfor ~}
+            dhcp4: false
+            dhcp6: false
+%{ if nic.accept_ra == false ~}
+            accept-ra: false
+%{ endif ~}
+%{ if nic.gateway != null ~}
+            routes:
+              - to: default
+                via: ${nic.gateway}
+%{ endif ~}
+%{ if length(nic.nameservers) > 0 ~}
+            nameservers:
+              addresses:
+%{ for ns in nic.nameservers ~}
+                - ${ns}
+%{ endfor ~}
+%{ if length(nic.search) > 0 ~}
+              search:
+%{ for s in nic.search ~}
+                - ${s}
+%{ endfor ~}
+%{ endif ~}
+%{ endif ~}
+%{ endfor ~}
+%{ endif ~}
 
 # The service unit is `static` — it's normally started by a udev rule when
 # the virtio-serial channel appears at boot. That rule fires before cloud-init
 # installs the package, so on first boot we have to start it explicitly.
 runcmd:
   - systemctl start qemu-guest-agent
+%{ if length(static_nics) > 0 ~}
+  - netplan generate
+  - netplan apply
+%{ endif ~}

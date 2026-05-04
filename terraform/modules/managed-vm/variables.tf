@@ -99,13 +99,18 @@ variable "passthrough_disks" {
 }
 
 variable "network_devices" {
-  description = "VM NICs. Order matters — bpg state indexes by position, not by interface."
+  description = "VM NICs. Order matters — bpg state indexes by position, not by interface. The static-IP fields (addresses/gateway/accept_ra/nameservers/search) are consumed by the cloud-init template at the prd/dev level when var.static_ip = true; the bpg resource itself only reads bridge/mac_address/vlan_id/firewall/model."
   type = list(object({
     bridge      = string
     mac_address = string
     vlan_id     = optional(number, 0)
     firewall    = optional(bool, true)
     model       = optional(string, "virtio")
+    addresses   = optional(list(string), [])
+    gateway     = optional(string, null)
+    accept_ra   = optional(bool, true)
+    nameservers = optional(list(string), [])
+    search      = optional(list(string), [])
   }))
 }
 
