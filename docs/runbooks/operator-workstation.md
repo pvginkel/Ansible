@@ -62,28 +62,10 @@ The `.home` search domain must be present in `/etc/resolv.conf` (or the systemd-
 
 Terraform authenticates to the Proxmox API as `root@pam` with username + password — see [`proxmox-credentials.md`](proxmox-credentials.md). The password goes in `terraform/{prd,scratch}/terraform.tfvars` (gitignored).
 
-## Terraform dev override — `pvginkel/homelab`
+## Terraform `pvginkel/homelab` provider
 
-The `homelab` provider is built in place at `/work/HomelabTerraformProvider` and consumed by Terraform via a dev override in `~/.terraformrc`. No registry, no version pin. See [`/work/HomelabTerraformProvider/CLAUDE.md`](../../../HomelabTerraformProvider/CLAUDE.md) for the canonical dev workflow.
+The `homelab` provider ships baked into the `modern-app-dev` container image. `TF_CLI_CONFIG_FILE=/etc/terraform.rc` in the image points Terraform at a filesystem mirror under `/usr/local/share/terraform/plugins`; `terraform init` resolves `pvginkel/homelab` from there with no per-workstation setup. See [`docs/plans/04-embed-homelab-provider.md`](../plans/04-embed-homelab-provider.md) for the mirror layout and how the binary lands in the image.
 
-```sh
-cd /work/HomelabTerraformProvider
-go build -o terraform-provider-homelab
-```
-
-```hcl
-# ~/.terraformrc
-provider_installation {
-  dev_overrides {
-    "pvginkel/homelab" = "/work/HomelabTerraformProvider"
-  }
-
-  # Required when using dev_overrides — everything else falls through
-  # to the default registry.
-  direct {}
-}
-```
-
-`terraform plan` against `terraform/prd` or `terraform/scratch` will warn that the override is in effect; that's expected. Note: dev overrides bypass `.terraform.lock.hcl`, so `terraform init` does not record a hash for the homelab provider. CI gets a published or embedded provider per [`docs/plans/04-embed-homelab-provider.md`](../plans/04-embed-homelab-provider.md).
+No `~/.terraformrc` is needed. If a stale dev-override block is still present from plan 02, it is harmless inside the container (the env var wins), but delete it so it doesn't fire elsewhere.
 
 The bearer token for the sidecar API goes in `terraform/{prd,scratch}/terraform.tfvars` next to the Proxmox password (`dns_reservation_token`).
