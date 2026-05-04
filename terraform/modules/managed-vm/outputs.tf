@@ -14,6 +14,6 @@ output "nic_macs" {
 }
 
 output "dns_ipv4" {
-  description = "IPv4 the sidecar API allocated for this VM's vmbr0 reservation."
-  value       = homelab_dns_reservation.this.ipv4
+  description = "IPv4 the sidecar API allocated for this VM's vmbr0 reservation. Null for static_ip VMs (no reservation; address is in HelmCharts' static-hosts.yaml)."
+  value       = var.static_ip ? null : homelab_dns_reservation.this[0].ipv4
 }

@@ -17,7 +17,12 @@ locals {
 # VM (depends_on below) so the first DHCP request hits a known reservation.
 # network_devices[0] is the vmbr0 reservation NIC by convention; tag-2 and
 # vmbr1 NICs carry static addresses declared per-VM in vms.tf, no IPAM.
+#
+# Skipped when var.static_ip = true (Ceph nodes today): those hosts are
+# bring-up-tier infrastructure with hardcoded IPs in HelmCharts'
+# static-hosts.yaml. See decisions.md "Ceph IPs are static infrastructure".
 resource "homelab_dns_reservation" "this" {
+  count    = var.static_ip ? 0 : 1
   hostname = var.name
   mac      = var.network_devices[0].mac_address
 

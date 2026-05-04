@@ -146,6 +146,7 @@ locals {
       tags           = ["ansible-managed", "terraform", "ceph"]
       smbios_uuid    = "4941d812-2dae-4b15-8ba5-9455ca853e52"
       bios           = "ovmf"
+      static_ip      = true
 
       cpu_cores   = 1
       cpu_sockets = 3
@@ -177,6 +178,7 @@ locals {
       tags           = ["ansible-managed", "terraform", "ceph"]
       smbios_uuid    = "8fa7841f-a1d5-4347-85f7-c3c725e3e721"
       bios           = "ovmf"
+      static_ip      = true
 
       cpu_cores   = 1
       cpu_sockets = 3
@@ -208,6 +210,7 @@ locals {
       tags           = ["ansible-managed", "terraform", "ceph"]
       smbios_uuid    = "bc789ae7-120d-4722-b854-56202ff2fb74"
       bios           = "ovmf"
+      static_ip      = true
 
       cpu_cores   = 1
       cpu_sockets = 3

@@ -136,3 +136,9 @@ variable "cloud_init" {
   })
   default = null
 }
+
+variable "static_ip" {
+  description = "Skip the homelab_dns_reservation resource for this VM. Bring-up-tier hosts (Ceph) carry hardcoded IPs in HelmCharts' static-hosts.yaml and must not flow through the dynamic reservation API — the registry container depends on Ceph storage to boot, and any chain that puts Ceph addressing behind the API creates a cold-boot ordering failure. See decisions.md."
+  type        = bool
+  default     = false
+}

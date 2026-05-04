@@ -99,4 +99,6 @@ module "vm" {
     image_file_id     = proxmox_download_file.ubuntu_cloud_image[each.value.pve_node].id
     user_data_file_id = proxmox_virtual_environment_file.cloud_init[each.key].id
   } : null
+
+  static_ip = try(each.value.static_ip, false)
 }
