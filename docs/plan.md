@@ -38,10 +38,11 @@ When a phase is complete, mark its status here, commit, and the next conversatio
 | 4d | microk8s VM rebuild completion | ⏳ Planned | [`phases/phase-4d-microk8s-rebuild-completion.md`](phases/phase-4d-microk8s-rebuild-completion.md) |
 | 5 | microceph roles and upgrade | ⏳ Planned | — |
 | 6 | OpenBao + secrets wiring | ⏳ Planned | — |
-| 7 | Storage — Ceph resources + CSIs (RBD, CephFS, SMB) | ⏳ Planned | — |
-| 8 | Keycloak provisioning | ⏳ Planned | — |
-| 9 | DNS automation | ⏳ Planned | — |
-| 10 | CI integration + drift detection | ⏳ Planned | — |
+| 7 | Helm + Terraform deploy harness | ⏳ Planned | [`plans/09-helm-tf-deploy-harness.md`](plans/09-helm-tf-deploy-harness.md) |
+| 8 | Storage — CSIs (Ansible) + Ceph/ZFS resources (Terraform) | ⏳ Planned | — |
+| 9 | Keycloak realms/clients/roles via Terraform | ⏳ Planned | — |
+| 10 | DNS automation | ⏳ Planned | — |
+| 11 | CI integration + drift detection | ⏳ Planned | — |
 
 Phase documents are written as each phase is reached. Don't pre-populate detail for phases we haven't committed to.
 
@@ -99,18 +100,22 @@ Same shape as Phase 4 for microceph. Source: `/work/Obsidian/Ceph.md`. Includes 
 
 Stand up `srvvault`. Azure Key Vault auto-unseal with firewall-pinned SP. AppRole credentials for Ansible, Jenkins, External Secrets Operator. Backup/DR script per the decisions doc. Migrate a first set of HelmCharts secrets to validate the path.
 
-### 7 — Storage — Ceph resources + CSIs (RBD, CephFS, SMB)
+### 7 — Helm + Terraform deploy harness
 
-Ansible playbooks that provision RBD images and CephFS subvolumes on demand, so Helm charts no longer require manual Ceph operator steps; hooks for the HelmCharts deploy pipeline. Plus: install all three CSI drivers (`ceph-csi-rbd`, `ceph-csi-cephfs`, `csi-driver-smb`) from their upstream Helm charts under Ansible — they're cluster infrastructure with version coupling to the kernel + Ceph layer below, not application workloads. Once Ansible owns them, the matching subcharts in `/work/HelmCharts/charts` retire; `shared/_helpers.tpl`'s StorageClass names (`csi-cephfs-sc`, `csi-rbd-sc`, `smb`) become the contract Ansible holds stable for HelmCharts.
+Reshape the application monorepo (`/work/HelmCharts`) around the three-tier ownership model from `docs/decisions.md`. Per-release `infrastructure.tf` next to `values.yaml`; optional `configuration.tf` for post-deploy TF (Keycloak realm config, etc.). Replace the symlink tree of `*.sh` scripts with one Python CLI: `poetry run deploy|template|stop|uninstall|destroy <release> [--stage=<stage>]`. `--stage=prd` is the default; every namespace carries its stage suffix (`<chart>-<stage>`, including prd — the prd-no-suffix asymmetry retires). Per-release TF state. Provider plumbing (homelab + kubernetes + keycloak) shared via `_providers/`. Migrate one stateful chart end-to-end as the proof. Design: [`plans/09-helm-tf-deploy-harness.md`](plans/09-helm-tf-deploy-harness.md). Prerequisite: provider resource extensions in [`plans/08-tf-provider-resource-extensions.md`](plans/08-tf-provider-resource-extensions.md), which can run independently before phase 6.
 
-### 8 — Keycloak provisioning
+### 8 — Storage — CSIs (Ansible) + Ceph/ZFS resources (Terraform)
 
-Realms, clients, users, and roles as code via `community.general.keycloak_*`. Secrets pulled from OpenBao.
+Migrate every static-PV-backed chart in `/work/HelmCharts` from "PVC dynamically provisioned, Ceph image hand-created via `scripts/make-rbd.sh`" to "TF-owned PV with `claimRef` + `Retain`, TF-owned Ceph image / CephFS subvolume / ZFS dataset via the homelab provider." The `static-rbd-pv`, `static-cephfs-pv`, and `static-zfs-pv` modules from phase 7 are stable; per-chart migration is mechanical. Outcomes: business-meaningful storage names (`k8s-prd-keycloak-db` not `csi-vol-<uuid>`); Ceph admin credentials live only in OpenBao + the homelab provider, not on operator-side scripts or worker servers; data outlives Helm uninstall by design (per `prevent_destroy = true` and the deploy CLI's `uninstall`-vs-`destroy` separation). Ceph CSI drivers (`ceph-csi-rbd`, `ceph-csi-cephfs`, `csi-driver-smb`) install via Ansible as cluster bring-up — the matching subcharts in `/work/HelmCharts/charts` retire; the StorageClass names (`csi-cephfs-sc`, `csi-rbd-sc`, `smb`) become the contract Ansible holds stable.
 
-### 9 — DNS automation
+### 9 — Keycloak realms/clients/roles via Terraform
+
+Bring Keycloak's declarative configuration under the Keycloak Terraform provider. Realm definitions, OpenID/SAML clients, realm + client roles, client scopes, protocol mappers, identity providers — all as TF resources, applied per-release as the `configuration.tf` step (post-deploy, since the resources need a reachable Keycloak admin endpoint). Migrate via `terraform import` against the existing instance — no rebuild, no users / sessions touched. Admin credentials live in OpenBao (phase 6 hard prerequisite); `prevent_destroy = true` on every realm and on every client whose deletion would break a dependent service. Replaces the `community.general.keycloak_*` Ansible path that earlier drafts of this phase named.
+
+### 10 — DNS automation
 
 Stand up a dnsmasq sidecar that exposes a CRUD API for dynamic reservations alongside the existing operator-curated static file, and a Terraform resource that calls it. After this phase, adding a managed VM is one `terraform apply` (reservation + VM together); no manual edit of `static-hosts.yaml` for managed hosts. Sidecar is Helm-deployed (in HelmCharts), not Ansible. Specs: [`specs/dns-reservation-api.md`](specs/dns-reservation-api.md), [`specs/dns-reservation-terraform.md`](specs/dns-reservation-terraform.md).
 
-### 10 — CI integration + drift detection
+### 11 — CI integration + drift detection
 
 Jenkins jobs for scheduled `--check --diff` runs against the full inventory, drift alerting, and CI-triggered playbook execution for operational tasks.

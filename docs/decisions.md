@@ -22,15 +22,27 @@ Load-bearing rules. Specific decisions in this doc are consequences; if a princi
 
 ## Tool split
 
-- **Ansible** owns the platform up to "ready to host workloads": Proxmox host config, VM OS baseline, microk8s/microceph install + upgrade, cluster infrastructure on top of that (CNI mode + autodetect, MetalLB IP pool, kernel modules, addon enablement, registry mirror config), Ceph resources (RBD/CephFS), Keycloak realms/clients.
-- **Helm** continues to own Kubernetes user workloads (application charts, per-environment configs). Not replacing it.
-- **Jenkins** continues to run deploys. CI-triggered playbook runs will join.
-- **Terraform** (with the `bpg/proxmox` provider) provisions VMs. Ansible takes over for configuration.
-- Both Terraform and Ansible live in this repo.
+Three tiers, each with its own ownership tool. The line between tiers is unit lifecycle.
 
-**Terraform and Ansible are peer tools — neither invokes the other.** The operator runs each in sequence (and CI does likewise in Phase 10). A composite operation that needs both — drain via Ansible, `terraform apply -replace`, reattach + re-converge via Ansible — is documented in the relevant runbook as a sequence of operator commands, never a single playbook that shells out to `terraform`. Keeps responsibility boundaries clean: TF changes are auditable in `terraform plan`; Ansible changes are auditable in `--check --diff`; mixing them blurs both, and a TF failure halfway through an Ansible play is harder to recover from than a TF failure between two playbook invocations.
+- **Ansible — bring-up tier.** Lifecycle == the host's. Proxmox host config, VM OS baseline, microk8s/microceph install + upgrade, cluster infrastructure that exists before any application does (CNI mode + autodetect, MetalLB IP pool, kernel modules, addon enablement, registry mirror config, CSI driver install).
+- **Terraform — declarative resource tier.** Lifecycle decoupled from any single host, declarative API available. VM existence (`bpg/proxmox` provider, lives in this repo's `terraform/`). Per-application durable resources via the homelab provider (Ceph RBD images, CephFS subvolumes, ZFS datasets), the kubernetes provider (namespaces, static PersistentVolumes), and the Keycloak provider (realms, clients, roles). The per-application TF lives alongside the Helm chart in `/work/HelmCharts`, not in this repo.
+- **Helm — runtime tier.** Lifecycle == an application release. Deployments, StatefulSets, Services, Ingress, ConfigMaps, application Secrets, PVCs (claimed against TF-owned PVs), HPAs, PDBs. Per-stage values files. Continues to deploy via Jenkins.
 
-The line between Ansible and Helm is "what does the cluster need in order to be usable?" — that's Ansible. The CIDR config, Calico mode, MetalLB allocation, CoreDNS rewrites that resolve cluster-internal names (the registry alias) sit on the Ansible side because without them the cluster can't host anything. What an application carries with it — its own CoreDNS rewrites for app domains, IngressRoute, Helm-deployed pods, ExternalSecrets specs — sits on the Helm side.
+Worked examples:
+
+- A Ceph RBD image outlives every pod that mounts it. TF owns the image; Helm owns the pod that mounts the PVC.
+- A Kubernetes namespace outlives any single chart in it (reinstalls, multiple subcharts). TF owns the namespace; Helm deploys into it.
+- A static PersistentVolume holds data. TF owns it with `claimRef` pre-binding and `Retain` reclaim policy. The PVC that binds it is templated by Helm.
+- A Keycloak realm represents identity, not application code. TF owns it. Helm charts consume it.
+- microk8s itself, microceph itself, the CSI drivers — all cluster bring-up, all Ansible.
+
+Why three tiers, not two: Ansible at the resource layer is a thin wrapper around shell-outs with no state model. Terraform's resource graph, plan-time drift detection, and explicit destroy semantics match what Ceph / Kubernetes / Keycloak expose as declarative APIs. Helm's job — application runtime — doesn't change.
+
+**Per-application TF lives in `/work/HelmCharts`.** Each release directory carries an optional `infrastructure.tf` (resources the chart depends on — namespace, PVs, Ceph images, ZFS datasets) and an optional `configuration.tf` (resources that depend on the chart being deployed — Keycloak realm config). The deploy CLI runs `terraform apply infra` → `helm upgrade --install` → `terraform apply config`. Per-release TF state, separate from this repo's VM-tier state. Design: [`docs/plans/09-helm-tf-deploy-harness.md`](plans/09-helm-tf-deploy-harness.md). Provider extensions for Ceph + ZFS resources: [`docs/plans/08-tf-provider-resource-extensions.md`](plans/08-tf-provider-resource-extensions.md).
+
+**Terraform and Ansible never invoke each other** — peer tools sequenced by the operator (or by Jenkins for the application monorepo). A composite operation that needs both — drain via Ansible, `terraform apply -replace`, reattach + re-converge via Ansible — is documented in the relevant runbook as a sequence of operator commands, never a single playbook that shells out to `terraform`. Keeps responsibility boundaries clean: TF changes are auditable in `terraform plan`; Ansible changes are auditable in `--check --diff`; mixing them blurs both, and a TF failure halfway through an Ansible play is harder to recover from than a TF failure between two playbook invocations.
+
+**Operator-runs-TF rule** (CLAUDE.md) governs this repo's `terraform/` (VMs, host wiring) — those applies happen at the operator's keystroke. The application monorepo's per-release TF runs through Jenkins alongside Helm; Jenkins is the orchestrator for the application deploy, just as it has been for `helm upgrade --install`.
 
 The pre-Ansible `/work/KubernetesConfig` repo predates this split: it codified bring-up steps (`.microk8s.yaml`, MetalLB IPAddressPools, registry mirror config, procedural install docs) in a third location that today belongs on the Ansible side. Phase 4 absorbs its contents into the `microk8s` role and inventory; after Phase 4 lands, KubernetesConfig is archived. The operator runs their own ingress controller and own container registry from HelmCharts — `core/ingress` and `core/registry` are not enabled.
 
@@ -145,7 +157,7 @@ When a procedure says "test it on a scratch VM first," that means a host in the 
 
 HelmCharts uses its own `configs/dev` and `configs/prd` folders. That split is independent of Ansible's inventories: Helm's `configs/dev` is for iterating on Helm charts themselves against `wrkdevk8s`; `configs/prd` is for the production cluster. Don't conflate the two repos' uses of "dev."
 
-The user's application has four deployment stages: `dev`, `test`, `uat`, `prd`. **All four run on the production Kubernetes cluster**, as separate namespaces. These stages are Helm's concern; Ansible does not see or manage them.
+The user's application has four deployment stages: `dev`, `test`, `uat`, `prd`. **All four run on the production Kubernetes cluster**, as separate namespaces named `<chart>-<stage>` — every namespace carries its stage suffix, including prd. These stages are the application monorepo's concern (Helm + per-release Terraform); Ansible does not see or manage them.
 
 ## DNS and hostnames
 
