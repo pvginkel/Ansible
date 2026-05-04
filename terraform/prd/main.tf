@@ -27,6 +27,10 @@ resource "proxmox_download_file" "ubuntu_cloud_image" {
   url          = "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
   file_name    = "noble-server-cloudimg-amd64.img"
   overwrite    = false
+  # Scratch's TF can land the same image on a shared PVE node before
+  # this state's first apply. Adopt the existing file instead of
+  # erroring; the two states reference the same physical artifact.
+  overwrite_unmanaged = true
 }
 
 # Per-VM SSH host key. Generated once, persists in tfstate, embedded
