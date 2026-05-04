@@ -13,6 +13,22 @@
 #
 # Per decisions.md "Cluster changes are serialized," never run
 # against more than one rebuild target at a time.
+#
+# Primary is elected runtime per cluster. Election runs across the
+# whole k8s group first so the targeted-host play below sees the
+# survivor cluster members via hostvars and elects one of them as
+# the join-token mint — the rebuild target itself is fresh and would
+# otherwise win election against an empty hostvars set.
+
+- name: Elect microk8s primary per cluster
+  hosts: k8s
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Elect primary
+      ansible.builtin.import_role:
+        name: microk8s
+        tasks_from: elect-primary
 
 - name: Apply bootstrap + baseline + microk8s to the rebuilt host
   hosts: "{{ rebuild_target | mandatory }}"
