@@ -43,11 +43,30 @@
     - role: managed_filesystems
     - role: microk8s
 
-- name: Import ZFS pools and wait for cluster Ready
+- name: Cordon, import ZFS pools, gate scheduling on DaemonSet readiness, uncordon
   hosts: "{{ rebuild_target }}"
   become: true
   gather_facts: false
   tasks:
+    - name: "Cordon {{ rebuild_target }} so workloads don't race ahead of DaemonSets"
+      # Race window of ~1-2 seconds between microk8s join (end of the
+      # previous play) and this task is acceptable: a Pending pod that
+      # lands on the new node before the cordon will block on the still-
+      # arriving DaemonSets (Ceph CSI takes ~3 minutes; Calico, MetalLB
+      # speaker, node-exporter, SMB CSI follow) and recover on its own
+      # — just more event-log noise. The race-free alternative is
+      # `--register-with-taints` on kubelet, which requires explicit
+      # tolerations on every critical DaemonSet (HelmCharts territory).
+      # Retries cover the brief gap where kubelite may not have surfaced
+      # the new node to the API yet.
+      ansible.builtin.command:
+        argv: [microk8s, kubectl, cordon, "{{ rebuild_target }}"]
+      register: _cordon_result
+      until: _cordon_result.rc == 0
+      retries: 60
+      delay: 2
+      changed_when: true
+
     - name: List currently-imported ZFS pools
       ansible.builtin.command: zpool list -H -o name
       register: _zpool_list
@@ -71,3 +90,50 @@
     - name: Wait for microk8s Ready
       ansible.builtin.command: microk8s status --wait-ready --timeout 300
       changed_when: false
+
+    - name: "Wait until at least one DaemonSet pod is scheduled on {{ rebuild_target }}"
+      # `kubectl wait` returns 0 immediately if no resources match the
+      # selector, so confirm the DaemonSet controllers have actually
+      # placed pods before treating "all pods Ready" as meaningful.
+      # New DaemonSets added in the future are automatically covered —
+      # the selector is `ownerReferences[0].kind == DaemonSet` across
+      # all namespaces, not a hard-coded list.
+      ansible.builtin.command:
+        argv:
+          - microk8s
+          - kubectl
+          - get
+          - pods
+          - --all-namespaces
+          - "--field-selector=spec.nodeName={{ rebuild_target }}"
+          - "-o=jsonpath={range .items[?(@.metadata.ownerReferences[0].kind=='DaemonSet')]}{.metadata.namespace}/{.metadata.name}{'\\n'}{end}"
+      register: _ds_pods_on_target
+      until: _ds_pods_on_target.stdout | trim | length > 0
+      retries: 30
+      delay: 2
+      changed_when: false
+
+    - name: "Wait for every pod on {{ rebuild_target }} to reach Ready"
+      # Includes every DaemonSet pod the controllers placed here (Ceph
+      # CSI is the slow one at ~3 minutes), plus any racy regular pod
+      # that snuck in before the cordon. A pod that can't reach Ready
+      # — image-pull stuck, init container failing, anything — fails
+      # the wait; leave the node cordoned so the operator can triage,
+      # then re-run rebuild-k8s.yml after the fix (the cordon and the
+      # waits are idempotent on a re-run).
+      ansible.builtin.command:
+        argv:
+          - microk8s
+          - kubectl
+          - wait
+          - --for=condition=Ready
+          - pod
+          - --all-namespaces
+          - "--field-selector=spec.nodeName={{ rebuild_target }}"
+          - --timeout=600s
+      changed_when: false
+
+    - name: "Uncordon {{ rebuild_target }} now that scheduled DaemonSets are Ready"
+      ansible.builtin.command:
+        argv: [microk8s, kubectl, uncordon, "{{ rebuild_target }}"]
+      changed_when: true

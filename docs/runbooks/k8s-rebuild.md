@@ -132,6 +132,19 @@ terraform apply \
     -target=proxmox_virtual_environment_file.cloud_init
 ```
 
+If the server was already built but needs to be replaced, the above command can be extended with a `-replace` argument like this:
+
+```sh
+cd terraform/prd
+terraform apply \
+    -replace='proxmox_virtual_environment_file.cloud_init["<new-hostname>"]' \
+    -target='module.vm["<new-hostname>"]' \
+    -target=tls_private_key.host_ed25519 \
+    -target=local_file.known_hosts_prd \
+    -target=proxmox_download_file.ubuntu_cloud_image \
+    -target=proxmox_virtual_environment_file.cloud_init
+```
+
 `tls_private_key` runs for all four from-scratch VMs at once — the local_file aggregates host keys from all of them; targeting only one leaves the local_file's content unknown at plan time and TF errors. Snippets and image downloads similarly. Subsequent rebuilds reuse these.
 
 Second worker rebuild — those resources already exist:
@@ -151,6 +164,8 @@ poetry run ansible-playbook playbooks/rebuild-k8s.yml \
 ```
 
 Applies bootstrap → baseline → managed_filesystems → microk8s on the new VM. `managed_filesystems` partitions, formats, and mounts the scsi1 = 80 GB data volume at `/var/snap` *before* microk8s installs — without that the snap state piles up on the 19 GB root and kubelet's image GC fails (the gap that the original Phase 4c srvk8s2 rebuild hit). The microk8s role then mints a join token from `srvk8sl1` (still primary) and joins.
+
+After the join, the playbook cordons the new node, waits for every pod scheduled on it (DaemonSets — Ceph CSI, Calico, MetalLB speaker, Prometheus node-exporter, SMB CSI — plus any workload pod that landed in the brief race window) to reach Ready, then uncordons. Ceph CSI is the slow one (~3 minutes); without this gate, ordinary workloads land on the new node before the CSI is up and fail to mount their PVs. If the wait times out, the node stays cordoned — triage the unhealthy pod, then re-run `rebuild-k8s.yml -e rebuild_target=<new-hostname>` (cordon + waits + uncordon are idempotent).
 
 ### 7. Verify
 
@@ -259,6 +274,8 @@ poetry run ansible-playbook playbooks/rebuild-k8s.yml \
 ```
 
 Imports `zpool2` (the on-disk metadata is still there, `zpool import` reattaches it), then bootstrap → baseline → managed_filesystems → microk8s. `managed_filesystems` partitions/formats/mounts scsi1 at `/var/snap` before the snap install. The cluster-join task mints a token from `srvk8s2` (the current primary).
+
+After the join, the playbook cordons the new node, waits for every pod scheduled on it (DaemonSets — Ceph CSI, Calico, MetalLB speaker, Prometheus node-exporter, SMB CSI — plus the `zpool2`-pinned workloads that flow back once the pool is imported) to reach Ready, then uncordons. See the worker-rebuild section for the rationale and the re-run shape on a timeout.
 
 ### 8. Drop the old VM from TF state
 
