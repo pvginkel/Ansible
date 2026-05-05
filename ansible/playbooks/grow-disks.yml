@@ -1,6 +1,8 @@
 ---
 # Operator-triggered. Run after a Terraform-side disk grow to make the
 # guest catch up: growpart + resize2fs only on drift, no-op otherwise.
+# (Same role also handles first-boot partition + format + mount; on a
+# converged host all steps report ok.)
 #
 #   poetry run ansible-playbook playbooks/grow-disks.yml --limit <host>
 #
@@ -12,4 +14,4 @@
   become: true
   gather_facts: false
   roles:
-    - role: disk_resize
+    - role: managed_filesystems

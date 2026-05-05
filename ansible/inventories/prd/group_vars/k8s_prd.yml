@@ -12,6 +12,18 @@
 # *and* by playbooks/update-k8s.yml — keep here, not in role defaults
 # alone, so standalone playbooks resolve the channel without applying
 # the role.
+# Filesystem reconciliation. Overrides the pve_vms default to add the
+# scsi1 = 80 GB data volume that backs /var/snap on every k8s_prd
+# node — without this, microk8s containerd state piles up on the
+# 19 GB scsi0 root and kubelet's image GC starts firing.
+managed_filesystems_volumes:
+  - scsi_index: 0
+    mountpoint: /
+    fstype: ext4
+  - scsi_index: 1
+    mountpoint: /var/snap
+    fstype: ext4
+
 microk8s_channel: 1.32/stable
 
 microk8s_cluster_cidr_v4: 172.16.0.0/16

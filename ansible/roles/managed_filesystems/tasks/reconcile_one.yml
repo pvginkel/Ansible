@@ -1,0 +1,204 @@
+---
+# One filesystem at a time. Sized in bytes throughout; the only place
+# we deal with KiB/MiB/GiB suffixes is parsing `qm config` output.
+
+- name: "Extract qm config line for scsi{{ managed_filesystems_fs.scsi_index }}"
+  ansible.builtin.set_fact:
+    managed_filesystems_scsi_line: >-
+      {{
+        managed_filesystems_qm_config.stdout_lines
+        | select('match', '^scsi' ~ managed_filesystems_fs.scsi_index ~ ':')
+        | list | first | default('')
+      }}
+
+- name: "Assert scsi slot exists in qm config for slot {{ managed_filesystems_fs.scsi_index }}"
+  ansible.builtin.assert:
+    that:
+      - managed_filesystems_scsi_line | length > 0
+    fail_msg: >-
+      qm config for VMID {{ vm_id }} has no scsi{{ managed_filesystems_fs.scsi_index }}
+      entry. Check the inventory `managed_filesystems` for this host.
+
+- name: Parse declared size in bytes
+  vars:
+    _size_match: "{{ managed_filesystems_scsi_line | regex_search('size=([0-9]+)([KMGT]?)', '\\1', '\\2') | default(['0', '']) }}"
+    _size_units: {'': 1, 'K': 1024, 'M': 1048576, 'G': 1073741824, 'T': 1099511627776}
+  ansible.builtin.set_fact:
+    managed_filesystems_pve_size_bytes: "{{ (_size_match[0] | int) * _size_units[_size_match[1]] }}"
+
+- name: List top-level disks with HCTL
+  ansible.builtin.command:
+    argv: [lsblk, -dno, "NAME,HCTL,TYPE", --json]
+  register: managed_filesystems_lsblk_disks
+  changed_when: false
+  check_mode: false
+
+- name: "Resolve guest disk via HCTL for scsi{{ managed_filesystems_fs.scsi_index }}"
+  ansible.builtin.set_fact:
+    managed_filesystems_disk: >-
+      {{
+        (managed_filesystems_lsblk_disks.stdout | from_json).blockdevices
+        | selectattr('type', 'equalto', 'disk')
+        | selectattr('hctl', 'match', '^[0-9]+:[0-9]+:' ~ (managed_filesystems_fs.scsi_index | string) ~ ':0$')
+        | map(attribute='name')
+        | list | first | default('')
+      }}
+
+- name: "Assert guest disk resolved for scsi{{ managed_filesystems_fs.scsi_index }}"
+  ansible.builtin.assert:
+    that:
+      - managed_filesystems_disk | length > 0
+    fail_msg: >-
+      No SCSI disk with HCTL target={{ managed_filesystems_fs.scsi_index }} found on the
+      guest. qm config declared scsi{{ managed_filesystems_fs.scsi_index }} but the
+      virtio-scsi controller did not surface it.
+
+- name: "Inspect existing partition + fstype on /dev/{{ managed_filesystems_disk }}"
+  ansible.builtin.command:
+    argv: [lsblk, -no, "NAME,FSTYPE,TYPE", --json, "/dev/{{ managed_filesystems_disk }}"]
+  register: managed_filesystems_lsblk_disk
+  changed_when: false
+  check_mode: false
+
+- name: "Derive existing partition kname + fstype on /dev/{{ managed_filesystems_disk }}"
+  vars:
+    _children: >-
+      {{
+        ((managed_filesystems_lsblk_disk.stdout | from_json).blockdevices | first).children | default([])
+        | selectattr('type', 'equalto', 'part')
+        | list
+      }}
+  ansible.builtin.set_fact:
+    managed_filesystems_part_kname: "{{ (_children | first).name | default('') }}"
+    managed_filesystems_part_fstype: "{{ (_children | first).fstype | default('') or '' }}"
+
+- name: "Partition disk with single GPT spanning extent: /dev/{{ managed_filesystems_disk }}"
+  community.general.parted:
+    device: "/dev/{{ managed_filesystems_disk }}"
+    number: 1
+    state: present
+    label: gpt
+  when: managed_filesystems_part_kname | length == 0
+
+- name: "Re-inspect partition state after partition step on /dev/{{ managed_filesystems_disk }}"
+  ansible.builtin.command:
+    argv: [lsblk, -no, "NAME,FSTYPE,TYPE", --json, "/dev/{{ managed_filesystems_disk }}"]
+  register: managed_filesystems_lsblk_disk
+  changed_when: false
+  check_mode: false
+
+- name: "Re-derive partition kname + fstype on /dev/{{ managed_filesystems_disk }}"
+  vars:
+    _children: >-
+      {{
+        ((managed_filesystems_lsblk_disk.stdout | from_json).blockdevices | first).children | default([])
+        | selectattr('type', 'equalto', 'part')
+        | list
+      }}
+  ansible.builtin.set_fact:
+    managed_filesystems_part_kname: "{{ (_children | first).name | default('') }}"
+    managed_filesystems_part_fstype: "{{ (_children | first).fstype | default('') or '' }}"
+
+# Subsequent format / mount / grow steps depend on a partition existing.
+# In check mode against a blank disk the partition step above reports
+# "would change" but does not actually create the partition, leaving
+# managed_filesystems_part_kname empty — so this whole block is correctly skipped and
+# the operator still sees the pending-change diff from the parted task.
+- name: "Format / mount / grow /dev/{{ managed_filesystems_disk }}"
+  when: managed_filesystems_part_kname | length > 0
+  block:
+    - name: "Reject mismatched fstype on /dev/{{ managed_filesystems_part_kname }}"
+      ansible.builtin.assert:
+        that:
+          - managed_filesystems_part_fstype in ['', managed_filesystems_fs.fstype]
+        fail_msg: >-
+          /dev/{{ managed_filesystems_part_kname }} carries fstype `{{ managed_filesystems_part_fstype }}`
+          but inventory declares `{{ managed_filesystems_fs.fstype }}` for {{ managed_filesystems_fs.mountpoint }}.
+          Refusing to reformat. Re-rebuild the VM or hand-fix the disk.
+
+    - name: "Format partition as {{ managed_filesystems_fs.fstype }}"
+      community.general.filesystem:
+        dev: "/dev/{{ managed_filesystems_part_kname }}"
+        fstype: "{{ managed_filesystems_fs.fstype }}"
+
+    - name: "Read UUID of /dev/{{ managed_filesystems_part_kname }}"
+      ansible.builtin.command:
+        argv: [blkid, -s, UUID, -o, value, "/dev/{{ managed_filesystems_part_kname }}"]
+      register: managed_filesystems_blkid
+      changed_when: false
+      check_mode: false
+
+    - name: "Mount and persist fstab entry for {{ managed_filesystems_fs.mountpoint }}"
+      ansible.posix.mount:
+        path: "{{ managed_filesystems_fs.mountpoint }}"
+        src: "UUID={{ managed_filesystems_blkid.stdout }}"
+        fstype: "{{ managed_filesystems_fs.fstype }}"
+        opts: defaults
+        state: mounted
+
+    - name: "Rescan SCSI device for size changes on /dev/{{ managed_filesystems_disk }}"
+      # Cheap and idempotent: the kernel re-reads only if the underlying
+      # capacity has actually changed. Without this, a guest can miss a
+      # PVE-side grow until the next reboot. shell (not copy) because
+      # sysfs files don't tolerate the read-then-compare path the copy
+      # module takes.
+      ansible.builtin.shell: "echo 1 > /sys/block/{{ managed_filesystems_disk }}/device/rescan"
+      changed_when: false
+      check_mode: false
+
+    - name: "Read disk and partition sizes in bytes"
+      ansible.builtin.command:
+        argv: [lsblk, -bndo, SIZE, "/dev/{{ item }}"]
+      register: managed_filesystems_sizes
+      changed_when: false
+      check_mode: false
+      loop:
+        - "{{ managed_filesystems_disk }}"
+        - "{{ managed_filesystems_part_kname }}"
+      loop_control:
+        label: "/dev/{{ item }}"
+
+    - name: "Record disk vs partition byte counts"
+      ansible.builtin.set_fact:
+        managed_filesystems_disk_bytes: "{{ managed_filesystems_sizes.results[0].stdout | int }}"
+        managed_filesystems_part_bytes: "{{ managed_filesystems_sizes.results[1].stdout | int }}"
+
+    - name: "Confirm guest disk has caught up to PVE for /dev/{{ managed_filesystems_disk }}"
+      # After the rescan above, the guest must see at least the PVE-side
+      # size (minus tolerance for GPT secondary header overhead). If not,
+      # something is wrong upstream — fail rather than silently no-op and
+      # leave the filesystem mismatched.
+      ansible.builtin.assert:
+        that:
+          - (managed_filesystems_disk_bytes | int) + (managed_filesystems_size_tolerance_bytes | int)
+            >= (managed_filesystems_pve_size_bytes | int)
+        fail_msg: >-
+          Guest sees /dev/{{ managed_filesystems_disk }} as {{ managed_filesystems_disk_bytes }} B but PVE
+          declares {{ managed_filesystems_pve_size_bytes }} B for scsi{{ managed_filesystems_fs.scsi_index }}.
+          Rescan did not pick up the new size; reboot the VM and retry.
+
+    - name: "Grow partition if disk has spare room: /dev/{{ managed_filesystems_disk }}"
+      ansible.builtin.command:
+        argv:
+          - growpart
+          - "/dev/{{ managed_filesystems_disk }}"
+          - "{{ managed_filesystems_part_kname | regex_search('([0-9]+)$') }}"
+      register: managed_filesystems_growpart
+      # growpart exits 0 only when it actually changed the partition;
+      # exit 1 + "NOCHANGE" is the no-op path. failed_when keeps the
+      # latter green; changed_when distinguishes a real grow.
+      failed_when:
+        - managed_filesystems_growpart.rc != 0
+        - "'NOCHANGE' not in managed_filesystems_growpart.stdout"
+      changed_when: managed_filesystems_growpart.rc == 0
+
+    - name: "Grow filesystem on /dev/{{ managed_filesystems_part_kname }}"
+      # resize2fs is idempotent — the online resize is a no-op when the
+      # filesystem already matches the partition. Force changed_when off
+      # the "Nothing to do!" marker so green runs stay green.
+      ansible.builtin.command:
+        argv:
+          - resize2fs
+          - "/dev/{{ managed_filesystems_part_kname }}"
+      register: managed_filesystems_resize2fs
+      changed_when: "'Nothing to do' not in managed_filesystems_resize2fs.stderr"

@@ -1,0 +1,21 @@
+---
+# Filesystems this role owns end-to-end on a managed VM. Each entry pins:
+#   scsi_index — the PVE `scsiN` slot whose disk this filesystem lives on
+#   mountpoint — the guest mount path
+#   fstype     — filesystem type (only `ext4` is wired up today)
+#
+# A host's filesystems are exactly what the inventory says. The role
+# partitions, formats, mounts, and reconciles size drift against the
+# PVE-side declared size. On a converged host every step reports `ok`.
+#
+# Default: empty list — the role no-ops on hosts that don't declare any
+# (e.g. bare-metal PVE nodes that have no `vm_id` / `pve_node`). VMs in
+# `pve_vms` inherit a root entry from `group_vars/pve_vms.yml`.
+managed_filesystems_volumes: []
+
+# Tolerance applied when comparing PVE-side declared size to the disk
+# size the guest sees. PVE rounds storage allocations and the secondary
+# GPT header takes ~17 KiB at the end of the disk; without slack the
+# role would loop trying to fix a non-existent gap. 1 MiB covers all
+# observed cases without masking a real grow.
+managed_filesystems_size_tolerance_bytes: 1048576

@@ -8,6 +8,7 @@
   roles:
     - role: bootstrap
     - role: baseline
+    - role: managed_filesystems
 
 - name: Apply Proxmox node configuration
   hosts: proxmox

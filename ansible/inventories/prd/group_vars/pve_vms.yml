@@ -2,3 +2,13 @@
 # Default PVE node for managed VMs. Override in host_vars for VMs that
 # don't run on `pve` (currently four: two on pve1, two on pve2).
 pve_node: pve
+
+# Default filesystem reconciliation: every PVE-hosted managed VM has
+# its root on scsi0. Per-group overrides (e.g. group_vars/k8s_prd.yml
+# adds /var/snap on scsi1) replace this list. Hosts not in pve_vms
+# (bare-metal Proxmox nodes) inherit the role's empty default and
+# no-op.
+managed_filesystems_volumes:
+  - scsi_index: 0
+    mountpoint: /
+    fstype: ext4

@@ -1,0 +1,29 @@
+---
+- name: Assert vm_id and pve_node are defined
+  ansible.builtin.assert:
+    that:
+      - vm_id is defined
+      - pve_node is defined
+    fail_msg: >-
+      managed_filesystems requires inventory vars `vm_id` and `pve_node`
+      on the target host (the latter defaults to `pve` for VMs in pve_vms).
+  when: managed_filesystems_volumes | length > 0
+
+- name: Read PVE-side qm config for VMID {{ vm_id | default('?') }}
+  ansible.builtin.command:
+    argv:
+      - qm
+      - config
+      - "{{ vm_id | string }}"
+  register: managed_filesystems_qm_config
+  changed_when: false
+  check_mode: false
+  delegate_to: "{{ pve_node }}"
+  when: managed_filesystems_volumes | length > 0
+
+- name: Reconcile each declared filesystem
+  ansible.builtin.include_tasks: reconcile_one.yml
+  loop: "{{ managed_filesystems_volumes }}"
+  loop_control:
+    loop_var: managed_filesystems_fs
+    label: "{{ managed_filesystems_fs.mountpoint }} ← scsi{{ managed_filesystems_fs.scsi_index }}"

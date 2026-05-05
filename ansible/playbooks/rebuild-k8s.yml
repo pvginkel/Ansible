@@ -30,13 +30,17 @@
         name: microk8s
         tasks_from: elect-primary
 
-- name: Apply bootstrap + baseline + microk8s to the rebuilt host
+- name: Apply bootstrap + baseline + managed_filesystems + microk8s to the rebuilt host
   hosts: "{{ rebuild_target | mandatory }}"
   become: true
   gather_facts: true
   roles:
     - role: bootstrap
     - role: baseline
+    # managed_filesystems must run before microk8s. snap state under
+    # /var/snap is shadowed once the data volume mounts on top, so the
+    # mount has to land before the snap install populates the path.
+    - role: managed_filesystems
     - role: microk8s
 
 - name: Import ZFS pools and wait for cluster Ready
