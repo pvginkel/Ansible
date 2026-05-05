@@ -38,12 +38,13 @@ managed_filesystems_volumes:
 ## What it does (per filesystem)
 
 1. Reads the declared size from `qm config <vmid>` on the VM's `pve_node` via `delegate_to`.
-2. Resolves the guest disk by HCTL (`*:*:<scsi_index>:0`) — works whether or not the disk is mounted yet.
-3. Inspects the disk for an existing partition + filesystem.
-4. **Create path** — if the disk has no partition: `community.general.parted` creates a single GPT partition spanning the disk.
-5. **Format path** — `community.general.filesystem` runs `mkfs.<fstype>` only on a blank partition. A partition carrying a *different* fstype fails the assert ("re-rebuild the VM or hand-fix the disk") rather than silently reformatting.
-6. **Mount path** — `ansible.posix.mount` with `state: mounted` and `src: UUID=<uuid>` (read via `blkid`) realizes the mount in the running system and writes the fstab line in one step.
-7. **Grow path** — SCSI rescan, then `growpart` + `resize2fs`. `growpart`'s `NOCHANGE` exit and `resize2fs`'s `Nothing to do` marker both keep `changed=0` on converged disks.
+2. Resolves the guest disk by HCTL (`*:*:<scsi_index>:0`) — used to validate that the inventory and the guest agree on which slot holds which disk.
+3. Branches on whether the declared mountpoint is already mounted:
+   - **Already mounted** (root, legacy `/var/snap`): derive the partition from `findmnt`, validate that its parent matches the HCTL-resolved disk, and assert that the running fstype matches the declared one. Skip the create path entirely (no `parted`, no `mkfs`).
+   - **Not mounted** (fresh data disk): inspect the HCTL disk's children. If blank, `community.general.parted` creates a single GPT partition spanning the disk. If a partition already exists with a different fstype, fail-loud. Multi-partition unmounted layouts also fail-loud — the role doesn't try to guess which partition.
+4. **Format path** (common) — `community.general.filesystem` runs `mkfs.<fstype>` only on a blank partition; idempotent against an existing matching fstype.
+5. **Mount path** (common) — `ansible.posix.mount` with `state: mounted` and `src: UUID=<uuid>` (read via `blkid`) realizes the mount in the running system and writes the fstab line in one step.
+6. **Grow path** (common) — SCSI rescan, then `growpart` + `resize2fs`. `growpart`'s `NOCHANGE` exit and `resize2fs`'s `Nothing to do` marker both keep `changed=0` on converged disks.
 
 ## Constraints
 
