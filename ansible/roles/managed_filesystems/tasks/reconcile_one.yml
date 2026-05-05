@@ -190,19 +190,11 @@
         managed_filesystems_part_kname: "{{ (_children | first).name | default('') }}"
       when: managed_filesystems_part_kname | length == 0
 
-# Common path — format / mount / grow. In branch A `part_kname` is the
-# mounted partition; the filesystem module is a no-op against an
-# already-formatted mount of the matching fstype, and ansible.posix.mount
-# fixes up fstab without remounting if the running mount is already there.
-# In branch B `part_kname` is now populated; if formatting was needed,
-# parted has run and the partition exists.
-- name: "Format / mount / grow"
-  when: managed_filesystems_part_kname | length > 0
-  block:
     - name: "Format partition as {{ managed_filesystems_fs.fstype }}"
       community.general.filesystem:
         dev: "/dev/{{ managed_filesystems_part_kname }}"
         fstype: "{{ managed_filesystems_fs.fstype }}"
+      when: managed_filesystems_part_kname | length > 0
 
     - name: "Read UUID of /dev/{{ managed_filesystems_part_kname }}"
       ansible.builtin.command:
@@ -210,6 +202,7 @@
       register: managed_filesystems_blkid
       changed_when: false
       check_mode: false
+      when: managed_filesystems_part_kname | length > 0
 
     - name: "Mount and persist fstab entry for {{ managed_filesystems_fs.mountpoint }}"
       ansible.posix.mount:
@@ -218,7 +211,17 @@
         fstype: "{{ managed_filesystems_fs.fstype }}"
         opts: defaults
         state: mounted
+      when: managed_filesystems_part_kname | length > 0
 
+# Grow path — common to both branches. Branch A populated `part_kname`
+# from the mounted source; branch B populated it after the (possibly
+# new) partition. The grow path runs against `part_kname` regardless.
+# Skipped when `part_kname` is empty (the only path there is check-mode
+# against a fresh disk: parted reported "would change" but no partition
+# was actually created — there's nothing to grow).
+- name: "Grow path — rescan + growpart + resize2fs"
+  when: managed_filesystems_part_kname | length > 0
+  block:
     - name: "Rescan SCSI device for size changes on /dev/{{ managed_filesystems_disk }}"
       # Cheap and idempotent: the kernel re-reads only if the underlying
       # capacity has actually changed. Without this, a guest can miss a
