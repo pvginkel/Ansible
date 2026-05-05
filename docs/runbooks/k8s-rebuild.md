@@ -142,7 +142,7 @@ terraform apply -target='module.vm["<new-hostname>"]'
 
 TF blocks until the new VM's qemu-guest-agent reports its IP back to PVE — typically 1–3 minutes including cloud-init.
 
-### 6. `rebuild-k8s.yml` — bootstrap, baseline, microk8s join
+### 6. `rebuild-k8s.yml` — bootstrap, baseline, managed_filesystems, microk8s join
 
 ```sh
 cd ../../ansible
@@ -150,7 +150,7 @@ poetry run ansible-playbook playbooks/rebuild-k8s.yml \
     -e rebuild_target=<new-hostname>
 ```
 
-Applies bootstrap+baseline+microk8s on the new VM. The microk8s role mints a join token from `srvk8sl1` (still primary) and joins.
+Applies bootstrap → baseline → managed_filesystems → microk8s on the new VM. `managed_filesystems` partitions, formats, and mounts the scsi1 = 80 GB data volume at `/var/snap` *before* microk8s installs — without that the snap state piles up on the 19 GB root and kubelet's image GC fails (the gap that the original Phase 4c srvk8s2 rebuild hit). The microk8s role then mints a join token from `srvk8sl1` (still primary) and joins.
 
 ### 7. Verify
 
@@ -250,7 +250,7 @@ terraform apply -target='module.vm["srvk8s1"]'
 
 The shared from-scratch resources already exist from the worker rebuilds. TF creates the VM and attaches `/dev/disk/by-id/nvme-Samsung_SSD_980_500GB_S64DNX0RC21332X` at scsi2 in the same apply (the plan 01 payoff).
 
-### 7. `rebuild-k8s.yml` — ZFS import, bootstrap, microk8s join
+### 7. `rebuild-k8s.yml` — ZFS import, bootstrap, managed_filesystems, microk8s join
 
 ```sh
 cd ../../ansible
@@ -258,7 +258,7 @@ poetry run ansible-playbook playbooks/rebuild-k8s.yml \
     -e rebuild_target=srvk8s1
 ```
 
-Imports `zpool2` (the on-disk metadata is still there, `zpool import` reattaches it), then bootstrap+baseline+microk8s. The cluster-join task mints a token from `srvk8s2` (the current primary).
+Imports `zpool2` (the on-disk metadata is still there, `zpool import` reattaches it), then bootstrap → baseline → managed_filesystems → microk8s. `managed_filesystems` partitions/formats/mounts scsi1 at `/var/snap` before the snap install. The cluster-join task mints a token from `srvk8s2` (the current primary).
 
 ### 8. Drop the old VM from TF state
 

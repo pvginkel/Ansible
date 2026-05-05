@@ -5,7 +5,7 @@ How to grow the boot (or a data) disk on a Terraform-provisioned, Ansible-manage
 The contract is split across the two tools:
 
 - **Terraform** owns the PVE-side disk geometry — bumping `size_gb` is the only place you touch.
-- **Ansible** owns the guest-side filesystem — `disk_resize` reads `qm config` from the VM's PVE host and reconciles the partition + filesystem to match.
+- **Ansible** owns the guest-side filesystem — the `managed_filesystems` role reads `qm config` from the VM's PVE host and reconciles the partition + filesystem to match. (Same role also handles the first-boot create path: partition + format + mount on a fresh data disk. On a converged host every step reports `ok`.)
 
 Disks can only grow. Shrinking requires destroy + recreate of the VM (the rebuild path).
 
@@ -53,15 +53,17 @@ Disk, partition, and filesystem should all show the new size (modulo the small o
 
 ## Multiple disks per VM
 
-By default the role only reconciles `/` (backed by `scsi0`). To extend it to a data disk, set `disk_resize_filesystems` in the VM's host_vars:
+VMs in `pve_vms` inherit a root entry from `group_vars/pve_vms.yml`. To extend it to a data disk, set `managed_filesystems_volumes` at the right inventory level (`group_vars/<group>.yml` if every host in the group has it; `host_vars/<host>.yml` otherwise) — overriding replaces the list:
 
 ```yaml
-# inventories/prd/host_vars/srvk8sl1.yml
-disk_resize_filesystems:
-  - mountpoint: /
-    scsi_index: 0
-  - mountpoint: /var/snap/microk8s/common
-    scsi_index: 1
+# inventories/prd/group_vars/k8s_prd.yml — every k8s_prd node has scsi1 = /var/snap
+managed_filesystems_volumes:
+  - scsi_index: 0
+    mountpoint: /
+    fstype: ext4
+  - scsi_index: 1
+    mountpoint: /var/snap
+    fstype: ext4
 ```
 
 Passthrough disks (Ceph OSD volumes, ZFS-passthrough drives) are deliberately **not** in scope for this role and must not be added to the list — they're owned by their respective stacks (Ceph, ZFS) and have their own resize procedures.
