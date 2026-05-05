@@ -34,12 +34,20 @@
   check_mode: false
 
 - name: "Resolve guest disk via HCTL for scsi{{ managed_filesystems_fs.scsi_index }}"
+  # PVE's `virtio-scsi-single` (current default) gives each disk its own
+  # SCSI host bus, so scsiN lands at HCTL `N:0:0:N`. The older
+  # `virtio-scsi-pci` (single controller) puts all disks on host 0 with
+  # target=N, lun=0 — HCTL `0:0:N:0`. Match either by accepting the
+  # scsi_index in either the target or the lun position with the other
+  # at zero.
+  vars:
+    _idx: "{{ managed_filesystems_fs.scsi_index | string }}"
   ansible.builtin.set_fact:
     managed_filesystems_disk: >-
       {{
         (managed_filesystems_lsblk_disks.stdout | from_json).blockdevices
         | selectattr('type', 'equalto', 'disk')
-        | selectattr('hctl', 'match', '^[0-9]+:[0-9]+:' ~ (managed_filesystems_fs.scsi_index | string) ~ ':0$')
+        | selectattr('hctl', 'match', '^[0-9]+:[0-9]+:(' ~ _idx ~ ':0|0:' ~ _idx ~ ')$')
         | map(attribute='name')
         | list | first | default('')
       }}
