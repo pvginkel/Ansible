@@ -34,7 +34,7 @@ This applies to phase + slice documents in `/work/AnsibleSpecs/` too. Once a pha
 - **Poetry** for Python deps. `poetry install` once; `poetry run <cmd>` or activate `.venv/` for ad-hoc commands.
 - **Ansible** runs from the `ansible/` directory (where `ansible.cfg` lives). Default inventory is `inventories/prd` (every production-grade host). The `inventories/scratch` inventory holds the disposable scratch fleet (today: two Phase 4 microk8s scratch nodes); pass `-i inventories/scratch` for scratch-VM runs.
 - **Terraform** runs from the `terraform/` directory. Provider is `bpg/proxmox`.
-- **Pre-commit** runs yamllint + ansible-lint on every commit.
+- **Linting is manual.** No pre-commit hook — it was removed because it was breaking commits. Run lint yourself before proposing a commit: `poetry run yamllint <paths>` and `poetry run ansible-lint <paths>` for Ansible/YAML changes; `terraform fmt -check` and `terraform validate` for Terraform changes.
 
 ## Operator runs Terraform and Ansible — not Claude
 
