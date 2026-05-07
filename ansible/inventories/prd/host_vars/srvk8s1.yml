@@ -1,0 +1,18 @@
+---
+vm_id: 910
+pve_node: pve
+workload_class: background
+
+# Capability labels per decisions.md "k8s node capability labels".
+# srvk8s1 is the only prd k8s node carrying labels (8 cores vs. 3 on
+# the workers; ZFS passthrough as zpool2). The other two prd nodes
+# have no labels — empty intent skips the role's reconcile.
+k8s_node_labels:
+  homelab.local/performance: high
+  homelab.local/storage: zpool2
+
+# zpool2 lives on the NVMe at scsi2 (passthrough declared in
+# terraform/prd/vms.tf). rebuild-k8s.yml imports declared pools
+# after microk8s join + cordon, before the DaemonSet readiness gate.
+zpools_to_import:
+  - zpool2
