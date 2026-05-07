@@ -112,7 +112,6 @@ locals {
       pve_node       = "pve"
       workload_class = "background"
       from_scratch   = true
-      static_ip      = true
       description    = "microk8s dev single-node cluster (k8s_dev group). HelmCharts iteration target."
       tags           = ["ansible-managed", "terraform", "k8s"]
       bios           = "ovmf"
@@ -122,35 +121,21 @@ locals {
       cpu_sockets = 1
       memory_mb   = 6144
 
-      # Single 60 GB root disk. wrkdevk8s does not use a separate
-      # data disk (live shape preserved) — dev cluster, simpler is
-      # fine. snap state under /var/snap/microk8s + a small image
-      # cache fit comfortably; no zpool, no Ceph, no MetalLB pool of
-      # any size that needs its own volume.
       managed_disks = [
         { interface = "scsi0", size = 60 },
       ]
 
-      # Two NICs: house net + 10 Gb backplane. wrkdevk8s does not
-      # join the prd k8s workload VLAN (vmbr0 tag=2) — that segment
-      # is reserved for prd cluster services.
-      # Deterministic MAC: VMID 919 = 0x0397. .17 inherited from the
-      # live wrkdevk8s; LAN keeps its /24 (the live shape — srvk8s*
-      # use /16, the difference is intentional and predates Ansible).
+      # Single NIC, DHCP via the per-VM `homelab_dns_reservation`. dev-tier:
+      # wrkdevk8s doesn't host registry/dnsmasq pods (dev pulls from external
+      # `registry-dev`), so the bring-up cycle that pins prd k8s + Ceph to
+      # static IPs doesn't apply — see decisions.md "Ceph nodes and prd k8s
+      # nodes are static infrastructure". No backplane NIC: dev cluster has
+      # no inter-node traffic and no Ceph cross-talk.
+      # Deterministic MAC: VMID 919 = 0x0397.
       network_devices = [
         {
           bridge      = "vmbr0"
           mac_address = "02:A7:F3:03:97:00"
-          addresses   = ["10.1.0.17/24", "2a10:3781:565a:1::17/64"]
-          gateway     = "10.1.0.1"
-          accept_ra   = false
-          nameservers = ["8.8.8.8", "8.8.4.4"]
-          search      = ["home"]
-        },
-        {
-          bridge      = "vmbr1"
-          mac_address = "02:A7:F3:03:97:01"
-          addresses   = ["192.168.188.17/24", "fdd0:6a51:35de::17/64"]
         },
       ]
     }
