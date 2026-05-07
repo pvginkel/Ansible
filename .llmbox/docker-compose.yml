@@ -23,8 +23,11 @@ services:
       - ${HOME}/.terraformrc:/home/ubuntu/.terraformrc:ro
       - ${HOME}/claude-kubeconfig.yaml:/home/ubuntu/claude-kubeconfig.yaml:ro
       - .:/work/Ansible:rw
+      - ../AnsibleSpecs:/work/AnsibleSpecs:rw
       - ../HelmCharts:/work/HelmCharts:ro
       - ../DockerImages:/work/DockerImages:ro
       - ../Obsidian:/work/Obsidian:rw
       - ../KubernetesConfig:/work/KubernetesConfig:ro
       - ../HomelabTerraformProvider:/work/HomelabTerraformProvider:rw
+      - ../DesignAssistant:/work/DesignAssistant:ro
+      - ../DesignAssistantSpecs:/work/DesignAssistantSpecs:ro
