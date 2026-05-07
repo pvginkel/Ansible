@@ -78,11 +78,17 @@
     - name: Import each declared zpool that isn't yet imported
       # zpools_to_import is declared per-host in host_vars on rebuilt
       # nodes that carry a passthrough ZFS volume (today: srvk8s1's
-      # zpool2 on the NVMe). On-disk pool metadata makes import a
-      # one-line idempotent reattach; the loop only fires on hosts
-      # that opt in.
+      # zpool2 on the NVMe). The loop only fires on hosts that opt in.
+      #
+      # `-f` is required because rebuild-k8s.yml runs against a fresh
+      # VM with a new ZFS hostid; ZFS sees the pool's last-known
+      # hostid (the destroyed VM's) and refuses a plain import as a
+      # safety check against two systems mounting the same pool. The
+      # source VM is destroyed before the apply that reattaches the
+      # NVMe to the new VM, so the multi-mount risk that `-f` overrides
+      # cannot apply here.
       ansible.builtin.command:
-        argv: [zpool, import, "{{ item }}"]
+        argv: [zpool, import, "-f", "{{ item }}"]
       loop: "{{ zpools_to_import | default([]) }}"
       when: item not in (_zpool_list.stdout_lines | default([]))
       changed_when: true
