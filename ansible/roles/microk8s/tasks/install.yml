@@ -33,6 +33,29 @@
     channel: "{{ microk8s_channel }}"
     state: present
 
-- name: Wait for microk8s to be ready
-  ansible.builtin.command: microk8s status --wait-ready --timeout 120
+# Two-phase wait: the API server may be live before kubelet has
+# registered the node, so the existence poll covers the registration
+# gap; the condition wait then blocks on KubeletReady. `kubectl wait
+# --for=condition=Ready` is independent of `SchedulingDisabled`, so
+# this also passes on a cordoned single-node cluster (the case the
+# `microk8s status --wait-ready` substring match fails on — see
+# rebuild-k8s.yml's matching task for the bug write-up).
+- name: Wait for {{ inventory_hostname }} to register with the API
+  ansible.builtin.command:
+    argv: [microk8s, kubectl, get, "node/{{ inventory_hostname }}"]
+  register: _node_get
+  until: _node_get.rc == 0
+  retries: 60
+  delay: 2
+  changed_when: false
+
+- name: Wait for {{ inventory_hostname }} to report Ready
+  ansible.builtin.command:
+    argv:
+      - microk8s
+      - kubectl
+      - wait
+      - --for=condition=Ready
+      - "node/{{ inventory_hostname }}"
+      - --timeout=120s
   changed_when: false
