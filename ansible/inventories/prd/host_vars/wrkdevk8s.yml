@@ -1,11 +1,3 @@
 ---
-vm_id: 119
+vm_id: 919
 workload_class: background
-
-# wrkdevk8s runs microk8s 1.30/stable today; the cluster transitions
-# to 1.32/stable via the from-scratch rebuild in Phase 4a step 11,
-# not an in-place `snap refresh` (which would walk two minor versions
-# and skip the drain semantics the rebuild path enforces). Override
-# the k8s_dev group_vars channel until rebuild — at which point this
-# stanza is removed and group_vars takes over.
-microk8s_channel: 1.30/stable
