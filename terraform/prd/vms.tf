@@ -31,8 +31,7 @@ locals {
       ]
 
       # Three NICs: house net, k8s workload VLAN (vmbr0 tag=2), 10 Gb
-      # backplane. Deterministic MAC: VMID 911 = 0x038F. .28 across all
-      # three networks (inherits srvk8ss1's slot).
+      # backplane. Deterministic MAC: VMID 911 = 0x038F.
       network_devices = [
         {
           bridge      = "vmbr0"
@@ -65,11 +64,8 @@ locals {
       static_ip      = true
       description    = "microk8s node 3 of 3. OS managed by Ansible (k8s_prd group)."
       tags           = ["ansible-managed", "terraform", "k8s"]
-      # Live VM is seabios; rebuild flips to ovmf (the operator's
-      # earlier manual flip was abandoned). The from-scratch path
-      # adds the EFI disk implicitly via the module's efi_disk block.
-      bios    = "ovmf"
-      machine = "q35"
+      bios           = "ovmf"
+      machine        = "q35"
 
       cpu_cores   = 3
       cpu_sockets = 1
@@ -81,8 +77,7 @@ locals {
       ]
 
       # Three NICs: house net, k8s workload VLAN (vmbr0 tag=2), 10 Gb
-      # backplane. Deterministic MAC: VMID 912 = 0x0390. .29 across all
-      # three networks (inherits srvk8ss2's slot).
+      # backplane. Deterministic MAC: VMID 912 = 0x0390.
       network_devices = [
         {
           bridge      = "vmbr0"
@@ -170,7 +165,6 @@ locals {
       # Three NICs: house net, k8s workload VLAN (vmbr0 tag=2), 10 Gb
       # backplane. Deterministic MAC: 02:A7:F3:VV:VV:EE where VV:VV is
       # VMID big-endian and EE is the NIC index. VMID 910 = 0x038E.
-      # .27 across all three networks (inherits srvk8sl1's slot).
       network_devices = [
         {
           bridge      = "vmbr0"

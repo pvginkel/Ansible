@@ -1,11 +1,10 @@
 ---
-# Production microk8s cluster — 3 nodes (srvk8sl1, srvk8ss1, srvk8ss2),
-# rebuilt to srvk8s1/2/3 in Phase 4a step 10.
+# Production microk8s cluster — 3 nodes (srvk8s1/2/3).
 #
-# Cluster and service CIDRs are codified from
-# /work/KubernetesConfig/microk8s/lc-prd.yaml — the launch-config the
-# cluster bootstrapped against; preserved so the role's render of
-# .microk8s.yaml matches what's already on disk.
+# Cluster and service CIDRs are codified from the launch-config the
+# cluster bootstrapped against (originally /work/KubernetesConfig/
+# microk8s/lc-prd.yaml, now retired); preserved so the role's render
+# of .microk8s.yaml matches what's already on disk.
 
 # Pinned per cluster per decisions.md "k8s version policy" so dev can
 # soak a new minor independently before prd moves. Read by the role
