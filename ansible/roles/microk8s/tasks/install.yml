@@ -15,6 +15,17 @@
     group: root
     mode: "0600"
 
+# `community.general.snap` runs `snap info microk8s` to resolve the
+# canonical name and parses the output for a `name:` line. On a freshly-
+# booted VM that line is missing until snapd's first-boot seed
+# completes, and the module's `process_one` raises `IndexError` on the
+# empty list rather than reporting a useful error. Bound the seed-warmup
+# window before invoking the module. Idempotent — returns instantly
+# once seeded.
+- name: Wait for snapd to finish seeding
+  ansible.builtin.command: snap wait system seed.loaded
+  changed_when: false
+
 - name: Install microk8s snap (channel = {{ microk8s_channel }})
   community.general.snap:
     name: microk8s
