@@ -46,6 +46,14 @@ Claude **may** use the SSH keys in `/work/Obsidian/Attachments/` to read state f
 
 Read-only Ansible is fine when it's clearly read-only: `ansible -m setup`, `ansible-playbook --check --diff` against a host where the role itself has no side effects (e.g. fact gathering). When in doubt, hand the command to the operator.
 
+### Canonical command shape
+
+When handing a command to the operator to run, use this exact shape:
+
+- **One line, `cd <dir> && <command>`.** Single copy-paste runs cleanly; if the `cd` fails, the second half doesn't fire.
+- **Terraform**: `cd terraform/prd && terraform apply` — no `poetry run` (terraform doesn't need the venv). Don't propose `terraform plan` as a separate step; `apply` already shows the plan and waits for confirmation.
+- **Ansible**: `cd ansible && poetry run ansible-playbook playbooks/<play>.yml --diff --limit <host>`. Inventory defaults to `inventories/prd` per `ansible.cfg`; pass `-i inventories/scratch` only for scratch-fleet runs. Use `--diff` on the apply (real run, no `--check`). The `--check --diff` preflight from "Check-mode first" above is a separate step that comes before this one.
+
 ## Related repos on this machine
 
 - `/work/HelmCharts` — Helm charts + per-environment configs. Jenkins-driven deploys.
