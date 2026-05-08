@@ -44,11 +44,15 @@ microk8s_metallb_pool_addresses:
   - 10.1.2.1-10.1.2.199
   - 2a10:3781:565a:1:7912:b75a::/96
 
-# Containerd registry mirror. dev pulls from the dev registry only
-# — image refs in HelmCharts dev configs always carry the
-# `registry-dev:5000/` prefix.
+# Containerd registry mirrors. dev primarily pulls from the dev
+# registry (image refs in HelmCharts dev configs carry the
+# `registry-dev:5000/` prefix), but charts shared with prd may also
+# reference `registry:5000/` directly — `registry.home` resolves via
+# LAN DNS to the prd registry's LoadBalancer IP, and the mirror entry
+# tells containerd to talk plain HTTP.
 microk8s_registry_mirrors:
   - registry-dev:5000
+  - registry:5000
 
 # Node-local /etc/hosts entry. dev resolves the dev registry direct
 # to its LAN address; no in-cluster service IP is involved on dev.
