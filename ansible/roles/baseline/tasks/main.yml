@@ -105,3 +105,18 @@
     owner: pvginkel
     group: pvginkel
     mode: "0644"
+
+# Re-asserts the netplan render that cloud-init writes on first boot
+# (terraform/prd/cloud-init.yaml.tftpl). Opt-in per host via the
+# `static_netplan` var. Closes the "static netplan is the gap" caveat
+# in decisions.md "Cloud-init is a first-boot artefact" — without this,
+# a static-IP change in vms.tf only lands via a deliberate VM rebuild.
+- name: Render /etc/netplan/50-cloud-init.yaml from static_netplan
+  ansible.builtin.template:
+    src: static-netplan.yaml.j2
+    dest: /etc/netplan/50-cloud-init.yaml
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Apply netplan
+  when: static_netplan is defined

@@ -1,8 +1,6 @@
 #cloud-config
 hostname: ${vm_name}
 
-# Only create the ansible automation user. Cloud-init would otherwise create a
-# default 'ubuntu' user — omitting 'default' from this list suppresses that.
 users:
   - name: ansible
     uid: 900
@@ -16,31 +14,18 @@ users:
 ssh_pwauth: false
 disable_root: true
 
-# Pin the SSH host key. Terraform generates the keypair, writes the private
-# half here, and exports the public half into the repo as a known_hosts entry
-# (ansible/files/known_hosts.d/prd). A rebuild keeps the same identity, so
-# Ansible never has to TOFU and ssh-keygen -R is no longer part of the flow.
 ssh_keys:
   ed25519_private: |
       ${host_ed25519_private}
   ed25519_public: ${host_ed25519_public}
 
-# qemu-guest-agent must be present on first boot: the bpg/proxmox provider
-# blocks `terraform apply` until the agent reports the VM's IP back to PVE.
-# The Noble cloud image doesn't ship it, so install it here rather than
-# leaving it to the baseline role (which can't run until apply returns).
 packages:
   - qemu-guest-agent
 
 package_update: true
 package_upgrade: false
-%{ if length(static_nics) > 0 ~}
+%{ if has_static_nic ~}
 
-# Static netplan, written over cloud-init's auto-generated DHCP file before
-# the final boot's apply. k8s nodes are bring-up tier (they host the
-# registry + dnsmasq pods themselves), so they cannot use DHCP from the
-# cluster's dnsmasq — circular dependency at cold boot. Static IPs and
-# external nameservers come from vms.tf. See decisions.md.
 write_files:
   - path: /etc/netplan/50-cloud-init.yaml
     permissions: "0600"
@@ -49,10 +34,11 @@ write_files:
       network:
         version: 2
         ethernets:
-%{ for nic in static_nics ~}
+%{ for nic in nics ~}
           ${nic.id}:
             match:
               macaddress: "${lower(nic.mac_address)}"
+%{ if length(nic.addresses) > 0 ~}
             addresses:
 %{ for addr in nic.addresses ~}
               - ${addr}
@@ -80,15 +66,16 @@ write_files:
 %{ endfor ~}
 %{ endif ~}
 %{ endif ~}
+%{ else ~}
+            dhcp4: true
+            dhcp6: true
+%{ endif ~}
 %{ endfor ~}
 %{ endif ~}
 
-# The service unit is `static` — it's normally started by a udev rule when
-# the virtio-serial channel appears at boot. That rule fires before cloud-init
-# installs the package, so on first boot we have to start it explicitly.
 runcmd:
   - systemctl start qemu-guest-agent
-%{ if length(static_nics) > 0 ~}
+%{ if has_static_nic ~}
   - netplan generate
   - netplan apply
 %{ endif ~}

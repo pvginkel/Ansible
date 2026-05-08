@@ -1,0 +1,45 @@
+# Managed by Ansible (baseline role; static_netplan task).
+# Mirrors what cloud-init renders on first boot from
+# terraform/prd/cloud-init.yaml.tftpl, sourced from the
+# `static_netplan` host_var. See decisions.md "Cloud-init is a
+# first-boot artefact".
+network:
+  version: 2
+  ethernets:
+{% for nic in static_netplan %}
+    {{ nic.id }}:
+      match:
+        macaddress: "{{ nic.mac | lower }}"
+{% if nic.addresses | default([]) | length > 0 %}
+      addresses:
+{% for addr in nic.addresses %}
+        - {{ addr }}
+{% endfor %}
+      dhcp4: false
+      dhcp6: false
+{% if nic.accept_ra | default(true) == false %}
+      accept-ra: false
+{% endif %}
+{% if nic.gateway is defined %}
+      routes:
+        - to: default
+          via: {{ nic.gateway }}
+{% endif %}
+{% if nic.nameservers | default([]) | length > 0 %}
+      nameservers:
+        addresses:
+{% for ns in nic.nameservers %}
+          - {{ ns }}
+{% endfor %}
+{% if nic.search | default([]) | length > 0 %}
+        search:
+{% for s in nic.search %}
+          - {{ s }}
+{% endfor %}
+{% endif %}
+{% endif %}
+{% else %}
+      dhcp4: true
+      dhcp6: true
+{% endif %}
+{% endfor %}

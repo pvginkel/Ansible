@@ -120,17 +120,25 @@ locals {
         { interface = "scsi0", size = 60 },
       ]
 
-      # Single NIC, DHCP via the per-VM `homelab_dns_reservation`. dev-tier:
+      # vmbr0 is dev-tier dynamic — DHCP via the per-VM `homelab_dns_reservation`.
       # wrkdevk8s doesn't host registry/dnsmasq pods (dev pulls from external
       # `registry-dev`), so the bring-up cycle that pins prd k8s + Ceph to
-      # static IPs doesn't apply — see decisions.md "Ceph nodes and prd k8s
-      # nodes are static infrastructure". No backplane NIC: dev cluster has
-      # no inter-node traffic and no Ceph cross-talk.
-      # Deterministic MAC: VMID 919 = 0x0397.
+      # static IPs on vmbr0 doesn't apply — see decisions.md "Ceph nodes and
+      # prd k8s nodes are static infrastructure".
+      # vmbr1 is the 10 Gb backplane, hand-curated static address — wrkdevk8s
+      # reaches non-cluster services on that subnet. The cloud-init template
+      # renders a netplan stanza for any NIC with `addresses` set, regardless
+      # of `static_ip`, so the hybrid (dynamic vmbr0, static vmbr1) is fine.
+      # Deterministic MACs: VMID 919 = 0x0397.
       network_devices = [
         {
           bridge      = "vmbr0"
           mac_address = "02:A7:F3:03:97:00"
+        },
+        {
+          bridge      = "vmbr1"
+          mac_address = "02:A7:F3:03:97:01"
+          addresses   = ["192.168.188.17/24", "fdd0:6a51:35de::17/64"]
         },
       ]
     }

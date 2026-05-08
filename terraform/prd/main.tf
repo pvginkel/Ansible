@@ -55,6 +55,28 @@ resource "local_file" "known_hosts_prd" {
   ])
 }
 
+# The cloud-init snippet rendered per from-scratch VM.
+#
+# Scope (cloud-init is first-boot only): create the ansible user with its
+# pinned pubkey, install the per-VM ed25519 host keypair, install + start
+# qemu-guest-agent (the bpg provider blocks `terraform apply` on the agent
+# reporting an IP back, so it has to be present and running on first boot
+# before the baseline role runs), and — for hosts that declare static
+# addresses on any NIC — write `/etc/netplan/50-cloud-init.yaml` over
+# cloud-init's auto-generated DHCP file before the final boot's apply.
+#
+# k8s_prd + Ceph nodes are bring-up tier (they host the registry + dnsmasq
+# pods themselves), so they cannot use cluster-DHCP — circular dependency
+# at cold boot. Static IPs and external nameservers come from vms.tf. See
+# decisions.md "Ceph nodes and prd k8s nodes are static infrastructure".
+#
+# After first boot, Ansible owns drift detection on these surfaces. The
+# `managed-vm` module pins `lifecycle.ignore_changes = [initialization]`
+# on the VM resource so a template edit re-renders this snippet but does
+# not recreate the VM; the `static_netplan` task in the baseline role
+# re-asserts the netplan from inventory data (`static_netplan` host_var).
+# To pick up a snippet change on first boot, rebuild via
+# `terraform apply -replace='module.vm["<name>"]'`.
 resource "proxmox_virtual_environment_file" "cloud_init" {
   for_each     = local.vms_from_scratch
   content_type = "snippets"
@@ -68,11 +90,13 @@ resource "proxmox_virtual_environment_file" "cloud_init" {
       # Indented so the template's `|` block reads it as a single literal scalar.
       host_ed25519_private = indent(6, tls_private_key.host_ed25519[each.key].private_key_openssh)
       host_ed25519_public  = trimspace(tls_private_key.host_ed25519[each.key].public_key_openssh)
-      # NICs that carry static-IP fields. Order preserved; netplan keys are
-      # synthetic ("nic0", "nic1", ...) since match-by-MAC is what selects
-      # the kernel device. Empty list → template skips the netplan write_files
-      # and falls back to PVE's ip_config DHCP path.
-      static_nics = [
+      # All NICs in declaration order; netplan keys are synthetic ("nic0",
+      # "nic1", ...) since match-by-MAC is what selects the kernel device.
+      # NICs without `addresses` render as `dhcp4: true; dhcp6: true`,
+      # NICs with `addresses` render as static. Hybrid (some-DHCP, some-
+      # static) is supported — wrkdevk8s is the live case (vmbr0 dynamic
+      # via dnsmasq, vmbr1 hand-curated on the 10 Gb backplane).
+      nics = [
         for i, n in each.value.network_devices : {
           id          = "nic${i}"
           mac_address = n.mac_address
@@ -82,8 +106,11 @@ resource "proxmox_virtual_environment_file" "cloud_init" {
           nameservers = try(n.nameservers, [])
           search      = try(n.search, [])
         }
-        if length(try(n.addresses, [])) > 0
       ]
+      # Skip the netplan write entirely when no NIC declares addresses
+      # (all-DHCP hosts: OpenBao, scratch VMs, operator workstations).
+      # Cloud-init's auto-generated netplan handles them.
+      has_static_nic = length([for n in each.value.network_devices : n if length(try(n.addresses, [])) > 0]) > 0
     })
     file_name = "${each.key}-user-data.yaml"
   }

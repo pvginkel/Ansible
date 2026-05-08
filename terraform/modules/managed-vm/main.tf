@@ -172,6 +172,15 @@ resource "proxmox_virtual_environment_vm" "this" {
       # the VM. Pick up a new image deliberately via `terraform apply
       # -replace`. No-op on adopted VMs (no file_id on disk[0]).
       disk[0].file_id,
+      # Cloud-init is a first-boot artefact — re-rendering its snippet
+      # for a running VM accomplishes nothing operational. Without this,
+      # bpg's ForceNew on `source_raw.data` of the cloud-init snippet
+      # cascades into a VM replace via `initialization.user_data_file_id`,
+      # so a one-line edit to the template would rebuild every from-
+      # scratch VM. Drift on these fields after first boot is Ansible's
+      # job (see `static_netplan` in the baseline role). Pick up a
+      # template change deliberately via `terraform apply -replace=<vm>`.
+      initialization,
     ]
   }
 }

@@ -1,3 +1,19 @@
 ---
 vm_id: 919
 workload_class: background
+
+# Mirror of `network_devices` in terraform/prd/vms.tf for the
+# `static_netplan` task in the baseline role to re-assert
+# /etc/netplan/50-cloud-init.yaml after first boot. wrkdevk8s is
+# hybrid: vmbr0 is dynamic (dnsmasq reservation, DHCP), vmbr1 is
+# hand-curated on the 10 Gb backplane. Cloud-init renders the same
+# shape on first boot; this var keeps the running VM in sync when
+# the IPs change without a rebuild.
+static_netplan:
+  - id: nic0
+    mac: "02:a7:f3:03:97:00"
+  - id: nic1
+    mac: "02:a7:f3:03:97:01"
+    addresses:
+      - 192.168.188.17/24
+      - fdd0:6a51:35de::17/64
