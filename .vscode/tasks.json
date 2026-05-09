@@ -14,7 +14,8 @@
         "panel": "new",
         "reveal": "always",
         "focus": true,
-        "showReuseMessage": false
+        "showReuseMessage": false,
+        "close": true
       },
       "runOptions": {
         "reevaluateOnRerun": true,
