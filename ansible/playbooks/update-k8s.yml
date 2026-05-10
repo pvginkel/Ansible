@@ -46,6 +46,45 @@
         name: microk8s
         tasks_from: elect-primary
 
+- name: Refuse to roll if any k8s node is already cordoned
+  # A leftover cordon usually means a prior update-k8s.yml run failed
+  # between pre-drain-handoff (which cordons the target) and the
+  # post-roll uncordon. Re-running blindly into that state breaks
+  # surge scheduling — a 3-node cluster with 2 cordoned peers can't
+  # land keycloak's RollingUpdate maxSurge=1 onto a healthy node, and
+  # the resulting pod-sandbox errors are opaque. Fail fast instead.
+  # `kubectl get nodes` via the local apiserver is naturally scoped
+  # to the host's cluster, so prd and dev are each checked against
+  # their own primary.
+  hosts: k8s
+  become: true
+  gather_facts: false
+  tasks:
+    - name: List cordoned nodes via this cluster's primary
+      ansible.builtin.command:
+        argv:
+          - microk8s
+          - kubectl
+          - get
+          - nodes
+          - -o
+          - jsonpath={range .items[?(@.spec.unschedulable==true)]}{.metadata.name}{"\n"}{end}
+      delegate_to: "{{ microk8s_primary_host }}"
+      register: _precheck_cordoned
+      changed_when: false
+      check_mode: false
+
+    - name: Refuse if any cordoned node exists
+      ansible.builtin.assert:
+        that:
+          - _precheck_cordoned.stdout_lines | length == 0
+        fail_msg: >-
+          Cordoned nodes detected via {{ microk8s_primary_host }}:
+          {{ _precheck_cordoned.stdout_lines | join(', ') }}. A prior
+          run likely failed between pre-drain-handoff and the post-roll
+          uncordon. Uncordon them (`microk8s kubectl uncordon <node>`
+          on the primary) and re-run.
+
 - name: Rolling upgrade for k8s cluster members
   hosts: k8s
   become: true
