@@ -23,7 +23,7 @@ locals {
 
       cpu_cores   = 3
       cpu_sockets = 1
-      memory_mb   = 16384
+      memory_mb   = 18 * 1024
 
       managed_disks = [
         { interface = "scsi0", size = 20 },
@@ -69,7 +69,7 @@ locals {
 
       cpu_cores   = 3
       cpu_sockets = 1
-      memory_mb   = 16384
+      memory_mb   = 18 * 1024
 
       managed_disks = [
         { interface = "scsi0", size = 20 },
@@ -114,7 +114,7 @@ locals {
 
       cpu_cores   = 4
       cpu_sockets = 1
-      memory_mb   = 6144
+      memory_mb   = 6 * 1024
 
       managed_disks = [
         { interface = "scsi0", size = 60 },
@@ -156,7 +156,7 @@ locals {
 
       cpu_cores   = 8
       cpu_sockets = 1
-      memory_mb   = 14336
+      memory_mb   = 22 * 1024
 
       managed_disks = [
         { interface = "scsi0", size = 20 },
@@ -209,7 +209,7 @@ locals {
 
       cpu_cores   = 1
       cpu_sockets = 3
-      memory_mb   = 10240
+      memory_mb   = 10 * 1024
 
       managed_disks = [
         { interface = "scsi0", size = 32 },
@@ -241,7 +241,7 @@ locals {
 
       cpu_cores   = 1
       cpu_sockets = 3
-      memory_mb   = 10240
+      memory_mb   = 10 * 1024
 
       managed_disks = [
         { interface = "scsi0", size = 32 },
@@ -273,7 +273,7 @@ locals {
 
       cpu_cores   = 1
       cpu_sockets = 3
-      memory_mb   = 10240
+      memory_mb   = 10 * 1024
 
       managed_disks = [
         { interface = "scsi0", size = 32 },
