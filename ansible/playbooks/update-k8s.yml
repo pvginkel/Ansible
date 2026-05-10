@@ -81,18 +81,17 @@
         _target_minor: "{{ microk8s_channel.split('/')[0].split('-')[0].split('.')[1] | int }}"
 
     - name: Compute cluster-peer count
-      # Cluster boundary: hosts in the inventory's `k8s` parent group
-      # that share this host's primary. Uses `groups['k8s']` rather
-      # than `ansible_play_hosts_all` because the latter is filtered
-      # by --limit — a `--limit srvk8sl1` invocation against a 3-node
-      # cluster would otherwise see peer_count=1 and skip drain.
+      # Cluster boundary: the host's `k8s_<env>` child group — same
+      # boundary elect-primary uses. Inventory groups, not
+      # `ansible_play_hosts_all`, so a `--limit srvk8s1` invocation
+      # against a 3-node cluster doesn't see peer_count=1 and skip
+      # drain. Reading group membership instead of remote hostvars
+      # also tolerates --limit excluding some clusters entirely (the
+      # election play runs under the same --limit, so un-limited
+      # hosts won't carry microk8s_primary_host).
       ansible.builtin.set_fact:
         _cluster_peer_count: >-
-          {{ groups['k8s']
-             | map('extract', hostvars)
-             | selectattr('microk8s_primary_host', 'eq', microk8s_primary_host)
-             | list
-             | length }}
+          {{ groups[group_names | select('match', '^k8s_') | first] | length }}
 
     - name: Hand off labeled workloads off {{ inventory_hostname }}
       # Cordons the node and rollout-restarts opt-in Deployments off
