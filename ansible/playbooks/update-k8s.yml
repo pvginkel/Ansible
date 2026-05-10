@@ -10,8 +10,13 @@
 #   3. Refresh the microk8s snap to the channel pinned in group_vars
 #      / host_vars — no-op when already current.
 #   4. apt full-upgrade — kernel + security + package updates.
-#   5. Reboot if /var/run/reboot-required is present (kernel/glibc/etc.).
-#   6. Wait for microk8s Ready, both post-refresh and post-reboot.
+#   5. If PVE has pending VM config (TF-driven memory/cpu/NIC/disk
+#      change), cold-cycle the VM via `qm shutdown` + `qm start` from
+#      its PVE node — a guest-side `shutdown -r` doesn't power-cycle
+#      QEMU and would leave [PENDING] unmerged. Else if
+#      /var/run/reboot-required is present (kernel/glibc/etc.), do a
+#      guest reboot. The cold-cycle path subsumes both.
+#   6. Wait for microk8s Ready after every cycle that touches the kernel.
 #   7. Uncordon via the primary (skipped on single-node clusters).
 #
 # Targeting: `hosts: k8s` resolves to k8s_prd + k8s_dev under prd or
@@ -149,17 +154,84 @@
         path: /var/run/reboot-required
       register: _reboot_required
 
-    - name: Reboot if required
+    - name: Detect PVE pending config for {{ inventory_hostname }}
+      # PVE writes a [PENDING] section to <vmid>.conf only for keys
+      # that need a VM restart to take effect (memory, CPU, NICs,
+      # disks). Tags/description/name go live immediately and never
+      # land here, so the section's presence is a clean signal of
+      # "true hardware change waiting to be applied." A guest-side
+      # `shutdown -r` doesn't power-cycle QEMU, so [PENDING] persists
+      # across `ansible.builtin.reboot` — only `qm shutdown` +
+      # `qm start` (or `qm reboot` on modern PVE) merges it.
+      ansible.builtin.command:
+        argv:
+          - grep
+          - -q
+          - '^\[PENDING\]'
+          - "/etc/pve/qemu-server/{{ vm_id }}.conf"
+      register: _pve_pending_check
+      delegate_to: "{{ pve_node }}"
+      changed_when: false
+      failed_when: _pve_pending_check.rc not in [0, 1]
+
+    - name: Record whether PVE has pending hardware changes
+      ansible.builtin.set_fact:
+        _pve_pending: "{{ _pve_pending_check.rc == 0 }}"
+
+    - name: Cold-cycle via PVE to apply pending config on {{ inventory_hostname }}
+      # The cold cycle subsumes /var/run/reboot-required when both
+      # are true — no need to also fire the guest-reboot branch.
+      when: _pve_pending
+      block:
+        - name: Send qm shutdown for {{ inventory_hostname }}
+          # --forceStop 1 forces if the guest doesn't ACPI-shutdown
+          # within --timeout; the node is already drained, so a hard
+          # stop after 5 minutes is safe and keeps the roll moving.
+          ansible.builtin.command:
+            argv:
+              - qm
+              - shutdown
+              - "{{ vm_id }}"
+              - --timeout
+              - "300"
+              - --forceStop
+              - "1"
+          delegate_to: "{{ pve_node }}"
+          changed_when: true
+
+        - name: Send qm start for {{ inventory_hostname }}
+          ansible.builtin.command:
+            argv:
+              - qm
+              - start
+              - "{{ vm_id }}"
+          delegate_to: "{{ pve_node }}"
+          changed_when: true
+
+        - name: Wait for SSH after cold-cycle of {{ inventory_hostname }}
+          ansible.builtin.wait_for_connection:
+            delay: 30
+            timeout: 600
+
+        - name: Wait for microk8s Ready after cold-cycle of {{ inventory_hostname }}
+          ansible.builtin.command: microk8s status --wait-ready --timeout 240
+          changed_when: false
+
+    - name: Reboot if required (guest-side; no PVE pending)
       ansible.builtin.reboot:
         msg: "update-k8s.yml: reboot triggered by /var/run/reboot-required"
         post_reboot_delay: 30
         reboot_timeout: 600
-      when: _reboot_required.stat.exists
+      when:
+        - not _pve_pending
+        - _reboot_required.stat.exists
 
     - name: Wait for microk8s Ready post-reboot
       ansible.builtin.command: microk8s status --wait-ready --timeout 240
       changed_when: false
-      when: _reboot_required.stat.exists
+      when:
+        - not _pve_pending
+        - _reboot_required.stat.exists
 
     - name: Uncordon {{ inventory_hostname }}
       ansible.builtin.command:
