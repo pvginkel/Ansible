@@ -66,6 +66,7 @@ resource "proxmox_virtual_environment_vm" "this" {
 
   memory {
     dedicated = var.memory_mb
+    floating  = var.memory_mb
   }
 
   operating_system {
