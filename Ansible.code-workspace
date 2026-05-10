@@ -4,6 +4,7 @@
 			"path": "."
 		},
 		{
+			"name": "Ansible-specs",
 			"path": "../AnsibleSpecs"
 		},
 		{
