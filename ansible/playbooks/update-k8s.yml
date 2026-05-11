@@ -143,6 +143,15 @@
       ansible.builtin.import_tasks: tasks/pre-drain-handoff.yml
 
     - name: Drain {{ inventory_hostname }}
+      # 15-minute drain budget. srvk8s1 carries ~50 pods plus the
+      # storage namespace's CronJob fleet; with kubectl's default 5 qps
+      # client-side throttling the eviction loop alone burns ~30s of
+      # request-time, and several workloads have long graceful-shutdown
+      # paths (keycloak-db's 600s preStop + tGPS, prometheus-alertmanager
+      # stateful drain, design-assistant rabbitmq cluster handoff). The
+      # earlier 300s left no room for the slow tail and aborted the play
+      # with most pods successfully evicted but a handful still
+      # Terminating.
       ansible.builtin.command:
         argv:
           - microk8s
@@ -151,7 +160,7 @@
           - "{{ inventory_hostname }}"
           - --ignore-daemonsets
           - --delete-emptydir-data
-          - --timeout=300s
+          - --timeout=900s
       delegate_to: "{{ microk8s_primary_host }}"
       when: _cluster_peer_count | int > 1
       changed_when: true
