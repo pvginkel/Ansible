@@ -11,6 +11,21 @@ locals {
   # carries intentional_spare_disks).
   pve_host_vars_path  = "${path.module}/../../../ansible/inventories/prd/host_vars/${var.pve_node}.yml"
   pve_node_has_backup = try(yamldecode(file(local.pve_host_vars_path)).pve_node_backup_datastore, null) != null
+
+  # Primary-NIC static addresses plucked from network_devices[0] for the
+  # cloud-init `ip_config` block below. PVE renders these into the VM's
+  # cloud-init network-config so init-local writes a static netplan at
+  # boot 0. Hosts whose primary NIC has no static address in inventory
+  # (Ceph today, plus dev-tier dynamic NICs) leave these null and the
+  # `ip_config` falls back to "dhcp".
+  primary_ipv4_cidr = try(
+    [for a in var.network_devices[0].addresses : a if !strcontains(a, ":")][0],
+    null
+  )
+  primary_ipv6_cidr = try(
+    [for a in var.network_devices[0].addresses : a if strcontains(a, ":")][0],
+    null
+  )
 }
 
 # dnsmasq reservation registered with the sidecar API. Lands before the
@@ -138,16 +153,31 @@ resource "proxmox_virtual_environment_vm" "this" {
     content {
       datastore_id = initialization.value.datastore_id
 
-      # DHCP only — dnsmasq is the IPv4 reservation authority (keyed on
-      # the deterministic MAC); the router handles IPv6 (SLAAC/DHCPv6).
+      # PVE renders cloud-init network-config from this block; cloud-init's
+      # init-local stage then writes /etc/netplan/50-cloud-init.yaml from
+      # it at boot 0. When network_devices[0] declares a static address,
+      # pass that through so eth0 comes up directly on its inventory IP.
       # The block has to be present or PVE writes no network config and
-      # the NIC stays admin-down.
+      # the NIC stays admin-down; "dhcp" is the fallback for hosts whose
+      # primary NIC has no static address in inventory (Ceph today —
+      # dnsmasq reservations supply the address by MAC).
+      #
+      # The earlier `address = "dhcp"` here caused a race: eth0 would
+      # briefly lease a 10.1.1.x address from the dnsmasq sidecar's
+      # dynamic pool while kubelite was starting, kube-apiserver
+      # auto-detected that IP as its external host, and the lease
+      # reconciler wrote it into the `kubernetes` Service Endpoints.
+      # user-data's write_files later overwrote netplan with the static
+      # IP, but kube-apiserver kept advertising the wrong one until the
+      # next restart — leaving KUBE-SVC randomly DNAT'ing 172.17.0.1:443
+      # to dead apiserver SEPs.
       ip_config {
         ipv4 {
-          address = "dhcp"
+          address = coalesce(local.primary_ipv4_cidr, "dhcp")
+          gateway = var.network_devices[0].gateway
         }
         ipv6 {
-          address = "dhcp"
+          address = coalesce(local.primary_ipv6_cidr, "dhcp")
         }
       }
 
@@ -173,15 +203,24 @@ resource "proxmox_virtual_environment_vm" "this" {
       # the VM. Pick up a new image deliberately via `terraform apply
       # -replace`. No-op on adopted VMs (no file_id on disk[0]).
       disk[0].file_id,
-      # Cloud-init is a first-boot artefact — re-rendering its snippet
-      # for a running VM accomplishes nothing operational. Without this,
-      # bpg's ForceNew on `source_raw.data` of the cloud-init snippet
-      # cascades into a VM replace via `initialization.user_data_file_id`,
-      # so a one-line edit to the template would rebuild every from-
-      # scratch VM. Drift on these fields after first boot is Ansible's
-      # job (see `static_netplan` in the baseline role). Pick up a
-      # template change deliberately via `terraform apply -replace=<vm>`.
-      initialization,
+      # Cloud-init user-data is a first-boot artefact — re-rendering
+      # its snippet for a running VM accomplishes nothing operational.
+      # Without this, bpg's ForceNew on `source_raw.data` of the
+      # cloud-init snippet cascades into a VM replace via
+      # `initialization.user_data_file_id`, so a one-line edit to the
+      # template would rebuild every from-scratch VM. Drift on the
+      # written netplan after first boot is Ansible's job (see
+      # `static_netplan` in the baseline role). Pick up a template
+      # change deliberately via `terraform apply -replace=<vm>`.
+      #
+      # Narrowed to user_data_file_id specifically (rather than the
+      # whole `initialization` block) so that `ip_config` changes do
+      # propagate: PVE writes the new ipconfigN to the VM's PENDING
+      # config and regenerates the cloud-init drive in place, and the
+      # next cold-cycle picks it up. That's the channel for delivering
+      # the static-IP fix that closes the early-DHCP race documented
+      # on the ip_config block above.
+      initialization[0].user_data_file_id,
     ]
   }
 }
