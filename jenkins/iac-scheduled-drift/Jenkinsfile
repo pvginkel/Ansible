@@ -53,11 +53,17 @@ pipeline {
 
         stage('Ansible drift (excl. iac_agent)') {
             steps {
+                // --skip-tags os_update: the apt cache refresh and
+                // dist-upgrade tasks in baseline report pending package
+                // upgrades as `changed` under --check. That's patch
+                // posture, not drift; the scheduled-update pipeline owns
+                // applying it. Drop the skip once those tasks leave
+                // site.yml (see decisions.md "OS updates").
                 sh '''
                     iac -c '
                         set -euo pipefail
                         cd /work/Ansible/ansible
-                        check-ansible-drift.sh playbooks/site.yml --limit "!iac_agent"
+                        check-ansible-drift.sh playbooks/site.yml --limit "!iac_agent" --skip-tags os_update
                     '
                 '''
             }

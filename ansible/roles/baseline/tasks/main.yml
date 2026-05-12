@@ -27,10 +27,15 @@
     state: absent
   when: baseline_install_recommends
 
+# Tagged `os_update` so the scheduled drift pipeline can skip them:
+# pending upstream packages are patch posture, not infrastructure drift.
+# Revisit once a real cluster-wide update path supersedes the
+# baseline_apt_dist_upgrade stop-gap (see decisions.md "OS updates").
 - name: Refresh apt cache
   ansible.builtin.apt:
     update_cache: true
     cache_valid_time: 3600
+  tags: [os_update]
 
 - name: Perform apt dist-upgrade
   ansible.builtin.apt:
@@ -38,6 +43,7 @@
   environment:
     NEEDRESTART_MODE: a
   when: baseline_apt_dist_upgrade | bool
+  tags: [os_update]
 
 - name: Install baseline packages
   ansible.builtin.apt:
