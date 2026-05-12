@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # `iac` — host shim. Acquire the IaC mutex, then run the configured
-# iac-impl entrypoint inside the modern-app-dev container. See
+# iac-impl entrypoint inside the iac container. See
 # /work/AnsibleSpecs/phases/iac-agent.md.
 #
 # Two forms:
@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-IMAGE="${IAC_IMAGE:-registry:5000/modern-app-dev:latest}"
+IMAGE="${IAC_IMAGE:-registry:5000/iac:latest}"
 LOCKFILE="/var/lock/iac.lock"
 SECRETS_FILE="/etc/iac/secrets.yaml"
 IAC_IMPL="/usr/local/bin/iac-impl"
@@ -57,7 +57,7 @@ echo "$$" > "$LOCKFILE" 2>/dev/null || true
 
 # send_message.py is bind-mounted so post-stage failure notifications
 # from Jenkins (`iac -c 'send_message.py ...'`) work without baking
-# the script into modern-app-dev.
+# the script into iac.
 docker run "${docker_flags[@]}" \
     -v "$SECRETS_FILE:$SECRETS_FILE:ro" \
     -v "$IAC_IMPL:/usr/local/bin/iac-impl:ro" \
