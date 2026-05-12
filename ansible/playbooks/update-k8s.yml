@@ -2,6 +2,14 @@
 # update-k8s.yml — drain-aware rolling upgrade for a microk8s cluster.
 #
 # Per host (serial: 1, one node at a time):
+#   0. Probe pending mutations without touching the node: snap channel
+#      drift, snap revision update available, upgradable apt packages,
+#      pre-existing /var/run/reboot-required, PVE [PENDING] config.
+#      If none, skip the entire cordon → drain → mutate → reboot →
+#      uncordon cycle for this host. So this playbook doubles as the
+#      canonical "apply whatever's pending" entry point — including
+#      Terraform-driven hardware changes, where the only signal is
+#      PVE [PENDING] and there's no kernel/snap work to do.
 #   1. Hand off opt-in workloads (cordon + rollout restart of any
 #      Deployment carrying iac.webathome.org/pre-drain=true) so they
 #      surge to a healthy peer before the drain. See
@@ -137,67 +145,41 @@
         _cluster_peer_count: >-
           {{ groups[group_names | select('match', '^k8s_') | first] | length }}
 
-    - name: Hand off labeled workloads off {{ inventory_hostname }}
-      # Cordons the node and rollout-restarts opt-in Deployments off
-      # it before the drain below fires. See tasks/pre-drain-handoff.yml.
-      ansible.builtin.import_tasks: tasks/pre-drain-handoff.yml
-
-    - name: Drain {{ inventory_hostname }}
-      # 15-minute drain budget. srvk8s1 carries ~50 pods plus the
-      # storage namespace's CronJob fleet; with kubectl's default 5 qps
-      # client-side throttling the eviction loop alone burns ~30s of
-      # request-time, and several workloads have long graceful-shutdown
-      # paths (keycloak-db's 600s preStop + tGPS, prometheus-alertmanager
-      # stateful drain, design-assistant rabbitmq cluster handoff). The
-      # earlier 300s left no room for the slow tail and aborted the play
-      # with most pods successfully evicted but a handful still
-      # Terminating.
-      ansible.builtin.command:
-        argv:
-          - microk8s
-          - kubectl
-          - drain
-          - "{{ inventory_hostname }}"
-          - --ignore-daemonsets
-          - --delete-emptydir-data
-          - --timeout=900s
-      delegate_to: "{{ microk8s_primary_host }}"
-      when: _cluster_peer_count | int > 1
-      changed_when: true
-
-    - name: Refresh microk8s to latest revision in {{ microk8s_channel }}
-      # community.general.snap's `state` doesn't include a refresh
-      # option in the version we use (only absent/present/enabled/
-      # disabled). state: present acts on channel mismatches but
-      # leaves the snap pinned to whatever revision was current at
-      # install time — exactly the gap a periodic update playbook is
-      # meant to close. Use the snap CLI directly: `snap refresh
-      # --channel=...` switches channel + pulls latest in one call.
-      # Idempotent via output parsing — snap prints "has no updates
-      # available" when there's nothing to do (output goes to stdout
-      # in modern snap, stderr in older — search both to be safe).
-      ansible.builtin.command:
-        argv:
-          - snap
-          - refresh
-          - microk8s
-          - "--channel={{ microk8s_channel }}"
-      register: _snap_refresh
-      changed_when: '"has no updates available" not in (_snap_refresh.stdout + _snap_refresh.stderr)'
-
-    - name: Wait for microk8s Ready post-snap-refresh
-      ansible.builtin.command: microk8s status --wait-ready --timeout 120
+    - name: List pending snap refreshes
+      # `snap refresh --list` enumerates snaps with a newer revision
+      # waiting on their tracking channel. We grep stdout for a
+      # microk8s line — empty means current. Pure read; the actual
+      # refresh below still runs idempotently inside the cycle block.
+      ansible.builtin.command: snap refresh --list
+      register: _snap_refresh_list
       changed_when: false
+      check_mode: false
 
-    - name: Apt full-upgrade
+    - name: Refresh apt cache to gauge pending upgrades
+      # Match cache_valid_time with the full-upgrade task below so
+      # back-to-back runs share one cache hit.
       ansible.builtin.apt:
-        upgrade: dist
         update_cache: true
         cache_valid_time: 3600
-      environment:
-        NEEDRESTART_MODE: a
+      check_mode: false
 
-    - name: Check whether a reboot is required
+    - name: List upgradable apt packages
+      # stdout_lines[0] is always the "Listing..." header; length > 1
+      # means at least one package would upgrade. LC_ALL=C keeps that
+      # header stable across locales. Treated as "drain warranted" even
+      # if no kernel is involved — containerd/kubelet/glibc upgrades
+      # restart services and we want the node out of rotation first.
+      ansible.builtin.command: apt list --upgradable
+      register: _apt_upgradable_list
+      changed_when: false
+      check_mode: false
+      environment:
+        LC_ALL: C
+
+    - name: Check whether a reboot is already pending
+      # Catches the "prior run installed a kernel but didn't reboot"
+      # case so we still cycle. Re-stat'd post-apt inside the cycle
+      # block to catch kernels this run is about to install.
       ansible.builtin.stat:
         path: /var/run/reboot-required
       register: _reboot_required
@@ -220,74 +202,172 @@
       register: _pve_pending_check
       delegate_to: "{{ pve_node }}"
       changed_when: false
+      check_mode: false
       failed_when: _pve_pending_check.rc not in [0, 1]
 
-    - name: Record whether PVE has pending hardware changes
+    - name: Record probe results for {{ inventory_hostname }}
       ansible.builtin.set_fact:
         _pve_pending: "{{ _pve_pending_check.rc == 0 }}"
+        _snap_channel_mismatch: "{{ _snap_list.stdout_lines[-1].split()[3] != microk8s_channel }}"
+        _snap_refresh_pending: "{{ _snap_refresh_list.stdout_lines | select('match', '^microk8s\\s') | list | length > 0 }}"
+        _apt_upgrades_pending: "{{ _apt_upgradable_list.stdout_lines | length > 1 }}"
 
-    - name: Cold-cycle via PVE to apply pending config on {{ inventory_hostname }}
-      # The cold cycle subsumes /var/run/reboot-required when both
-      # are true — no need to also fire the guest-reboot branch.
-      when: _pve_pending
+    - name: Compute drain-cycle decision for {{ inventory_hostname }}
+      # Cordon + drain are expensive — running them when nothing
+      # would mutate is pure cost. Gate the whole cycle on a single
+      # precomputed fact so a "nothing pending" run no-ops the host
+      # cleanly and the playbook can serve double duty for routine
+      # upgrades and for applying Terraform-driven hardware changes.
+      ansible.builtin.set_fact:
+        _needs_cycle: >-
+          {{ _pve_pending
+             or _reboot_required.stat.exists
+             or _snap_channel_mismatch
+             or _snap_refresh_pending
+             or _apt_upgrades_pending }}
+
+    - name: Report cycle decision for {{ inventory_hostname }}
+      ansible.builtin.debug:
+        msg: >-
+          needs_cycle={{ _needs_cycle }}
+          (pve_pending={{ _pve_pending }},
+          reboot_pending={{ _reboot_required.stat.exists }},
+          snap_channel_mismatch={{ _snap_channel_mismatch }},
+          snap_refresh_pending={{ _snap_refresh_pending }},
+          apt_upgrades_pending={{ _apt_upgrades_pending }})
+
+    - name: Cordon → mutate → reboot → uncordon cycle
+      when: _needs_cycle
       block:
-        - name: Send qm shutdown for {{ inventory_hostname }}
-          # --forceStop 1 forces if the guest doesn't ACPI-shutdown
-          # within --timeout; the node is already drained, so a hard
-          # stop after 5 minutes is safe and keeps the roll moving.
+        - name: Hand off labeled workloads off {{ inventory_hostname }}
+          # Cordons the node and rollout-restarts opt-in Deployments off
+          # it before the drain below fires. See tasks/pre-drain-handoff.yml.
+          ansible.builtin.import_tasks: tasks/pre-drain-handoff.yml
+
+        - name: Drain {{ inventory_hostname }}
+          # 15-minute drain budget. srvk8s1 carries ~50 pods plus the
+          # storage namespace's CronJob fleet; with kubectl's default 5 qps
+          # client-side throttling the eviction loop alone burns ~30s of
+          # request-time, and several workloads have long graceful-shutdown
+          # paths (keycloak-db's 600s preStop + tGPS, prometheus-alertmanager
+          # stateful drain, design-assistant rabbitmq cluster handoff). The
+          # earlier 300s left no room for the slow tail and aborted the play
+          # with most pods successfully evicted but a handful still
+          # Terminating.
           ansible.builtin.command:
             argv:
-              - qm
-              - shutdown
-              - "{{ vm_id }}"
-              - --timeout
-              - "300"
-              - --forceStop
-              - "1"
-          delegate_to: "{{ pve_node }}"
+              - microk8s
+              - kubectl
+              - drain
+              - "{{ inventory_hostname }}"
+              - --ignore-daemonsets
+              - --delete-emptydir-data
+              - --timeout=900s
+          delegate_to: "{{ microk8s_primary_host }}"
+          when: _cluster_peer_count | int > 1
           changed_when: true
 
-        - name: Send qm start for {{ inventory_hostname }}
+        - name: Refresh microk8s to latest revision in {{ microk8s_channel }}
+          # community.general.snap's `state` doesn't include a refresh
+          # option in the version we use (only absent/present/enabled/
+          # disabled). state: present acts on channel mismatches but
+          # leaves the snap pinned to whatever revision was current at
+          # install time — exactly the gap a periodic update playbook is
+          # meant to close. Use the snap CLI directly: `snap refresh
+          # --channel=...` switches channel + pulls latest in one call.
+          # Idempotent via output parsing — snap prints "has no updates
+          # available" when there's nothing to do (output goes to stdout
+          # in modern snap, stderr in older — search both to be safe).
           ansible.builtin.command:
             argv:
-              - qm
-              - start
-              - "{{ vm_id }}"
-          delegate_to: "{{ pve_node }}"
-          changed_when: true
+              - snap
+              - refresh
+              - microk8s
+              - "--channel={{ microk8s_channel }}"
+          register: _snap_refresh
+          changed_when: '"has no updates available" not in (_snap_refresh.stdout + _snap_refresh.stderr)'
 
-        - name: Wait for SSH after cold-cycle of {{ inventory_hostname }}
-          ansible.builtin.wait_for_connection:
-            delay: 30
-            timeout: 600
-
-        - name: Wait for microk8s Ready after cold-cycle of {{ inventory_hostname }}
-          ansible.builtin.command: microk8s status --wait-ready --timeout 240
+        - name: Wait for microk8s Ready post-snap-refresh
+          ansible.builtin.command: microk8s status --wait-ready --timeout 120
           changed_when: false
 
-    - name: Reboot if required (guest-side; no PVE pending)
-      ansible.builtin.reboot:
-        msg: "update-k8s.yml: reboot triggered by /var/run/reboot-required"
-        post_reboot_delay: 30
-        reboot_timeout: 600
-      when:
-        - not _pve_pending
-        - _reboot_required.stat.exists
+        - name: Apt full-upgrade
+          ansible.builtin.apt:
+            upgrade: dist
+            update_cache: true
+            cache_valid_time: 3600
+          environment:
+            NEEDRESTART_MODE: a
 
-    - name: Wait for microk8s Ready post-reboot
-      ansible.builtin.command: microk8s status --wait-ready --timeout 240
-      changed_when: false
-      when:
-        - not _pve_pending
-        - _reboot_required.stat.exists
+        - name: Re-check whether a reboot is now required (post-apt)
+          # apt may have just installed a new kernel/glibc; the
+          # pre-drain stat only captured what was pending at probe time.
+          ansible.builtin.stat:
+            path: /var/run/reboot-required
+          register: _reboot_required
 
-    - name: Uncordon {{ inventory_hostname }}
-      ansible.builtin.command:
-        argv:
-          - microk8s
-          - kubectl
-          - uncordon
-          - "{{ inventory_hostname }}"
-      delegate_to: "{{ microk8s_primary_host }}"
-      when: _cluster_peer_count | int > 1
-      changed_when: true
+        - name: Cold-cycle via PVE to apply pending config on {{ inventory_hostname }}
+          # The cold cycle subsumes /var/run/reboot-required when both
+          # are true — no need to also fire the guest-reboot branch.
+          when: _pve_pending
+          block:
+            - name: Send qm shutdown for {{ inventory_hostname }}
+              # --forceStop 1 forces if the guest doesn't ACPI-shutdown
+              # within --timeout; the node is already drained, so a hard
+              # stop after 5 minutes is safe and keeps the roll moving.
+              ansible.builtin.command:
+                argv:
+                  - qm
+                  - shutdown
+                  - "{{ vm_id }}"
+                  - --timeout
+                  - "300"
+                  - --forceStop
+                  - "1"
+              delegate_to: "{{ pve_node }}"
+              changed_when: true
+
+            - name: Send qm start for {{ inventory_hostname }}
+              ansible.builtin.command:
+                argv:
+                  - qm
+                  - start
+                  - "{{ vm_id }}"
+              delegate_to: "{{ pve_node }}"
+              changed_when: true
+
+            - name: Wait for SSH after cold-cycle of {{ inventory_hostname }}
+              ansible.builtin.wait_for_connection:
+                delay: 30
+                timeout: 600
+
+            - name: Wait for microk8s Ready after cold-cycle of {{ inventory_hostname }}
+              ansible.builtin.command: microk8s status --wait-ready --timeout 240
+              changed_when: false
+
+        - name: Reboot if required (guest-side; no PVE pending)
+          ansible.builtin.reboot:
+            msg: "update-k8s.yml: reboot triggered by /var/run/reboot-required"
+            post_reboot_delay: 30
+            reboot_timeout: 600
+          when:
+            - not _pve_pending
+            - _reboot_required.stat.exists
+
+        - name: Wait for microk8s Ready post-reboot
+          ansible.builtin.command: microk8s status --wait-ready --timeout 240
+          changed_when: false
+          when:
+            - not _pve_pending
+            - _reboot_required.stat.exists
+
+        - name: Uncordon {{ inventory_hostname }}
+          ansible.builtin.command:
+            argv:
+              - microk8s
+              - kubectl
+              - uncordon
+              - "{{ inventory_hostname }}"
+          delegate_to: "{{ microk8s_primary_host }}"
+          when: _cluster_peer_count | int > 1
+          changed_when: true
