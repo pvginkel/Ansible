@@ -41,6 +41,15 @@
     mode: "0644"
   notify: Restart docker
 
+# Force the docker restart now so a later failure (e.g. the deliberate
+# secrets-missing gate below) can't strand the handler. Without this,
+# a first apply against a fresh host fails at the secrets check, the
+# Restart docker handler never fires, and the next apply finds
+# daemon.json unchanged so nothing notifies the handler again — net
+# result: docker is running without insecure-registries.
+- name: Apply pending handlers before the secrets gate
+  ansible.builtin.meta: flush_handlers
+
 - name: Ensure /etc/iac exists
   ansible.builtin.file:
     path: /etc/iac
