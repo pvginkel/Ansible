@@ -18,6 +18,9 @@
 		},
 		{
 			"path": "../KubernetesConfig"
+		},
+		{
+			"path": "../HelmCharts"
 		}
 	],
 	"settings": {}
