@@ -17,15 +17,11 @@ LOCKFILE="/var/lock/iac.lock"
 SECRETS_FILE="/etc/iac/secrets.yaml"
 IAC_IMPL="/usr/local/bin/iac-impl"
 
-# Existence check only — not readability. The docker daemon (running as
-# root) does the bind-mount regardless of who invoked docker run, so a
-# non-root caller (e.g. pvginkel from a normal shell, or the Jenkins
-# inbound-agent's `jenkins` user) can still launch iac successfully
-# even though the file is 0600 root-owned.
-if [[ ! -e "$SECRETS_FILE" ]]; then
-    echo "iac: $SECRETS_FILE missing — populate before running" >&2
-    exit 1
-fi
+# No host-side existence probe for $SECRETS_FILE — iac is often invoked
+# from contexts (e.g. the Jenkins inbound-agent container) where that
+# path isn't visible. The `--mount` below asks the docker daemon to
+# bind it from the host, and the daemon errors loudly with "bind source
+# path does not exist" if it's missing.
 
 if [[ ! -x "$IAC_IMPL" ]]; then
     echo "iac: $IAC_IMPL missing — run IaCAgent's install.sh" >&2
@@ -59,7 +55,7 @@ echo "$$" > "$LOCKFILE" 2>/dev/null || true
 # from Jenkins (`iac -c 'send_message.py ...'`) work without baking
 # the script into iac.
 docker run "${docker_flags[@]}" \
-    -v "$SECRETS_FILE:$SECRETS_FILE:ro" \
+    --mount "type=bind,source=$SECRETS_FILE,target=$SECRETS_FILE,readonly" \
     -v "$IAC_IMPL:/usr/local/bin/iac-impl:ro" \
     -v /usr/local/bin/send_message.py:/usr/local/bin/send_message.py:ro \
     -v /usr/local/bin/check-protected-vms.sh:/usr/local/bin/check-protected-vms.sh:ro \

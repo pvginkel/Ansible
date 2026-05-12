@@ -37,9 +37,9 @@ docker_gid=$(stat -c %g /var/run/docker.sock)
 # host and agent. The docker socket + binary let iac spawn sibling
 # containers as if it were running on the host.
 #
-# /etc/iac/secrets.yaml is *not* mounted here — the agent never reads
-# it directly; iac passes the host path to docker run, and the docker
-# daemon (root) mounts it into the iac container.
+# /etc/iac/secrets.yaml is intentionally not mounted into this agent.
+# The agent never reads it; iac passes the host path to docker run and
+# the daemon (root) mounts it into the iac container directly.
 exec docker run --rm \
     --name "$CONTAINER_NAME" \
     --network host \
