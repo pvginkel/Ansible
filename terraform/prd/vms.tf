@@ -143,6 +143,34 @@ locals {
       ]
     }
 
+    srviac = {
+      vm_id          = 920
+      pve_node       = "pve"
+      workload_class = "background"
+      from_scratch   = true
+      description    = "IaC orchestrator VM — runs Terraform + Ansible against the homelab. Phase 1 (iac-agent). OS managed by Ansible (iac_agent group)."
+      tags           = ["ansible-managed", "terraform", "iac"]
+      bios           = "ovmf"
+      machine        = "q35"
+
+      cpu_cores   = 2
+      cpu_sockets = 1
+      memory_mb   = 3 * 1024
+
+      managed_disks = [
+        { interface = "scsi0", size = 32 },
+      ]
+
+      # Single NIC on vmbr0 — dynamic homelab_dns_reservation (not
+      # bring-up-tier). Deterministic MAC: VMID 920 = 0x0398.
+      network_devices = [
+        {
+          bridge      = "vmbr0"
+          mac_address = "02:A7:F3:03:98:00"
+        },
+      ]
+    }
+
     srvk8s1 = {
       vm_id          = 910
       pve_node       = "pve"

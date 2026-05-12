@@ -1,5 +1,13 @@
-# Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored.
-# Or set TF_VAR_proxmox_password / TF_VAR_proxmox_endpoint in the shell.
+# Two ways to provide these values, depending on where terraform runs:
+#
+# 1. **In production (via srviac / `iac` shim).** Don't create
+#    terraform.tfvars at all. `iac-impl` exports the same values as
+#    `TF_VAR_*` from `/etc/iac/secrets.yaml` before running terraform.
+#    See AnsibleSpecs/phases/iac-agent.md.
+#
+# 2. **From the operator workstation (break-glass / srviac mutation).**
+#    Copy this file to terraform.tfvars (gitignored) and fill in, or
+#    export the corresponding TF_VAR_* env vars in your shell.
 
 proxmox_endpoint = "https://pve.home:8006/"
 proxmox_username = "root@pam"
