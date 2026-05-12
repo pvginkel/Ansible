@@ -39,17 +39,25 @@ fi
 # while docker runs so the lock is held for the whole invocation.
 exec 9>"$LOCKFILE"
 if ! flock -w 60 -x 9; then
-    holder=$(fuser "$LOCKFILE" 2>&1 | sed -n 's|.*:[[:space:]]*||p' | head -n1)
+    # The previous holder wrote its PID into the file when it acquired
+    # the lock; read it for diagnostics. Best-effort — flock owns the
+    # real interlock.
+    holder=$(cat "$LOCKFILE" 2>/dev/null || true)
     echo "iac: could not acquire $LOCKFILE within 60s (held by PID ${holder:-unknown})" >&2
     exit 1
 fi
 
-# Record our PID for the next contender (best effort; flock owns the
-# real interlock).
+# Record our PID for the next contender.
 echo "$$" > "$LOCKFILE" 2>/dev/null || true
 
+# send_message.py is bind-mounted so post-stage failure notifications
+# from Jenkins (`iac -c 'send_message.py ...'`) work without baking
+# the script into modern-app-dev.
 docker run "${docker_flags[@]}" \
     -v "$SECRETS_FILE:$SECRETS_FILE:ro" \
     -v "$IAC_IMPL:/usr/local/bin/iac-impl:ro" \
+    -v /usr/local/bin/send_message.py:/usr/local/bin/send_message.py:ro \
+    -v /usr/local/bin/check-protected-vms.sh:/usr/local/bin/check-protected-vms.sh:ro \
+    -v /usr/local/bin/check-ansible-drift.sh:/usr/local/bin/check-ansible-drift.sh:ro \
     "$IMAGE" \
     /usr/local/bin/iac-impl "$@"

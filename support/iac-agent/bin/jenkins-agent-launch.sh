@@ -27,6 +27,11 @@ fi
 # socket without running the container as root.
 docker_gid=$(stat -c %g /var/run/docker.sock)
 
+# The agent container's `sh` steps invoke `iac` directly; mount the
+# shim and its sibling helpers in so they're on the agent's PATH.
+# /var/lock is mounted so the flock acquired by iac is visible across
+# host and agent. The docker socket + binary let iac spawn sibling
+# containers as if it were running on the host.
 exec docker run --rm \
     --name "$CONTAINER_NAME" \
     --network host \
@@ -35,6 +40,9 @@ exec docker run --rm \
     -v /usr/bin/docker:/usr/bin/docker:ro \
     -v /var/lock:/var/lock \
     -v "$SECRETS_FILE:$SECRETS_FILE:ro" \
+    -v /usr/local/bin/iac:/usr/local/bin/iac:ro \
+    -v /usr/local/bin/iac-impl:/usr/local/bin/iac-impl:ro \
+    -v /usr/local/bin/send_message.py:/usr/local/bin/send_message.py:ro \
     "$AGENT_IMAGE" \
     -url "$CONTROLLER_URL" \
     -name "$AGENT_NAME" \

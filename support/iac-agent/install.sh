@@ -7,6 +7,8 @@
 #   /usr/local/bin/iac-impl
 #   /usr/local/bin/send_message.py
 #   /usr/local/bin/jenkins-agent-launch.sh
+#   /usr/local/bin/check-protected-vms.sh
+#   /usr/local/bin/check-ansible-drift.sh
 #   /etc/docker/daemon.json
 #   /etc/cron.d/iac-prune
 #   /etc/systemd/system/jenkins-agent.service
@@ -46,6 +48,8 @@ install_file 0755 "$REPO_DIR/bin/iac"                          /usr/local/bin/ia
 install_file 0755 "$REPO_DIR/bin/iac-impl"                     /usr/local/bin/iac-impl
 install_file 0755 "$REPO_DIR/bin/send_message.py"              /usr/local/bin/send_message.py
 install_file 0755 "$REPO_DIR/bin/jenkins-agent-launch.sh"      /usr/local/bin/jenkins-agent-launch.sh
+install_file 0755 "$REPO_DIR/bin/check-protected-vms.sh"       /usr/local/bin/check-protected-vms.sh
+install_file 0755 "$REPO_DIR/bin/check-ansible-drift.sh"       /usr/local/bin/check-ansible-drift.sh
 install_file 0644 "$REPO_DIR/etc/docker/daemon.json"           /etc/docker/daemon.json
 install_file 0644 "$REPO_DIR/etc/cron.d/iac-prune"             /etc/cron.d/iac-prune
 
