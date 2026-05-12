@@ -31,7 +31,7 @@ The Jenkins controller config for each job points at its `Jenkinsfile` here; all
 ```sh
 iac                              # interactive bash inside the container
 iac -c '<shell script>'          # run the script inside the container
-iac -q -c '<shell script>'       # same, but suppress iac-impl's setup-progress prints
+iac -v -c '<shell script>'       # same, with iac-impl's setup-progress prints
 ```
 
 Both hold `/var/lock/iac.lock` via `flock -w 60`. One call = one lock — compose multi-step work into a single `iac -c '…'` rather than chaining calls.

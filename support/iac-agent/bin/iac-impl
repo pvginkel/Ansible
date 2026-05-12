@@ -23,15 +23,16 @@ STATE_REPO_PATH="github.com/pvginkel/TerraformState.git"
 GIT_USER_NAME="iac-agent"
 GIT_USER_EMAIL="iac-agent@srviac.home"
 
-QUIET=0
+VERBOSE=0
 
-# Parse leading flags. -q / --quiet suppresses the setup progress
-# prints. Stops at the first non-flag arg so `-c '<script>'` reaches
-# the dispatch block intact.
+# Parse leading flags. -v / --verbose enables the setup-progress
+# prints (silent by default — startup is fast enough not to need
+# narration). Stops at the first non-flag arg so `-c '<script>'`
+# reaches the dispatch block intact.
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        -q|--quiet)
-            QUIET=1
+        -v|--verbose)
+            VERBOSE=1
             shift
             ;;
         *)
@@ -41,7 +42,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 step() {
-    if [[ $QUIET -eq 0 ]]; then
+    if [[ $VERBOSE -eq 1 ]]; then
         printf 'iac-impl: %s\n' "$*" >&2
     fi
 }
@@ -137,8 +138,8 @@ elif [[ "$1" == "-c" && $# -eq 2 ]]; then
     sh -c "$2" || exit_code=$?
 else
     echo "iac-impl: unrecognised arguments: $*" >&2
-    echo "Usage: iac-impl [-q]              (interactive bash)" >&2
-    echo "       iac-impl [-q] -c <script>  (single-arg shell script)" >&2
+    echo "Usage: iac-impl [-v]              (interactive bash)" >&2
+    echo "       iac-impl [-v] -c <script>  (single-arg shell script)" >&2
     exit 2
 fi
 
