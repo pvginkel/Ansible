@@ -1,7 +1,7 @@
 // iac-scheduled-update — weekly cluster maintenance via update-k8s.yml.
 // Idempotent: no-op when no upgrades are pending.
 //
-// Future stages: update-ceph, the srvvault reboot window. Reboot
+// Future stages: update-ceph, the OpenBao reboot window. Reboot
 // stagger is enforced by the play order itself.
 //
 // Controller config:

@@ -22,12 +22,37 @@ STATE_REPO_PATH="github.com/pvginkel/TerraformState.git"
 GIT_USER_NAME="iac-agent"
 GIT_USER_EMAIL="iac-agent@srviac.home"
 
+QUIET=0
+
+# Parse leading flags. -q / --quiet suppresses the setup progress
+# prints. Stops at the first non-flag arg so `-c '<script>'` reaches
+# the dispatch block intact.
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -q|--quiet)
+            QUIET=1
+            shift
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+step() {
+    if [[ $QUIET -eq 0 ]]; then
+        printf 'iac-impl: %s\n' "$*" >&2
+    fi
+}
+
 if [[ ! -r "$SECRETS_FILE" ]]; then
     echo "iac-impl: $SECRETS_FILE missing or unreadable" >&2
     exit 1
 fi
 
 # ----- 1) Parse secrets.yaml -----------------------------------------
+
+step "parsing $SECRETS_FILE"
 
 # env: entries — null-delimited TSV survives newlines in values.
 while IFS=$'\t' read -r -d '' name value; do
@@ -60,13 +85,16 @@ fi
 
 mkdir -p "$WORK"
 git config --global init.defaultBranch main
+step "cloning pvginkel/Ansible"
 git clone --quiet --depth 1 "https://${GIT_API_TOKEN}@${ANSIBLE_REPO_PATH}" "$WORK/Ansible"
+step "cloning pvginkel/TerraformState"
 git clone --quiet --depth 1 "https://${GIT_API_TOKEN}@${STATE_REPO_PATH}" "$WORK/TerraformState"
 git -C "$WORK/TerraformState" config user.name "$GIT_USER_NAME"
 git -C "$WORK/TerraformState" config user.email "$GIT_USER_EMAIL"
 
 # ----- 3) State files: sync in ---------------------------------------
 
+step "syncing terraform state files in"
 for scope in "${SCOPES[@]}"; do
     src="$WORK/TerraformState/$scope/terraform.tfstate"
     dst="$WORK/Ansible/terraform/$scope/terraform.tfstate"
@@ -78,12 +106,23 @@ done
 
 # ----- 4) poetry install ---------------------------------------------
 
-(cd "$WORK/Ansible/ansible" && poetry install --no-root --quiet)
-# Put the venv's bin on PATH so `ansible-playbook` is callable directly
-# without `poetry run` boilerplate in every caller.
-export PATH="$WORK/Ansible/ansible/.venv/bin:$PATH"
+# pyproject.toml lives at the Ansible repo root, not inside ansible/.
+# Run poetry from the root and resolve the venv path via `poetry env
+# info --path` — the venv may be in-project (./.venv) or in poetry's
+# cache (~/.cache/pypoetry/virtualenvs/...), depending on poetry.toml.
+step "installing Python dependencies (poetry install)"
+(cd "$WORK/Ansible" && poetry install --no-root --quiet)
+
+venv_path=$(cd "$WORK/Ansible" && poetry env info --path 2>/dev/null || true)
+if [[ -n "$venv_path" && -d "$venv_path/bin" ]]; then
+    export PATH="$venv_path/bin:$PATH"
+else
+    echo "iac-impl: warning — could not locate poetry venv; ansible-playbook will require 'poetry run'" >&2
+fi
 
 # ----- 5) Run user command -------------------------------------------
+
+step "ready"
 
 cd "$WORK"
 exit_code=0
@@ -93,8 +132,8 @@ elif [[ "$1" == "-c" && $# -eq 2 ]]; then
     sh -c "$2" || exit_code=$?
 else
     echo "iac-impl: unrecognised arguments: $*" >&2
-    echo "Usage: iac-impl              (interactive bash)" >&2
-    echo "       iac-impl -c <script>  (single-arg shell script)" >&2
+    echo "Usage: iac-impl [-q]              (interactive bash)" >&2
+    echo "       iac-impl [-q] -c <script>  (single-arg shell script)" >&2
     exit 2
 fi
 

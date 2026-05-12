@@ -21,7 +21,7 @@ Host glue for `srviac`, the homelab's IaC orchestrator VM. See [`AnsibleSpecs/ph
 `jenkins/` holds the three pipeline scripts:
 
 - **`jenkins/iac-on-push/Jenkinsfile`** — fires on push to `main` on `pvginkel/Ansible`. Sequential: plan + destroy-check, terraform apply, `site.yml --limit '!iac_agent'`, `update-k8s.yml`. Each stage holds the IaC mutex via `iac -c`.
-- **`jenkins/iac-scheduled-update/Jenkinsfile`** — weekly cron. Runs `update-k8s.yml`. Future stages cover `update-ceph` and the srvvault reboot window.
+- **`jenkins/iac-scheduled-update/Jenkinsfile`** — weekly cron. Runs `update-k8s.yml`. Future stages cover `update-ceph` and the OpenBao reboot window.
 - **`jenkins/iac-scheduled-drift/Jenkinsfile`** — daily cron. `terraform plan -detailed-exitcode` against prd plus `check-ansible-drift.sh playbooks/site.yml`. Push-notifies on detected drift.
 
 The Jenkins controller config for each job points at its `Jenkinsfile` here; all three run on the `iac-controller`-labelled agent.
@@ -31,9 +31,12 @@ The Jenkins controller config for each job points at its `Jenkinsfile` here; all
 ```sh
 iac                              # interactive bash inside the container
 iac -c '<shell script>'          # run the script inside the container
+iac -q -c '<shell script>'       # same, but suppress iac-impl's setup-progress prints
 ```
 
 Both hold `/var/lock/iac.lock` via `flock -w 60`. One call = one lock — compose multi-step work into a single `iac -c '…'` rather than chaining calls.
+
+Inside the container `ansible-playbook` and friends are on `$PATH` directly — `iac-impl` runs `poetry install` and resolves the venv via `poetry env info --path`, so callers don't need `poetry run`.
 
 Inside the container, `iac-impl` (bind-mounted in from this repo's `bin/iac-impl`):
 
