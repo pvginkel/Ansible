@@ -8,7 +8,11 @@ set -euo pipefail
 SECRETS_FILE="/etc/iac/secrets.yaml"
 CONTROLLER_URL="https://jenkins.webathome.org/"
 AGENT_NAME="IaC Agent"
-AGENT_WORKDIR="/work"
+# Inbound-agent image runs as user `jenkins` (uid 1000) whose $HOME is
+# /home/jenkins; that's the only path the agent process can mkdir into.
+# The pipelines don't use this workspace — every step shells into the
+# iac container, which has its own /work — so anywhere writable works.
+AGENT_WORKDIR="/home/jenkins/agent"
 AGENT_IMAGE="jenkins/inbound-agent:latest"
 CONTAINER_NAME="jenkins-agent"
 
@@ -51,5 +55,4 @@ exec docker run --rm \
     -name "$AGENT_NAME" \
     -workDir "$AGENT_WORKDIR" \
     -webSocket \
-    "$secret" \
-    "$AGENT_NAME"
+    -secret "$secret"
