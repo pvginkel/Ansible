@@ -66,15 +66,49 @@
     enabled: true
     state: started
 
-# Updates are managed by Ansible (a future update.yml playbook). Purge
-# unattended-upgrades so there's a single, observable update mechanism — no
-# silent fallback to Ubuntu's defaults if our config file is removed. See
-# /work/AnsibleSpecs/decisions.md "OS updates".
-- name: Purge unattended-upgrades
+- name: Validate baseline_os_update_class
+  ansible.builtin.assert:
+    that:
+      - baseline_os_update_class in ['cluster', 'standalone']
+    fail_msg: "baseline_os_update_class must be 'cluster' or 'standalone'; got '{{ baseline_os_update_class }}'."
+
+# Cluster-class hosts (k8s, ceph): Ansible owns OS updates via the
+# update.yml playbook. Purge unattended-upgrades so there's a single,
+# observable update mechanism — no silent fallback to Ubuntu's defaults
+# if our config file is removed. See decisions.md "OS updates".
+- name: Purge unattended-upgrades (cluster class)
   ansible.builtin.apt:
     name: unattended-upgrades
     state: absent
     purge: true
+  when: baseline_os_update_class == 'cluster'
+
+# Standalone-class hosts (srviac, future srvvault): unattended-upgrades
+# handles security updates and reboots in a quiet window. Cluster hosts
+# cannot reboot themselves without drain coordination; standalone hosts
+# can.
+- name: Install unattended-upgrades (standalone class)
+  ansible.builtin.apt:
+    name: unattended-upgrades
+    state: present
+  environment:
+    NEEDRESTART_MODE: a
+  when: baseline_os_update_class == 'standalone'
+
+- name: Configure unattended-upgrades auto-reboot (standalone class)
+  ansible.builtin.template:
+    src: unattended-upgrades-iac.conf.j2
+    dest: /etc/apt/apt.conf.d/99-unattended-upgrades-iac
+    owner: root
+    group: root
+    mode: "0644"
+  when: baseline_os_update_class == 'standalone'
+
+- name: Remove our unattended-upgrades drop-in when class is not standalone
+  ansible.builtin.file:
+    path: /etc/apt/apt.conf.d/99-unattended-upgrades-iac
+    state: absent
+  when: baseline_os_update_class != 'standalone'
 
 - name: Install per-host extra packages
   ansible.builtin.apt:

@@ -19,6 +19,23 @@ baseline_install_recommends: true
 # rolling a host forward during a maintenance window.
 baseline_apt_dist_upgrade: false
 
+# OS update policy for this host. See decisions.md "OS updates".
+#   cluster    — k8s/ceph nodes. unattended-upgrades is purged; the
+#                update.yml playbook owns drain+upgrade+reboot.
+#   standalone — VMs like srviac and (future) srvvault. unattended-
+#                upgrades is installed and configured to auto-reboot
+#                in a quiet window per `baseline_unattended_reboot_time`.
+# Default 'cluster' matches the prior unconditional purge so existing
+# hosts behave the same on the first run after this var is introduced;
+# flip to 'standalone' in group_vars/<group>.yml or host_vars/<host>.yml.
+baseline_os_update_class: cluster
+
+# When `baseline_os_update_class == 'standalone'`, the time of day
+# (local) at which unattended-upgrades reboots if a reboot is required.
+# Stagger reboot windows across standalone hosts so simultaneous restarts
+# don't compound failure modes (operator design rule).
+baseline_unattended_reboot_time: "03:00"
+
 # MOTD scripts to strip the execute bit from — matches the chmod -x list
 # in /work/Obsidian/Linux.md.
 baseline_disabled_motd_scripts:

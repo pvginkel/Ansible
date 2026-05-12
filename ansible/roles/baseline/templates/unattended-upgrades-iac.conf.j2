@@ -1,0 +1,9 @@
+// Managed by Ansible (baseline role; see baseline_os_update_class).
+// Standalone-class hosts apply security updates from the Ubuntu defaults
+// in /etc/apt/apt.conf.d/50unattended-upgrades and auto-reboot in the
+// configured quiet window. Stagger reboot times across standalone hosts
+// to avoid compounded failure modes during a shared restart.
+
+Unattended-Upgrade::Automatic-Reboot "true";
+Unattended-Upgrade::Automatic-Reboot-Time "{{ baseline_unattended_reboot_time }}";
+Unattended-Upgrade::Automatic-Reboot-WithUsers "true";
