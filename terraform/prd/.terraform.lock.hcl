@@ -67,5 +67,6 @@ provider "registry.terraform.io/pvginkel/homelab" {
   version = "0.1.0"
   hashes = [
     "h1:4E4juIp0DbZu5tVZvfuRfIJOUOaoXikocIz3GwKcLo8=",
+    "h1:D3a8zqB7TeY94Xm+r88X31/rXtOWgERY6iDMzhkpDcM=",
   ]
 }
