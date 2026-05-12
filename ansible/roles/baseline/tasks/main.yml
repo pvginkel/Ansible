@@ -50,6 +50,22 @@
   # bare metal is 'NA'.
   when: ansible_facts['virtualization_role'] == 'guest'
 
+# Scraped by the in-cluster Prometheus. Universal across every managed
+# host so observability coverage is uniform. The package ships a
+# systemd unit listening on :9100 with sensible defaults.
+- name: Install prometheus-node-exporter
+  ansible.builtin.apt:
+    name: prometheus-node-exporter
+    state: present
+  environment:
+    NEEDRESTART_MODE: a
+
+- name: Enable prometheus-node-exporter
+  ansible.builtin.systemd:
+    name: prometheus-node-exporter
+    enabled: true
+    state: started
+
 # Updates are managed by Ansible (a future update.yml playbook). Purge
 # unattended-upgrades so there's a single, observable update mechanism — no
 # silent fallback to Ubuntu's defaults if our config file is removed. See

@@ -7,6 +7,7 @@ Applies OS hygiene to a managed Ubuntu host. Ported from `/work/Obsidian/Linux.m
 - Sets timezone to `Europe/Amsterdam` (override: `baseline_timezone`).
 - Refreshes the apt cache; optionally runs `apt dist-upgrade` when `baseline_apt_dist_upgrade: true` (off by default — see "Updates" below for the longer story).
 - Installs `qemu-guest-agent` and enables the service.
+- Installs and enables `prometheus-node-exporter`. Universal across every managed host so the in-cluster Prometheus has uniform visibility. Pointing Prometheus at the new targets is a HelmCharts change, separate from this role.
 - **Purges `unattended-upgrades`** — Ansible owns OS updates, not the OS. Removing the package (vs. deleting only our config) prevents Ubuntu's defaults from silently re-enabling background updates.
 - Installs per-host extras via `baseline_extra_packages` (empty by default). Override in `host_vars/<host>.yml` or `group_vars/<group>.yml`:
   ```yaml
