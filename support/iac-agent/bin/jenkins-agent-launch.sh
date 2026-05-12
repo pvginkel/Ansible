@@ -51,4 +51,5 @@ exec docker run --rm \
     -name "$AGENT_NAME" \
     -workDir "$AGENT_WORKDIR" \
     -webSocket \
-    "$secret"
+    "$secret" \
+    "$AGENT_NAME"
