@@ -18,7 +18,12 @@
   register: managed_filesystems_qm_config
   changed_when: false
   check_mode: false
-  delegate_to: "{{ pve_node }}"
+  # default(...) so this task can also be scheduled (and then skipped
+  # by `when`) on hosts that have no pve_node — namely PVE hosts
+  # themselves, which inherit the role via site.yml's `managed` play.
+  # delegate_to is resolved before `when` is evaluated, so an
+  # undefined pve_node would otherwise fail at scheduling.
+  delegate_to: "{{ pve_node | default(inventory_hostname) }}"
   when: managed_filesystems_volumes | length > 0
 
 - name: Reconcile each declared filesystem
