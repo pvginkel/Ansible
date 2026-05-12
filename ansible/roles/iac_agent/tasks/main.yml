@@ -8,6 +8,16 @@
   environment:
     NEEDRESTART_MODE: a
 
+# pvginkel needs docker group membership to invoke `iac` without sudo
+# (iac runs `docker run`, which requires either root or docker group).
+# Re-login is required after the first add for the group to take
+# effect in an existing shell.
+- name: Add pvginkel to the docker group
+  ansible.builtin.user:
+    name: pvginkel
+    groups: docker
+    append: true
+
 - name: Ensure /etc/docker exists
   ansible.builtin.file:
     path: /etc/docker
