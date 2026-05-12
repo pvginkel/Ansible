@@ -1,0 +1,81 @@
+---
+- name: Install Docker engine
+  ansible.builtin.apt:
+    name:
+      - docker.io
+      - docker-compose-v2
+    state: present
+  environment:
+    NEEDRESTART_MODE: a
+
+- name: Ensure /etc/docker exists
+  ansible.builtin.file:
+    path: /etc/docker
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# `registry:5000` resolves under the .home search domain DHCP provides.
+# The image registry serves HTTP without TLS, so it must be declared
+# insecure for the Docker daemon to pull from it.
+- name: Configure Docker insecure-registries for the local registry
+  ansible.builtin.copy:
+    dest: /etc/docker/daemon.json
+    content: |
+      {
+        "insecure-registries": ["registry:5000"]
+      }
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart docker
+
+- name: Ensure /etc/iac exists
+  ansible.builtin.file:
+    path: /etc/iac
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# Operator-curated secrets file. `force: no` so re-runs of this role
+# never clobber values the operator typed in. On a fresh srviac (no
+# secrets.yaml yet), the role places secrets.example.yaml as a starter
+# and then fails loudly so the operator notices "you need to populate
+# secrets" before anything else runs against bad credentials.
+- name: Place secrets.example.yaml on a fresh host
+  ansible.builtin.copy:
+    src: "{{ iac_agent_local_checkout }}/etc/iac/secrets.example.yaml"
+    dest: /etc/iac/secrets.example.yaml
+    owner: root
+    group: root
+    mode: "{{ iac_agent_secrets_mode }}"
+
+- name: Check whether /etc/iac/secrets.yaml exists
+  ansible.builtin.stat:
+    path: /etc/iac/secrets.yaml
+  register: iac_agent_secrets_stat
+
+- name: Fail loudly when secrets.yaml is missing
+  ansible.builtin.fail:
+    msg: |
+      /etc/iac/secrets.yaml is missing on {{ inventory_hostname }}.
+      Copy /etc/iac/secrets.example.yaml to /etc/iac/secrets.yaml,
+      hand-edit the values, then re-run this role.
+  when: not iac_agent_secrets_stat.stat.exists
+
+- name: Sync IaCAgent checkout to the target host
+  ansible.posix.synchronize:
+    src: "{{ iac_agent_local_checkout }}/"
+    dest: "{{ iac_agent_install_dir }}/"
+    delete: true
+    recursive: true
+    rsync_opts:
+      - "--exclude=.git"
+  notify: Run IaCAgent install.sh
+
+- name: Ensure IaCAgent install.sh is executable
+  ansible.builtin.file:
+    path: "{{ iac_agent_install_dir }}/install.sh"
+    mode: "0755"

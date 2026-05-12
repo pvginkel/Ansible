@@ -1,0 +1,14 @@
+---
+# Local checkout of the IaCAgent repo on the Ansible controller. The
+# role syncs this tree onto the target host and runs its install.sh.
+# Path is relative to the playbook (ansible/playbooks/), so the operator
+# layout `/work/{Ansible,IaCAgent}` and the in-container layout
+# `/work/{Ansible,IaCAgent}` both resolve correctly.
+iac_agent_local_checkout: "{{ playbook_dir }}/../../../IaCAgent"
+
+# Where IaCAgent lives on the target host. install.sh reads from here.
+iac_agent_install_dir: /opt/IaCAgent
+
+# Permissions on /etc/iac/secrets.yaml. Plaintext on disk per
+# decisions.md "OpenBao backup / DR" rationale; mode 0600 root-owned.
+iac_agent_secrets_mode: "0600"

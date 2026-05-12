@@ -1,0 +1,9 @@
+---
+- name: Restart docker
+  ansible.builtin.systemd:
+    name: docker
+    state: restarted
+
+- name: Run IaCAgent install.sh
+  ansible.builtin.command: "{{ iac_agent_install_dir }}/install.sh"
+  changed_when: true
