@@ -1,0 +1,6 @@
+---
+# Standalone OS update class: unattended-upgrades + auto-reboot in a
+# quiet window. The reboot time defaults to 03:00; pick something else
+# explicitly here when a second standalone host (srvvault) lands so the
+# two don't reboot simultaneously.
+baseline_os_update_class: standalone

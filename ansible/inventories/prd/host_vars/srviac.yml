@@ -1,0 +1,4 @@
+---
+vm_id: 920
+pve_node: pve
+workload_class: background

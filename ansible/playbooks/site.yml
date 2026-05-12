@@ -21,3 +21,14 @@
   gather_facts: true
   roles:
     - role: proxmox_host
+
+- name: Apply iac_agent role to srviac
+  # Self-mutation safety lives at the call site, not here — the
+  # iac-on-push Jenkins job passes --limit '!iac_agent' so the
+  # orchestrator never re-applies itself. Operator workstation runs
+  # `site.yml --limit srviac` for agent-VM mutation.
+  hosts: iac_agent
+  become: true
+  gather_facts: true
+  roles:
+    - role: iac_agent
