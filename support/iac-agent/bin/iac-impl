@@ -8,7 +8,8 @@
 #      entries at their declared mode.
 #   2. Clone pvginkel/Ansible and pvginkel/TerraformState into /work/.
 #   3. Copy state files in from TerraformState into the Ansible clone.
-#   4. `poetry install` inside ansible/ so ansible-playbook is on PATH.
+#   4. Warn if the baked /app/.venv looks stale relative to the
+#      cloned pyproject.toml/poetry.lock (image rebuild is pending).
 #   5. Run interactive bash (no args) or `sh -c "$1"` (`-c` form).
 #   6. On exit, copy state files out, commit + push if anything changed.
 
@@ -104,20 +105,24 @@ for scope in "${SCOPES[@]}"; do
     fi
 done
 
-# ----- 4) poetry install ---------------------------------------------
+# ----- 4) verify the baked Python venv is fresh ----------------------
 
-# pyproject.toml lives at the Ansible repo root, not inside ansible/.
-# Run poetry from the root and resolve the venv path via `poetry env
-# info --path` — the venv may be in-project (./.venv) or in poetry's
-# cache (~/.cache/pypoetry/virtualenvs/...), depending on poetry.toml.
-step "installing Python dependencies (poetry install)"
-(cd "$WORK/Ansible" && poetry install --no-root --quiet)
-
-venv_path=$(cd "$WORK/Ansible" && poetry env info --path 2>/dev/null || true)
-if [[ -n "$venv_path" && -d "$venv_path/bin" ]]; then
-    export PATH="$venv_path/bin:$PATH"
-else
-    echo "iac-impl: warning — could not locate poetry venv; ansible-playbook will require 'poetry run'" >&2
+# The container ships /app/.venv pre-built from pyproject.toml +
+# poetry.lock at image-build time, and the image's ENV puts
+# /app/.venv/bin on PATH — so ansible-playbook resolves without us
+# touching anything here.
+#
+# The image is rebuilt automatically on every push to pvginkel/Ansible.
+# Between push and rebuild-complete there's a window where the cloned
+# poetry.lock is ahead of the image's bake. Warn loudly when that
+# happens so the operator knows to wait + re-pull before relying on
+# the run; we don't hard-fail because most iac calls (terraform-only,
+# anything that doesn't touch new deps) still work fine.
+if [[ ! -f /app/poetry.lock ]]; then
+    echo "iac-impl: WARNING — no /app/poetry.lock found; this image is not the expected iac image. ansible-playbook may not be on PATH." >&2
+elif ! cmp -s /app/poetry.lock "$WORK/Ansible/poetry.lock"; then
+    echo "iac-impl: WARNING — /work/Ansible/poetry.lock differs from the image's baked /app/poetry.lock." >&2
+    echo "iac-impl: WARNING — ansible may run with stale dependencies. Wait for the iac image rebuild to land, then re-pull." >&2
 fi
 
 # ----- 5) Run user command -------------------------------------------
