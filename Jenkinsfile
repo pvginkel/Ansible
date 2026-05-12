@@ -1,13 +1,7 @@
-import org.jenkinsci.plugins.pipeline.modeldefinition.Utils
-
 library('JenkinsPipelineUtils') _
 
 podTemplate(inheritFrom: 'jenkins-agent kaniko') {
     node(POD_LABEL) {
-        def variants
-        def descendants
-        def built = false
-
         stage('Cloning repo') {
             checkout scm
         }
