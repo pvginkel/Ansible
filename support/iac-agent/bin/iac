@@ -17,8 +17,13 @@ LOCKFILE="/var/lock/iac.lock"
 SECRETS_FILE="/etc/iac/secrets.yaml"
 IAC_IMPL="/usr/local/bin/iac-impl"
 
-if [[ ! -r "$SECRETS_FILE" ]]; then
-    echo "iac: $SECRETS_FILE missing or unreadable — populate before running" >&2
+# Existence check only — not readability. The docker daemon (running as
+# root) does the bind-mount regardless of who invoked docker run, so a
+# non-root caller (e.g. pvginkel from a normal shell, or the Jenkins
+# inbound-agent's `jenkins` user) can still launch iac successfully
+# even though the file is 0600 root-owned.
+if [[ ! -e "$SECRETS_FILE" ]]; then
+    echo "iac: $SECRETS_FILE missing — populate before running" >&2
     exit 1
 fi
 

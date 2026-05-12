@@ -32,6 +32,10 @@ docker_gid=$(stat -c %g /var/run/docker.sock)
 # /var/lock is mounted so the flock acquired by iac is visible across
 # host and agent. The docker socket + binary let iac spawn sibling
 # containers as if it were running on the host.
+#
+# /etc/iac/secrets.yaml is *not* mounted here — the agent never reads
+# it directly; iac passes the host path to docker run, and the docker
+# daemon (root) mounts it into the iac container.
 exec docker run --rm \
     --name "$CONTAINER_NAME" \
     --network host \
@@ -39,7 +43,6 @@ exec docker run --rm \
     -v /var/run/docker.sock:/var/run/docker.sock \
     -v /usr/bin/docker:/usr/bin/docker:ro \
     -v /var/lock:/var/lock \
-    -v "$SECRETS_FILE:$SECRETS_FILE:ro" \
     -v /usr/local/bin/iac:/usr/local/bin/iac:ro \
     -v /usr/local/bin/iac-impl:/usr/local/bin/iac-impl:ro \
     -v /usr/local/bin/send_message.py:/usr/local/bin/send_message.py:ro \
