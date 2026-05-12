@@ -1,0 +1,45 @@
+// iac-scheduled-update — weekly cluster maintenance via update-k8s.yml.
+// Idempotent: no-op when no upgrades are pending.
+//
+// Future stages: update-ceph, the OpenBao reboot window. Reboot
+// stagger is enforced by the play order itself.
+//
+// Controller config:
+//   - SCM: pvginkel/IaCAgent, branch main
+//   - Script Path: jenkins/iac-scheduled-update/Jenkinsfile
+
+pipeline {
+    agent { label 'iac-controller' }
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '50'))
+    }
+
+    triggers {
+        // Sunday morning, jittered. Avoids the standalone-class hosts'
+        // unattended-upgrades reboot window (default 03:00).
+        cron('H 6 * * 0')
+    }
+
+    stages {
+        stage('Ansible update-k8s') {
+            steps {
+                sh '''
+                    iac -c '
+                        set -euo pipefail
+                        cd /work/Ansible/ansible
+                        ansible-playbook --diff playbooks/update-k8s.yml
+                    '
+                '''
+            }
+        }
+    }
+
+    post {
+        failure {
+            sh '''iac -c 'send_message.py --title "iac-scheduled-update #'"$BUILD_NUMBER"' failed" "'"$BUILD_URL"'"' '''
+        }
+    }
+}

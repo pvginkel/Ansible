@@ -1,0 +1,72 @@
+// iac-scheduled-drift — daily drift check across terraform + ansible.
+// Push-notifies on detected changes or non-zero exit. Read-only; no
+// terraform apply, no ansible run without --check.
+//
+// Two stages run sequentially so a failure in one doesn't mask
+// findings in the other. Both stages are inside the same Jenkins
+// build; either failing trips the post-failure handler exactly once.
+//
+// Controller config:
+//   - SCM: pvginkel/IaCAgent, branch main
+//   - Script Path: jenkins/iac-scheduled-drift/Jenkinsfile
+
+pipeline {
+    agent { label 'iac-controller' }
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '50'))
+    }
+
+    triggers {
+        // Daily, jittered around mid-morning so an operator can react
+        // on the same day.
+        cron('H 9 * * *')
+    }
+
+    stages {
+        stage('Terraform drift (prd)') {
+            steps {
+                sh '''
+                    iac -c '
+                        set -euo pipefail
+                        cd /work/Ansible/terraform/prd
+                        terraform init -input=false -no-color
+                        rc=0
+                        terraform plan -out=/tmp/plan.tfplan -no-color -detailed-exitcode || rc=$?
+                        if [[ $rc -eq 0 ]]; then
+                            exit 0
+                        elif [[ $rc -eq 2 ]]; then
+                            echo "DRIFT: terraform plan proposes changes against prd" >&2
+                            # Also flag any protected-VM destroy/replace explicitly.
+                            terraform show -json /tmp/plan.tfplan > /tmp/plan.json
+                            check-protected-vms.sh /tmp/plan.json srviac || true
+                            exit 1
+                        else
+                            exit $rc
+                        fi
+                    '
+                '''
+            }
+        }
+
+        stage('Ansible drift (excl. iac_agent)') {
+            steps {
+                sh '''
+                    iac -c '
+                        set -euo pipefail
+                        cd /work/Ansible/ansible
+                        check-ansible-drift.sh playbooks/site.yml --limit "!iac_agent"
+                    '
+                '''
+            }
+        }
+    }
+
+    post {
+        failure {
+            sh '''iac -c 'send_message.py --title "iac-scheduled-drift #'"$BUILD_NUMBER"' detected drift" "'"$BUILD_URL"'"' '''
+        }
+    }
+}

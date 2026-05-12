@@ -1,0 +1,86 @@
+// iac-on-push — fires on every push to main on pvginkel/Ansible.
+// Sequential, fail-fast: plan + destroy-check, apply, site (sans
+// iac_agent), update-k8s. Each stage wraps its work in a single
+// `iac -c '...'` so the IaC mutex is held across the steps that must
+// be atomic.
+//
+// Controller config:
+//   - SCM: pvginkel/IaCAgent, branch main
+//   - Script Path: jenkins/iac-on-push/Jenkinsfile
+//   - Build trigger: GitHub hook on pvginkel/Ansible main
+
+pipeline {
+    agent { label 'iac-controller' }
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '50'))
+    }
+
+    triggers {
+        githubPush()
+    }
+
+    stages {
+        stage('Plan + destroy check') {
+            steps {
+                sh '''
+                    iac -c '
+                        set -euo pipefail
+                        cd /work/Ansible/terraform/prd
+                        terraform init -input=false -no-color
+                        rc=0
+                        terraform plan -out=/tmp/plan.tfplan -no-color -detailed-exitcode || rc=$?
+                        if [[ $rc -ne 0 && $rc -ne 2 ]]; then exit $rc; fi
+                        terraform show -json /tmp/plan.tfplan > /tmp/plan.json
+                        check-protected-vms.sh /tmp/plan.json srviac
+                    '
+                '''
+            }
+        }
+
+        stage('Terraform apply (prd)') {
+            steps {
+                sh '''
+                    iac -c '
+                        set -euo pipefail
+                        cd /work/Ansible/terraform/prd
+                        terraform init -input=false -no-color
+                        terraform apply -auto-approve -no-color
+                    '
+                '''
+            }
+        }
+
+        stage('Ansible site (excl. iac_agent)') {
+            steps {
+                sh '''
+                    iac -c '
+                        set -euo pipefail
+                        cd /work/Ansible/ansible
+                        ansible-playbook --diff playbooks/site.yml --limit "!iac_agent"
+                    '
+                '''
+            }
+        }
+
+        stage('Ansible update-k8s') {
+            steps {
+                sh '''
+                    iac -c '
+                        set -euo pipefail
+                        cd /work/Ansible/ansible
+                        ansible-playbook --diff playbooks/update-k8s.yml
+                    '
+                '''
+            }
+        }
+    }
+
+    post {
+        failure {
+            sh '''iac -c 'send_message.py --title "iac-on-push #'"$BUILD_NUMBER"' failed" "'"$BUILD_URL"'"' '''
+        }
+    }
+}
