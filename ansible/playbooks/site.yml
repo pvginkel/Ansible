@@ -1,8 +1,13 @@
 ---
 - name: Apply bootstrap and baseline to managed hosts
-  # `managed` excludes data-only inventory entries (e.g. pve_vms_unmanaged).
-  # Pair with --limit in day-to-day use.
-  hosts: managed
+  # k8s + ceph clusters are excluded at the play level — drain-requiring
+  # role applies on those hosts flow only through update-k8s.yml /
+  # rebuild-k8s.yml (future: update-ceph.yml). Phase 1 (iac-agent) makes
+  # this contract explicit; the larger structural question — whether
+  # site.yml is the right organizing artefact at all once exclusions
+  # start accumulating — is carved into slices/site-yml-layout.md in
+  # the AnsibleSpecs repo.
+  hosts: managed:!k8s_prd:!k8s_dev:!ceph_prd
   become: true
   gather_facts: true
   roles:
@@ -16,13 +21,3 @@
   gather_facts: true
   roles:
     - role: proxmox_host
-
-- name: Apply microk8s to k8s nodes
-  # `k8s` resolves to k8s_prd + k8s_dev (under inventories/prd) or
-  # k8s_scratch (under inventories/scratch); per-cluster CIDRs, addons,
-  # and primary host live in group_vars/k8s_<cluster>.yml.
-  hosts: k8s
-  become: true
-  gather_facts: true
-  roles:
-    - role: microk8s
