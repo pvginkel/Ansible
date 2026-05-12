@@ -31,3 +31,5 @@ services:
       - ../HomelabTerraformProvider:/work/HomelabTerraformProvider:rw
       - ../DesignAssistant:/work/DesignAssistant:ro
       - ../DesignAssistantSpecs:/work/DesignAssistantSpecs:ro
+      - ../IaCAgent:/work/IaCAgent:rw
+      - ../TerraformState:/work/TerraformState:rw
