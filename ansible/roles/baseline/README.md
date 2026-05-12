@@ -10,7 +10,7 @@ Applies OS hygiene to a managed Ubuntu host. Ported from `/work/Obsidian/Linux.m
 - Installs and enables `prometheus-node-exporter`. Universal across every managed host so the in-cluster Prometheus has uniform visibility. Pointing Prometheus at the new targets is a HelmCharts change, separate from this role.
 - **Applies the host's OS update class** (per `baseline_os_update_class`; default `cluster`):
   - `cluster` — k8s/ceph nodes. Purges `unattended-upgrades`; the `update.yml` playbook owns drain+upgrade+reboot.
-  - `standalone` — VMs like `srviac` and (future) `srvvault`. Installs `unattended-upgrades` and drops `/etc/apt/apt.conf.d/99-unattended-upgrades-iac` to auto-reboot in a quiet window per `baseline_unattended_reboot_time` (default `03:00`; stagger across standalone hosts).
+  - `standalone` — VMs like `srviac` (and future OpenBao hosts). Installs `unattended-upgrades` and drops `/etc/apt/apt.conf.d/99-unattended-upgrades-iac` to auto-reboot in a quiet window per `baseline_unattended_reboot_time` (default `03:00`; stagger across standalone hosts).
 - Installs per-host extras via `baseline_extra_packages` (empty by default). Override in `host_vars/<host>.yml` or `group_vars/<group>.yml`:
   ```yaml
   baseline_extra_packages:

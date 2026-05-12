@@ -21,7 +21,7 @@ See [`/work/AnsibleSpecs/phases/iac-agent.md`](../../../AnsibleSpecs/phases/iac-
 
 A merge to `main` on `pvginkel/Ansible` triggers `iac-on-push`. The job, inside one `iac -c '…'` per stage:
 
-1. Plan-checks `terraform/prd` — fails fast if the plan proposes `replace`/`destroy` on `srviac` (or, later, `srvvault`).
+1. Plan-checks `terraform/prd` — fails fast if the plan proposes `replace`/`destroy` on `srviac` (and any other VM names added to `check-protected-vms.sh`'s argument list once Phase 3 picks the OpenBao deployment shape).
 2. Applies `terraform/prd`.
 3. Runs `site.yml --limit '!iac_agent'`.
 4. Runs `update-k8s.yml` (idempotent no-op when no upgrades are pending).

@@ -83,10 +83,10 @@
     purge: true
   when: baseline_os_update_class == 'cluster'
 
-# Standalone-class hosts (srviac, future srvvault): unattended-upgrades
-# handles security updates and reboots in a quiet window. Cluster hosts
-# cannot reboot themselves without drain coordination; standalone hosts
-# can.
+# Standalone-class hosts (srviac today, future OpenBao hosts):
+# unattended-upgrades handles security updates and reboots in a quiet
+# window. Cluster hosts cannot reboot themselves without drain
+# coordination; standalone hosts can.
 - name: Install unattended-upgrades (standalone class)
   ansible.builtin.apt:
     name: unattended-upgrades
