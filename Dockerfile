@@ -67,19 +67,8 @@ RUN set -o pipefail && \
 RUN mkdir /work && \
     chown ubuntu:ubuntu /work
 
-COPY <<terraform.rc /etc
-provider_installation {
-    filesystem_mirror {
-        path    = "/usr/local/share/terraform/plugins"
-        include = ["registry.terraform.io/pvginkel/*"]
-    }
-    direct {
-        exclude = ["registry.terraform.io/pvginkel/*"]
-    }
-}
-terraform.rc
-
 COPY artifacts/terraform-provider-homelab artifacts/terraform-provider-homelab-metadata.json /tmp/
+COPY terraform.rc /etc/terraform.rc
 
 RUN VERSION=$(jq -r .version /tmp/terraform-provider-homelab-metadata.json) && \
     INSTALL_DIR=/usr/local/share/terraform/plugins/registry.terraform.io/pvginkel/homelab/$VERSION/linux_amd64 && \
