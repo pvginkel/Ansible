@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+# iac-impl — runs inside the modern-app-dev container. Bind-mounted in
+# from /usr/local/bin/iac-impl on the host (which is itself materialized
+# from this file by install.sh).
+#
+# Per /work/AnsibleSpecs/phases/iac-agent.md:
+#   1. Parse /etc/iac/secrets.yaml. Export `env:` entries; write `files:`
+#      entries at their declared mode.
+#   2. Clone pvginkel/Ansible and pvginkel/TerraformState into /work/.
+#   3. Copy state files in from TerraformState into the Ansible clone.
+#   4. `poetry install` inside ansible/ so ansible-playbook is on PATH.
+#   5. Run interactive bash (no args) or `sh -c "$1"` (`-c` form).
+#   6. On exit, copy state files out, commit + push if anything changed.
+
+set -euo pipefail
+
+SECRETS_FILE="${SECRETS_FILE:-/etc/iac/secrets.yaml}"
+WORK="${WORK:-/work}"
+SCOPES=(prd scratch)
+ANSIBLE_REPO_PATH="github.com/pvginkel/Ansible.git"
+STATE_REPO_PATH="github.com/pvginkel/TerraformState.git"
+GIT_USER_NAME="iac-agent"
+GIT_USER_EMAIL="iac-agent@srviac.home"
+
+if [[ ! -r "$SECRETS_FILE" ]]; then
+    echo "iac-impl: $SECRETS_FILE missing or unreadable" >&2
+    exit 1
+fi
+
+# ----- 1) Parse secrets.yaml -----------------------------------------
+
+# env: entries — null-delimited TSV survives newlines in values.
+while IFS=$'\t' read -r -d '' name value; do
+    [[ -z "$name" ]] && continue
+    export "$name=$value"
+done < <(yq -r '.env[]? | [.name, .value] | @tsv' "$SECRETS_FILE" | tr '\n' '\0')
+
+# files: entries. mode is required (no default). Materialize content
+# byte-for-byte; chmod after writing so a write to a pre-existing
+# 0600-mode file goes through under root.
+mapfile -t _file_paths < <(yq -r '.files[]?.path' "$SECRETS_FILE")
+for path in "${_file_paths[@]}"; do
+    [[ -z "$path" || "$path" == "null" ]] && continue
+    mode=$(yq -r ".files[] | select(.path == \"$path\") | .mode" "$SECRETS_FILE")
+    if [[ -z "$mode" || "$mode" == "null" ]]; then
+        echo "iac-impl: files entry $path is missing required 'mode'" >&2
+        exit 1
+    fi
+    install -D -m "$mode" /dev/null "$path"
+    yq -r ".files[] | select(.path == \"$path\") | .content" "$SECRETS_FILE" > "$path"
+    chmod "$mode" "$path"
+done
+
+if [[ -z "${GIT_API_TOKEN:-}" ]]; then
+    echo "iac-impl: GIT_API_TOKEN missing from $SECRETS_FILE" >&2
+    exit 1
+fi
+
+# ----- 2) Clone repos -------------------------------------------------
+
+mkdir -p "$WORK"
+git config --global init.defaultBranch main
+git clone --quiet --depth 1 "https://${GIT_API_TOKEN}@${ANSIBLE_REPO_PATH}" "$WORK/Ansible"
+git clone --quiet --depth 1 "https://${GIT_API_TOKEN}@${STATE_REPO_PATH}" "$WORK/TerraformState"
+git -C "$WORK/TerraformState" config user.name "$GIT_USER_NAME"
+git -C "$WORK/TerraformState" config user.email "$GIT_USER_EMAIL"
+
+# ----- 3) State files: sync in ---------------------------------------
+
+for scope in "${SCOPES[@]}"; do
+    src="$WORK/TerraformState/$scope/terraform.tfstate"
+    dst="$WORK/Ansible/terraform/$scope/terraform.tfstate"
+    if [[ -f "$src" ]]; then
+        mkdir -p "$(dirname "$dst")"
+        cp "$src" "$dst"
+    fi
+done
+
+# ----- 4) poetry install ---------------------------------------------
+
+(cd "$WORK/Ansible/ansible" && poetry install --no-root --quiet)
+# Put the venv's bin on PATH so `ansible-playbook` is callable directly
+# without `poetry run` boilerplate in every caller.
+export PATH="$WORK/Ansible/ansible/.venv/bin:$PATH"
+
+# ----- 5) Run user command -------------------------------------------
+
+cd "$WORK"
+exit_code=0
+if [[ $# -eq 0 ]]; then
+    bash || exit_code=$?
+elif [[ "$1" == "-c" && $# -eq 2 ]]; then
+    sh -c "$2" || exit_code=$?
+else
+    echo "iac-impl: unrecognised arguments: $*" >&2
+    echo "Usage: iac-impl              (interactive bash)" >&2
+    echo "       iac-impl -c <script>  (single-arg shell script)" >&2
+    exit 2
+fi
+
+# ----- 6) State files: sync out, commit + push ----------------------
+
+for scope in "${SCOPES[@]}"; do
+    src="$WORK/Ansible/terraform/$scope/terraform.tfstate"
+    dst="$WORK/TerraformState/$scope/terraform.tfstate"
+    if [[ -f "$src" ]]; then
+        mkdir -p "$(dirname "$dst")"
+        cp "$src" "$dst"
+    fi
+done
+
+if git -C "$WORK/TerraformState" status --porcelain | grep -q .; then
+    msg="iac-impl: state update $(date -Iseconds)"
+    if [[ -n "${JOB_NAME:-}" && -n "${BUILD_NUMBER:-}" ]]; then
+        msg+=" ($JOB_NAME#$BUILD_NUMBER)"
+    fi
+    git -C "$WORK/TerraformState" add -A
+    git -C "$WORK/TerraformState" commit --quiet -m "$msg"
+    if ! git -C "$WORK/TerraformState" push --quiet; then
+        head=$(git -C "$WORK/TerraformState" rev-parse HEAD)
+        echo "iac-impl: WARNING — TerraformState push failed." >&2
+        echo "iac-impl: state is committed locally at $head but the container is about to exit and the commit will be lost." >&2
+        echo "iac-impl: investigate the remote and replay the state files from /work/TerraformState/<scope>/terraform.tfstate before this container terminates." >&2
+        if (( exit_code == 0 )); then
+            exit_code=1
+        fi
+    fi
+fi
+
+exit "$exit_code"

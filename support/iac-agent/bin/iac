@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# `iac` — host shim. Acquire the IaC mutex, then run the configured
+# iac-impl entrypoint inside the modern-app-dev container. See
+# /work/AnsibleSpecs/phases/iac-agent.md.
+#
+# Two forms:
+#   iac                  interactive bash inside the container
+#   iac -c '<script>'    run the script inside the container
+#
+# Both hold /var/lock/iac.lock via flock with a 60-second timeout. On
+# contention the call fails fast; the holder PID is surfaced.
+
+set -euo pipefail
+
+IMAGE="${IAC_IMAGE:-registry:5000/modern-app-dev:latest}"
+LOCKFILE="/var/lock/iac.lock"
+SECRETS_FILE="/etc/iac/secrets.yaml"
+IAC_IMPL="/usr/local/bin/iac-impl"
+
+if [[ ! -r "$SECRETS_FILE" ]]; then
+    echo "iac: $SECRETS_FILE missing or unreadable — populate before running" >&2
+    exit 1
+fi
+
+if [[ ! -x "$IAC_IMPL" ]]; then
+    echo "iac: $IAC_IMPL missing — run IaCAgent's install.sh" >&2
+    exit 1
+fi
+
+# Add -it only when stdin is a tty (interactive shell case). Non-tty
+# invocations (Jenkins stages, scripted ssh) skip it so docker doesn't
+# fail allocating a pseudo-tty.
+docker_flags=("--rm")
+if [[ -t 0 ]]; then
+    docker_flags+=("-it")
+fi
+
+# fd 9 is the lock fd; flock returns 1 on timeout. Keep the fd open
+# while docker runs so the lock is held for the whole invocation.
+exec 9>"$LOCKFILE"
+if ! flock -w 60 -x 9; then
+    holder=$(fuser "$LOCKFILE" 2>&1 | sed -n 's|.*:[[:space:]]*||p' | head -n1)
+    echo "iac: could not acquire $LOCKFILE within 60s (held by PID ${holder:-unknown})" >&2
+    exit 1
+fi
+
+# Record our PID for the next contender (best effort; flock owns the
+# real interlock).
+echo "$$" > "$LOCKFILE" 2>/dev/null || true
+
+docker run "${docker_flags[@]}" \
+    -v "$SECRETS_FILE:$SECRETS_FILE:ro" \
+    -v "$IAC_IMPL:/usr/local/bin/iac-impl:ro" \
+    "$IMAGE" \
+    /usr/local/bin/iac-impl "$@"
