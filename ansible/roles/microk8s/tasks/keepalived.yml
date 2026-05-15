@@ -24,13 +24,18 @@
     _microk8s_cluster_group: "{{ group_names | select('match', '^k8s_') | first }}"
 
 - name: Resolve cluster-peer LAN IPs for VRRP unicast
-  # VRRP unicast peers must be IP addresses. The k8s nodes carry static
-  # dnsmasq reservations; resolve the other members by hostname on the
-  # target so the rendered keepalived.conf is the only place a peer IP
-  # is written down — inventory itself stays hostname-only.
+  # VRRP unicast peers must be IP addresses, but inventory is
+  # hostname-only. Resolve on the Ansible controller, not the target:
+  # the k8s nodes point at public DNS (8.8.8.8) and cannot look up
+  # each other's .home names, whereas the controller is configured
+  # for the homelab LAN and getent here returns the same address
+  # Ansible already used to reach the peer. The rendered
+  # keepalived.conf stays the only place a peer IP is written down.
   ansible.builtin.command:
     argv: [getent, ahostsv4, "{{ item }}"]
   loop: "{{ groups[_microk8s_cluster_group] | difference([inventory_hostname]) | sort }}"
+  delegate_to: localhost
+  become: false
   register: _microk8s_vrrp_peers
   changed_when: false
   check_mode: false
