@@ -23,6 +23,7 @@ This role covers install, idempotent multi-node join, capability-label reconcili
 | CoreDNS Corefile (primary only) | full-Corefile authoritative render via `kubernetes.core.k8s`, driven by `microk8s_coredns_hosts` and `microk8s_coredns_templates`; notifies a `kubectl rollout restart deployment/coredns` handler |
 | Users | `user` module appends membership to the `microk8s` group; `~/.kube` per user |
 | `kubectl` alias | `snap alias microk8s.kubectl kubectl`, guarded by a stat |
+| kube-apiserver VIP | `include_role: keepalived` rendering a plain-VRRP instance for `kubernetes-api.home`; per-node, gated on `microk8s_manage_apiserver_vip` (see `tasks/keepalived.yml`) |
 
 ## Primary vs. secondary nodes
 
@@ -67,6 +68,7 @@ The role asserts that the four cluster-CIDR variables are set; per-cluster `grou
 | `microk8s_etc_hosts_entries` | optional | `[]` | List of `<ip> <name1> [name2 ...]` strings managed as a single marked block in `/etc/hosts`. Empty list removes the block. |
 | `microk8s_coredns_hosts` | optional | `[]` | List of `{ip, names}` entries for the CoreDNS `hosts { ... fallthrough }` block. Reconciled on the primary. |
 | `microk8s_coredns_templates` | optional | `[]` | List of `{domain, answer_a, ttl}` entries; each renders a `template IN A <domain>` block answering any subdomain with `<answer_a>`. Reconciled on the primary. |
+| `microk8s_manage_apiserver_vip` | optional | `false` | `true` folds in a Keepalived VIP for the kube-apiserver. Set only on the 3-node prd cluster — `tasks/keepalived.yml` reads the VIP/VRID from `group_vars/all/vips.yml` and the `vrrp_auth_password` secret from there. The single-node dev cluster and the scratch fleet leave it `false`. |
 
 ## Idempotency notes
 
@@ -76,6 +78,7 @@ The role asserts that the four cluster-CIDR variables are set; per-cluster `grou
 - The label patch reads each peer's existing `Node.metadata.labels` before writing; a strategic-merge patch with the same labels reports `changed: false`. Hosts with no `k8s_node_labels` declared are skipped entirely.
 - The MetalLB `IPAddressPool` / `L2Advertisement` are upserted via `state: present` over the resources the `metallb` addon creates. First reconcile after addon enable replaces the addon's inline sentinel range; subsequent runs with the same `microk8s_metallb_pool_addresses` report `changed: false`.
 - The `kubectl` alias is guarded by a `stat` so `snap alias` only runs when `/snap/bin/kubectl` is absent.
+- The kube-apiserver VIP delegates to the `keepalived` role: `keepalived.conf` renders to the same content every run, so a converged node reports `changed=0` and the restart handler doesn't fire. The VIP include runs last in `main.yml`, after join, so the node is already serving the API before it can win the VRRP election.
 
 ## What this role doesn't do (yet)
 

@@ -1,0 +1,50 @@
+---
+# kube-apiserver VIP. Plain VRRP: microk8s HA serves the API from every
+# control-plane node, so there is no per-cluster leader to track — the
+# VIP rides whichever Keepalived peer wins election. Reached at runtime
+# only when microk8s_manage_apiserver_vip is true (set on the 3-node
+# prd cluster; the single-node dev cluster and the scratch fleet have
+# no VIP). See slices/internal-ha-vips.md.
+
+- name: Assert the shared VRRP password is available
+  ansible.builtin.assert:
+    that:
+      - vrrp_auth_password is defined
+    fail_msg: >-
+      vrrp_auth_password is not defined. It is the ansible-vault'd shared
+      VRRP secret in inventories/prd/group_vars/all/vips.yml — populate it
+      with `ansible-vault encrypt_string` and run with --ask-vault-pass.
+    quiet: true
+
+- name: Identify this node's k8s cluster group
+  # Same cluster boundary elect-primary and update-k8s.yml use — the
+  # host's own `k8s_<env>` child group, so a --limit on one node still
+  # enumerates the whole cluster for peer resolution.
+  ansible.builtin.set_fact:
+    _microk8s_cluster_group: "{{ group_names | select('match', '^k8s_') | first }}"
+
+- name: Resolve cluster-peer LAN IPs for VRRP unicast
+  # VRRP unicast peers must be IP addresses. The k8s nodes carry static
+  # dnsmasq reservations; resolve the other members by hostname on the
+  # target so the rendered keepalived.conf is the only place a peer IP
+  # is written down — inventory itself stays hostname-only.
+  ansible.builtin.command:
+    argv: [getent, ahostsv4, "{{ item }}"]
+  loop: "{{ groups[_microk8s_cluster_group] | difference([inventory_hostname]) | sort }}"
+  register: _microk8s_vrrp_peers
+  changed_when: false
+  check_mode: false
+
+- name: Configure the kube-apiserver VIP (keepalived)
+  ansible.builtin.include_role:
+    name: keepalived
+  vars:
+    keepalived_vip: "{{ homelab_vips.kubernetes_api.address }}"
+    keepalived_instance_name: VI_kube_api
+    keepalived_virtual_router_id: "{{ homelab_vips.kubernetes_api.virtual_router_id }}"
+    # 100 / 95 / 90 across the sorted cluster members: deterministic
+    # election, and the lowest-hostname node re-takes the VIP after a
+    # keepalived restart. Any member can still hold it.
+    keepalived_priority: "{{ 100 - (5 * (groups[_microk8s_cluster_group] | sort).index(inventory_hostname)) }}"
+    keepalived_password: "{{ vrrp_auth_password }}"
+    keepalived_unicast_peers: "{{ _microk8s_vrrp_peers.results | map(attribute='stdout') | map('regex_search', '\\S+') | list }}"

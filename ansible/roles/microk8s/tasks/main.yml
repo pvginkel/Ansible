@@ -83,3 +83,12 @@
 - name: Add users to microk8s group + alias kubectl
   ansible.builtin.import_tasks: users.yml
   when: _microk8s_installed.stat.exists
+
+# kube-apiserver VIP. Runs last — after join.yml, so the node is
+# already a cluster member serving the API before keepalived can pull
+# the VIP onto it. Per-node state; gated on the per-cluster opt-in.
+- name: Configure the kube-apiserver VIP (keepalived)
+  ansible.builtin.import_tasks: keepalived.yml
+  when:
+    - _microk8s_installed.stat.exists
+    - microk8s_manage_apiserver_vip | bool

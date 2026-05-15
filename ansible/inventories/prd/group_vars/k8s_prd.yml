@@ -35,6 +35,13 @@ microk8s_service_cidr_v6: fd98::/108
 microk8s_extra_sans:
   - 172.17.0.1
 
+# kube-apiserver VIP. This 3-node cluster fronts the API at
+# kubernetes-api.home (10.1.0.37) via Keepalived — see
+# group_vars/all/vips.yml and slices/internal-ha-vips.md. Roll it onto
+# the running nodes with playbooks/apply-k8s-vip.yml; rebuilt nodes
+# pick it up through the microk8s role.
+microk8s_manage_apiserver_vip: true
+
 # core/registry excluded per decisions.md "Tool split": the operator
 # runs their own registry, so the live `registry` addon stays enabled
 # until disabled out-of-band (the role is additive — only enables
@@ -88,6 +95,7 @@ microk8s_etc_hosts_entries:
 # configs/{prd,dev}/dnsmasq.yaml.
 microk8s_coredns_hosts:
   - { ip: 172.17.0.3, names: [registry, registry.home] }
+  - { ip: 10.1.0.38, names: [ceph, ceph.home] }
   - { ip: 10.1.0.24, names: [srvceph1, srvceph1.home] }
   - { ip: 10.1.0.25, names: [srvceph2, srvceph2.home] }
   - { ip: 10.1.0.26, names: [srvceph3, srvceph3.home] }

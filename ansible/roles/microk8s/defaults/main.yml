@@ -100,3 +100,11 @@ microk8s_coredns_hosts: []
 # of <domain> with <answer_a>. Used to point public hostnames at an
 # in-cluster ingress LB so in-cluster traffic doesn't loop out and back.
 microk8s_coredns_templates: []
+
+# kube-apiserver VIP (Keepalived). false skips VIP setup entirely.
+# Set true only on the 3-node prd cluster (group_vars/k8s_prd.yml) —
+# the single-node dev cluster and the scratch fleet have no VIP. The
+# VIP address and VRRP router-id come from group_vars/all/vips.yml,
+# the shared VRRP secret from `vrrp_auth_password` there. See
+# tasks/keepalived.yml and slices/internal-ha-vips.md.
+microk8s_manage_apiserver_vip: false
