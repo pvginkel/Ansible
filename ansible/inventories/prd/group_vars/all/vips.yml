@@ -1,0 +1,42 @@
+---
+# Keepalived-managed virtual IPs fronting the internal HA clusters.
+# One VIP per cluster — the service is implicit from the port behind
+# it. Consumers reference these entries by name rather than pinning a
+# node IP. Design: slices/internal-ha-vips.md.
+#
+# Each VIP is a static reservation outside the dnsmasq DHCP pool and
+# is pinned as a dnsmasq static host entry (HelmCharts
+# configs/prd/dnsmasq.yaml). `virtual_router_id` namespaces a
+# cluster's VRRP traffic on the shared LAN — it MUST be unique across
+# every VRRP group reachable on the LAN.
+homelab_vips:
+  kubernetes_api:
+    hostname: kubernetes-api.home
+    address: 10.1.0.37
+    virtual_router_id: 51
+  ceph:
+    hostname: ceph.home
+    address: 10.1.0.38
+    virtual_router_id: 52
+  openbao:
+    hostname: secrets.home
+    address: 10.1.0.39
+    virtual_router_id: 53
+
+# Shared VRRP authentication string, used by every VRRP group above.
+# VRRPv2 PASS auth — max 8 characters; the secret crosses the wire in
+# cleartext, so the VIP fabric is treated as LAN-internal.
+#
+# ansible-vault'd; passphrase in Roboform. Generate the encrypted
+# value with:
+#
+#   ansible-vault encrypt_string --ask-vault-pass \
+#     --name vrrp_auth_password '<8-char-secret>'
+#
+# then paste the resulting `vrrp_auth_password: !vault | ...` block
+# below this comment. Until it is set, the keepalived consumers fail
+# loud (see roles/microk8s/tasks/keepalived.yml).
+#
+# vrrp_auth_password: !vault |
+#       $ANSIBLE_VAULT;1.1;AES256
+#       ...
