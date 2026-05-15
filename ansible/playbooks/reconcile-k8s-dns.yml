@@ -1,0 +1,46 @@
+---
+# reconcile-k8s-dns.yml — push CoreDNS Corefile changes onto the
+# running cluster without a rebuild.
+#
+# The Corefile is rendered by the `microk8s` role
+# (tasks/coredns.yml) from microk8s_coredns_hosts /
+# microk8s_coredns_templates in group_vars, and so lands on any node
+# rebuilt via rebuild-k8s.yml. This playbook applies just that slice
+# to the already-running cluster — re-render the Corefile, write the
+# kube-system/coredns ConfigMap if it drifted, and roll the CoreDNS
+# Deployment if so.
+#
+# Cluster-scoped state: the coredns ConfigMap is a single cluster-wide
+# object, so the reconcile runs once, on the elected primary only —
+# every non-primary peer ends early. Election runs first across the
+# whole k8s group; the result is deterministic per cluster.
+#
+# Idempotent: tasks/coredns.yml reads the live Corefile and writes
+# only on drift, and the rollout-restart fires only behind that
+# write. A no-op run reconciles clean with no CoreDNS restart.
+# `--check --diff` shows the Corefile diff without applying.
+#
+# Targeting: `hosts: k8s` resolves to k8s_prd + k8s_dev under prd, or
+# k8s_scratch under scratch. Pair with --limit to scope to one
+# cluster.
+#
+#   ansible-playbook playbooks/reconcile-k8s-dns.yml --diff --limit k8s_prd
+
+- name: Reconcile the CoreDNS Corefile on the running cluster
+  hosts: k8s
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Elect this cluster's primary
+      ansible.builtin.import_role:
+        name: microk8s
+        tasks_from: elect-primary
+
+    - name: Skip non-primary peers
+      ansible.builtin.meta: end_host
+      when: inventory_hostname != microk8s_primary_host
+
+    - name: Reconcile CoreDNS Corefile
+      ansible.builtin.import_role:
+        name: microk8s
+        tasks_from: coredns
