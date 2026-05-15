@@ -13,9 +13,11 @@
 # drops the VIP for ~1-3 s while a peer takes over; the apiserver on
 # the other two nodes stays reachable directly throughout.
 #
-# Requires the ansible-vault passphrase for the shared VRRP secret:
+# The shared VRRP secret is ansible-vault'd. Have the passphrase on
+# hand via ANSIBLE_VAULT_PASSWORD_FILE (see
+# docs/runbooks/operator-workstation.md) or pass --vault-password-file.
 #
-#   ansible-playbook playbooks/apply-k8s-vip.yml --ask-vault-pass --diff
+#   ansible-playbook playbooks/apply-k8s-vip.yml --diff
 
 - name: Apply the kube-apiserver VIP to the prd k8s cluster
   hosts: k8s_prd

@@ -54,6 +54,23 @@ Host wrkscratch* wrkscratch*.home k8s* ceph*
 
 The two identities have different lifecycles and blast radii. The `ansible` key is sprayed onto every managed Ubuntu VM and committed to the repo (public half); rotating it is a fleet-wide operation. The operator key authorizes a human at the keyboard against PVE's root account; rotating it is a couple of `authorized_keys` edits. Folding them together means an `ansible`-key rotation also breaks Terraform, and a re-keying of `root@pve*` also breaks playbook runs on managed VMs. Cheap to keep separate; expensive to disentangle later.
 
+## ansible-vault passphrase
+
+A few fleet secrets are ansible-vault'd in the repo — today the shared VRRP password in `ansible/inventories/prd/group_vars/all/vips.yml`; the OpenBao seal key and step-ca JWK password follow in later slices. One passphrase decrypts all of them; the source of truth is Roboform.
+
+Cache it on this workstation in `ansible/.vault_pass` — a single line, gitignored:
+
+```sh
+printf '%s' '<passphrase-from-Roboform>' > ansible/.vault_pass
+chmod 600 ansible/.vault_pass
+```
+
+Point Ansible at it through the **environment**, not `ansible.cfg`: export `ANSIBLE_VAULT_PASSWORD_FILE` (absolute path to `ansible/.vault_pass`) from your shell profile. `ansible-playbook`, `ansible-vault`, and friends then decrypt non-interactively — no `--ask-vault-pass`, no per-run flag.
+
+`vault_password_file` is deliberately **not** set in `ansible.cfg`. That would make the file mandatory for *every* run — CI included, and any host without the passphrase — even plays that touch no vault content (Ansible resolves the configured file eagerly the moment it parses a `!vault` tag, and a missing file is fatal). Keeping the pointer in the environment makes it opt-in: only runs that actually read a vault'd variable need it.
+
+CI and scheduled drift run `site.yml`, which reads no vault'd variable, so they need nothing. The iac agent VM materialises `.vault_pass` via its own secret bootstrap (`/etc/iac/secrets.yaml`) for the day a CI play does consume one.
+
 ## DNS
 
 The `.home` search domain must be present in `/etc/resolv.conf` (or the systemd-resolved equivalent). Verify with `resolvectl status`. Without it, short hostnames like `pve`, `srvk8sl1` will not resolve.

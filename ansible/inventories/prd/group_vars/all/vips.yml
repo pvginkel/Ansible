@@ -27,16 +27,15 @@ homelab_vips:
 # VRRPv2 PASS auth — max 8 characters; the secret crosses the wire in
 # cleartext, so the VIP fabric is treated as LAN-internal.
 #
-# ansible-vault'd; passphrase in Roboform. Generate the encrypted
-# value with:
-#
-#   ansible-vault encrypt_string --ask-vault-pass \
-#     --name vrrp_auth_password '<8-char-secret>'
-#
-# then paste the resulting `vrrp_auth_password: !vault | ...` block
-# below this comment. Until it is set, the keepalived consumers fail
-# loud (see roles/microk8s/tasks/keepalived.yml).
-#
-# vrrp_auth_password: !vault |
-#       $ANSIBLE_VAULT;1.1;AES256
-#       ...
+# ansible-vault'd with the fleet vault passphrase (see
+# docs/runbooks/operator-workstation.md). To rotate, re-encrypt from
+# the ansible/ directory with the passphrase available via
+# ANSIBLE_VAULT_PASSWORD_FILE:
+#   ansible-vault encrypt_string --name vrrp_auth_password '<8-char-secret>'
+vrrp_auth_password: !vault |
+          $ANSIBLE_VAULT;1.1;AES256
+          38343963613133313431343865653061366335323761643039313961373432316462356133366432
+          3931316462313337363332393265326233633864323834310a663465343066363536386132363136
+          62643665306134656338383363393030303231663564326561656262386265636335363531326161
+          3961323561666361330a613236326334613034386136346563373934313931326436303230393639
+          6563

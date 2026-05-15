@@ -13,7 +13,7 @@
     fail_msg: >-
       vrrp_auth_password is not defined. It is the ansible-vault'd shared
       VRRP secret in inventories/prd/group_vars/all/vips.yml — populate it
-      with `ansible-vault encrypt_string` and run with --ask-vault-pass.
+      with `ansible-vault encrypt_string` per that file's header.
     quiet: true
 
 - name: Identify this node's k8s cluster group
