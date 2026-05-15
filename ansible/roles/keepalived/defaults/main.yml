@@ -1,0 +1,56 @@
+---
+# VIP this node advertises over VRRP and binds locally while it wins
+# the election. Required — the role asserts it is set.
+keepalived_vip: ""
+
+# Prefix length the VIP is bound with. Defaults to the node's own LAN
+# prefix so the VIP lands in the same subnet as the host.
+keepalived_vip_prefix: "{{ ansible_facts['default_ipv4'].prefix }}"
+
+# Interface VRRP adverts ride and the VIP binds to. Defaults to the
+# default-route NIC — the LAN device on the homelab VMs (`ens18` on
+# Terraform-provisioned guests).
+keepalived_interface: "{{ ansible_facts['default_ipv4'].interface }}"
+
+# VRRP instance name. Cosmetic; only needs to be stable across re-runs.
+keepalived_instance_name: "VI_{{ keepalived_virtual_router_id }}"
+
+# VRRP virtual-router-id (1-255). Must be unique across every VRRP
+# group sharing the LAN — see inventories/prd/group_vars/all/vips.yml.
+keepalived_virtual_router_id: 0
+
+# Base VRRP priority for this node. The peer with the highest effective
+# priority — base plus any track-script weight — holds the VIP.
+keepalived_priority: 100
+
+# VRRP advertisement interval, seconds.
+keepalived_advert_int: 1
+
+# Shared VRRPv2 authentication string. Max 8 characters — VRRPv2
+# silently truncates past that. Supplied (ansible-vault) by the caller.
+keepalived_password: ""
+
+# Unicast VRRP. Unicast is preferred over multicast on the homelab LAN
+# because multicast routing across the bridges has not been validated.
+# keepalived_unicast_peers is the list of the OTHER members' IPs;
+# src_ip defaults to this node's LAN address. An empty peers list
+# falls back to multicast VRRP.
+keepalived_unicast_peers: []
+keepalived_unicast_src_ip: "{{ ansible_facts['default_ipv4'].address }}"
+
+# Optional leader-tracking script. When set, the role installs the
+# script under keepalived_scripts_dir and renders a vrrp_script +
+# track_script pair; the script's exit code shifts this node's
+# effective priority by `weight` while it exits 0. Unset = plain VRRP.
+# Keys:
+#   name     - identifier and script basename (installed as <name>.sh)
+#   content  - the script body
+#   interval - poll interval, seconds
+#   timeout  - per-poll timeout, seconds
+#   fall     - consecutive failures before the weight is dropped
+#   rise     - consecutive successes before the weight is applied
+#   weight   - priority delta applied while the script exits 0
+keepalived_track_script: {}
+
+# Where leader-tracking scripts are installed.
+keepalived_scripts_dir: /etc/keepalived/scripts

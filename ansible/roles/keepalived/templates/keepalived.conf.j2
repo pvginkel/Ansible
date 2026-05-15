@@ -1,0 +1,52 @@
+# {{ ansible_managed }}
+# Rendered by the `keepalived` Ansible role — edits will be overwritten.
+
+global_defs {
+    router_id {{ inventory_hostname }}
+{% if keepalived_track_script | length > 0 %}
+    enable_script_security
+{% endif %}
+}
+{% if keepalived_track_script | length > 0 %}
+
+vrrp_script {{ keepalived_track_script.name }} {
+    script "{{ keepalived_scripts_dir }}/{{ keepalived_track_script.name }}.sh"
+    interval {{ keepalived_track_script.interval }}
+    timeout {{ keepalived_track_script.timeout }}
+    fall {{ keepalived_track_script.fall }}
+    rise {{ keepalived_track_script.rise }}
+    weight {{ keepalived_track_script.weight }}
+}
+{% endif %}
+
+vrrp_instance {{ keepalived_instance_name }} {
+    state BACKUP                    # all peers start BACKUP; election decides master
+    interface {{ keepalived_interface }}
+    virtual_router_id {{ keepalived_virtual_router_id }}
+    priority {{ keepalived_priority }}
+    advert_int {{ keepalived_advert_int }}
+{% if keepalived_unicast_peers | length > 0 %}
+
+    unicast_src_ip {{ keepalived_unicast_src_ip }}
+    unicast_peer {
+{% for peer in keepalived_unicast_peers %}
+        {{ peer }}
+{% endfor %}
+    }
+{% endif %}
+
+    authentication {
+        auth_type PASS
+        auth_pass {{ keepalived_password }}
+    }
+
+    virtual_ipaddress {
+        {{ keepalived_vip }}/{{ keepalived_vip_prefix }} dev {{ keepalived_interface }}
+    }
+{% if keepalived_track_script | length > 0 %}
+
+    track_script {
+        {{ keepalived_track_script.name }}
+    }
+{% endif %}
+}

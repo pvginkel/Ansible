@@ -1,0 +1,9 @@
+---
+- name: Restart keepalived
+  # keepalived re-reads keepalived.conf only on (re)start; SIGHUP
+  # reload exists but does not reliably re-evaluate VRRP instances.
+  # A restart drops the VIP for the advert interval — a peer takes it
+  # over within ~1-3 s.
+  ansible.builtin.systemd:
+    name: keepalived
+    state: restarted

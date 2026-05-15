@@ -11,3 +11,7 @@ Planned roles (in rough build order):
 5. `proxmox_host` — Proxmox PVE host config.
 6. `openbao` — OpenBao VM bring-up with Azure auto-unseal.
 7. `keycloak` — realm / client / user management against a running Keycloak.
+
+Reusable sub-roles — no host-class of their own, consumed by the roles above via `include_role` with per-call vars:
+
+- `keepalived` — render one Keepalived VRRP instance (VIPs in front of the HA clusters).

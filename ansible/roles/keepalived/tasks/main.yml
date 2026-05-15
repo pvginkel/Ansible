@@ -1,0 +1,55 @@
+---
+- name: Assert keepalived inputs are set
+  ansible.builtin.assert:
+    that:
+      - keepalived_vip | length > 0
+      - keepalived_virtual_router_id | int >= 1
+      - keepalived_virtual_router_id | int <= 255
+      - keepalived_password | length >= 1
+      - keepalived_password | length <= 8
+    fail_msg: >-
+      The keepalived role needs keepalived_vip, keepalived_virtual_router_id
+      (1-255) and keepalived_password (1-8 chars — the VRRPv2 auth limit)
+      set by the caller.
+    quiet: true
+
+- name: Install keepalived
+  ansible.builtin.apt:
+    name: keepalived
+    state: present
+  environment:
+    NEEDRESTART_MODE: a
+
+- name: Create the track-script directory
+  ansible.builtin.file:
+    path: "{{ keepalived_scripts_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: keepalived_track_script | length > 0
+
+- name: Install the leader-tracking script
+  ansible.builtin.copy:
+    content: "{{ keepalived_track_script.content }}"
+    dest: "{{ keepalived_scripts_dir }}/{{ keepalived_track_script.name }}.sh"
+    owner: root
+    group: root
+    mode: "0755"
+  when: keepalived_track_script | length > 0
+  notify: Restart keepalived
+
+- name: Render keepalived.conf
+  ansible.builtin.template:
+    src: keepalived.conf.j2
+    dest: /etc/keepalived/keepalived.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart keepalived
+
+- name: Enable and start keepalived
+  ansible.builtin.systemd:
+    name: keepalived
+    enabled: true
+    state: started

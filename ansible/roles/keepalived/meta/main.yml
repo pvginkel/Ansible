@@ -1,0 +1,16 @@
+---
+galaxy_info:
+  role_name: keepalived
+  author: pvginkel
+  description: Render a Keepalived VRRP instance — install keepalived, write keepalived.conf and an optional leader-tracking vrrp_script, enable the service.
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - noble
+
+# Reusable role consumed via include_role with per-call vars (like the
+# pattern internal_tls uses). It has no host-class of its own and
+# composes no other role — no meta dependencies.
+dependencies: []
