@@ -162,6 +162,19 @@
     group: pvginkel
     mode: "0644"
 
+# Homelab step-ca root cert — every managed host trusts step-ca-issued
+# internal TLS leaves once this lands. The cert file is also the
+# artefact the step-ca-bootstrap runbook reads for CA rotation and
+# verification.
+- name: Install the homelab CA root certificate
+  ansible.builtin.copy:
+    src: homelab-root.crt
+    dest: /usr/local/share/ca-certificates/homelab-root.crt
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Update CA certificates
+
 # Re-asserts the netplan render that cloud-init writes on first boot
 # (terraform/prd/cloud-init.yaml.tftpl). Opt-in per host via the
 # `static_netplan` var. Closes the "static netplan is the gap" caveat

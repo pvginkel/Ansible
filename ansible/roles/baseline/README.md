@@ -20,6 +20,7 @@ Applies OS hygiene to a managed Ubuntu host. Ported from `/work/Obsidian/Linux.m
   ```
 - Strips the execute bit from the noisy MOTD scripts (`10-help-text`, `50-motd-news`, `85-fwupd`, `90-updates-available`, `97-overlayroot`).
 - Drops the same `.vimrc` into `/root` and `/home/pvginkel` (dark background, 4-space tabs).
+- **Installs the homelab CA root certificate** from this role's `files/homelab-root.crt` into `/usr/local/share/ca-certificates/homelab-root.crt` and runs `update-ca-certificates`, so every managed host trusts step-ca-issued internal TLS leaves. The same cert file is the artefact the `step-ca-bootstrap` runbook reads for CA rotation and verification. See `/work/AnsibleSpecs/slices/internal-tls-step-ca.md` §C.
 - **Re-asserts `/etc/netplan/50-cloud-init.yaml`** when the host declares a `static_netplan` host_var. Mirrors the netplan that `terraform/prd/cloud-init.yaml.tftpl` writes on first boot, so a static-IP change in `vms.tf` plus a matching host_var update lands on the running host without a rebuild. Skipped when `static_netplan` is undefined. See `/work/AnsibleSpecs/decisions.md` "Cloud-init is a first-boot artefact".
 
 ## Updates

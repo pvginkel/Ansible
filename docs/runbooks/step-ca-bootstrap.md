@@ -221,7 +221,8 @@ jq . .step/config/ca.json > /dev/null && echo OK
 ### 6. Export the root cert into the Ansible repo
 
 ```sh
-cp .step/certs/root_ca.crt ~/source/Ansible/ansible/files/homelab-root.crt
+cp .step/certs/root_ca.crt \
+  ~/source/Ansible/ansible/roles/baseline/files/homelab-root.crt
 ```
 
 This file is public; commit it alongside the `baseline` role change.
@@ -291,9 +292,9 @@ Run on `wrkdevwin` and any other Windows machine the operator uses to
 hit homelab URLs.
 
 1. Copy `homelab-root.crt` (from
-   `/work/Ansible/ansible/files/homelab-root.crt` on `wrkdev`, or
-   `kubectl -n step-ca exec ... cat ...` if the file is otherwise
-   unavailable) to the Windows machine.
+   `~/source/Ansible/ansible/roles/baseline/files/homelab-root.crt` on
+   `wrkdev`, or `kubectl -n step-ca exec ... cat ...` if the file is
+   otherwise unavailable) to the Windows machine.
 2. Open an **elevated** PowerShell.
 3. ```powershell
    certutil -addstore -f "ROOT" homelab-root.crt
@@ -344,7 +345,8 @@ mkdir -p .step/secrets .step/certs
 # Paste encrypted root key from Roboform
 cat > .step/secrets/root_ca_key  # paste, Ctrl-D
 # Public root cert from the Ansible repo
-cp /work/Ansible/ansible/files/homelab-root.crt .step/certs/root_ca.crt
+cp ~/source/Ansible/ansible/roles/baseline/files/homelab-root.crt \
+  .step/certs/root_ca.crt
 ```
 
 ### 2. Generate a fresh intermediate
@@ -385,12 +387,12 @@ kubectl -n step-ca rollout status  deployment step-ca
 ### 4. Verify
 
 ```sh
-curl --cacert /work/Ansible/ansible/files/homelab-root.crt \
-  https://ca.home/health
+root_crt=~/source/Ansible/ansible/roles/baseline/files/homelab-root.crt
+
+curl --cacert "$root_crt" https://ca.home/health
 # {"status":"ok"}
 
-step ca roots --ca-url https://ca.home --root \
-  /work/Ansible/ansible/files/homelab-root.crt
+step ca roots --ca-url https://ca.home --root "$root_crt"
 ```
 
 The intermediate's serial should match the freshly-generated one.
@@ -437,7 +439,7 @@ mkdir -p ~/step-jwk-rotate && cd ~/step-jwk-rotate
 export STEPPATH="$PWD/.step"
 step ca bootstrap --ca-url https://ca.home \
   --fingerprint $(step certificate fingerprint \
-    /work/Ansible/ansible/files/homelab-root.crt)
+    ~/source/Ansible/ansible/roles/baseline/files/homelab-root.crt)
 
 step ca provisioner update ansible-jwk --password-file <(printf '%s' '<new password>')
 ```
