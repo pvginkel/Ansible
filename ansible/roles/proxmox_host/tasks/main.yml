@@ -15,6 +15,30 @@
   loop_control:
     label: "{{ item.key }}={{ item.value }}"
 
+# User-facing pveproxy TLS leaf, issued by the homelab step-ca via the
+# internal_tls role. Per-node, not cluster-writer gated: /etc/pve/local
+# resolves to the node-private /etc/pve/nodes/<node>/ dir, so each node
+# issues and serves its own leaf for its own hostname. The PVE cluster
+# CA (pve-root-ca.pem) and the pve-ssl.* node certs are left untouched.
+#
+# Ownership must be root:www-data, not root:root: /etc/pve is pmxcfs, a
+# FUSE filesystem that presents every file as root:www-data 0640 and
+# rejects chown — so root:www-data 0640 is the only setting that keeps
+# internal_tls's file tasks idempotent. pveproxy itself runs as www-data.
+- name: Issue the pveproxy TLS leaf from the homelab CA
+  ansible.builtin.include_role:
+    name: internal_tls
+  vars:
+    internal_tls_san_list:
+      - "{{ inventory_hostname }}"
+      - "{{ inventory_hostname }}.home"
+    internal_tls_cert_path: /etc/pve/local/pveproxy-ssl.pem
+    internal_tls_key_path: /etc/pve/local/pveproxy-ssl.key
+    internal_tls_owner: root
+    internal_tls_group: www-data
+    internal_tls_mode: "0640"
+    internal_tls_reload_handler: Reload pveproxy
+
 # Cluster vzdump backup job. /etc/pve is a FUSE filesystem (pmxcfs)
 # that mirrors across nodes — write only on the cluster-writer node so
 # we don't get three concurrent writers fighting for the same path.

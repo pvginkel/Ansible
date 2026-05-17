@@ -1,0 +1,8 @@
+---
+- name: Reload pveproxy
+  # Graceful: pveproxy re-reads pveproxy-ssl.pem on reload without
+  # dropping in-flight connections. Notified by internal_tls when the
+  # leaf is (re-)issued.
+  ansible.builtin.systemd:
+    name: pveproxy
+    state: reloaded
