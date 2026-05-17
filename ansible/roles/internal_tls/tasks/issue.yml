@@ -1,0 +1,135 @@
+---
+# Split issuance: the privileged half (minting a JWK token, which needs
+# the fleet provisioner password) runs on the Ansible controller; the
+# unprivileged half (generating the keypair + fetching the signed leaf)
+# runs on the target. The provisioner password never lands on the
+# target; the leaf private key never leaves it.
+
+- name: Confirm the homelab root certificate is installed
+  ansible.builtin.stat:
+    path: /usr/local/share/ca-certificates/homelab-root.crt
+  register: _internal_tls_root
+
+- name: Require the homelab root certificate (baseline must have run)
+  ansible.builtin.assert:
+    that: _internal_tls_root.stat.exists
+    fail_msg: >-
+      The homelab CA root cert is missing from this host's trust store.
+      internal_tls needs the target to trust step-ca — run the baseline
+      role on this host first.
+
+- name: Check whether the leaf certificate already exists
+  ansible.builtin.stat:
+    path: "{{ internal_tls_cert_path }}"
+  register: _internal_tls_cert
+
+# needs-renewal exits 0 when the leaf is inside the renewal window, 1
+# when it still has runway. Any other code is a real error and fails.
+- name: Check whether the existing leaf is within the renewal threshold
+  ansible.builtin.command:
+    argv:
+      - step
+      - certificate
+      - needs-renewal
+      - "{{ internal_tls_cert_path }}"
+      - "--expires-in"
+      - "{{ internal_tls_renewal_threshold_days * 24 }}h"
+  register: _internal_tls_renew
+  changed_when: false
+  failed_when: _internal_tls_renew.rc not in [0, 1]
+  check_mode: false
+  when: _internal_tls_cert.stat.exists
+
+- name: Decide whether the leaf needs issuing
+  ansible.builtin.set_fact:
+    _internal_tls_issue: >-
+      {{ not _internal_tls_cert.stat.exists
+         or (_internal_tls_renew.rc | default(1)) == 0 }}
+
+- name: Issue or renew the leaf certificate
+  when: _internal_tls_issue | bool
+  block:
+    # The token mint runs on the controller and anchors its TLS to the
+    # CA against the repo's copy of the homelab root, so the iac agent
+    # container needs only the step CLI — not homelab-CA trust.
+    - name: Resolve the homelab root cert path on the controller
+      ansible.builtin.set_fact:
+        _internal_tls_ca_root: "{{ role_path }}/../baseline/files/homelab-root.crt"
+
+    - name: Mint a JWK provisioning token on the controller
+      block:
+        - name: Create a memory-backed tempfile for the JWK password
+          ansible.builtin.tempfile:
+            state: file
+            path: /dev/shm
+            prefix: internal_tls_jwk_
+          delegate_to: localhost
+          register: _internal_tls_pwfile
+          changed_when: false
+
+        - name: Write the JWK provisioner password to the tempfile
+          ansible.builtin.copy:
+            content: "{{ internal_tls_jwk_provisioner_password }}"
+            dest: "{{ _internal_tls_pwfile.path }}"
+            mode: "0600"
+          delegate_to: localhost
+          changed_when: false
+          no_log: true
+
+        - name: Mint the JWK token (scoped to the requested SANs)
+          ansible.builtin.command:
+            argv: >-
+              {{ ['step', 'ca', 'token', internal_tls_san_list[0],
+                  '--provisioner', internal_tls_provisioner,
+                  '--provisioner-password-file', _internal_tls_pwfile.path,
+                  '--ca-url', internal_tls_ca_url,
+                  '--root', _internal_tls_ca_root]
+                 + (internal_tls_san_list | map('regex_replace', '^', '--san=') | list) }}
+          delegate_to: localhost
+          register: _internal_tls_token
+          changed_when: false
+          no_log: true
+      always:
+        - name: Remove the JWK password tempfile
+          ansible.builtin.file:
+            path: "{{ _internal_tls_pwfile.path }}"
+            state: absent
+          delegate_to: localhost
+          changed_when: false
+          when: _internal_tls_pwfile.path is defined
+
+    # Runs on the target: step generates the keypair locally and submits
+    # the CSR with the pre-minted token. --token carries both the auth
+    # and the SAN set, so no --san flags are repeated here. The token is
+    # short-lived (minutes) and SAN-scoped; it is not no_log'd so that
+    # an issuance failure stays debuggable.
+    - name: Issue the leaf certificate on the target host
+      ansible.builtin.command:
+        argv:
+          - step
+          - ca
+          - certificate
+          - "{{ internal_tls_san_list[0] }}"
+          - "{{ internal_tls_cert_path }}"
+          - "{{ internal_tls_key_path }}"
+          - "--token"
+          - "{{ _internal_tls_token.stdout }}"
+          - "--ca-url"
+          - "{{ internal_tls_ca_url }}"
+          - "--force"
+      changed_when: true
+      notify: "{{ internal_tls_reload_handler }}"
+
+    - name: Set ownership and mode on the leaf certificate
+      ansible.builtin.file:
+        path: "{{ internal_tls_cert_path }}"
+        owner: "{{ internal_tls_owner }}"
+        group: "{{ internal_tls_group }}"
+        mode: "{{ internal_tls_mode }}"
+
+    - name: Set ownership and mode on the leaf key
+      ansible.builtin.file:
+        path: "{{ internal_tls_key_path }}"
+        owner: "{{ internal_tls_owner }}"
+        group: "{{ internal_tls_group }}"
+        mode: "{{ internal_tls_mode }}"

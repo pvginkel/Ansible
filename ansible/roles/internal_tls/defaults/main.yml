@@ -1,0 +1,30 @@
+---
+# internal_tls — issue and renew homelab step-ca leaf certificates for
+# VM consumers via the JWK provisioner. Included by consumer roles with
+# per-inclusion vars; see README.md.
+
+# --- Required per inclusion (no defaults; asserted in tasks/main.yml) --
+#   internal_tls_san_list       : list of SANs; the first entry is the CN.
+#   internal_tls_cert_path      : where to install the leaf certificate.
+#   internal_tls_key_path       : where to install the leaf private key.
+#   internal_tls_reload_handler : handler name to notify on cert change.
+
+# --- Optional, with defaults ------------------------------------------
+# Ownership + mode applied to both the installed cert and key.
+internal_tls_owner: root
+internal_tls_group: root
+internal_tls_mode: "0640"
+
+# Re-issue when the leaf has fewer than this many days of validity left.
+# The drift pipeline calls the consumer on its schedule; this threshold
+# is what makes the role a no-op until a renewal is actually due.
+internal_tls_renewal_threshold_days: 14
+
+# Homelab CA endpoint and the VM-side provisioner. Fleet constants —
+# override only for a non-prd CA.
+internal_tls_ca_url: "https://ca.home"
+internal_tls_provisioner: ansible-jwk
+
+# The JWK provisioner password (internal_tls_jwk_provisioner_password)
+# is a fleet-wide vaulted var in group_vars/all/vips.yml — not a role
+# default. The role asserts it is defined.

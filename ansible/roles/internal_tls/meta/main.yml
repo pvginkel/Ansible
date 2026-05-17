@@ -1,0 +1,23 @@
+---
+galaxy_info:
+  role_name: internal_tls
+  author: pvginkel
+  description: >-
+    Issue and renew homelab step-ca leaf certificates for VM consumers
+    via the JWK provisioner.
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - noble
+    - name: Debian
+      versions:
+        - bookworm
+
+# No role dependencies: internal_tls is pulled in by consumer roles via
+# include_role, never run as a host-class of its own. It does rely on
+# the baseline role having installed the homelab root cert on the
+# target (asserted at run time, not declared here — declaring it would
+# re-run the whole baseline role on every inclusion).
+dependencies: []

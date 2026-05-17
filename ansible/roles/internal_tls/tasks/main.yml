@@ -1,0 +1,25 @@
+---
+# internal_tls is included by consumer roles via include_role. It has
+# no host-class of its own — everything is driven by the caller's vars.
+
+- name: Assert required internal_tls inputs are set
+  ansible.builtin.assert:
+    that:
+      - internal_tls_san_list is defined
+      - internal_tls_san_list | length > 0
+      - internal_tls_cert_path is defined
+      - internal_tls_key_path is defined
+      - internal_tls_reload_handler is defined
+      - internal_tls_jwk_provisioner_password is defined
+    fail_msg: >-
+      internal_tls requires internal_tls_san_list (non-empty),
+      internal_tls_cert_path, internal_tls_key_path,
+      internal_tls_reload_handler, and the vaulted
+      internal_tls_jwk_provisioner_password
+      (group_vars/all/vips.yml).
+
+- name: Install the step CLI
+  ansible.builtin.import_tasks: install.yml
+
+- name: Issue or renew the leaf certificate
+  ansible.builtin.import_tasks: issue.yml

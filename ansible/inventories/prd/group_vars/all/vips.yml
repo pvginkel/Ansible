@@ -39,3 +39,23 @@ vrrp_auth_password: !vault |
           62643665306134656338383363393030303231663564326561656262386265636335363531326161
           3961323561666361330a613236326334613034386136346563373934313931326436303230393639
           6563
+
+# JWK provisioner password for the homelab step-ca. The `internal_tls`
+# role pulls this to drive `step ca certificate` against the
+# `ansible-jwk` provisioner. Fleet-wide secret — a leak lets an
+# attacker forge any cert the provisioner's SAN policy allows, until
+# the password is rotated. Rotation procedure:
+# docs/runbooks/step-ca-bootstrap.md "JWK provisioner password rotation".
+#
+# ansible-vault'd with the fleet vault passphrase. To rotate, re-encrypt
+# from the ansible/ directory with ANSIBLE_VAULT_PASSWORD_FILE set:
+#   ansible-vault encrypt_string --name internal_tls_jwk_provisioner_password '<password>'
+internal_tls_jwk_provisioner_password: !vault |
+          $ANSIBLE_VAULT;1.1;AES256
+          31333233363731383066386562636161303036643431373466623862363733343333613436636637
+          6334343933653930613435323137363037623533656437390a333533653238636638396631343831
+          64373536383765326533333062396363323430373333396536383136616632613030383361396364
+          3930343734666131350a353930336666656437623731303465333534393032366266666339613932
+          64343839313239396266626366663138616139616461303762326638323963323336633730333262
+          39336239656337386662643335373038306431353764336661333330663033643465396463306430
+          306561343137373362613330623462636266
