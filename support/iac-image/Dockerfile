@@ -45,13 +45,7 @@ RUN apt-get update -yqq && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-COPY <<'EOF' /etc/apt/sources.list.d/smallstep.sources
-Types: deb
-URIs: https://packages.smallstep.com/stable/debian
-Suites: debs
-Components: main
-Signed-By: /etc/apt/keyrings/smallstep.asc
-EOF
+COPY smallstep.sources /etc/apt/sources.list.d/smallstep.sources
 
 RUN set -o pipefail && \
     \

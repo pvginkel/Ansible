@@ -1,0 +1,5 @@
+Types: deb
+URIs: https://packages.smallstep.com/stable/debian
+Suites: debs
+Components: main
+Signed-By: /etc/apt/keyrings/smallstep.asc
