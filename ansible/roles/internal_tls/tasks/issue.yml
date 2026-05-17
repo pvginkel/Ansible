@@ -57,6 +57,11 @@
         _internal_tls_ca_root: "{{ role_path }}/../baseline/files/homelab-root.crt"
 
     - name: Mint a JWK provisioning token on the controller
+      # Every task here is delegate_to: localhost and unprivileged.
+      # become: false stops the consuming play's become: true from
+      # propagating to the controller, where it would try to sudo
+      # (and fail — the controller has no passwordless sudo).
+      become: false
       block:
         - name: Create a memory-backed tempfile for the JWK password
           ansible.builtin.tempfile:
