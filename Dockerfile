@@ -45,6 +45,14 @@ RUN apt-get update -yqq && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+COPY <<'EOF' /etc/apt/sources.list.d/smallstep.sources
+Types: deb
+URIs: https://packages.smallstep.com/stable/debian
+Suites: debs
+Components: main
+Signed-By: /etc/apt/keyrings/smallstep.asc
+EOF
+
 RUN set -o pipefail && \
     \
     curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-4 | bash && \
@@ -55,9 +63,12 @@ RUN set -o pipefail && \
     curl -fsSL https://apt.releases.hashicorp.com/gpg | gpg --dearmor -o /etc/apt/keyrings/hashicorp.gpg && \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/hashicorp.gpg] https://apt.releases.hashicorp.com $(grep -oP '(?<=UBUNTU_CODENAME=).*' /etc/os-release || lsb_release -cs) main" > /etc/apt/sources.list.d/hashicorp.list && \
     \
+    curl -fsSL https://packages.smallstep.com/keys/apt/repo-signing-key.gpg -o /etc/apt/keyrings/smallstep.asc && \
+    \
     apt-get update -yqq && \
     apt-get install -y --no-install-recommends \
         kubectl \
+        step-cli \
         terraform \
     && \
     \
