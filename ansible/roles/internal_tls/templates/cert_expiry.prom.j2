@@ -1,0 +1,5 @@
+# {{ ansible_managed }}
+# Rendered by the `internal_tls` Ansible role — edits will be overwritten.
+# HELP internal_tls_cert_not_after_seconds Unix time at which the homelab step-ca TLS leaf expires.
+# TYPE internal_tls_cert_not_after_seconds gauge
+internal_tls_cert_not_after_seconds{common_name="{{ internal_tls_san_list[0] }}",cert_path="{{ internal_tls_cert_path }}"} {{ _internal_tls_not_after.stdout }}

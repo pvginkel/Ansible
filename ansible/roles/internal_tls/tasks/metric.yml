@@ -1,0 +1,57 @@
+---
+# Publish the leaf's expiry as a node-exporter textfile metric so a
+# stalled renewer surfaces in Prometheus. This runs on every invocation,
+# not only when a cert is issued: the metric then also exists for certs
+# issued before this hook landed, and always reflects whatever leaf is
+# currently on disk.
+#
+# The value is the absolute not-after epoch — a static file whose
+# correctness does not decay between role runs, since node-exporter keeps
+# reporting it as wall-clock advances. (A "seconds remaining" value would
+# freeze at issue time and never reach the alert threshold.)
+
+- name: Re-stat the leaf certificate before publishing its metric
+  ansible.builtin.stat:
+    path: "{{ internal_tls_cert_path }}"
+  register: _internal_tls_cert_final
+
+# Skipped only on a check-mode run against a host that has never been
+# issued a cert — there is nothing on disk to measure yet. A real run
+# always has the leaf in place by now (issue.yml created it).
+- name: Publish the cert-expiry metric
+  when: _internal_tls_cert_final.stat.exists
+  block:
+    - name: Read the leaf certificate's not-after date
+      ansible.builtin.command:
+        argv:
+          - openssl
+          - x509
+          - -enddate
+          - -noout
+          - -in
+          - "{{ internal_tls_cert_path }}"
+      register: _internal_tls_enddate
+      changed_when: false
+      check_mode: false
+
+    # `date` parses the GMT-suffixed openssl date directly, so the epoch
+    # is computed on the target and is not skewed by the controller's
+    # timezone (a Jinja to_datetime|strftime('%s') would be).
+    - name: Convert the not-after date to a unix timestamp
+      ansible.builtin.command:
+        argv:
+          - date
+          - "-d"
+          - "{{ _internal_tls_enddate.stdout | regex_replace('^notAfter=', '') }}"
+          - "+%s"
+      register: _internal_tls_not_after
+      changed_when: false
+      check_mode: false
+
+    - name: Write the cert-expiry metric for the node-exporter textfile collector
+      ansible.builtin.template:
+        src: cert_expiry.prom.j2
+        dest: "{{ internal_tls_textfile_dir }}/internal_tls_{{ internal_tls_san_list[0] | regex_replace('[^A-Za-z0-9]+', '_') }}.prom"
+        owner: root
+        group: root
+        mode: "0644"

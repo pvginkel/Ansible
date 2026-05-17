@@ -23,3 +23,6 @@
 
 - name: Issue or renew the leaf certificate
   ansible.builtin.import_tasks: issue.yml
+
+- name: Publish the leaf's expiry as a node-exporter metric
+  ansible.builtin.import_tasks: metric.yml

@@ -48,6 +48,7 @@ A consumer role includes it and defines its own reload handler:
 | `internal_tls_renewal_threshold_days` | no | `14` | Re-issue when the leaf has fewer than this many days left. |
 | `internal_tls_ca_url` | no | `https://ca.home` | Homelab CA endpoint. |
 | `internal_tls_provisioner` | no | `ansible-jwk` | step-ca provisioner used for issuance. |
+| `internal_tls_textfile_dir` | no | `/var/lib/prometheus/node-exporter` | node-exporter textfile-collector directory the cert-expiry metric is written to. |
 
 `internal_tls_jwk_provisioner_password` — the fleet-wide JWK password —
 is a vaulted var in `group_vars/all/vips.yml`, not a role input. The
@@ -68,6 +69,12 @@ role asserts it is defined.
    - On the **target**: `step ca certificate --token …` — the keypair
      is generated locally and never leaves the host.
    - Apply ownership/mode and notify the caller's reload handler.
+4. **Publish metric** — write `internal_tls_cert_not_after_seconds`
+   (the leaf's absolute not-after epoch) to the node-exporter textfile
+   collector at `internal_tls_textfile_dir`, one `.prom` file per cert.
+   Written every run, so the metric exists for pre-existing certs and
+   tracks whatever leaf is on disk. Prometheus alerts off it when a
+   leaf nears expiry — see the slice's §J.
 
 Cadence comes from whatever calls the consumer role (iac-scheduled-drift
 for the steady state). The threshold gate makes the role naturally
