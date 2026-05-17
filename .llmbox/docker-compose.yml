@@ -13,6 +13,7 @@ services:
       HA_TOKEN: "${HA_TOKEN}"
       KUBECONFIG: /home/ubuntu/claude-kubeconfig.yaml
       KUBE_NAMESPACE: development
+      ANSIBLE_VAULT_PASSWORD_FILE: ".vault_pass"
     volumes:
       - ${HOME}/.claude.json:/home/ubuntu/.claude.json:rw
       - ${HOME}/.claude:/home/ubuntu/.claude:rw
