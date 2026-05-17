@@ -101,6 +101,14 @@ microk8s_coredns_hosts: []
 # in-cluster ingress LB so in-cluster traffic doesn't loop out and back.
 microk8s_coredns_templates: []
 
+# Upstream DNS for the `.home` zone. When non-empty, the rendered
+# Corefile gets a zone-scoped `forward home. <ips>` ahead of the
+# default `forward . /etc/resolv.conf`, so `*.home` names resolve via
+# the LAN DNS. The `hosts` block (fallthrough, listed earlier) still
+# answers pinned names first, so this only catches the unpinned ones.
+# Empty = no `.home` forward; `.home` follows /etc/resolv.conf.
+microk8s_coredns_home_forwarders: []
+
 # kube-apiserver VIP (Keepalived). false skips VIP setup entirely.
 # Set true only on the 3-node prd cluster (group_vars/k8s_prd.yml) —
 # the single-node dev cluster and the scratch fleet have no VIP. The

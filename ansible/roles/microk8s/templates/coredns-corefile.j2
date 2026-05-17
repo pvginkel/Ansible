@@ -27,6 +27,9 @@
       fallthrough in-addr.arpa ip6.arpa
     }
     prometheus :9153
+{% if microk8s_coredns_home_forwarders | length > 0 %}
+    forward home. {{ microk8s_coredns_home_forwarders | join(' ') }}
+{% endif %}
     forward . /etc/resolv.conf
     cache 30
     loop

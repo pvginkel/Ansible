@@ -109,3 +109,12 @@ microk8s_coredns_hosts:
 microk8s_coredns_templates:
   - { domain: webathome.org, answer_a: 10.2.1.7, ttl: 600 }
   - { domain: ginbov.nl, answer_a: 10.2.1.7, ttl: 600 }
+
+# `.home` names not pinned in microk8s_coredns_hosts: forward to the
+# dnsmasq LoadBalancer IPs (dns-0/dns-1) so in-cluster lookups of
+# dynamic LAN hostnames resolve. Pinned names still answer from the
+# hosts block first, so the cold-boot path is unaffected. An unknown
+# name or a dnsmasq outage fails resolution normally.
+microk8s_coredns_home_forwarders:
+  - 10.2.1.2
+  - 10.2.1.3
