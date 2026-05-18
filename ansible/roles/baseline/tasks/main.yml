@@ -61,11 +61,12 @@
 # playbooks/group_vars/k8s.yml) — they already run node_exporter as an
 # in-cluster DaemonSet pod bound to :9100, so the Debian package's
 # systemd unit collides on the port and never starts. When opted out
-# the package is removed instead.
+# the package is purged (config and all) instead of installed.
 - name: Manage the prometheus-node-exporter package
   ansible.builtin.apt:
     name: prometheus-node-exporter
     state: "{{ 'present' if baseline_node_exporter else 'absent' }}"
+    purge: true
   environment:
     NEEDRESTART_MODE: a
 
