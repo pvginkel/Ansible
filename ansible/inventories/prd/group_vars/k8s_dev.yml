@@ -20,6 +20,14 @@ microk8s_service_cidr_v6: fd99::/108
 microk8s_extra_sans:
   - 172.19.0.1
 
+# Homelab-CA TLS leaf for the kube-apiserver, served additively via the
+# apiserver's SNI cert flag. wrkdevk8s is single-node with no VIP — the
+# kubernetes-api-dev.home alias points straight at it. microk8s's own
+# server.crt is untouched. See slices/internal-tls-step-ca.md §F.
+microk8s_apiserver_homelab_sans:
+  - kubernetes-api-dev
+  - kubernetes-api-dev.home
+
 # core/ingress excluded per decisions.md "Tool split": operator runs
 # their own ingress controller. Live cluster has it enabled today;
 # settles at the step 11 rebuild. ha-cluster auto-enabled by microk8s.

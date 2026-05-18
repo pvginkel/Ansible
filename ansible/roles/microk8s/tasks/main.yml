@@ -92,3 +92,12 @@
   when:
     - _microk8s_installed.stat.exists
     - microk8s_manage_apiserver_vip | bool
+
+# Homelab-CA TLS leaf for the kube-apiserver — an additive SNI cert, so
+# independent of the VIP block above. Per-node; gated on the
+# per-cluster SAN list.
+- name: Issue and serve the kube-apiserver homelab TLS leaf
+  ansible.builtin.import_tasks: internal_tls.yml
+  when:
+    - _microk8s_installed.stat.exists
+    - microk8s_apiserver_homelab_sans | length > 0

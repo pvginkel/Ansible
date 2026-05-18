@@ -20,3 +20,14 @@
 - name: Rollout-restart coredns
   ansible.builtin.command: microk8s kubectl rollout restart -n kube-system deployment/coredns
   changed_when: true
+
+- name: Restart microk8s kubelite
+  # kubelite is microk8s's combined apiserver/controller/scheduler/
+  # proxy/kubelet process. Restarting just this unit picks up
+  # kube-apiserver arg changes without bouncing containerd, so workload
+  # pods on the node keep running — only the node's control plane and
+  # kubelet blip for a few seconds. Roll one node at a time (serial: 1);
+  # on prd the apiserver VIP and the peer nodes cover the gap.
+  ansible.builtin.systemd:
+    name: snap.microk8s.daemon-kubelite
+    state: restarted

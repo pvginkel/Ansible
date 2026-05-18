@@ -116,3 +116,15 @@ microk8s_coredns_home_forwarders: []
 # the shared VRRP secret from `vrrp_auth_password` there. See
 # tasks/keepalived.yml and slices/internal-ha-vips.md.
 microk8s_manage_apiserver_vip: false
+
+# Homelab-CA TLS leaf for the kube-apiserver. The SANs the leaf carries;
+# empty skips it. The leaf is served *additively* via the apiserver's
+# --tls-sni-cert-key flag — a client whose SNI matches one of these
+# names is handed the homelab leaf, every other connection (kubelet,
+# controller-manager, in-cluster `kubernetes` Service traffic) still
+# gets microk8s's own server.crt. Distinct from microk8s_extra_sans,
+# which seeds microk8s's *own* cert at first boot; this leaf is separate
+# and leaves the internal PKI untouched. Set per cluster in
+# group_vars/k8s_*.yml. See tasks/internal_tls.yml and
+# slices/internal-tls-step-ca.md §F.
+microk8s_apiserver_homelab_sans: []

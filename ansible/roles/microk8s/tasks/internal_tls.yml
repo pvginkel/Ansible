@@ -1,0 +1,37 @@
+---
+# Homelab-CA TLS leaf for the kube-apiserver, served additively via the
+# apiserver's --tls-sni-cert-key SNI mechanism. A client whose SNI
+# matches one of the leaf's SANs (the prd kubernetes-api.home VIP, or
+# the dev kubernetes-api-dev.home alias) is handed the homelab leaf;
+# every other connection — kubelet, controller-manager, in-cluster
+# `kubernetes` Service traffic — still gets microk8s's own server.crt,
+# validated against the cluster CA. microk8s's internal PKI is left
+# entirely untouched, so no kubeconfig changes hands.
+
+- name: Issue the kube-apiserver homelab TLS leaf
+  ansible.builtin.include_role:
+    name: internal_tls
+  vars:
+    internal_tls_san_list: "{{ microk8s_apiserver_homelab_sans }}"
+    internal_tls_cert_path: /var/snap/microk8s/current/certs/homelab-api.crt
+    internal_tls_key_path: /var/snap/microk8s/current/certs/homelab-api.key
+    # Match microk8s's own certs dir (root:microk8s 0660); kubelite
+    # runs as root and reads them regardless.
+    internal_tls_owner: root
+    internal_tls_group: microk8s
+    internal_tls_mode: "0660"
+    internal_tls_reload_handler: Restart microk8s kubelite
+
+- name: Serve the homelab leaf as an apiserver SNI cert
+  # ${SNAP_DATA} is expanded by microk8s's launcher — the file's other
+  # cert args use it too. The arg is re-asserted every run, so a snap
+  # refresh or `microk8s refresh-certs` that rewrote the file self-heals
+  # on the next converge; no sentinel file needed. kube-apiserver reads
+  # the leaf's SNI match names straight from its SANs, so no explicit
+  # ":domain" suffix is required.
+  ansible.builtin.lineinfile:
+    path: /var/snap/microk8s/current/args/kube-apiserver
+    regexp: '^--tls-sni-cert-key='
+    line: "--tls-sni-cert-key=${SNAP_DATA}/certs/homelab-api.crt,${SNAP_DATA}/certs/homelab-api.key"
+    insertafter: '^--tls-private-key-file='
+  notify: Restart microk8s kubelite

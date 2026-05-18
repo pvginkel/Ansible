@@ -42,6 +42,15 @@ microk8s_extra_sans:
 # pick it up through the microk8s role.
 microk8s_manage_apiserver_vip: true
 
+# Homelab-CA TLS leaf for the kube-apiserver, served additively via the
+# apiserver's SNI cert flag for clients hitting the kubernetes-api.home
+# VIP. microk8s's own server.crt is untouched. Roll it onto the running
+# nodes with playbooks/apply-k8s-apiserver-cert.yml; rebuilt nodes pick
+# it up through the microk8s role. See slices/internal-tls-step-ca.md §F.
+microk8s_apiserver_homelab_sans:
+  - kubernetes-api
+  - kubernetes-api.home
+
 # core/registry excluded per decisions.md "Tool split": the operator
 # runs their own registry, so the live `registry` addon stays enabled
 # until disabled out-of-band (the role is additive — only enables
