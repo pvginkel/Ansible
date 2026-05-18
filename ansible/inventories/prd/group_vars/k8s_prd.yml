@@ -37,16 +37,16 @@ microk8s_extra_sans:
 
 # kube-apiserver VIP. This 3-node cluster fronts the API at
 # kubernetes-api.home (10.1.0.37) via Keepalived — see
-# group_vars/all/vips.yml and slices/internal-ha-vips.md. Roll it onto
-# the running nodes with playbooks/apply-k8s-vip.yml; rebuilt nodes
-# pick it up through the microk8s role.
+# group_vars/all/vips.yml and slices/internal-ha-vips.md. Converged
+# onto the running nodes by playbooks/site-k8s.yml; rebuilt nodes pick
+# it up through the microk8s role.
 microk8s_manage_apiserver_vip: true
 
 # Homelab-CA TLS leaf for the kube-apiserver, served additively via the
 # apiserver's SNI cert flag for clients hitting the kubernetes-api.home
-# VIP. microk8s's own server.crt is untouched. Roll it onto the running
-# nodes with playbooks/apply-k8s-apiserver-cert.yml; rebuilt nodes pick
-# it up through the microk8s role. See slices/internal-tls-step-ca.md §F.
+# VIP. microk8s's own server.crt is untouched. Converged onto the
+# running nodes by playbooks/site-k8s.yml; rebuilt nodes pick it up
+# through the microk8s role. See slices/internal-tls-step-ca.md §F.
 microk8s_apiserver_homelab_sans:
   - kubernetes-api
   - kubernetes-api.home
@@ -84,13 +84,21 @@ microk8s_registry_mirrors:
   - registry:5000
   - registry-dev:5000
 
-# Node-local /etc/hosts entries. The registry alias must resolve
-# without LAN DNS — the LAN's dnsmasq runs in-cluster behind the
-# registry itself, so any chain that puts node DNS for `registry`
-# through dnsmasq creates a cold-boot ordering failure. Hand-picked
-# 172.17.0.3 lives outside the dynamic service-IP allocation range.
+# Node-local /etc/hosts entries. These nodes resolve through public
+# DNS (8.8.8.8) for cold-boot independence, so any homelab-internal
+# name a node itself needs is pinned here rather than left to the
+# in-cluster dnsmasq.
+#   - registry: the LAN's dnsmasq runs in-cluster behind the registry
+#     itself, so node DNS for `registry` through dnsmasq would be a
+#     cold-boot ordering failure. Hand-picked 172.17.0.3 lives outside
+#     the dynamic service-IP allocation range.
+#   - ca.home: the homelab step-ca (a MetalLB LoadBalancer at
+#     10.2.1.15, reachable on the workload VLAN). The internal_tls
+#     consumer's `step` CLI must resolve it to issue/renew the
+#     kube-apiserver leaf — see slices/internal-tls-step-ca.md §F.
 microk8s_etc_hosts_entries:
   - "172.17.0.3 registry"
+  - "10.2.1.15 ca.home"
 
 # CoreDNS hosts overrides. In-cluster runtime references (Kaniko
 # pushing builds, etc.) need bare `registry`/`registry.home` to

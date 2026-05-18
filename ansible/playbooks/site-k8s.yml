@@ -1,0 +1,52 @@
+---
+# site-k8s.yml — converge the running k8s clusters against the current
+# role definitions, in place, without a rebuild.
+#
+# This is the single in-place convergence playbook for k8s nodes — the
+# cluster counterpart to site.yml (which excludes k8s because cluster
+# changes need serial: 1). Any routine config change — a new microk8s
+# role var, a baseline change, the kube-apiserver VIP or TLS leaf, a
+# CoreDNS or addon-pool tweak — lands here. The `microk8s` and
+# `baseline` roles are idempotent, so a run only touches what drifted;
+# scope a fast partial run with --tags / --limit rather than reaching
+# for a per-feature playbook.
+#
+# Operation classes (one playbook each — this is the whole set):
+#   site-k8s.yml    — converge config in place      (this file)
+#   update-k8s.yml  — OS patching: drain → reboot
+#   rebuild-k8s.yml — full VM rebuild
+#   evict-k8s.yml   — drain a node ahead of a rebuild
+#
+# serial: 1 per decisions.md "Cluster changes are serialized." os_update
+# (the apt dist-upgrade in baseline) is the one thing kept out — that
+# needs a drain and belongs to update-k8s.yml. Run with --skip-tags
+# os_update, matching iac-scheduled-drift.
+#
+#   ansible-playbook playbooks/site-k8s.yml --skip-tags os_update --diff
+#
+# Scope to one cluster or node with --limit; to one concern with --tags
+# (e.g. --tags ca_trust to distribute just the homelab CA root cert).
+#
+# Primary is elected runtime per cluster — the first play runs election
+# across the whole k8s group so the serial: 1 converge below resolves
+# peers correctly. Mirrors rebuild-k8s.yml minus the rebuild-only plays.
+
+- name: Elect microk8s primary per cluster
+  hosts: k8s
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Elect primary
+      ansible.builtin.import_role:
+        name: microk8s
+        tasks_from: elect-primary
+
+- name: Converge baseline + microk8s on the running k8s clusters
+  hosts: k8s
+  become: true
+  gather_facts: true
+  serial: 1
+  roles:
+    - role: baseline
+    - role: managed_filesystems
+    - role: microk8s
