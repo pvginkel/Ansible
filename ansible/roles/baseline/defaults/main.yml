@@ -19,6 +19,13 @@ baseline_install_recommends: true
 # rolling a host forward during a maintenance window.
 baseline_apt_dist_upgrade: false
 
+# Install the prometheus-node-exporter package. True for most managed
+# hosts. k8s nodes set this false (playbooks/group_vars/k8s.yml): they
+# already run node_exporter as an in-cluster DaemonSet pod bound to
+# :9100, so the Debian package's service would collide on the port.
+# When false the package is removed rather than installed.
+baseline_node_exporter: true
+
 # OS update policy for this host. See decisions.md "OS updates".
 #   cluster    — k8s/ceph nodes. unattended-upgrades is purged; the
 #                update.yml playbook owns drain+upgrade+reboot.

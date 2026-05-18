@@ -74,7 +74,10 @@ role asserts it is defined.
    collector at `internal_tls_textfile_dir`, one `.prom` file per cert.
    Written every run, so the metric exists for pre-existing certs and
    tracks whatever leaf is on disk. Prometheus alerts off it when a
-   leaf nears expiry — see the slice's §J.
+   leaf nears expiry — see the slice's §J. **Skipped** when
+   `internal_tls_textfile_dir` is absent — a host with no
+   prometheus-node-exporter package, e.g. a k8s node running
+   node_exporter as an in-cluster DaemonSet.
 
 Cadence comes from whatever calls the consumer role (iac-scheduled-drift
 for the steady state). The threshold gate makes the role naturally

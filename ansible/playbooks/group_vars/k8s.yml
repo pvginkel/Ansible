@@ -17,3 +17,10 @@ baseline_install_recommends: false
 # pool is already provisioned.
 baseline_extra_packages:
   - zfsutils-linux
+
+# k8s nodes run node_exporter as an in-cluster DaemonSet pod
+# (hostNetwork, :9100). The Debian prometheus-node-exporter package
+# would collide on that port, so baseline removes it here instead of
+# installing it. k8s-node cert-expiry metrics reach Prometheus by
+# another path — see slices/deferred/internal-tls-monitoring.md.
+baseline_node_exporter: false

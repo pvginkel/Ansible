@@ -56,13 +56,16 @@
   # bare metal is 'NA'.
   when: ansible_facts['virtualization_role'] == 'guest'
 
-# Scraped by the in-cluster Prometheus. Universal across every managed
-# host so observability coverage is uniform. The package ships a
-# systemd unit listening on :9100 with sensible defaults.
-- name: Install prometheus-node-exporter
+# Host-level metrics for the in-cluster Prometheus. Installed on most
+# managed hosts; k8s nodes opt out (baseline_node_exporter: false in
+# playbooks/group_vars/k8s.yml) — they already run node_exporter as an
+# in-cluster DaemonSet pod bound to :9100, so the Debian package's
+# systemd unit collides on the port and never starts. When opted out
+# the package is removed instead.
+- name: Manage the prometheus-node-exporter package
   ansible.builtin.apt:
     name: prometheus-node-exporter
-    state: present
+    state: "{{ 'present' if baseline_node_exporter else 'absent' }}"
   environment:
     NEEDRESTART_MODE: a
 
@@ -71,6 +74,7 @@
     name: prometheus-node-exporter
     enabled: true
     state: started
+  when: baseline_node_exporter
 
 - name: Validate baseline_os_update_class
   ansible.builtin.assert:

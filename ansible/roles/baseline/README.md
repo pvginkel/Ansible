@@ -7,7 +7,7 @@ Applies OS hygiene to a managed Ubuntu host. Ported from `/work/Obsidian/Linux.m
 - Sets timezone to `Europe/Amsterdam` (override: `baseline_timezone`).
 - Refreshes the apt cache; optionally runs `apt dist-upgrade` when `baseline_apt_dist_upgrade: true` (off by default — see "Updates" below for the longer story).
 - Installs `qemu-guest-agent` and enables the service.
-- Installs and enables `prometheus-node-exporter`. Universal across every managed host so the in-cluster Prometheus has uniform visibility. Pointing Prometheus at the new targets is a HelmCharts change, separate from this role.
+- Installs and enables `prometheus-node-exporter` on every managed host **except k8s nodes** — those already run `node_exporter` as an in-cluster DaemonSet bound to `:9100`, so the Debian package's service would collide on the port; they set `baseline_node_exporter: false` and the package is removed there instead. Pointing Prometheus at new targets is a HelmCharts change, separate from this role.
 - **Applies the host's OS update class** (per `baseline_os_update_class`; default `cluster`):
   - `cluster` — k8s/ceph nodes. Purges `unattended-upgrades`; the `update.yml` playbook owns drain+upgrade+reboot.
   - `standalone` — VMs like `srviac` (and future OpenBao hosts). Installs `unattended-upgrades` and drops `/etc/apt/apt.conf.d/99-unattended-upgrades-iac` to auto-reboot in a quiet window per `baseline_unattended_reboot_time` (default `03:00`; stagger across standalone hosts).

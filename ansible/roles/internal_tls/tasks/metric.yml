@@ -15,11 +15,21 @@
     path: "{{ internal_tls_cert_path }}"
   register: _internal_tls_cert_final
 
-# Skipped only on a check-mode run against a host that has never been
-# issued a cert — there is nothing on disk to measure yet. A real run
-# always has the leaf in place by now (issue.yml created it).
+- name: Check for the node-exporter textfile-collector directory
+  ansible.builtin.stat:
+    path: "{{ internal_tls_textfile_dir }}"
+  register: _internal_tls_textfile_dir
+
+# Skipped when there is no leaf yet (a check-mode run against a host
+# never issued one) or no textfile-collector directory. The latter is
+# the steady state on k8s nodes: they run node_exporter as an in-cluster
+# DaemonSet, carry no Debian prometheus-node-exporter package, and so
+# have no textfile dir — their cert-expiry metric reaches Prometheus by
+# another path (see the slice's §J). A real VM-consumer run has both.
 - name: Publish the cert-expiry metric
-  when: _internal_tls_cert_final.stat.exists
+  when:
+    - _internal_tls_cert_final.stat.exists
+    - _internal_tls_textfile_dir.stat.exists
   block:
     - name: Read the leaf certificate's not-after date
       ansible.builtin.command:

@@ -26,10 +26,11 @@ internal_tls_ca_url: "https://ca.home"
 internal_tls_provisioner: ansible-jwk
 
 # node-exporter textfile-collector directory. The prometheus-node-exporter
-# Debian package patches its --collector.textfile.directory default to this
-# path and creates the directory; baseline installs that package on every
-# managed host, so it is always present on an internal_tls consumer. The
-# role drops the leaf's expiry metric here for Prometheus to alert on.
+# Debian package patches its --collector.textfile.directory default to
+# this path and creates the directory. The role drops the leaf's expiry
+# metric here for Prometheus to alert on. On a host without that package
+# the directory is absent — k8s nodes run node_exporter as an in-cluster
+# DaemonSet instead — and the metric step is skipped.
 internal_tls_textfile_dir: /var/lib/prometheus/node-exporter
 
 # The JWK provisioner password (internal_tls_jwk_provisioner_password)
