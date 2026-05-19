@@ -1,0 +1,32 @@
+---
+# Point sshd at the certificate. The drop-in re-states the ed25519
+# HostKey immediately before HostCertificate: sshd_config(5) requires
+# the matching HostKey to have been specified before the certificate
+# that accompanies it, and the stock sshd_config keeps its HostKey
+# lines commented (sshd falls back to built-in defaults), so the
+# certificate would otherwise have no HostKey to bind to.
+
+- name: Install the HostCertificate sshd drop-in
+  ansible.builtin.copy:
+    dest: "{{ ssh_host_cert_sshd_dropin }}"
+    content: |
+      # Managed by Ansible (ssh_host_cert role) — edits will be overwritten.
+      # Serves a homelab step-ca SSH host certificate so clients verify
+      # this host through the committed `@cert-authority` known_hosts
+      # line rather than a pinned per-host key.
+      # See AnsibleSpecs slices/ssh-host-ca.md.
+      HostKey {{ ssh_host_cert_host_key }}
+      HostCertificate {{ ssh_host_cert_host_key }}-cert.pub
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload sshd
+
+# Validates the real merged config (/etc/ssh/sshd_config + every
+# drop-in), so a bad drop-in fails the play here, before the handler
+# ever reloads sshd. Runs every converge — cheap, and catches drift.
+- name: Validate the full sshd configuration
+  ansible.builtin.command:
+    argv: [/usr/sbin/sshd, -t]
+  changed_when: false
+  check_mode: false

@@ -1,0 +1,23 @@
+---
+galaxy_info:
+  role_name: ssh_host_cert
+  author: pvginkel
+  description: >-
+    Issue and renew a homelab step-ca SSH host certificate for a
+    managed host's ed25519 host key, and serve it from sshd.
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - noble
+    - name: Debian
+      versions:
+        - bookworm
+
+# No role dependencies. ssh_host_cert composes via play ordering — it
+# runs as the last role in site.yml / site-k8s.yml / rebuild-k8s.yml,
+# after baseline (homelab CA root trust) and, on k8s nodes, after
+# microk8s (the `ca.home` /etc/hosts pin). A meta dep on baseline
+# would re-run the whole baseline role on every host.
+dependencies: []

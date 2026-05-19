@@ -1,0 +1,171 @@
+---
+# Split issuance, same shape as internal_tls: the privileged half
+# (minting a JWK token with the fleet provisioner password) runs on
+# the Ansible controller; the unprivileged half (submitting the host
+# public key for signing) runs on the target. The password never
+# lands on the target; the host private key never leaves it — only
+# its public half is signed.
+
+- name: Confirm the homelab root certificate is installed
+  ansible.builtin.stat:
+    path: /usr/local/share/ca-certificates/homelab-root.crt
+  register: _ssh_host_cert_root
+
+- name: Require the homelab root certificate (baseline must have run)
+  ansible.builtin.assert:
+    that: _ssh_host_cert_root.stat.exists
+    fail_msg: >-
+      The homelab CA root cert is missing from this host's trust store.
+      ssh_host_cert needs the target to trust step-ca — baseline
+      installs it, so ssh_host_cert must be ordered after baseline.
+
+- name: Confirm the ed25519 host key is present
+  ansible.builtin.stat:
+    path: "{{ ssh_host_cert_host_key }}.pub"
+  register: _ssh_host_cert_hostkey
+
+- name: Require the ed25519 host key
+  ansible.builtin.assert:
+    that: _ssh_host_cert_hostkey.stat.exists
+    fail_msg: >-
+      {{ ssh_host_cert_host_key }}.pub is missing. Every managed host
+      serves an ed25519 host key (sshd generates one; from-scratch VMs
+      pin it via cloud-init) — investigate before re-running.
+
+- name: Check whether the host certificate already exists
+  ansible.builtin.stat:
+    path: "{{ ssh_host_cert_host_key }}-cert.pub"
+  register: _ssh_host_cert_cert
+
+# ssh-keygen -L prints, among other lines:
+#     Valid: from 2026-05-19T10:00:00 to 2026-07-05T10:00:00
+# Splitting on " to " isolates the not-after timestamp.
+- name: Read the existing certificate's validity window
+  ansible.builtin.command:
+    argv:
+      - ssh-keygen
+      - -L
+      - -f
+      - "{{ ssh_host_cert_host_key }}-cert.pub"
+  register: _ssh_host_cert_inspect
+  changed_when: false
+  check_mode: false
+  when: _ssh_host_cert_cert.stat.exists
+
+- name: Extract the certificate's not-after timestamp
+  ansible.builtin.set_fact:
+    _ssh_host_cert_valid_to: >-
+      {{ (_ssh_host_cert_inspect.stdout_lines
+          | select('search', 'Valid:') | first).split(' to ')[1] | trim }}
+  when: _ssh_host_cert_cert.stat.exists
+
+# `date` parses the timestamp on the target, so the epoch is not
+# skewed by a controller in a different timezone.
+- name: Convert the not-after timestamp to a unix epoch
+  ansible.builtin.command:
+    argv:
+      - date
+      - "-d"
+      - "{{ _ssh_host_cert_valid_to }}"
+      - "+%s"
+  register: _ssh_host_cert_not_after
+  changed_when: false
+  check_mode: false
+  when: _ssh_host_cert_cert.stat.exists
+
+- name: Decide whether the certificate needs (re-)issuing
+  ansible.builtin.set_fact:
+    _ssh_host_cert_issue: >-
+      {{ not _ssh_host_cert_cert.stat.exists
+         or ((_ssh_host_cert_not_after.stdout | int)
+             - (ansible_date_time.epoch | int))
+            < (ssh_host_cert_renewal_threshold_days * 86400) }}
+
+- name: Issue or renew the SSH host certificate
+  when: _ssh_host_cert_issue | bool
+  block:
+    # The token mint anchors its TLS to the CA against the repo's copy
+    # of the homelab root, so the iac agent container needs only the
+    # step CLI — not homelab-CA trust in its own store.
+    - name: Resolve the homelab root cert path on the controller
+      ansible.builtin.set_fact:
+        _ssh_host_cert_ca_root: "{{ role_path }}/../baseline/files/homelab-root.crt"
+
+    - name: Mint a JWK SSH-host token on the controller
+      # Every task here is delegate_to: localhost and unprivileged.
+      # become: false stops the consuming play's become: true from
+      # propagating to the controller, where it would try to sudo
+      # (and fail — the controller has no passwordless sudo).
+      become: false
+      block:
+        - name: Create a memory-backed tempfile for the JWK password
+          ansible.builtin.tempfile:
+            state: file
+            path: /dev/shm
+            prefix: ssh_host_cert_jwk_
+          delegate_to: localhost
+          register: _ssh_host_cert_pwfile
+          changed_when: false
+
+        - name: Write the JWK provisioner password to the tempfile
+          ansible.builtin.copy:
+            content: "{{ ssh_host_cert_jwk_provisioner_password }}"
+            dest: "{{ _ssh_host_cert_pwfile.path }}"
+            mode: "0600"
+          delegate_to: localhost
+          changed_when: false
+          no_log: true
+
+        - name: Mint the SSH-host token (scoped to this host's principals)
+          ansible.builtin.command:
+            argv: >-
+              {{ ['step', 'ca', 'token', inventory_hostname,
+                  '--ssh', '--host',
+                  '--provisioner', ssh_host_cert_provisioner,
+                  '--provisioner-password-file', _ssh_host_cert_pwfile.path,
+                  '--ca-url', ssh_host_cert_ca_url,
+                  '--root', _ssh_host_cert_ca_root]
+                 + (ssh_host_cert_principals
+                    | map('regex_replace', '^', '--principal=') | list) }}
+          delegate_to: localhost
+          register: _ssh_host_cert_token
+          changed_when: false
+          no_log: true
+      always:
+        - name: Remove the JWK password tempfile
+          ansible.builtin.file:
+            path: "{{ _ssh_host_cert_pwfile.path }}"
+            state: absent
+          delegate_to: localhost
+          changed_when: false
+          when: _ssh_host_cert_pwfile.path is defined
+
+    # Runs on the target: step submits the existing host public key
+    # with the pre-minted token and writes the signed certificate to
+    # `<key>-cert.pub`. --force overwrites the prior cert on renewal.
+    # The token carries the auth + principal scope; it is short-lived
+    # and not no_log'd so an issuance failure stays debuggable.
+    - name: Sign the host key on the target
+      ansible.builtin.command:
+        argv:
+          - step
+          - ssh
+          - certificate
+          - --host
+          - --sign
+          - --force
+          - --token
+          - "{{ _ssh_host_cert_token.stdout }}"
+          - --ca-url
+          - "{{ ssh_host_cert_ca_url }}"
+          - "{{ inventory_hostname }}"
+          - "{{ ssh_host_cert_host_key }}.pub"
+      changed_when: true
+      notify: Reload sshd
+
+    - name: Set ownership and mode on the host certificate
+      ansible.builtin.file:
+        path: "{{ ssh_host_cert_host_key }}-cert.pub"
+        owner: root
+        group: root
+        mode: "0644"

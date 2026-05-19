@@ -1,0 +1,23 @@
+---
+# ssh_host_cert runs as a top-level role (site.yml / site-k8s.yml /
+# rebuild-k8s.yml), ordered last — after baseline so the homelab CA
+# root is in the system trust store, and after microk8s on k8s nodes
+# so the `ca.home` /etc/hosts pin those nodes need is already present.
+
+- name: Assert the JWK provisioner password is available
+  ansible.builtin.assert:
+    that:
+      - ssh_host_cert_jwk_provisioner_password | length > 0
+    fail_msg: >-
+      ssh_host_cert needs the vaulted JWK provisioner password
+      (internal_tls_jwk_provisioner_password in group_vars/all/vips.yml).
+      Run with the fleet vault passphrase available.
+
+- name: Install the step CLI
+  ansible.builtin.import_tasks: install.yml
+
+- name: Issue or renew the SSH host certificate
+  ansible.builtin.import_tasks: issue.yml
+
+- name: Activate the certificate in sshd
+  ansible.builtin.import_tasks: sshd.yml

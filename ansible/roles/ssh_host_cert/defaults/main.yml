@@ -1,0 +1,38 @@
+---
+# ssh_host_cert — issue and renew a homelab step-ca SSH *host*
+# certificate for this host's ed25519 host key, and wire it into sshd.
+# Run as a top-level role after baseline; see README.md.
+
+# The host's ed25519 host key. The role signs `<key>.pub` and installs
+# the certificate beside it as `<key>-cert.pub` — the path sshd's
+# HostCertificate directive expects.
+ssh_host_cert_host_key: /etc/ssh/ssh_host_ed25519_key
+
+# Certificate principals — the names a client may verify this host as.
+# Short hostname + `.home` FQDN, matching how the inventory and the
+# committed `@cert-authority` known_hosts line address every managed
+# host. Both must be permitted by the JWK provisioner's SSH host
+# policy (docs/runbooks/step-ca-bootstrap.md).
+ssh_host_cert_principals:
+  - "{{ inventory_hostname }}"
+  - "{{ inventory_hostname }}.home"
+
+# Re-sign when the certificate has fewer than this many days of
+# validity left. The drift pipeline runs the role on its schedule;
+# this threshold is what makes a run a no-op until renewal is due.
+# Matches internal_tls — a 47-day cert with a 14-day renewal window.
+ssh_host_cert_renewal_threshold_days: 14
+
+# Homelab CA endpoint and the provisioner that signs host certs.
+# Fleet constants — the same `ansible-jwk` provisioner that issues the
+# internal_tls X.509 leaves, with an SSH host policy added.
+ssh_host_cert_ca_url: "https://ca.home"
+ssh_host_cert_provisioner: ansible-jwk
+
+# JWK provisioner password. The same fleet-wide vaulted secret
+# internal_tls uses — one provisioner, one password, both cert types.
+# Defined in group_vars/all/vips.yml; the role asserts it resolves.
+ssh_host_cert_jwk_provisioner_password: "{{ internal_tls_jwk_provisioner_password | default('') }}"
+
+# sshd drop-in that activates the certificate.
+ssh_host_cert_sshd_dropin: /etc/ssh/sshd_config.d/10-homelab-host-cert.conf

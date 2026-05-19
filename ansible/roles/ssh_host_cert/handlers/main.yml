@@ -1,0 +1,9 @@
+---
+# Reload, never restart: SIGHUP re-reads the config (picking up the new
+# HostCertificate) without dropping the live SSH connection this play
+# is running over. No drain needed — a reload is non-disruptive, so
+# ssh_host_cert is safe in the serial:1 k8s converge.
+- name: Reload sshd
+  ansible.builtin.systemd:
+    name: ssh
+    state: reloaded

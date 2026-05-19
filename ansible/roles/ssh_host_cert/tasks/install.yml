@@ -1,0 +1,42 @@
+---
+# step-cli is not in the Ubuntu/Debian archives — it comes from
+# Smallstep's own apt repository. Deliberately a verbatim parallel of
+# internal_tls/tasks/install.yml: both roles need step-cli, and each
+# owns its dependency end-to-end rather than relying on the other
+# having run. All four tasks are idempotent, so on a host where both
+# roles run the second pass is a fast no-op.
+
+- name: Ensure the apt keyring directory exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the Smallstep package-signing key
+  ansible.builtin.copy:
+    src: smallstep.asc
+    dest: /etc/apt/keyrings/smallstep.asc
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Add the Smallstep apt repository
+  ansible.builtin.deb822_repository:
+    name: smallstep
+    types: [deb]
+    uris: https://packages.smallstep.com/stable/debian
+    suites: [debs]
+    components: [main]
+    signed_by: /etc/apt/keyrings/smallstep.asc
+    enabled: true
+    state: present
+
+- name: Install step-cli
+  ansible.builtin.apt:
+    name: step-cli
+    state: present
+    update_cache: true
+  environment:
+    NEEDRESTART_MODE: a
