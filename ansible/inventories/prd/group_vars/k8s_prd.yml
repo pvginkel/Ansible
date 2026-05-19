@@ -74,7 +74,7 @@ microk8s_users:
 # MetalLB pool from /work/KubernetesConfig/metallb/prd.yaml.
 microk8s_metallb_pool_addresses:
   - 10.2.1.1-10.2.1.199
-  - 2a10:3781:565a:0:7912:b75b::/96
+  - 2a10:3781:16a9:0:7912:b75b::/96
 
 # Containerd registry mirrors. The operator's in-cluster registry
 # (ServiceIP 172.17.0.3, see microk8s_etc_hosts_entries below) and

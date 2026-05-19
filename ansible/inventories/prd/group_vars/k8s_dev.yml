@@ -50,7 +50,7 @@ microk8s_users:
 # MetalLB pool from /work/KubernetesConfig/metallb/dev.yaml.
 microk8s_metallb_pool_addresses:
   - 10.1.2.1-10.1.2.199
-  - 2a10:3781:565a:1:7912:b75a::/96
+  - 2a10:3781:16a9:1:7912:b75a::/96
 
 # Containerd registry mirrors. dev primarily pulls from the dev
 # registry (image refs in HelmCharts dev configs carry the
