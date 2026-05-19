@@ -2,9 +2,9 @@
 // Push-notifies on detected changes or non-zero exit. Read-only; no
 // terraform apply, no ansible run without --check.
 //
-// Two stages run sequentially so a failure in one doesn't mask
-// findings in the other. Both stages are inside the same Jenkins
-// build; either failing trips the post-failure handler exactly once.
+// Three stages run sequentially so a failure in one doesn't mask
+// findings in the other. All stages are inside the same Jenkins
+// build; any failing trips the post-failure handler exactly once.
 //
 // Controller config:
 //   - SCM: pvginkel/IaCAgent, branch main
@@ -64,6 +64,23 @@ pipeline {
                         set -euo pipefail
                         cd /work/Ansible/ansible
                         check-ansible-drift.sh playbooks/site.yml --limit "!iac_agent" --skip-tags os_update
+                    '
+                '''
+            }
+        }
+
+        stage('Ansible drift (k8s config)') {
+            steps {
+                // site-k8s.yml converges the k8s clusters in place;
+                // site.yml excludes them (serial: 1 / drain concerns),
+                // so without this stage a k8s config change is invisible
+                // to CI. --check only; same --skip-tags os_update
+                // rationale as the stage above.
+                sh '''
+                    iac -c '
+                        set -euo pipefail
+                        cd /work/Ansible/ansible
+                        check-ansible-drift.sh playbooks/site-k8s.yml --skip-tags os_update
                     '
                 '''
             }
