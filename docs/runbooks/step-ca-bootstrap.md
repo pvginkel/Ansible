@@ -6,6 +6,8 @@ cannot or should not be automated:
 - [Day-zero ceremony](#day-zero-ceremony) — generate root + intermediate,
   configure ACME and JWK provisioners, export the root cert, hand the
   encrypted intermediate to the chart.
+- [Enabling the SSH host CA](#enabling-the-ssh-host-ca) — extend the CA
+  to also issue SSH host certificates, for the `ssh_host_cert` role.
 - [Windows trust install](#windows-trust-install) — one-shot per Windows
   machine the operator uses.
 - [Intermediate rotation](#intermediate-rotation) — when the intermediate
@@ -282,6 +284,151 @@ The persistent state of the CA now lives in the chart's PVC. The
 operator's recovery path if everything is lost: see
 [Intermediate rotation](#intermediate-rotation) (the root in Roboform
 is the recovery anchor).
+
+---
+
+## Enabling the SSH host CA
+
+Extends the existing X.509 CA so it also signs SSH **host**
+certificates. Every managed host then carries one, and Ansible
+verifies them through a single committed `@cert-authority` line
+instead of a pinned per-host key. Driven by
+[`/work/AnsibleSpecs/slices/ssh-host-ca.md`](../../../AnsibleSpecs/slices/ssh-host-ca.md);
+the `ssh_host_cert` Ansible role does all issuance and renewal
+afterward.
+
+One-shot. The X.509 root in Roboform is **not** involved — an SSH CA
+is its own trust anchor, a plain ed25519 keypair independent of the
+X.509 hierarchy.
+
+### Roboform entries you will create
+
+| Entry name | What it holds |
+|---|---|
+| `homelab-ca SSH host CA key (encrypted)` | The encrypted SSH host CA private key. |
+| `homelab-ca SSH host CA key passphrase` | Passphrase decrypting it. |
+
+### 1. Generate the SSH host CA keypair
+
+From `wrkdev`, in a fresh `mktemp -d`:
+
+```sh
+ssh-keygen -t ed25519 -f ssh_host_ca -C homelab-ssh-host-ca
+```
+
+Generate a 32+ char passphrase at the prompt, save it to Roboform as
+`homelab-ca SSH host CA key passphrase`. This writes `ssh_host_ca`
+(encrypted private key) and `ssh_host_ca.pub` (public key).
+
+Copy the **private** key into Roboform under
+`homelab-ca SSH host CA key (encrypted)`, with the same
+round-trip-verify-before-shred discipline as the X.509 root (step 2
+of the day-zero ceremony).
+
+### 2. Hand the SSH host CA key to the chart
+
+The `step-ca` release in HelmCharts runs in `existingSecrets` mode.
+Enabling the SSH host CA there:
+
+- `configs/<env>/step-ca-values.yaml` — flip
+  `existingSecrets.sshHostCa: true`.
+- `configs/<env>/step-ca.yaml` — add the Secret the chart's
+  `sshHostCa` mode consumes, carrying the `ssh_host_ca` private key
+  and its passphrase. Confirm the Secret name and key names against
+  the upstream `step-certificates` chart (`charts/step-ca/args.sh`
+  pins the source).
+
+Both the `dev` and `prd` step-ca releases.
+
+### 3. Add the `ssh` block and host policy to `ca.json`
+
+`ca.json` is the base64 `ca.json` value in the `step-ca-config`
+Secret (`configs/<env>/step-ca.yaml`). Decode, edit, re-encode.
+
+Add a top-level `ssh` block pointing at the mounted host CA key
+(confirm the path against the rendered pod):
+
+```json
+"ssh": {
+  "hostKey": "/home/step/secrets/ssh_host_ca_key"
+}
+```
+
+The `ansible-jwk` provisioner already carries `enableSSHCA: true`.
+Give its empty `"ssh": {}` an SSH **host** policy, and add SSH host
+durations to its `claims`:
+
+```json
+"options": {
+  "x509": { ...unchanged... },
+  "ssh": {
+    "host": {
+      "principals": ["*.home", "srv*", "wrk*", "pve*"]
+    }
+  }
+}
+```
+
+```json
+"claims": {
+  "enableSSHCA": true,
+  "disableRenewal": false,
+  "allowRenewalAfterExpiry": false,
+  "disableSmallstepExtensions": false,
+  "minHostSSHCertDuration": "5m0s",
+  "maxHostSSHCertDuration": "1128h0m0s",
+  "defaultHostSSHCertDuration": "1128h0m0s"
+}
+```
+
+`1128h = 47 days` — the same lifetime as the X.509 leaves; the
+`ssh_host_cert` role re-signs under a 14-day threshold.
+
+The principal policy is **pattern-based**, unlike the fully
+enumerated X.509 `dns` allow-list. Deliberate: the slice's whole
+point is that adding a VM needs no committed-file change, so the
+homelab hostname conventions (`srv*`, `wrk*`, `pve*`, `*.home`) are
+allowed as patterns. Only a genuinely new hostname prefix needs a
+policy edit.
+
+Validate the JSON (`jq . <file>`), re-encode to base64, redeploy
+`step-ca` — `dev` first, then `prd`.
+
+### 4. Verify SSH issuance
+
+Sign a throwaway key against the redeployed CA and inspect it:
+
+```sh
+step ssh certificate --host --sign --principal test.home test.home \
+  /etc/ssh/ssh_host_ed25519_key.pub \
+  --provisioner ansible-jwk \
+  --provisioner-password-file <(printf '%s' '<JWK pw>') \
+  --ca-url https://ca.home \
+  --root ~/source/Ansible/ansible/roles/baseline/files/homelab-root.crt
+ssh-keygen -L -f ssh_host_ed25519_key-cert.pub   # Valid window ≈ 47d
+```
+
+Remove the throwaway cert afterward.
+
+### 5. Commit the SSH host CA public key to the Ansible repo
+
+The committed `@cert-authority` line is what makes every managed host
+verifiable. Put `ssh_host_ca.pub`'s contents into
+`ansible/files/known_hosts.d/homelab`:
+
+```
+@cert-authority * <contents of ssh_host_ca.pub>
+```
+
+The `*` host pattern is intentional — scoping is enforced by the
+certificate's own principals, not the known_hosts pattern. This file,
+plus the `ansible.cfg` and per-host playbook changes, is the
+ssh-host-ca "switch" commit.
+
+### 6. Clean up
+
+`shred -u` the bootstrap tmpdir. The SSH host CA private key then
+lives only in Roboform and in the cluster Secret.
 
 ---
 
