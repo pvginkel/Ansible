@@ -16,3 +16,15 @@ output "ssh_commands" {
     for name, _ in local.vms : name => "ssh ansible@${name}"
   }
 }
+
+# Seeds the transient known_hosts the bootstrap playbook builds for
+# Ansible's first, pre-certificate connection to a freshly-provisioned
+# scratch VM. Steady-state runs trust the homelab SSH CA via the
+# committed `@cert-authority` line. See AnsibleSpecs slices/ssh-host-ca.md.
+output "host_pubkeys" {
+  description = "Map of scratch VM name → ed25519 host public key (OpenSSH format)."
+  value = {
+    for name, key in tls_private_key.host_ed25519 :
+    name => trimspace(key.public_key_openssh)
+  }
+}

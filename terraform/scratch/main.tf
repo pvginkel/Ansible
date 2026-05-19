@@ -16,22 +16,30 @@ locals {
   }
 }
 
-# Per-VM SSH host key. Generated once, persisted in tfstate, embedded into
-# cloud-init so the VM boots with a deterministic identity, and exported
-# into ansible/files/known_hosts.d/scratch (one combined file for the
-# inventory) so Ansible can verify each host on first contact without TOFU.
+# Per-VM SSH host key. Generated once, persisted in tfstate, and embedded
+# into cloud-init so the VM boots with a deterministic identity.
+#
+# Host-key verification rides on an SSH host certificate (the
+# ssh_host_cert Ansible role) trusted fleet-wide via one committed
+# `@cert-authority` line — not on this key. The `host_pubkeys` output
+# seeds only the pre-certificate bootstrap connection. See
+# AnsibleSpecs slices/ssh-host-ca.md.
 resource "tls_private_key" "host_ed25519" {
   for_each  = local.vms
   algorithm = "ED25519"
 }
 
-resource "local_file" "known_hosts_entries" {
-  filename        = "${path.module}/../../ansible/files/known_hosts.d/scratch"
-  file_permission = "0644"
-  content = join("", [
-    for name, _ in local.vms :
-    "${name},${name}.home ${trimspace(tls_private_key.host_ed25519[name].public_key_openssh)}\n"
-  ])
+# Transitional. `local_file.known_hosts_entries` used to write
+# ansible/files/known_hosts.d/scratch into the repo. `destroy = false`
+# drops it from state without deleting the committed file, so
+# verification holds through the converge that signs each VM a host
+# certificate. Removed — with the file and the `local` provider — in
+# the ssh-host-ca cutover commit.
+removed {
+  from = local_file.known_hosts_entries
+  lifecycle {
+    destroy = false
+  }
 }
 
 resource "proxmox_download_file" "ubuntu_cloud_image" {

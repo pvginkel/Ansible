@@ -33,26 +33,34 @@ resource "proxmox_download_file" "ubuntu_cloud_image" {
   overwrite_unmanaged = true
 }
 
-# Per-VM SSH host key. Generated once, persists in tfstate, embedded
-# into cloud-init so the VM boots with a deterministic identity, and
-# exported into ansible/files/known_hosts.d/prd. A rebuild without
-# `terraform taint` keeps the same key so Ansible never has to TOFU.
+# Per-VM SSH host key. Generated once, persists in tfstate, and
+# embedded into cloud-init so the VM boots with a deterministic
+# identity. A rebuild without `terraform taint` keeps the same key.
+#
+# Host-key *verification* no longer rides on this: each VM is signed an
+# SSH host certificate by the homelab CA (the ssh_host_cert Ansible
+# role), trusted fleet-wide via one committed `@cert-authority` line.
+# The `host_pubkeys` output (outputs.tf) is all that leaves Terraform —
+# it seeds only the single pre-certificate bootstrap connection. See
+# AnsibleSpecs slices/ssh-host-ca.md.
 resource "tls_private_key" "host_ed25519" {
   for_each  = local.vms_from_scratch
   algorithm = "ED25519"
 }
 
-resource "local_file" "known_hosts_prd" {
-  # Only materialize the file once at least one VM is from-scratch.
-  # Until then the resource is absent so plan shows zero diff after
-  # the scaffold commit and before the first per-VM rebuild commit.
-  for_each        = length(local.vms_from_scratch) > 0 ? toset(["prd"]) : toset([])
-  filename        = "${path.module}/../../ansible/files/known_hosts.d/prd"
-  file_permission = "0644"
-  content = join("", [
-    for name in sort(keys(local.vms_from_scratch)) :
-    "${name},${name}.home ${trimspace(tls_private_key.host_ed25519[name].public_key_openssh)}\n"
-  ])
+# Transitional. `local_file.known_hosts_prd` used to write
+# ansible/files/known_hosts.d/prd into the repo working tree — the
+# pattern the ssh-host-ca slice removes (Terraform on srviac cannot
+# persist repo writes). `destroy = false` drops the resource from
+# state without deleting the committed file, so host-key verification
+# keeps working through the converge that signs every VM a host
+# certificate. Removed — with the file and the `local` provider — in
+# the cutover commit once the fleet is on the `@cert-authority` line.
+removed {
+  from = local_file.known_hosts_prd
+  lifecycle {
+    destroy = false
+  }
 }
 
 # The cloud-init snippet rendered per from-scratch VM.

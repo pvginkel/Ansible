@@ -7,13 +7,15 @@ terraform {
     proxmox = {
       source = "bpg/proxmox"
     }
-    # tls + local providers are used by the from-scratch resources in
-    # main.tf (per-VM host keypair + known_hosts.d/prd). Adopted-only
-    # configurations don't exercise them.
+    # tls backs the per-VM host keypair in main.tf. Adopted-only
+    # configurations don't exercise it.
     tls = {
       source  = "hashicorp/tls"
       version = "~> 4.0"
     }
+    # local is retained only for the transitional `removed` block in
+    # main.tf (the old known_hosts.d/prd writer). Drop it in the
+    # ssh-host-ca cutover commit, with the `removed` block.
     local = {
       source  = "hashicorp/local"
       version = "~> 2.5"
