@@ -9,7 +9,11 @@ locals {
     background  = "12-19"
   }
 
-  vms = {
+  # Per-VM base config. `network_devices` is deliberately not here — it
+  # is the single source of truth in each VM's Ansible host_var
+  # (inventories/prd/host_vars/<name>.yml), merged in by the `vms` local
+  # below. See AnsibleSpecs slice network-devices-host-vars-sot.
+  vms_base = {
     srvk8s2 = {
       vm_id          = 911
       pve_node       = "pve1"
@@ -30,30 +34,7 @@ locals {
         { interface = "scsi1", size = 80 },
       ]
 
-      # Three NICs: house net, k8s workload VLAN (vmbr0 tag=2), 10 Gb
-      # backplane. Deterministic MAC: VMID 911 = 0x038F.
-      network_devices = [
-        {
-          bridge      = "vmbr0"
-          mac_address = "02:A7:F3:03:8F:00"
-          addresses   = ["10.1.0.28/16", "2a10:3781:16a9:1::28/64"]
-          gateway     = "10.1.0.1"
-          accept_ra   = false
-          nameservers = ["8.8.8.8", "8.8.4.4"]
-          search      = ["home"]
-        },
-        {
-          bridge      = "vmbr0"
-          mac_address = "02:A7:F3:03:8F:01"
-          vlan_id     = 2
-          addresses   = ["10.2.0.28/16", "2a10:3781:16a9::28/64"]
-        },
-        {
-          bridge      = "vmbr1"
-          mac_address = "02:A7:F3:03:8F:02"
-          addresses   = ["192.168.188.28/24", "fdd0:6a51:35de::28/64"]
-        },
-      ]
+      # NICs: inventories/prd/host_vars/srvk8s2.yml
     }
 
     srvk8s3 = {
@@ -76,30 +57,7 @@ locals {
         { interface = "scsi1", size = 80 },
       ]
 
-      # Three NICs: house net, k8s workload VLAN (vmbr0 tag=2), 10 Gb
-      # backplane. Deterministic MAC: VMID 912 = 0x0390.
-      network_devices = [
-        {
-          bridge      = "vmbr0"
-          mac_address = "02:A7:F3:03:90:00"
-          addresses   = ["10.1.0.29/16", "2a10:3781:16a9:1::29/64"]
-          gateway     = "10.1.0.1"
-          accept_ra   = false
-          nameservers = ["8.8.8.8", "8.8.4.4"]
-          search      = ["home"]
-        },
-        {
-          bridge      = "vmbr0"
-          mac_address = "02:A7:F3:03:90:01"
-          vlan_id     = 2
-          addresses   = ["10.2.0.29/16", "2a10:3781:16a9::29/64"]
-        },
-        {
-          bridge      = "vmbr1"
-          mac_address = "02:A7:F3:03:90:02"
-          addresses   = ["192.168.188.29/24", "fdd0:6a51:35de::29/64"]
-        },
-      ]
+      # NICs: inventories/prd/host_vars/srvk8s3.yml
     }
 
     wrkdevk8s = {
@@ -120,27 +78,7 @@ locals {
         { interface = "scsi0", size = 60 },
       ]
 
-      # vmbr0 is dev-tier dynamic — DHCP via the per-VM `homelab_dns_reservation`.
-      # wrkdevk8s doesn't host registry/dnsmasq pods (dev pulls from external
-      # `registry-dev`), so the bring-up cycle that pins prd k8s + Ceph to
-      # static IPs on vmbr0 doesn't apply — see decisions.md "Ceph nodes and
-      # prd k8s nodes are static infrastructure".
-      # vmbr1 is the 10 Gb backplane, hand-curated static address — wrkdevk8s
-      # reaches non-cluster services on that subnet. The cloud-init template
-      # renders a netplan stanza for any NIC with `addresses` set, regardless
-      # of `static_ip`, so the hybrid (dynamic vmbr0, static vmbr1) is fine.
-      # Deterministic MACs: VMID 919 = 0x0397.
-      network_devices = [
-        {
-          bridge      = "vmbr0"
-          mac_address = "02:A7:F3:03:97:00"
-        },
-        {
-          bridge      = "vmbr1"
-          mac_address = "02:A7:F3:03:97:01"
-          addresses   = ["192.168.188.17/24", "fdd0:6a51:35de::17/64"]
-        },
-      ]
+      # NICs: inventories/prd/host_vars/wrkdevk8s.yml
     }
 
     srviac = {
@@ -161,14 +99,7 @@ locals {
         { interface = "scsi0", size = 32 },
       ]
 
-      # Single NIC on vmbr0 — dynamic homelab_dns_reservation (not
-      # bring-up-tier). Deterministic MAC: VMID 920 = 0x0398.
-      network_devices = [
-        {
-          bridge      = "vmbr0"
-          mac_address = "02:A7:F3:03:98:00"
-        },
-      ]
+      # NICs: inventories/prd/host_vars/srviac.yml
     }
 
     srvk8s1 = {
@@ -198,31 +129,7 @@ locals {
         { interface = "scsi2", path_in_datastore = "/dev/disk/by-id/nvme-Samsung_SSD_980_500GB_S64DNX0RC21332X" },
       ]
 
-      # Three NICs: house net, k8s workload VLAN (vmbr0 tag=2), 10 Gb
-      # backplane. Deterministic MAC: 02:A7:F3:VV:VV:EE where VV:VV is
-      # VMID big-endian and EE is the NIC index. VMID 910 = 0x038E.
-      network_devices = [
-        {
-          bridge      = "vmbr0"
-          mac_address = "02:A7:F3:03:8E:00"
-          addresses   = ["10.1.0.27/16", "2a10:3781:16a9:1::27/64"]
-          gateway     = "10.1.0.1"
-          accept_ra   = false
-          nameservers = ["8.8.8.8", "8.8.4.4"]
-          search      = ["home"]
-        },
-        {
-          bridge      = "vmbr0"
-          mac_address = "02:A7:F3:03:8E:01"
-          vlan_id     = 2
-          addresses   = ["10.2.0.27/16", "2a10:3781:16a9::27/64"]
-        },
-        {
-          bridge      = "vmbr1"
-          mac_address = "02:A7:F3:03:8E:02"
-          addresses   = ["192.168.188.27/24", "fdd0:6a51:35de::27/64"]
-        },
-      ]
+      # NICs: inventories/prd/host_vars/srvk8s1.yml
     }
 
     srvceph1 = {
@@ -251,10 +158,7 @@ locals {
         },
       ]
 
-      network_devices = [
-        { bridge = "vmbr0", mac_address = "BC:24:11:A0:CB:D5" },
-        { bridge = "vmbr1", mac_address = "BC:24:11:AD:18:01" },
-      ]
+      # NICs: inventories/prd/host_vars/srvceph1.yml
     }
 
     srvceph2 = {
@@ -283,10 +187,7 @@ locals {
         },
       ]
 
-      network_devices = [
-        { bridge = "vmbr0", mac_address = "BC:24:11:7B:37:DC" },
-        { bridge = "vmbr1", mac_address = "BC:24:11:94:B2:99" },
-      ]
+      # NICs: inventories/prd/host_vars/srvceph2.yml
     }
 
     srvceph3 = {
@@ -315,10 +216,23 @@ locals {
         },
       ]
 
-      network_devices = [
-        { bridge = "vmbr0", mac_address = "BC:24:11:53:D3:C8" },
-        { bridge = "vmbr1", mac_address = "BC:24:11:43:5A:8A" },
-      ]
+      # NICs: inventories/prd/host_vars/srvceph3.yml
     }
+  }
+}
+
+locals {
+  # Merge each VM's network_devices in from its Ansible host_var, so
+  # module.vm and the cloud-init render keep seeing
+  # each.value.network_devices unchanged. A missing host_var file or a
+  # missing network_devices key fails `terraform plan` loudly —
+  # intended: a TF-managed VM must have its host_var first.
+  vms = {
+    for name, vm in local.vms_base :
+    name => merge(vm, {
+      network_devices = yamldecode(
+        file("${path.module}/../../ansible/inventories/prd/host_vars/${name}.yml")
+      ).network_devices
+    })
   }
 }
