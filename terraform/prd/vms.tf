@@ -36,7 +36,7 @@ locals {
         {
           bridge      = "vmbr0"
           mac_address = "02:A7:F3:03:8F:00"
-          addresses   = ["10.1.0.28/16", "2a10:3781:565a:1::28/64"]
+          addresses   = ["10.1.0.28/16", "2a10:3781:16a9:1::28/64"]
           gateway     = "10.1.0.1"
           accept_ra   = false
           nameservers = ["8.8.8.8", "8.8.4.4"]
@@ -46,7 +46,7 @@ locals {
           bridge      = "vmbr0"
           mac_address = "02:A7:F3:03:8F:01"
           vlan_id     = 2
-          addresses   = ["10.2.0.28/16", "2a10:3781:565a::28/64"]
+          addresses   = ["10.2.0.28/16", "2a10:3781:16a9::28/64"]
         },
         {
           bridge      = "vmbr1"
@@ -82,7 +82,7 @@ locals {
         {
           bridge      = "vmbr0"
           mac_address = "02:A7:F3:03:90:00"
-          addresses   = ["10.1.0.29/16", "2a10:3781:565a:1::29/64"]
+          addresses   = ["10.1.0.29/16", "2a10:3781:16a9:1::29/64"]
           gateway     = "10.1.0.1"
           accept_ra   = false
           nameservers = ["8.8.8.8", "8.8.4.4"]
@@ -92,7 +92,7 @@ locals {
           bridge      = "vmbr0"
           mac_address = "02:A7:F3:03:90:01"
           vlan_id     = 2
-          addresses   = ["10.2.0.29/16", "2a10:3781:565a::29/64"]
+          addresses   = ["10.2.0.29/16", "2a10:3781:16a9::29/64"]
         },
         {
           bridge      = "vmbr1"
@@ -205,7 +205,7 @@ locals {
         {
           bridge      = "vmbr0"
           mac_address = "02:A7:F3:03:8E:00"
-          addresses   = ["10.1.0.27/16", "2a10:3781:565a:1::27/64"]
+          addresses   = ["10.1.0.27/16", "2a10:3781:16a9:1::27/64"]
           gateway     = "10.1.0.1"
           accept_ra   = false
           nameservers = ["8.8.8.8", "8.8.4.4"]
@@ -215,7 +215,7 @@ locals {
           bridge      = "vmbr0"
           mac_address = "02:A7:F3:03:8E:01"
           vlan_id     = 2
-          addresses   = ["10.2.0.27/16", "2a10:3781:565a::27/64"]
+          addresses   = ["10.2.0.27/16", "2a10:3781:16a9::27/64"]
         },
         {
           bridge      = "vmbr1"
