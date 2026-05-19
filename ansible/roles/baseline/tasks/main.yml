@@ -199,3 +199,4 @@
     mode: "0600"
   notify: Apply netplan
   when: static_netplan is defined
+  tags: [netplan]

@@ -2,3 +2,30 @@
 vm_id: 912
 pve_node: pve2
 workload_class: background
+
+# Mirror of `network_devices` in terraform/prd/vms.tf — the baseline
+# role's `static_netplan` task re-asserts /etc/netplan/50-cloud-init.yaml
+# from this so a vms.tf static-IP change lands without a VM rebuild.
+static_netplan:
+  - id: nic0
+    mac: "02:a7:f3:03:90:00"
+    addresses:
+      - 10.1.0.29/16
+      - 2a10:3781:16a9:1::29/64
+    gateway: 10.1.0.1
+    accept_ra: false
+    nameservers:
+      - 8.8.8.8
+      - 8.8.4.4
+    search:
+      - home
+  - id: nic1
+    mac: "02:a7:f3:03:90:01"
+    addresses:
+      - 10.2.0.29/16
+      - 2a10:3781:16a9::29/64
+  - id: nic2
+    mac: "02:a7:f3:03:90:02"
+    addresses:
+      - 192.168.188.29/24
+      - fdd0:6a51:35de::29/64

@@ -16,3 +16,30 @@ k8s_node_labels:
 # after microk8s join + cordon, before the DaemonSet readiness gate.
 zpools_to_import:
   - zpool2
+
+# Mirror of `network_devices` in terraform/prd/vms.tf — the baseline
+# role's `static_netplan` task re-asserts /etc/netplan/50-cloud-init.yaml
+# from this so a vms.tf static-IP change lands without a VM rebuild.
+static_netplan:
+  - id: nic0
+    mac: "02:a7:f3:03:8e:00"
+    addresses:
+      - 10.1.0.27/16
+      - 2a10:3781:16a9:1::27/64
+    gateway: 10.1.0.1
+    accept_ra: false
+    nameservers:
+      - 8.8.8.8
+      - 8.8.4.4
+    search:
+      - home
+  - id: nic1
+    mac: "02:a7:f3:03:8e:01"
+    addresses:
+      - 10.2.0.27/16
+      - 2a10:3781:16a9::27/64
+  - id: nic2
+    mac: "02:a7:f3:03:8e:02"
+    addresses:
+      - 192.168.188.27/24
+      - fdd0:6a51:35de::27/64
