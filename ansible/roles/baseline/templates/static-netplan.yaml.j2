@@ -1,15 +1,15 @@
-# Managed by Ansible (baseline role; static_netplan task).
+# Managed by Ansible (baseline role, netplan task).
 # Mirrors what cloud-init renders on first boot from
 # terraform/prd/cloud-init.yaml.tftpl, sourced from the
-# `static_netplan` host_var. See decisions.md "Cloud-init is a
+# `network_devices` host_var. See decisions.md "Cloud-init is a
 # first-boot artefact".
 network:
   version: 2
   ethernets:
-{% for nic in static_netplan %}
-    {{ nic.id }}:
+{% for nic in network_devices %}
+    nic{{ loop.index0 }}:
       match:
-        macaddress: "{{ nic.mac | lower }}"
+        macaddress: "{{ nic.mac_address | lower }}"
 {% if nic.addresses | default([]) | length > 0 %}
       addresses:
 {% for addr in nic.addresses %}

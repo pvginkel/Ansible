@@ -2,3 +2,10 @@
 vm_id: 920
 pve_node: pve
 workload_class: background
+
+# Per-VM NIC config — the single source of truth, read by
+# terraform/prd/vms.tf (via yamldecode). Single NIC on vmbr0, dynamic
+# (DHCP via dnsmasq reservation) — no static netplan.
+network_devices:
+  - bridge: vmbr0
+    mac_address: "02:A7:F3:03:98:00"

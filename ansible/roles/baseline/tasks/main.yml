@@ -186,11 +186,13 @@
   tags: [ca_trust]
 
 # Re-asserts the netplan render that cloud-init writes on first boot
-# (terraform/prd/cloud-init.yaml.tftpl). Opt-in per host via the
-# `static_netplan` var. Closes the "static netplan is the gap" caveat
-# in decisions.md "Cloud-init is a first-boot artefact" — without this,
-# a static-IP change in vms.tf only lands via a deliberate VM rebuild.
-- name: Render /etc/netplan/50-cloud-init.yaml from static_netplan
+# (terraform/prd/cloud-init.yaml.tftpl) from the `network_devices`
+# host_var — the single source of truth Terraform also reads. Gated on
+# a NIC declaring static addresses, matching the cloud-init template's
+# own `has_static_nic` check; all-DHCP hosts keep cloud-init's
+# auto-generated netplan. Closes the "static netplan is the gap" caveat
+# in decisions.md "Cloud-init is a first-boot artefact".
+- name: Render /etc/netplan/50-cloud-init.yaml from network_devices
   ansible.builtin.template:
     src: static-netplan.yaml.j2
     dest: /etc/netplan/50-cloud-init.yaml
@@ -198,5 +200,8 @@
     group: root
     mode: "0600"
   notify: Apply netplan
-  when: static_netplan is defined
+  when: >-
+    network_devices | default([])
+    | selectattr('addresses', 'defined') | selectattr('addresses')
+    | list | length > 0
   tags: [netplan]

@@ -3,12 +3,12 @@ vm_id: 911
 pve_node: pve1
 workload_class: background
 
-# Mirror of `network_devices` in terraform/prd/vms.tf — the baseline
-# role's `static_netplan` task re-asserts /etc/netplan/50-cloud-init.yaml
-# from this so a vms.tf static-IP change lands without a VM rebuild.
-static_netplan:
-  - id: nic0
-    mac: "02:a7:f3:03:8f:00"
+# Per-VM NIC config — the single source of truth, read by both
+# terraform/prd/vms.tf (via yamldecode) and the baseline netplan task.
+# NIC order is load-bearing: [0] is the vmbr0 primary.
+network_devices:
+  - bridge: vmbr0
+    mac_address: "02:A7:F3:03:8F:00"
     addresses:
       - 10.1.0.28/16
       - 2a10:3781:16a9:1::28/64
@@ -19,13 +19,14 @@ static_netplan:
       - 8.8.4.4
     search:
       - home
-  - id: nic1
-    mac: "02:a7:f3:03:8f:01"
+  - bridge: vmbr0
+    mac_address: "02:A7:F3:03:8F:01"
+    vlan_id: 2
     addresses:
       - 10.2.0.28/16
       - 2a10:3781:16a9::28/64
-  - id: nic2
-    mac: "02:a7:f3:03:8f:02"
+  - bridge: vmbr1
+    mac_address: "02:A7:F3:03:8F:02"
     addresses:
       - 192.168.188.28/24
       - fdd0:6a51:35de::28/64

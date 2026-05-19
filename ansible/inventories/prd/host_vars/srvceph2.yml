@@ -2,3 +2,11 @@
 vm_id: 114
 pve_node: pve2
 workload_class: background
+
+# Per-VM NIC config — the single source of truth, read by
+# terraform/prd/vms.tf (via yamldecode). Legacy Proxmox-generated MACs.
+network_devices:
+  - bridge: vmbr0
+    mac_address: "BC:24:11:7B:37:DC"
+  - bridge: vmbr1
+    mac_address: "BC:24:11:94:B2:99"
