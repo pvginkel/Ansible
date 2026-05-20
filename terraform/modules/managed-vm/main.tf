@@ -127,7 +127,7 @@ resource "proxmox_virtual_environment_vm" "this" {
       # imported without a file_id stay that way).
       file_id = (var.cloud_init != null && disk.key == 0) ? var.cloud_init.image_file_id : null
       ssd     = (var.cloud_init != null && disk.key == 0) ? true : null
-      backup  = local.pve_node_has_backup
+      backup  = local.pve_node_has_backup && !var.exclude_from_backup
     }
   }
 

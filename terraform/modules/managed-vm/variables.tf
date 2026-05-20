@@ -147,3 +147,9 @@ variable "static_ip" {
   type        = bool
   default     = false
 }
+
+variable "exclude_from_backup" {
+  description = "Force backup=false on managed disks regardless of whether pve_node declares a backup datastore. For VMs whose disk must never be captured by the cluster vzdump job — e.g. srvvault1, where a PVE backup would co-locate the OpenBao seal key with the Raft data. See decisions.md \"OpenBao backup / DR\"."
+  type        = bool
+  default     = false
+}
