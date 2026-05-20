@@ -34,6 +34,12 @@ ssh-add -L                       # confirm "pve-root" is listed
 ssh -o IdentitiesOnly=no root@pve true   # exit 0 → terraform's SSH will work
 ```
 
+One-time known_hosts setup: the bpg provider has its own SSH client and reads `~/.ssh/known_hosts` (the system default — Ansible's `UserKnownHostsFile=files/known_hosts.d/homelab` doesn't apply to it). PVE nodes serve step-ca-signed host certificates via the `ssh_host_cert` role, so the workstation needs the homelab CA's `@cert-authority` line in `~/.ssh/known_hosts` or the provider rejects the handshake with `ssh: no authorities for hostname`. Append it once:
+
+```sh
+cat ansible/files/known_hosts.d/homelab >> ~/.ssh/known_hosts
+```
+
 ### `ansible` service key — used by Ansible to reach managed VMs as `ansible`
 
 `ansible/roles/bootstrap/files/ansible.pub` is the public half of a dedicated keypair owned by Ansible-the-tool. Cloud-init seeds it onto every managed VM as the `ansible` user; playbooks then connect as that user.

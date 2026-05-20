@@ -75,6 +75,19 @@ RUN mkdir /work && \
 COPY artifacts/terraform-provider-homelab artifacts/terraform-provider-homelab-metadata.json /tmp/
 COPY support/iac-image/terraform.rc /etc/terraform.rc
 
+# The bpg/proxmox provider opens an SSH client of its own (snippet
+# uploads to /var/lib/vz/snippets/ — the PVE API has no endpoint for
+# that), independent of the Ansible ssh_args wired through ansible.cfg.
+# Its Go x/crypto/ssh client reads root's ~/.ssh/known_hosts; without
+# an @cert-authority line for the homelab SSH host CA the connection
+# fails as "ssh: no authorities for hostname" once the PVE node serves
+# the step-ca-signed host cert provisioned by the ssh_host_cert role.
+# Bake the same committed known_hosts the Ansible runs use, at the
+# default path the bpg provider looks for. See AnsibleSpecs slices/
+# completed/ssh-host-ca.md.
+COPY ansible/files/known_hosts.d/homelab /root/.ssh/known_hosts
+RUN chmod 700 /root/.ssh && chmod 644 /root/.ssh/known_hosts
+
 RUN VERSION=$(jq -r .version /tmp/terraform-provider-homelab-metadata.json) && \
     INSTALL_DIR=/usr/local/share/terraform/plugins/registry.terraform.io/pvginkel/homelab/$VERSION/linux_amd64 && \
     mkdir -p "$INSTALL_DIR" && \
