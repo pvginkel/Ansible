@@ -102,8 +102,8 @@ resource "proxmox_virtual_environment_file" "cloud_init" {
         }
       ]
       # Skip the netplan write entirely when no NIC declares addresses
-      # (all-DHCP hosts: OpenBao, scratch VMs, operator workstations).
-      # Cloud-init's auto-generated netplan handles them.
+      # (all-DHCP hosts: srviac today; cloud-init's auto-generated
+      # netplan handles them via the dnsmasq reservation).
       has_static_nic = length([for n in each.value.network_devices : n if length(try(n.addresses, [])) > 0]) > 0
     })
     file_name = "${each.key}-user-data.yaml"
