@@ -7,19 +7,17 @@ podTemplate(inheritFrom: 'jenkins-agent kaniko') {
         }
 
         stage('Building iac image') {
-            dir('support/iac-image') {
-                copyArtifacts(
-                    projectName: 'HomelabTerraformProvider',
-                    filter: 'terraform-provider-homelab*',
-                    target: 'artifacts'
-                )
+            copyArtifacts(
+                projectName: 'HomelabTerraformProvider',
+                filter: 'terraform-provider-homelab*',
+                target: 'artifacts'
+            )
 
-                container('kaniko') {
-                    helmCharts.kaniko([
-                        "registry:5000/iac:${currentBuild.number}",
-                        "registry:5000/iac:latest"
-                    ])
-                }
+            container('kaniko') {
+                helmCharts.kaniko('support/iac-image/Dockerfile', '.', [
+                    "registry:5000/iac:${currentBuild.number}",
+                    "registry:5000/iac:latest"
+                ])
             }
         }
     }

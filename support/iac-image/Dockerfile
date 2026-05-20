@@ -45,7 +45,7 @@ RUN apt-get update -yqq && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-COPY smallstep.sources /etc/apt/sources.list.d/smallstep.sources
+COPY support/iac-image/smallstep.sources /etc/apt/sources.list.d/smallstep.sources
 
 RUN set -o pipefail && \
     \
@@ -73,7 +73,7 @@ RUN mkdir /work && \
     chown ubuntu:ubuntu /work
 
 COPY artifacts/terraform-provider-homelab artifacts/terraform-provider-homelab-metadata.json /tmp/
-COPY terraform.rc /etc/terraform.rc
+COPY support/iac-image/terraform.rc /etc/terraform.rc
 
 RUN VERSION=$(jq -r .version /tmp/terraform-provider-homelab-metadata.json) && \
     INSTALL_DIR=/usr/local/share/terraform/plugins/registry.terraform.io/pvginkel/homelab/$VERSION/linux_amd64 && \
