@@ -28,10 +28,16 @@ if [[ ! -x "$IAC_IMPL" ]]; then
     exit 1
 fi
 
+# --pull=always so every invocation refreshes against
+# registry:5000/iac:latest before exec — the registry is a LAN-local
+# insecure registry (daemon.json), so the metadata check is sub-second
+# when the image is current, and we never run a stale cached copy
+# missing changes baked into the rebuilt image.
+#
 # Add -it only when stdin is a tty (interactive shell case). Non-tty
 # invocations (Jenkins stages, scripted ssh) skip it so docker doesn't
 # fail allocating a pseudo-tty.
-docker_flags=("--rm")
+docker_flags=("--rm" "--pull=always")
 if [[ -t 0 ]]; then
     docker_flags+=("-it")
 fi
