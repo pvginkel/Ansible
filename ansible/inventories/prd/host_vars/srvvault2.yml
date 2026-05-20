@@ -1,0 +1,22 @@
+---
+vm_id: 914
+pve_node: pve1
+workload_class: background
+
+# Staggered unattended-upgrades reboot window — see srvvault1.yml.
+baseline_unattended_reboot_time: "04:00"
+
+# Per-VM NIC config — see srvvault1.yml for the shape rationale.
+network_devices:
+  - bridge: vmbr0
+    mac_address: "02:A7:F3:03:92:00"
+    addresses:
+      - 10.1.0.41/16
+      - 2a10:3781:16a9:1::41/64
+    gateway: 10.1.0.1
+    accept_ra: false
+    nameservers:
+      - 8.8.8.8
+      - 8.8.4.4
+    search:
+      - home

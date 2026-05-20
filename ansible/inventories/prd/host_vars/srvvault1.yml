@@ -1,0 +1,30 @@
+---
+vm_id: 913
+pve_node: pve
+workload_class: background
+
+# Staggered unattended-upgrades reboot window per decisions.md
+# "Stagger reboot windows across the four standalone service VMs":
+# srviac=03:00, srvvault1=03:30, srvvault2=04:00, srvvault3=04:30.
+# No two srvvaultN reboot in the same window — quorum survives one
+# node rebooting, not two.
+baseline_unattended_reboot_time: "03:30"
+
+# Per-VM NIC config — the single source of truth, read by both
+# terraform/prd/vms.tf (via yamldecode) and the baseline netplan task.
+# vmbr0 only; static netplan because srvvaultN are bootstrap-critical
+# and must serve before the dnsmasq pod is reachable. IPv6 host suffix
+# mirrors the IPv4 last octet, per decisions.md.
+network_devices:
+  - bridge: vmbr0
+    mac_address: "02:A7:F3:03:91:00"
+    addresses:
+      - 10.1.0.40/16
+      - 2a10:3781:16a9:1::40/64
+    gateway: 10.1.0.1
+    accept_ra: false
+    nameservers:
+      - 8.8.8.8
+      - 8.8.4.4
+    search:
+      - home
