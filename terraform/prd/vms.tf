@@ -218,6 +218,86 @@ locals {
 
       # NICs: inventories/prd/host_vars/srvceph3.yml
     }
+
+    # OpenBao 3-node Raft cluster (Phase 2). One srvvault per PVE host
+    # so a host loss takes one node. Static IPs because srvvaultN are
+    # bootstrap-critical and must serve before the dnsmasq pod is
+    # reachable (`decisions.md` "Bootstrap-critical hosts do not
+    # resolve through the dnsmasq pod"). Raft data and the static seal
+    # key both live on the rootfs — no passthrough or data disk.
+    srvvault1 = {
+      vm_id          = 913
+      pve_node       = "pve"
+      workload_class = "background"
+      from_scratch   = true
+      static_ip      = true
+      description    = "OpenBao node 1 of 3. OS managed by Ansible (openbao group)."
+      tags           = ["ansible-managed", "terraform", "openbao"]
+      bios           = "ovmf"
+      machine        = "q35"
+
+      cpu_cores   = 2
+      cpu_sockets = 1
+      memory_mb   = 1024
+
+      managed_disks = [
+        { interface = "scsi0", size = 24 },
+      ]
+
+      # `pve` declares pve_node_backup_datastore so its VMs land in
+      # the cluster vzdump job by default. srvvault1 must opt out:
+      # `decisions.md` "OpenBao backup / DR" forbids a PVE backup that
+      # would co-locate the static seal key with the Raft data on the
+      # same artefact. srvvault2/3 are on pve1/pve2 (no backup
+      # datastore) and leave this default.
+      exclude_from_backup = true
+
+      # NICs: inventories/prd/host_vars/srvvault1.yml
+    }
+
+    srvvault2 = {
+      vm_id          = 914
+      pve_node       = "pve1"
+      workload_class = "background"
+      from_scratch   = true
+      static_ip      = true
+      description    = "OpenBao node 2 of 3. OS managed by Ansible (openbao group)."
+      tags           = ["ansible-managed", "terraform", "openbao"]
+      bios           = "ovmf"
+      machine        = "q35"
+
+      cpu_cores   = 2
+      cpu_sockets = 1
+      memory_mb   = 1024
+
+      managed_disks = [
+        { interface = "scsi0", size = 24 },
+      ]
+
+      # NICs: inventories/prd/host_vars/srvvault2.yml
+    }
+
+    srvvault3 = {
+      vm_id          = 915
+      pve_node       = "pve2"
+      workload_class = "background"
+      from_scratch   = true
+      static_ip      = true
+      description    = "OpenBao node 3 of 3. OS managed by Ansible (openbao group)."
+      tags           = ["ansible-managed", "terraform", "openbao"]
+      bios           = "ovmf"
+      machine        = "q35"
+
+      cpu_cores   = 2
+      cpu_sockets = 1
+      memory_mb   = 1024
+
+      managed_disks = [
+        { interface = "scsi0", size = 24 },
+      ]
+
+      # NICs: inventories/prd/host_vars/srvvault3.yml
+    }
   }
 }
 

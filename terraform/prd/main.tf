@@ -142,4 +142,10 @@ module "vm" {
   } : null
 
   static_ip = try(each.value.static_ip, false)
+
+  # Force backup=false on the root disk regardless of the PVE node's
+  # backup datastore. Set true on srvvault1 (decisions.md "OpenBao
+  # backup / DR"); default false leaves every other VM under the
+  # node's normal backup policy.
+  exclude_from_backup = try(each.value.exclude_from_backup, false)
 }
