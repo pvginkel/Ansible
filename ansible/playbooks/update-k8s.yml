@@ -254,6 +254,15 @@
           # earlier 300s left no room for the slow tail and aborted the play
           # with most pods successfully evicted but a handful still
           # Terminating.
+          #
+          # Retry on failure: kine (microk8s' dqlite shim) intermittently
+          # returns `rpc error: code = Unknown desc = exec (try: N): database
+          # is locked` for eviction writes under burst contention. Build #25
+          # hit this on two of ~40 evictions — most pods successfully drained
+          # but `kubectl drain` exited rc=1 after ~23s. The node is already
+          # cordoned and most pods already gone, so re-running drain converges
+          # quickly. 3×30s lets a transient lock burst clear; a fourth
+          # consecutive failure is real and should fail the play loudly.
           ansible.builtin.command:
             argv:
               - microk8s
@@ -265,6 +274,10 @@
               - --timeout=900s
           delegate_to: "{{ microk8s_primary_host }}"
           when: _cluster_peer_count | int > 1
+          register: _drain_result
+          retries: 3
+          delay: 30
+          until: _drain_result.rc == 0
           changed_when: true
 
         - name: Refresh microk8s to latest revision in {{ microk8s_channel }}
