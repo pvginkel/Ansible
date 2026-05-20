@@ -13,6 +13,8 @@ Ansible + Terraform managing the homelab infrastructure: Proxmox hosts, k8s VMs 
 
 Forward-looking design lives in [`/work/AnsibleSpecs/slices/`](../AnsibleSpecs/slices/) (pending slices at top, closed work in `completed/`, `deferred/`, `cancelled/`). Operational runbooks stay in [`docs/runbooks/`](docs/runbooks/).
 
+When a slice is added, moved (pending ↔ completed / deferred / cancelled), or its dependencies shift, update [`/work/AnsibleSpecs/slices/README.md`](../AnsibleSpecs/slices/README.md) in the same change. The index is the entry point — a stale row there sends future readers (including future-Claude) chasing slices that no longer exist or missing ones that do.
+
 If a decision changes, update `/work/AnsibleSpecs/decisions.md` — don't leave stale notes elsewhere.
 
 ## Commit early and often
