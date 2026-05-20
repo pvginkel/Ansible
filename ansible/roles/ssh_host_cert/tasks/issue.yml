@@ -174,9 +174,14 @@
       changed_when: true
       notify: Reload sshd
 
+    # Skipped under --check: the sign command above is a real
+    # state-change, so check-mode runs don't write the cert, and the
+    # file module would then error on a missing path. Apply runs
+    # always reach here with the file just written.
     - name: Set ownership and mode on the host certificate
       ansible.builtin.file:
         path: "{{ ssh_host_cert_host_key }}-cert.pub"
         owner: root
         group: root
         mode: "0644"
+      when: not ansible_check_mode
