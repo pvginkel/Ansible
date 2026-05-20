@@ -45,7 +45,11 @@
   hosts: k8s
   become: true
   gather_facts: true
-  serial: 1
+  # serial:1 is the cluster-mutation safety belt (decisions.md
+  # "Cluster changes are serialized"). Under --check there is no
+  # mutation, no drain, no race — fan out across the play so a drift
+  # check doesn't pay one-node-at-a-time on every cycle.
+  serial: "{{ ansible_play_hosts | length if ansible_check_mode | bool else 1 }}"
   roles:
     - role: baseline
     - role: managed_filesystems
