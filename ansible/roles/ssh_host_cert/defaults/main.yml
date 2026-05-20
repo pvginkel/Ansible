@@ -11,8 +11,9 @@ ssh_host_cert_host_key: /etc/ssh/ssh_host_ed25519_key
 # Certificate principals — the names a client may verify this host as.
 # Short hostname + `.home` FQDN, matching how the inventory and the
 # committed `@cert-authority` known_hosts line address every managed
-# host. Both must be permitted by the JWK provisioner's SSH host
-# policy (docs/runbooks/step-ca-bootstrap.md).
+# host. The JWK provisioner's SSH host policy is allow-all; these are
+# the principals the cert itself encodes, against which ssh matches
+# the connect-target.
 ssh_host_cert_principals:
   - "{{ inventory_hostname }}"
   - "{{ inventory_hostname }}.home"

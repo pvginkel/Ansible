@@ -69,11 +69,13 @@ The role asserts it resolves.
   of the homelab root (`roles/baseline/files/homelab-root.crt`).
 - **Target**: `baseline` must have run — the role asserts the homelab
   root cert is in the trust store so the target trusts `ca.home`.
-- The `ansible-jwk` provisioner must have an **SSH host policy** whose
-  principals cover this host's short + FQDN names. The policy is
-  pattern-based (`srv*`, `wrk*`, `pve*`, `*.home`) so adding a
-  conventionally-named host needs no CA change. See
-  `docs/runbooks/step-ca-bootstrap.md`.
+- The `ansible-jwk` provisioner must have `enableSSHCA: true` and SSH
+  host claims (47-day default duration). Its SSH host **policy** is
+  left empty (allow-all on principals) — the `@cert-authority` line
+  lives only in Ansible's known_hosts and Ansible only connects to
+  homelab hostnames, so ssh's own principal-vs-connect-target check
+  is what actually scopes a forged cert. Adding a host needs no CA
+  change. See `docs/runbooks/step-ca-bootstrap.md`.
 
 ## Notes
 

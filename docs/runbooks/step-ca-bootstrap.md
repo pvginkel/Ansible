@@ -354,20 +354,16 @@ Add a top-level `ssh` block pointing at the mounted host CA key
 }
 ```
 
-The `ansible-jwk` provisioner already carries `enableSSHCA: true`.
-Give its empty `"ssh": {}` an SSH **host** policy, and add SSH host
-durations to its `claims`:
+The `ansible-jwk` provisioner already carries `enableSSHCA: true`
+and an empty `"options.ssh": {}` (no policy = allow-all on
+principals). Leave the SSH policy empty — the slice's whole point is
+that adding a VM needs no committed-file change, and ssh's own
+principal-vs-connect-target check is what actually scopes a forged
+cert: the `@cert-authority` line only lives in Ansible's
+known_hosts, Ansible only connects to homelab hostnames, so a cert
+with a non-homelab principal is unusable against this trust scope.
 
-```json
-"options": {
-  "x509": { ...unchanged... },
-  "ssh": {
-    "host": {
-      "principals": ["*.home", "srv*", "wrk*", "pve*"]
-    }
-  }
-}
-```
+Add SSH host durations to the provisioner's `claims`:
 
 ```json
 "claims": {
@@ -383,13 +379,6 @@ durations to its `claims`:
 
 `1128h = 47 days` — the same lifetime as the X.509 leaves; the
 `ssh_host_cert` role re-signs under a 14-day threshold.
-
-The principal policy is **pattern-based**, unlike the fully
-enumerated X.509 `dns` allow-list. Deliberate: the slice's whole
-point is that adding a VM needs no committed-file change, so the
-homelab hostname conventions (`srv*`, `wrk*`, `pve*`, `*.home`) are
-allowed as patterns. Only a genuinely new hostname prefix needs a
-policy edit.
 
 Validate the JSON (`jq . <file>`), re-encode to base64, redeploy
 `step-ca` — `dev` first, then `prd`.
