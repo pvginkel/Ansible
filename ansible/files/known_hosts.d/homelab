@@ -1,0 +1,7 @@
+# Homelab SSH host CA. Every managed host serves a step-ca-signed host
+# certificate (ssh_host_cert role); this one @cert-authority line is
+# what replaces the per-host pinned keys that used to live in this
+# directory. The `*` pattern is intentional — scoping is enforced by
+# the certificate's own principals, not by the hostname pattern.
+# See AnsibleSpecs slices/ssh-host-ca.md.
+@cert-authority * ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPr0uj0iU/LAoFwB9HUmFiPC+5qsXdPRVHFn6nIf9EPm homelab-ssh-host-ca

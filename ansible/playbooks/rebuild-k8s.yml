@@ -20,6 +20,57 @@
 # the join-token mint — the rebuild target itself is fresh and would
 # otherwise win election against an empty hostvars set.
 
+# A freshly-rebuilt VM has no SSH host certificate until the
+# ssh_host_cert role signs it one during the converge below — so the
+# committed `@cert-authority` line cannot yet vouch for it. Seed a
+# transient known_hosts from `terraform output` (the host key
+# Terraform generated and embedded via cloud-init — authoritative, no
+# TOFU) for the single pre-certificate bootstrap connection. Every
+# later connection in the run trusts the host certificate normally.
+# See AnsibleSpecs slices/ssh-host-ca.md.
+- name: Seed a transient known_hosts for the rebuilt host
+  hosts: localhost
+  gather_facts: false
+  become: false
+  vars:
+    _tf_workspace: "{{ playbook_dir }}/../../terraform/prd"
+    _transient_known_hosts: "{{ playbook_dir }}/../../tmp/bootstrap-known-hosts"
+  tasks:
+    - name: Read from-scratch host public keys from terraform output
+      ansible.builtin.command:
+        argv:
+          - terraform
+          - "-chdir={{ _tf_workspace }}"
+          - output
+          - -json
+          - host_pubkeys
+      register: _tf_host_pubkeys
+      changed_when: false
+      check_mode: false
+
+    - name: Require a host key for the rebuild target
+      ansible.builtin.assert:
+        that: rebuild_target in (_tf_host_pubkeys.stdout | from_json)
+        fail_msg: >-
+          terraform output host_pubkeys has no entry for
+          {{ rebuild_target }} — has `terraform apply` run for this VM?
+
+    - name: Ensure the transient known_hosts directory exists
+      ansible.builtin.file:
+        path: "{{ _transient_known_hosts | dirname }}"
+        state: directory
+        mode: "0755"
+      check_mode: false
+
+    - name: Write the rebuilt host's pinned key to the transient known_hosts
+      ansible.builtin.copy:
+        dest: "{{ _transient_known_hosts }}"
+        content: "{{ rebuild_target }},{{ rebuild_target }}.home {{ (_tf_host_pubkeys.stdout | from_json)[rebuild_target] }}\n"
+        mode: "0644"
+      # Written under --check too: the bootstrap play's ssh verification
+      # depends on the file existing before it connects.
+      check_mode: false
+
 - name: Elect microk8s primary per cluster
   hosts: k8s
   become: true
@@ -34,6 +85,21 @@
   hosts: "{{ rebuild_target | mandatory }}"
   become: true
   gather_facts: true
+  vars:
+    # The rebuilt VM presents a bare host key until ssh_host_cert (the
+    # last role below) signs it a certificate. Replace ssh_args
+    # wholesale — for repeated `-o` options OpenSSH takes the first
+    # value, so an appended common_args cannot override ansible.cfg's
+    # UserKnownHostsFile. The transient file (previous play) carries
+    # the pre-certificate key; known_hosts.d/homelab carries the
+    # `@cert-authority` line. The rest mirrors ansible.cfg's ssh_args.
+    ansible_ssh_args: >-
+      -o ControlMaster=auto -o ControlPersist=60s
+      -o PreferredAuthentications=publickey
+      -o "UserKnownHostsFile={{ playbook_dir }}/../../tmp/bootstrap-known-hosts {{ playbook_dir }}/../files/known_hosts.d/homelab"
+      -o GlobalKnownHostsFile=/dev/null
+      -o HostKeyAlgorithms=ssh-ed25519-cert-v01@openssh.com,ssh-ed25519
+      -o IdentityFile=~/.ssh/id_ed25519_ansible -o IdentitiesOnly=yes
   roles:
     - role: bootstrap
     - role: baseline
@@ -42,6 +108,9 @@
     # mount has to land before the snap install populates the path.
     - role: managed_filesystems
     - role: microk8s
+    # Last: ssh_host_cert needs the homelab CA root (baseline) and the
+    # `ca.home` /etc/hosts pin (microk8s). See slices/ssh-host-ca.md.
+    - role: ssh_host_cert
 
 - name: Cordon, import ZFS pools, gate scheduling on DaemonSet readiness, uncordon
   hosts: "{{ rebuild_target }}"

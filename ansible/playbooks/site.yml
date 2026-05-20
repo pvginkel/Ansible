@@ -14,6 +14,10 @@
     - role: bootstrap
     - role: baseline
     - role: managed_filesystems
+    # Last: ssh_host_cert relies on baseline having installed the
+    # homelab CA root into the trust store. Issues/renews this host's
+    # SSH host certificate. See slices/ssh-host-ca.md.
+    - role: ssh_host_cert
 
 - name: Apply Proxmox node configuration
   hosts: proxmox

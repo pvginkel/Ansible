@@ -50,3 +50,8 @@
     - role: baseline
     - role: managed_filesystems
     - role: microk8s
+    # Last: ssh_host_cert needs the homelab CA root (baseline) and, on
+    # prd k8s nodes, the `ca.home` /etc/hosts pin the microk8s role
+    # adds — those nodes resolve through public DNS. See
+    # slices/ssh-host-ca.md.
+    - role: ssh_host_cert
