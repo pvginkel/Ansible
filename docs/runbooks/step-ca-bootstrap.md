@@ -385,19 +385,28 @@ Validate the JSON (`jq . <file>`), re-encode to base64, redeploy
 
 ### 4. Verify SSH issuance
 
-Sign a throwaway key against the redeployed CA and inspect it:
+Generate a throwaway keypair in `/tmp/` and sign it against the
+redeployed CA. **Do not** pass `/etc/ssh/ssh_host_ed25519_key.pub`
+here — `step ssh certificate --sign` writes the cert next to the
+input key (`<key>-cert.pub`), so signing the canonical host key
+overwrites whatever cert is at `/etc/ssh/ssh_host_ed25519_key-cert.pub`
+with one carrying `test.home` as its principal, and sshd then serves
+that cert until the role next re-issues (which it won't, until the
+14-day threshold).
 
 ```sh
+ssh-keygen -t ed25519 -f /tmp/sshca-test -N '' -q
 step ssh certificate --host --sign --principal test.home test.home \
-  /etc/ssh/ssh_host_ed25519_key.pub \
+  /tmp/sshca-test.pub \
   --provisioner ansible-jwk \
   --provisioner-password-file <(printf '%s' '<JWK pw>') \
   --ca-url https://ca.home \
   --root ~/source/Ansible/ansible/roles/baseline/files/homelab-root.crt
-ssh-keygen -L -f ssh_host_ed25519_key-cert.pub   # Valid window ≈ 47d
+ssh-keygen -L -f /tmp/sshca-test-cert.pub | grep -A1 'Principals\|Valid'
+shred -u /tmp/sshca-test /tmp/sshca-test.pub /tmp/sshca-test-cert.pub
 ```
 
-Remove the throwaway cert afterward.
+Expect a 47-day validity window and `test.home` as the sole principal.
 
 ### 5. Commit the SSH host CA public key to the Ansible repo
 

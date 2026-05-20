@@ -73,13 +73,27 @@
   check_mode: false
   when: _ssh_host_cert_cert.stat.exists
 
+# Re-issue when the cert is missing, within the renewal threshold, or
+# carries the wrong principal. The principal check catches an ad-hoc
+# `step ssh certificate --sign` that overwrote the canonical path with
+# the wrong subject (e.g. an unscoped ceremony-verify): without this,
+# the threshold gate would silently let such a cert ride for 47 days
+# and sshd would serve a cert ssh rejects on every connection.
+#
+# regex_findall against `^\s+<name>$` picks up principals (one per
+# indented line in ssh-keygen -L output) and a few extension items
+# that share the same shape — false positives are harmless here, we
+# only check whether inventory_hostname is present.
 - name: Decide whether the certificate needs (re-)issuing
   ansible.builtin.set_fact:
     _ssh_host_cert_issue: >-
       {{ not _ssh_host_cert_cert.stat.exists
          or ((_ssh_host_cert_not_after.stdout | int)
              - (ansible_date_time.epoch | int))
-            < (ssh_host_cert_renewal_threshold_days * 86400) }}
+            < (ssh_host_cert_renewal_threshold_days * 86400)
+         or inventory_hostname not in (
+              _ssh_host_cert_inspect.stdout
+              | regex_findall('(?m)^\s+(\S+)$')) }}
 
 - name: Issue or renew the SSH host certificate
   when: _ssh_host_cert_issue | bool
