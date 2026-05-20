@@ -48,20 +48,6 @@ resource "tls_private_key" "host_ed25519" {
   algorithm = "ED25519"
 }
 
-# Transitional. `local_file.known_hosts_prd` used to write
-# ansible/files/known_hosts.d/prd into the repo working tree — the
-# pattern the ssh-host-ca slice removes (Terraform on srviac cannot
-# persist repo writes). `destroy = false` drops the resource from
-# state without deleting the committed file, so host-key verification
-# keeps working through the converge that signs every VM a host
-# certificate. Removed — with the file and the `local` provider — in
-# the cutover commit once the fleet is on the `@cert-authority` line.
-removed {
-  from = local_file.known_hosts_prd
-  lifecycle {
-    destroy = false
-  }
-}
 
 # The cloud-init snippet rendered per from-scratch VM.
 #

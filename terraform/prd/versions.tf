@@ -13,13 +13,6 @@ terraform {
       source  = "hashicorp/tls"
       version = "~> 4.0"
     }
-    # local is retained only for the transitional `removed` block in
-    # main.tf (the old known_hosts.d/prd writer). Drop it in the
-    # ssh-host-ca cutover commit, with the `removed` block.
-    local = {
-      source  = "hashicorp/local"
-      version = "~> 2.5"
-    }
     homelab = {
       source = "pvginkel/homelab"
     }

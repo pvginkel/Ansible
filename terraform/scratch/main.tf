@@ -29,18 +29,6 @@ resource "tls_private_key" "host_ed25519" {
   algorithm = "ED25519"
 }
 
-# Transitional. `local_file.known_hosts_entries` used to write
-# ansible/files/known_hosts.d/scratch into the repo. `destroy = false`
-# drops it from state without deleting the committed file, so
-# verification holds through the converge that signs each VM a host
-# certificate. Removed — with the file and the `local` provider — in
-# the ssh-host-ca cutover commit.
-removed {
-  from = local_file.known_hosts_entries
-  lifecycle {
-    destroy = false
-  }
-}
 
 resource "proxmox_download_file" "ubuntu_cloud_image" {
   content_type = "iso"
