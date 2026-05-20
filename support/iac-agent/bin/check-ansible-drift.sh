@@ -18,19 +18,25 @@ if [[ $# -lt 1 ]]; then
     exit 2
 fi
 
-set +e
-output=$(ansible-playbook --check --diff "$@" 2>&1)
-rc=$?
-set -e
+# Stream stdout/stderr to the console live (so the Jenkins job log
+# updates in real time, not all at once at the end) while teeing to a
+# temp file the recap grep then reads. PIPESTATUS[0] preserves
+# ansible-playbook's exit code through the pipe; without it `$?` would
+# reflect tee's exit code.
+log=$(mktemp)
+trap 'rm -f "$log"' EXIT
 
-echo "$output"
+set +e
+ansible-playbook --check --diff "$@" 2>&1 | tee "$log"
+rc=${PIPESTATUS[0]}
+set -e
 
 if [[ $rc -ne 0 ]]; then
     echo "$(basename "$0"): ansible-playbook --check failed (rc=$rc)" >&2
     exit "$rc"
 fi
 
-changed=$(echo "$output" | grep -oE 'changed=[0-9]+' | awk -F= '{sum+=$2} END {print sum+0}')
+changed=$(grep -oE 'changed=[0-9]+' "$log" | awk -F= '{sum+=$2} END {print sum+0}')
 
 if [[ "$changed" -gt 0 ]]; then
     echo "$(basename "$0"): DRIFT — ansible reports $changed pending changes" >&2
