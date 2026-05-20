@@ -9,9 +9,27 @@ provider "proxmox" {
   # `content_type = "snippets"` is present. `agent = true` means the loaded
   # ssh-agent must hold a key authorized as `root` on each PVE node;
   # ~/.ssh/config is ignored. See docs/runbooks/operator-workstation.md.
+  #
+  # Per-node `address` overrides mirror terraform/prd/providers.tf —
+  # the `ssh_host_cert` role's certificate principals are short + .home
+  # only, so the bpg client must connect by FQDN (not the API-supplied
+  # IP) for SSH's principal check to pass.
   ssh {
     agent    = true
     username = "root"
+
+    node {
+      name    = "pve"
+      address = "pve.home"
+    }
+    node {
+      name    = "pve1"
+      address = "pve1.home"
+    }
+    node {
+      name    = "pve2"
+      address = "pve2.home"
+    }
   }
 }
 
