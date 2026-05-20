@@ -96,6 +96,13 @@
       # become: false stops the consuming play's become: true from
       # propagating to the controller, where it would try to sudo
       # (and fail — the controller has no passwordless sudo).
+      #
+      # check_mode: false on every controller-side step: the mint is
+      # fact-gathering (ephemeral tempfile + short-lived token, both
+      # cleaned up before the play ends), with no target-side effect
+      # to preview. `ansible.builtin.tempfile` in particular does not
+      # populate `path` on a check-mode run, so the chain has to run
+      # for real even under --check or the next step's `dest` blows up.
       become: false
       block:
         - name: Create a memory-backed tempfile for the JWK password
@@ -106,6 +113,7 @@
           delegate_to: localhost
           register: _ssh_host_cert_pwfile
           changed_when: false
+          check_mode: false
 
         - name: Write the JWK provisioner password to the tempfile
           ansible.builtin.copy:
@@ -114,6 +122,7 @@
             mode: "0600"
           delegate_to: localhost
           changed_when: false
+          check_mode: false
           no_log: true
 
         - name: Mint the SSH-host token (scoped to this host's principals)
@@ -130,6 +139,7 @@
           delegate_to: localhost
           register: _ssh_host_cert_token
           changed_when: false
+          check_mode: false
           no_log: true
       always:
         - name: Remove the JWK password tempfile
@@ -138,6 +148,7 @@
             state: absent
           delegate_to: localhost
           changed_when: false
+          check_mode: false
           when: _ssh_host_cert_pwfile.path is defined
 
     # Runs on the target: step submits the existing host public key
