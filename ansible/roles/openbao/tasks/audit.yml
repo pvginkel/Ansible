@@ -1,0 +1,63 @@
+---
+# File audit device — append-only request/response log on each
+# srvvaultN. Enable is keyed by mount path (we use the literal `file`);
+# OpenBao errors on a duplicate enable, so check-then-enable.
+#
+# Gated on _openbao_token availability — same idempotency model as
+# approle.yml. If approle.yml ran in the same play, _openbao_token is
+# already set; otherwise auth-token.yml below acquires it.
+
+- name: Acquire the controller's OpenBao token
+  ansible.builtin.import_tasks: auth-token.yml
+  when: _openbao_token is not defined
+
+- name: Skip audit configuration when no controller credentials are configured
+  ansible.builtin.debug:
+    msg: >-
+      No OpenBao admin credentials configured; skipping audit-device
+      setup. Provide -e openbao_admin_token=<token> or vault the
+      openbao_admin_role_id / _secret_id pair to converge this.
+  when: _openbao_token | length == 0
+
+- name: Configure the file audit device
+  when: _openbao_token | length > 0
+  vars:
+    _bao_headers:
+      X-Vault-Token: "{{ _openbao_token }}"
+  block:
+
+    - name: Ensure the audit-log directory exists
+      # /var/log/openbao is outside /etc/openbao, so the .deb postinst
+      # doesn't manage ownership for us. 0750 keeps it operator-or-
+      # openbao readable; the log file itself is created by OpenBao
+      # with 0600.
+      ansible.builtin.file:
+        path: "{{ openbao_audit_file_path | dirname }}"
+        state: directory
+        owner: openbao
+        group: openbao
+        mode: "0750"
+
+    - name: Read enabled audit devices
+      ansible.builtin.uri:
+        url: "{{ openbao_api_addr }}/v1/sys/audit"
+        method: GET
+        headers: "{{ _bao_headers }}"
+        status_code: 200
+        validate_certs: true
+      register: _openbao_audit_devices
+      no_log: true
+
+    - name: Enable the file audit device
+      ansible.builtin.uri:
+        url: "{{ openbao_api_addr }}/v1/sys/audit/{{ openbao_audit_path }}"
+        method: PUT
+        headers: "{{ _bao_headers }}"
+        body_format: json
+        body:
+          type: file
+          options:
+            file_path: "{{ openbao_audit_file_path }}"
+        status_code: 204
+        validate_certs: true
+      when: (openbao_audit_path + '/') not in _openbao_audit_devices.json

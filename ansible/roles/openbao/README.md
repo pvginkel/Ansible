@@ -50,6 +50,28 @@ Design context:
    polls `/v1/sys/leader` every 2s; only the Raft leader's check
    passes, raising its effective priority above the followers so the
    VIP (`secrets.home`) follows leadership. Failover ~4 s.
+10. **Layer a systemd hardening drop-in** on top of the .deb's
+    bundled `openbao.service`. Conservative Protect*/Restrict* set
+    that doesn't intersect with OpenBao's HTTPS listener / file
+    audit / Raft requirements; see
+    [`templates/openbao-hardening.conf.j2`](templates/openbao-hardening.conf.j2)
+    for the rationale.
+11. **Provision auth** on the bootstrap node — enable approle, write
+    the kv-v2 mount, render and write policies (`openbao-admin`,
+    `iac-agent`, `jenkins`, `eso`), write the AppRoles bound to each.
+    Optionally rotate secret-ids (`-e openbao_rotate_secret_ids=true`)
+    and retire the root token (`-e openbao_retire_root_token=true`).
+    Gated on a controller token: `openbao_admin_token` (operator-
+    supplied) or an admin AppRole login via vault'd
+    `openbao_admin_role_id` / `_secret_id`. Skips cleanly when neither
+    is configured so the drift cycle no-ops before first provisioning.
+12. **Enable the file audit device** at
+    `/var/log/openbao/audit.log`. Same gating as the auth tasks.
+13. **Configure ufw** on each node with the documented allow-list
+    (22/tcp from `srviac`, 443/tcp from `k8s_prd` + `srviac`,
+    8200/tcp from peers + `srviac`, 8201/tcp + VRRP from peers).
+    Rules are inserted unconditionally; ufw is only `state: enabled`
+    when `openbao_ufw_enable` is `true` (default `false`).
 
 ## Inputs
 
@@ -70,6 +92,97 @@ Optional (defaults in [`defaults/main.yml`](defaults/main.yml)):
   the same per-node cert HAProxy passes through.
 - `openbao_recovery_shares` / `openbao_recovery_threshold` — Shamir
   shape for the recovery keys. Defaults 5/3.
+
+Auth + audit + ufw inputs (cards #40 / #11):
+
+- `openbao_admin_token` — operator-supplied (via `-e`) on the first
+  apply (root token from init) and any rescue run. Leave unset for
+  steady-state — the role logs in via the admin AppRole instead.
+- `openbao_admin_role_id` / `openbao_admin_secret_id` — admin AppRole
+  credentials. Vault these into `group_vars/openbao.yml` after the
+  first apply prints them.
+- `openbao_iac_agent_kv_paths` / `openbao_jenkins_kv_paths` /
+  `openbao_eso_kv_paths` — KV-v2 read paths granted to each
+  consumer's policy. Empty list = inert policy (AppRole exists, reads
+  return 403 until a path is added). Extend per migrated ref.
+- `openbao_rotate_secret_ids` — when `true`, mints + prints fresh
+  secret-ids for every AppRole (admin, iac-agent, jenkins, eso).
+  Default `false`; flip on the first apply and whenever you rotate.
+- `openbao_retire_root_token` — when `true` and
+  `openbao_admin_token` is the root token, revokes it via
+  revoke-self. One-shot; set only once admin AppRole creds are in
+  vault.
+- `openbao_ufw_enable` — `false` by default (rules written, ufw not
+  activated). Flip to `true` to lock the host down to the allow-list
+  in `tasks/ufw.yml`. Doing so closes wrkdev's SSH path to
+  `srvvaultN`; future runs must come through srviac/Jenkins.
+
+## First-apply procedure (cards #40 / #11)
+
+Run-once, operator-driven, with the bootstrap-captured root token.
+Two applies separate the provisioning from the retire so the operator
+can capture the admin AppRole creds into vault between them.
+
+1. **Provision auth + mint creds:**
+
+   ```
+   cd ansible && poetry run ansible-playbook playbooks/site-openbao.yml \
+       --ask-vault-pass --diff \
+       -e openbao_admin_token=<root token from Roboform> \
+       -e openbao_rotate_secret_ids=true
+   ```
+
+   The `approle.yml` task prints role_ids + secret_ids for
+   `openbao-admin`, `iac-agent`, `jenkins`, and `eso` at the end of
+   the play. Capture them before the buffer scrolls off — secret-ids
+   are not recoverable from OpenBao.
+
+2. **Vault the admin AppRole creds** into
+   `inventories/prd/group_vars/openbao.yml`:
+
+   ```
+   ansible-vault encrypt_string --name openbao_admin_role_id   '<from step 1>'
+   ansible-vault encrypt_string --name openbao_admin_secret_id '<from step 1>'
+   ```
+
+   Commit. The drift cycle now authenticates via the admin AppRole.
+
+3. **Paste the iac-agent creds** into `srviac:/etc/iac/secrets.yaml`
+   (`OPENBAO_ROLE_ID`, `OPENBAO_SECRET_ID`). Paste the jenkins and
+   eso creds into their respective consumer configs (Jenkins Vault
+   plugin, ESO SecretStore CR).
+
+4. **Retire the root token:**
+
+   ```
+   poetry run ansible-playbook playbooks/site-openbao.yml \
+       --ask-vault-pass --diff \
+       -e openbao_admin_token=<root token> \
+       -e openbao_retire_root_token=true
+   ```
+
+   This revokes the root token via `revoke-self`. Delete the
+   Roboform entry afterwards; the recovery keys (Shamir 3-of-5) can
+   mint a new root token if needed.
+
+5. **Flip ufw on** when ready — see the next section.
+
+## Locking down with ufw
+
+`openbao_ufw_enable` defaults to `false`: the role inserts the allow
+rules on every apply but never activates ufw. To lock the host down:
+
+```
+poetry run ansible-playbook playbooks/site-openbao.yml --diff \
+    -e openbao_ufw_enable=true
+```
+
+**Consequence**: 22/tcp gets locked to `srviac` only. Future
+`ansible-playbook` runs from `wrkdev` will fail to reach `srvvaultN`;
+all OpenBao management must flow through `iac` on `srviac` (the
+Jenkins-driven pipelines or interactive `iac` from VSCode Remote-SSH
+into the Jenkins agent VM). Disable ufw out-of-band (`ufw disable`)
+to break-glass.
 
 ## Bootstrap procedure
 

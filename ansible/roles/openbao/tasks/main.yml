@@ -88,3 +88,35 @@
 
 - name: Configure the secrets.home VIP (keepalived, leader-tracking)
   ansible.builtin.import_tasks: keepalived.yml
+
+# Card #11 — systemd hardening drop-in. Runs unconditionally; takes
+# effect on first apply and after any drop-in edit. Notifies a
+# daemon-reload + restart on change. Independent of OpenBao auth
+# state, so it lands before the auth tasks below.
+- name: Apply systemd hardening drop-in
+  ansible.builtin.import_tasks: hardening.yml
+
+# Card #40 — AppRole + policies + admin AppRole. Runs only on the
+# bootstrap host; reads/writes go through Raft and replicate to
+# followers. Gated internally on _openbao_token availability so the
+# drift cycle no-ops cleanly before the operator provisions creds.
+- name: Provision approle auth + policies + AppRoles
+  ansible.builtin.import_tasks: approle.yml
+  when: inventory_hostname == openbao_bootstrap_host
+  tags:
+    - openbao_auth
+
+# Card #11 — file audit device. Same bootstrap-host gating as
+# approle.yml since audit-device enables also replicate via Raft.
+- name: Enable the file audit device
+  ansible.builtin.import_tasks: audit.yml
+  when: inventory_hostname == openbao_bootstrap_host
+  tags:
+    - openbao_auth
+
+# Card #11 — ufw on each srvvaultN. Rules inserted unconditionally;
+# ufw `state: enabled` is gated on openbao_ufw_enable (default false).
+- name: Configure ufw
+  ansible.builtin.import_tasks: ufw.yml
+  tags:
+    - openbao_ufw

@@ -1,0 +1,146 @@
+---
+# ufw — host firewall on each srvvaultN. Rules below match
+# decisions.md "Secrets — OpenBao" network boundary, narrowed to the
+# post-card-#10 reality (clients reach the leader via the keepalived
+# VIP on 443/tcp; 8200/tcp is the per-node listener used only by Raft
+# peers' elect-bootstrap probes and direct-from-srviac admin).
+#
+# `openbao_ufw_enable` defaults to false: the rules are inserted but
+# ufw is not switched on. Flip the var to true once the workflow is
+# migrated to srviac/Jenkins-driven for OpenBao management — at that
+# point wrkdev's ssh path to srvvaultN closes.
+#
+# We never auto-disable ufw here. If the operator turns it on by hand
+# and later sets the var back to false, the rules stay loaded but the
+# firewall remains active — operator's call to `ufw disable`.
+
+- name: Ensure ufw is installed
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
+- name: Resolve srviac.home for the SSH + admin allow source
+  # srviac lives on a dnsmasq reservation (no static_ip), so its
+  # address isn't in inventory; resolve at apply time. Mirrors
+  # keepalived.yml's controller-side resolve.
+  ansible.builtin.command:
+    argv: [getent, ahostsv4, "{{ openbao_ufw_ssh_source_hostname }}"]
+  delegate_to: localhost
+  become: false
+  register: _openbao_ufw_srviac
+  changed_when: false
+  check_mode: false
+
+- name: Set _openbao_ufw_srviac_ip
+  ansible.builtin.set_fact:
+    _openbao_ufw_srviac_ip: "{{ _openbao_ufw_srviac.stdout | regex_search('\\S+') }}"
+
+- name: Default-deny inbound
+  community.general.ufw:
+    direction: incoming
+    policy: deny
+
+- name: Default-allow outbound
+  community.general.ufw:
+    direction: outgoing
+    policy: allow
+
+# SSH — 22/tcp from srviac only. Operator's wrkdev path to srvvaultN
+# closes when this rule lands AND ufw is enabled. The bootstrap
+# window for #6–#10 is over, so this is the correct posture; the
+# `openbao_ufw_enable=false` default holds back the actual lockdown
+# until the operator confirms the srviac-driven workflow.
+- name: Allow 22/tcp from srviac
+  community.general.ufw:
+    rule: allow
+    proto: tcp
+    port: "22"
+    src: "{{ _openbao_ufw_srviac_ip }}"
+
+# 443/tcp — keepalived-fronted HTTPS listener; consumers reach the
+# leader on this port. Source set is k8s_prd (ESO + workloads) +
+# iac_agent (srviac, Jenkins pipelines + ad-hoc). The keepalived VIP
+# itself uses VRRP between peers, not 443.
+- name: Allow 443/tcp from consumer groups
+  community.general.ufw:
+    rule: allow
+    proto: tcp
+    port: "443"
+    src: "{{ item }}"
+  loop: "{{ _openbao_ufw_consumer_ips }}"
+  vars:
+    _openbao_ufw_consumer_ips: >-
+      {{ openbao_ufw_https_source_groups
+         | map('extract', groups)
+         | flatten
+         | map('extract', hostvars)
+         | selectattr('network_devices', 'defined')
+         | map(attribute='network_devices')
+         | map('first')
+         | selectattr('addresses', 'defined')
+         | map(attribute='addresses')
+         | map('first')
+         | map('regex_replace', '/.*', '')
+         | list
+         + [_openbao_ufw_srviac_ip] }}
+
+# 8200/tcp — per-node OpenBao listener. Peers probe each other's
+# sys/health from elect-bootstrap; srviac uses it for direct `bao`
+# admin (`BAO_ADDR=https://srvvaultN.home:8200` for diagnostics that
+# need to bypass the VIP).
+- name: Allow 8200/tcp from openbao peers
+  community.general.ufw:
+    rule: allow
+    proto: tcp
+    port: "8200"
+    src: "{{ hostvars[item].network_devices[0].addresses[0] | regex_replace('/.*', '') }}"
+  loop: "{{ groups['openbao'] | difference([inventory_hostname]) | sort }}"
+
+- name: Allow 8200/tcp from srviac (direct admin path)
+  community.general.ufw:
+    rule: allow
+    proto: tcp
+    port: "8200"
+    src: "{{ _openbao_ufw_srviac_ip }}"
+
+# 8201/tcp — Raft cluster port; only peers speak it.
+- name: Allow 8201/tcp from openbao peers
+  community.general.ufw:
+    rule: allow
+    proto: tcp
+    port: "8201"
+    src: "{{ hostvars[item].network_devices[0].addresses[0] | regex_replace('/.*', '') }}"
+  loop: "{{ groups['openbao'] | difference([inventory_hostname]) | sort }}"
+
+# VRRP — IP proto 112. Each peer unicasts advertisements to its peers
+# so the keepalived VIP follows leadership. Without this allow, ufw
+# drops the advertisements and every node believes it's the leader →
+# split-VIP.
+#
+# community.general.ufw's `proto:` choice list doesn't include vrrp;
+# the underlying ufw CLI accepts `proto vrrp` natively, so we drive
+# `ufw allow` directly. ufw is internally idempotent — re-adding the
+# same rule prints "Skipping adding existing rule"; a fresh rule
+# prints "Rule added". changed_when keys off the latter so re-runs
+# stay quiet.
+- name: Allow VRRP (proto 112) from openbao peers
+  ansible.builtin.command:
+    argv:
+      - ufw
+      - allow
+      - from
+      - "{{ hostvars[item].network_devices[0].addresses[0] | regex_replace('/.*', '') }}"
+      - proto
+      - vrrp
+  loop: "{{ groups['openbao'] | difference([inventory_hostname]) | sort }}"
+  register: _openbao_ufw_vrrp
+  changed_when: "'Rule added' in _openbao_ufw_vrrp.stdout"
+
+# Enable / disable — only enable when explicitly opted in. We never
+# auto-disable; the operator owns that.
+- name: Enable ufw
+  community.general.ufw:
+    state: enabled
+  when: openbao_ufw_enable | bool

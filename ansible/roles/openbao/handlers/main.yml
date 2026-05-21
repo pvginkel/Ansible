@@ -1,4 +1,10 @@
 ---
+- name: Reload systemd
+  # Picks up drop-ins under /etc/systemd/system/openbao.service.d/.
+  # Notified before Restart openbao so the daemon-reload runs first.
+  ansible.builtin.systemd:
+    daemon_reload: true
+
 - name: Restart openbao
   ansible.builtin.systemd:
     name: openbao

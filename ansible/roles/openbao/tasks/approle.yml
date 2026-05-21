@@ -1,0 +1,362 @@
+---
+# Approle provisioning — card #40 (iac-agent AppRole) + card #11
+# (jenkins + eso AppRoles, admin AppRole, root-token retire). Run only
+# on the bootstrap host; AppRoles, policies, mounts, and audit devices
+# live in the Raft store and replicate to followers automatically. The
+# `bao` listener on the local node could service the writes from any
+# srvvaultN, but pinning to one host avoids three-way write contention
+# under `serial: 1`.
+#
+# Idempotency model: read-then-write on every assertion. Reads come
+# back with the current state; writes only fire when the desired state
+# differs. Drift cycle (no openbao_admin_token, AppRole creds from
+# vault) converges silently when state matches.
+#
+# All blocks below are gated on a non-empty `_openbao_token`. When the
+# operator hasn't supplied a token AND the admin AppRole isn't yet
+# vault'd, the entire approle.yml no-ops with a clear debug message.
+
+- name: Acquire the controller's OpenBao token
+  ansible.builtin.import_tasks: auth-token.yml
+
+- name: Skip auth provisioning when no controller credentials are configured
+  ansible.builtin.debug:
+    msg: >-
+      No OpenBao admin credentials configured. Provide
+      -e openbao_admin_token=<root> on first apply, then capture the
+      printed admin AppRole creds into the ansible-vault'd
+      openbao_admin_role_id / openbao_admin_secret_id in
+      inventories/prd/group_vars/openbao.yml. Auth provisioning
+      skipped; everything else converges normally.
+  when: _openbao_token | length == 0
+
+- name: Provision auth + policies + AppRoles
+  when: _openbao_token | length > 0
+  vars:
+    _bao_headers:
+      X-Vault-Token: "{{ _openbao_token }}"
+  block:
+
+    # ----- approle auth method -----------------------------------------
+
+    - name: Read enabled auth methods
+      ansible.builtin.uri:
+        url: "{{ openbao_api_addr }}/v1/sys/auth"
+        method: GET
+        headers: "{{ _bao_headers }}"
+        status_code: 200
+        validate_certs: true
+      register: _openbao_auth_methods
+      no_log: true
+
+    - name: Enable the approle auth method
+      ansible.builtin.uri:
+        url: "{{ openbao_api_addr }}/v1/sys/auth/approle"
+        method: POST
+        headers: "{{ _bao_headers }}"
+        body_format: json
+        body:
+          type: approle
+        status_code: 204
+        validate_certs: true
+      when: "'approle/' not in _openbao_auth_methods.json"
+
+    # ----- kv-v2 secrets engine ---------------------------------------
+
+    - name: Read enabled secret engines
+      ansible.builtin.uri:
+        url: "{{ openbao_api_addr }}/v1/sys/mounts"
+        method: GET
+        headers: "{{ _bao_headers }}"
+        status_code: 200
+        validate_certs: true
+      register: _openbao_mounts
+      no_log: true
+
+    - name: Enable the kv-v2 secrets engine
+      ansible.builtin.uri:
+        url: "{{ openbao_api_addr }}/v1/sys/mounts/{{ openbao_kv_mount }}"
+        method: POST
+        headers: "{{ _bao_headers }}"
+        body_format: json
+        body:
+          type: kv
+          options:
+            version: "2"
+        status_code: 204
+        validate_certs: true
+      when: (openbao_kv_mount + '/') not in _openbao_mounts.json
+
+    # ----- policies ---------------------------------------------------
+    #
+    # For each consumer, render the policy HCL and write it. OpenBao's
+    # policy write endpoint is naturally idempotent (replace-or-create),
+    # so we always write — but compare against the current policy text
+    # first to keep `changed=` honest under --diff.
+
+    - name: Read existing consumer policies
+      ansible.builtin.uri:
+        url: "{{ openbao_api_addr }}/v1/sys/policies/acl/{{ item }}"
+        method: GET
+        headers: "{{ _bao_headers }}"
+        status_code: [200, 404]
+        validate_certs: true
+      register: _openbao_consumer_policies
+      loop:
+        - openbao-admin
+        - iac-agent
+        - jenkins
+        - eso
+      no_log: true
+
+    # Iterative dict build — each loop iteration combines the prior
+    # value with one more key. Lets us tolerate 404s (which produce
+    # results with no `.json.data.policy`) without exploding the
+    # Jinja expression into nested defaults.
+    - name: Build the existing-policy-text dict
+      ansible.builtin.set_fact:
+        _openbao_existing_policy_texts: >-
+          {{
+            (_openbao_existing_policy_texts | default({}))
+            | combine({
+                item.item: (
+                  item.json.data.policy
+                  if (item.status == 200
+                      and item.json is mapping
+                      and (item.json.data | default({})) is mapping
+                      and 'policy' in (item.json.data | default({})))
+                  else ''
+                )
+              })
+          }}
+      loop: "{{ _openbao_consumer_policies.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    # Templates resolve vars from the surrounding task context, so we
+    # set per-consumer `_policy_name` / `_policy_paths` and render each
+    # separately. Ansible's `template` lookup has no per-call vars
+    # parameter; setting them on the task itself is the supported path.
+
+    - name: Render the admin policy
+      ansible.builtin.set_fact:
+        _openbao_admin_policy_text: "{{ lookup('template', 'admin-policy.hcl.j2') }}"
+
+    - name: Render the iac-agent policy
+      vars:
+        _policy_name: iac-agent
+        _policy_paths: "{{ openbao_iac_agent_kv_paths }}"
+      ansible.builtin.set_fact:
+        _openbao_iac_agent_policy_text: "{{ lookup('template', 'policy.hcl.j2') }}"
+
+    - name: Render the jenkins policy
+      vars:
+        _policy_name: jenkins
+        _policy_paths: "{{ openbao_jenkins_kv_paths }}"
+      ansible.builtin.set_fact:
+        _openbao_jenkins_policy_text: "{{ lookup('template', 'policy.hcl.j2') }}"
+
+    - name: Render the eso policy
+      vars:
+        _policy_name: eso
+        _policy_paths: "{{ openbao_eso_kv_paths }}"
+      ansible.builtin.set_fact:
+        _openbao_eso_policy_text: "{{ lookup('template', 'policy.hcl.j2') }}"
+
+    - name: Build the consolidated policy-text dict
+      ansible.builtin.set_fact:
+        _openbao_policy_texts:
+          openbao-admin: "{{ _openbao_admin_policy_text }}"
+          iac-agent: "{{ _openbao_iac_agent_policy_text }}"
+          jenkins: "{{ _openbao_jenkins_policy_text }}"
+          eso: "{{ _openbao_eso_policy_text }}"
+
+    - name: Write consumer policies (only when text differs)
+      ansible.builtin.uri:
+        url: "{{ openbao_api_addr }}/v1/sys/policies/acl/{{ item }}"
+        method: PUT
+        headers: "{{ _bao_headers }}"
+        body_format: json
+        body:
+          policy: "{{ _openbao_policy_texts[item] }}"
+        status_code: 204
+        validate_certs: true
+      loop:
+        - openbao-admin
+        - iac-agent
+        - jenkins
+        - eso
+      when: _openbao_policy_texts[item] != _openbao_existing_policy_texts[item]
+
+    # ----- AppRoles ---------------------------------------------------
+    #
+    # `bind_secret_id=true` (default) means a secret-id is required to
+    # log in. `token_no_default_policy=true` keeps the default policy
+    # off the role's token so the consumer is strictly bound to the
+    # named policy. TTLs are short — see openbao_*_token_ttl in
+    # defaults/main.yml.
+
+    - name: Read existing AppRoles
+      ansible.builtin.uri:
+        url: "{{ openbao_api_addr }}/v1/auth/approle/role/{{ item.name }}"
+        method: GET
+        headers: "{{ _bao_headers }}"
+        status_code: [200, 404]
+        validate_certs: true
+      register: _openbao_approles
+      loop:
+        - name: openbao-admin
+          policy: openbao-admin
+          token_ttl: "{{ openbao_admin_token_ttl }}"
+          token_max_ttl: "{{ openbao_admin_token_max_ttl }}"
+        - name: iac-agent
+          policy: iac-agent
+          token_ttl: "{{ openbao_iac_agent_token_ttl }}"
+          token_max_ttl: "{{ openbao_iac_agent_token_max_ttl }}"
+        - name: jenkins
+          policy: jenkins
+          token_ttl: "{{ openbao_jenkins_token_ttl }}"
+          token_max_ttl: "{{ openbao_jenkins_token_max_ttl }}"
+        - name: eso
+          policy: eso
+          token_ttl: "{{ openbao_eso_token_ttl }}"
+          token_max_ttl: "{{ openbao_eso_token_max_ttl }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Write AppRoles
+      ansible.builtin.uri:
+        url: "{{ openbao_api_addr }}/v1/auth/approle/role/{{ item.name }}"
+        method: POST
+        headers: "{{ _bao_headers }}"
+        body_format: json
+        body:
+          token_policies: ["{{ item.policy }}"]
+          token_ttl: "{{ item.token_ttl }}"
+          token_max_ttl: "{{ item.token_max_ttl }}"
+          token_no_default_policy: true
+          bind_secret_id: true
+        status_code: [200, 204]
+        validate_certs: true
+      register: _openbao_approle_writes
+      loop:
+        - name: openbao-admin
+          policy: openbao-admin
+          token_ttl: "{{ openbao_admin_token_ttl }}"
+          token_max_ttl: "{{ openbao_admin_token_max_ttl }}"
+        - name: iac-agent
+          policy: iac-agent
+          token_ttl: "{{ openbao_iac_agent_token_ttl }}"
+          token_max_ttl: "{{ openbao_iac_agent_token_max_ttl }}"
+        - name: jenkins
+          policy: jenkins
+          token_ttl: "{{ openbao_jenkins_token_ttl }}"
+          token_max_ttl: "{{ openbao_jenkins_token_max_ttl }}"
+        - name: eso
+          policy: eso
+          token_ttl: "{{ openbao_eso_token_ttl }}"
+          token_max_ttl: "{{ openbao_eso_token_max_ttl }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    # ----- role_id readout (always; deterministic) --------------------
+
+    - name: Read each AppRole's role_id
+      ansible.builtin.uri:
+        url: "{{ openbao_api_addr }}/v1/auth/approle/role/{{ item }}/role-id"
+        method: GET
+        headers: "{{ _bao_headers }}"
+        status_code: 200
+        validate_certs: true
+      register: _openbao_role_ids
+      loop:
+        - openbao-admin
+        - iac-agent
+        - jenkins
+        - eso
+      no_log: true
+
+    # ----- secret_id mint (only on operator-driven rotation) ----------
+    #
+    # bao_rotate_secret_ids must be set explicitly. First apply: the
+    # operator runs `-e openbao_rotate_secret_ids=true` to mint the
+    # initial creds. Rotation procedure: same flag, again. Steady-state
+    # drift cycle does NOT touch secret-ids — they live in the role's
+    # store until rotated or revoked.
+
+    - name: Mint a fresh secret-id for each AppRole
+      ansible.builtin.uri:
+        url: "{{ openbao_api_addr }}/v1/auth/approle/role/{{ item }}/secret-id"
+        method: POST
+        headers: "{{ _bao_headers }}"
+        body_format: json
+        body: {}
+        status_code: 200
+        validate_certs: true
+      register: _openbao_secret_ids
+      loop:
+        - openbao-admin
+        - iac-agent
+        - jenkins
+        - eso
+      no_log: true
+      when: openbao_rotate_secret_ids | bool
+
+    - name: Print AppRole credentials for operator capture
+      # role_ids print every run (they're deterministic and harmless
+      # to surface). secret_ids only print when openbao_rotate_secret_ids
+      # is set — they're shown once and not recoverable from OpenBao.
+      ansible.builtin.debug:
+        msg: |
+          AppRole credentials — capture into ansible-vault + the
+          consumer's config:
+
+          openbao-admin (controller identity, after root retire):
+            role_id:   {{ _openbao_role_ids.results[0].json.data.role_id }}
+            secret_id: {{ (_openbao_secret_ids.results[0].json.data.secret_id) if openbao_rotate_secret_ids | bool
+                          else '<unchanged; re-run with -e openbao_rotate_secret_ids=true to rotate>' }}
+
+          iac-agent (srviac /etc/iac/secrets.yaml):
+            role_id:   {{ _openbao_role_ids.results[1].json.data.role_id }}
+            secret_id: {{ (_openbao_secret_ids.results[1].json.data.secret_id) if openbao_rotate_secret_ids | bool else '<unchanged>' }}
+
+          jenkins (Jenkins controller Vault plugin config):
+            role_id:   {{ _openbao_role_ids.results[2].json.data.role_id }}
+            secret_id: {{ (_openbao_secret_ids.results[2].json.data.secret_id) if openbao_rotate_secret_ids | bool else '<unchanged>' }}
+
+          eso (in-cluster SecretStore credentials):
+            role_id:   {{ _openbao_role_ids.results[3].json.data.role_id }}
+            secret_id: {{ (_openbao_secret_ids.results[3].json.data.secret_id) if openbao_rotate_secret_ids | bool else '<unchanged>' }}
+      run_once: true
+
+    # ----- root-token retire ------------------------------------------
+    #
+    # Only valid when `_openbao_token` IS the root token — i.e. the
+    # operator passed it via -e. The check is structural: a non-root
+    # admin AppRole token can't revoke itself either (revoke-self
+    # works on any token), but retiring the AppRole's token here would
+    # only break the current play. We narrow to the operator-supplied
+    # path to keep the retire intentional.
+
+    - name: Retire the root token (revoke-self)
+      ansible.builtin.uri:
+        url: "{{ openbao_api_addr }}/v1/auth/token/revoke-self"
+        method: POST
+        headers: "{{ _bao_headers }}"
+        status_code: 204
+        validate_certs: true
+      when:
+        - openbao_retire_root_token | bool
+        - openbao_admin_token | length > 0
+      no_log: true
+
+    - name: Confirm root-token retire
+      ansible.builtin.debug:
+        msg: >-
+          Root token revoked. Future applies must use the
+          openbao-admin AppRole creds in ansible-vault'd
+          group_vars/openbao.yml. The Roboform copy of the root
+          token is now dead.
+      when:
+        - openbao_retire_root_token | bool
+        - openbao_admin_token | length > 0

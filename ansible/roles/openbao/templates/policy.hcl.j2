@@ -1,0 +1,18 @@
+{# Renders an OpenBao ACL policy from a list of KV-v2 read paths. The
+   slice `iac-secrets-resolver` is explicit: grant `read` only on the
+   paths secrets.yaml references, never blanket `kv/*`. KV-v2 splits
+   reads (kv/data/<...>) from list/version ops (kv/metadata/<...>);
+   we grant both for each entry so `bao kv list` works in operator
+   diagnostics. An empty path list produces a comment-only policy
+   that grants nothing — a fully-formed but inert AppRole. #}
+# {{ _policy_name }} — managed by the openbao role
+# Paths: {{ _policy_paths | length }}
+
+{% for p in _policy_paths %}
+path "{{ openbao_kv_mount }}/data/{{ p }}" {
+  capabilities = ["read"]
+}
+path "{{ openbao_kv_mount }}/metadata/{{ p }}" {
+  capabilities = ["read", "list"]
+}
+{% endfor %}

@@ -1,0 +1,25 @@
+---
+# systemd drop-in adding conservative Protect*/Restrict* directives to
+# the .deb's bundled openbao.service. See the template for the full
+# rationale. The drop-in directory exists from systemd; we drop one
+# file (hardening.conf) and notify a daemon-reload + restart on
+# change.
+
+- name: Ensure the openbao.service drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/openbao.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Render the hardening drop-in
+  ansible.builtin.template:
+    src: openbao-hardening.conf.j2
+    dest: /etc/systemd/system/openbao.service.d/hardening.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart openbao

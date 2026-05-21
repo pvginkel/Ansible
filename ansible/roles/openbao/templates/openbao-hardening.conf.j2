@@ -1,0 +1,32 @@
+# Managed by the openbao role — drop-in override on top of the .deb's
+# bundled openbao.service. The packaged unit already sets
+# ProtectSystem=full, ProtectHome=read-only, PrivateTmp=yes,
+# PrivateDevices=yes, NoNewPrivileges=yes, MemorySwapMax=0, and a
+# minimal CapabilityBoundingSet. This drop-in layers conservative
+# Protect*/Restrict* directives that don't intersect with OpenBao's
+# requirements (HTTPS listener, file audit, Raft on local disk).
+#
+# Deliberately NOT set:
+#   - MemoryDenyWriteExecute=yes — Go runtime uses mmap with PROT_EXEC.
+#   - SystemCallFilter=...      — too aggressive without a measured
+#                                  syscall profile.
+#   - PrivateUsers=yes          — breaks bind-mounts the audit device
+#                                  may need.
+#   - ProtectSystem=strict      — bundled `full` already covers /usr;
+#                                  upgrading would block legitimate
+#                                  writes during package upgrade.
+
+[Service]
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+ReadWritePaths={{ openbao_data_dir }} {{ openbao_audit_file_path | dirname }}

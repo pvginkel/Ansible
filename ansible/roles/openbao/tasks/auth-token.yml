@@ -1,0 +1,51 @@
+---
+# Acquires a privileged OpenBao token into `_openbao_token`. Two paths:
+#
+#  1. openbao_admin_token (extra-var) — used on the first apply (root
+#     token from `bao operator init`) and any rescue run. Wins over
+#     the AppRole path so an operator with a fresh root token can
+#     always push state.
+#  2. openbao_admin_role_id / _secret_id (ansible-vault'd in
+#     group_vars/openbao.yml) — steady state. Drift cycle authenticates
+#     here; root token has been retired.
+#
+# If neither is available, sets `_openbao_token` to empty — calling
+# tasks must `when: _openbao_token | length > 0` to skip cleanly. This
+# is what lets the drift cycle run end-to-end before the admin AppRole
+# is provisioned: auth tasks no-op, everything else converges.
+
+- name: Use the operator-supplied admin token when present
+  ansible.builtin.set_fact:
+    _openbao_token: "{{ openbao_admin_token }}"
+  no_log: true
+  when: openbao_admin_token | length > 0
+
+- name: Log in via the admin AppRole when no operator token is supplied
+  ansible.builtin.uri:
+    url: "{{ openbao_api_addr }}/v1/auth/approle/login"
+    method: POST
+    body_format: json
+    body:
+      role_id: "{{ openbao_admin_role_id }}"
+      secret_id: "{{ openbao_admin_secret_id }}"
+    status_code: 200
+    validate_certs: true
+  register: _openbao_login
+  no_log: true
+  when:
+    - openbao_admin_token | length == 0
+    - openbao_admin_role_id | length > 0
+    - openbao_admin_secret_id | length > 0
+
+- name: Capture the admin AppRole token
+  ansible.builtin.set_fact:
+    _openbao_token: "{{ _openbao_login.json.auth.client_token }}"
+  no_log: true
+  when:
+    - _openbao_login is defined
+    - _openbao_login.json is defined
+
+- name: Default _openbao_token to empty when no credentials are configured
+  ansible.builtin.set_fact:
+    _openbao_token: ""
+  when: _openbao_token is not defined

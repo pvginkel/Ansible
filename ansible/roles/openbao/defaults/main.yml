@@ -46,3 +46,91 @@ openbao_san_list:
 # rekey / re-seal / new root token).
 openbao_recovery_shares: 5
 openbao_recovery_threshold: 3
+
+# ----- Card #40 / #11: auth, audit, hardening, ufw --------------------
+
+# Admin AppRole — the controller's identity on every run after the root
+# token is retired. role_id + secret_id come from ansible-vault in
+# inventories/prd/group_vars/openbao.yml; left empty here so the
+# defaults file stays committable. When unset, the auth tasks fall back
+# to openbao_admin_token (operator-supplied via -e on first apply).
+openbao_admin_role_id: ""
+openbao_admin_secret_id: ""
+
+# Bootstrap-only override. When set (via -e openbao_admin_token=<root>)
+# the auth provisioning tasks use this token directly instead of
+# logging in with the admin AppRole. Used on first apply (root token
+# from init), when retiring the root token, and as a rescue path if
+# the admin AppRole creds are unavailable.
+openbao_admin_token: ""
+
+# When true, the auth tasks revoke openbao_admin_token via revoke-self
+# at the end of the run. Only set this once openbao_admin_role_id /
+# _secret_id are populated in group_vars (i.e. once a future apply
+# can still authenticate without the root token).
+openbao_retire_root_token: false
+
+# When true, the auth tasks mint a fresh secret-id for each AppRole
+# (admin, iac-agent, jenkins, eso) and print it. role_ids are always
+# printed when an AppRole is created or rotated. Default false so
+# steady-state drift cycles don't churn secret-ids.
+openbao_rotate_secret_ids: false
+
+# AppRole token TTLs. Short enough that a leaked token expires before
+# anyone reuses it; long enough to cover a single iac invocation, a
+# Jenkins pipeline run, or an ESO sync.
+openbao_admin_token_ttl: 30m
+openbao_admin_token_max_ttl: 30m
+openbao_iac_agent_token_ttl: 1h
+openbao_iac_agent_token_max_ttl: 1h
+openbao_jenkins_token_ttl: 1h
+openbao_jenkins_token_max_ttl: 1h
+openbao_eso_token_ttl: 1h
+openbao_eso_token_max_ttl: 1h
+
+# KV-v2 read paths granted to each consumer's policy. Empty lists give
+# the AppRole an inert policy that grants nothing — safe default; the
+# AppRole exists and can authenticate, but reads return 403 until the
+# operator populates the path list. Paths are KV-v2 read paths under
+# the kv/ mount (i.e. `kv/data/<...>` for reads, `kv/metadata/<...>`
+# for list/version operations). Add paths in
+# inventories/prd/group_vars/openbao.yml.
+openbao_iac_agent_kv_paths: []
+openbao_jenkins_kv_paths: []
+openbao_eso_kv_paths: []
+
+# KV-v2 mount name. The default `kv/` mount is enabled on first apply;
+# changing this after data exists is not safe.
+openbao_kv_mount: "kv"
+
+# File audit device — append-only log on each srvvaultN. Captures every
+# OpenBao request + response (decisions.md "Secrets — OpenBao"). The
+# parent directory is created by the audit task; rotation is on the
+# operator (logrotate is out of scope for this card).
+openbao_audit_path: "file"
+openbao_audit_file_path: /var/log/openbao/audit.log
+
+# ufw — firewall on each srvvaultN. Default-deny inbound; allow-list
+# matches decisions.md "Secrets — OpenBao" network boundary, narrowed
+# to the post-card-#10 reality (clients reach via 443/tcp through the
+# leader-tracking VIP, not 8200 directly). 8200/tcp is still required
+# from openbao peers (elect-bootstrap probes peer sys/health) and
+# from srviac (admin path: `bao` CLI from the Jenkins agent VM).
+#
+# Default off until the operator's wrkdev-driven workflow is migrated
+# to srviac/Jenkins-driven for OpenBao management. Flip to true to
+# lock the host down to the allow-list below.
+openbao_ufw_enable: false
+
+# SSH source for srvvaultN. decisions.md restricts 22/tcp to the
+# Jenkins agent VM (srviac). Hostname is resolved via the standard
+# nameserver chain on the controller; the resolved IP/CIDR string is
+# what ufw stores.
+openbao_ufw_ssh_source_hostname: "srviac.home"
+
+# 443/tcp consumers — k8s_prd nodes (ESO, in-cluster consumers) and
+# srviac (Jenkins pipelines, ad-hoc operator). Lists are inventory
+# groups; the ufw task resolves each member to its LAN IP.
+openbao_ufw_https_source_groups:
+  - k8s_prd
+  - iac_agent

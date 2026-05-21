@@ -1,0 +1,27 @@
+# openbao-admin — managed by the openbao role
+#
+# Full administrative scope: auth methods, policies, mounts, audit
+# devices, leases, tokens. `sudo` is required on sys/* paths that the
+# OpenBao API marks as root-protected (sys/audit, sys/policies/acl on
+# certain operations). Equivalent to root for all practical purposes;
+# guarded by the admin AppRole's short token TTL and operator-only
+# access to its secret-id.
+
+path "sys/*" {
+  capabilities = ["create", "read", "update", "delete", "list", "sudo"]
+}
+
+path "auth/*" {
+  capabilities = ["create", "read", "update", "delete", "list", "sudo"]
+}
+
+path "identity/*" {
+  capabilities = ["create", "read", "update", "delete", "list"]
+}
+
+# KV mount maintenance — create/list mounts is under sys/*, this grants
+# the data side too so the admin can seed values from `bao kv put`
+# during operator-driven onboarding without minting an extra token.
+path "{{ openbao_kv_mount }}/*" {
+  capabilities = ["create", "read", "update", "delete", "list"]
+}
