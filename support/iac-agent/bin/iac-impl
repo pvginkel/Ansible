@@ -1,175 +1,505 @@
-#!/usr/bin/env bash
-# iac-impl — runs inside the modern-app-dev container. Bind-mounted in
-# from /usr/local/bin/iac-impl on the host (which is itself materialized
+#!/usr/bin/env python3
+# iac-impl — runs inside the iac container. Bind-mounted in from
+# /usr/local/bin/iac-impl on the host (which is itself materialized
 # from this file by install.sh).
 #
-# Per /work/AnsibleSpecs/phases/iac-agent.md:
-#   1. Parse /etc/iac/secrets.yaml. Export `env:` entries; write `files:`
-#      entries at their declared mode.
-#   2. Clone pvginkel/Ansible and pvginkel/TerraformState into /work/.
-#   3. Copy state files in from TerraformState into the Ansible clone.
-#   4. Warn if the baked /app/.venv looks stale relative to the
-#      cloned pyproject.toml/poetry.lock (image rebuild is pending).
-#   5. Run interactive bash (no args) or `sh -c "$1"` (`-c` form).
-#   6. On exit, copy state files out, commit + push if anything changed.
-
-set -euo pipefail
-
-SECRETS_FILE="${SECRETS_FILE:-/etc/iac/secrets.yaml}"
-WORK="${WORK:-/work}"
-SCOPES=(prd scratch)
-ANSIBLE_REPO_PATH="github.com/pvginkel/Ansible.git"
-STATE_REPO_PATH="github.com/pvginkel/TerraformState.git"
-GIT_USER_NAME="iac-agent"
-GIT_USER_EMAIL="iac-agent@srviac.home"
-
-VERBOSE=0
-
-# Parse leading flags. -v / --verbose enables the setup-progress
-# prints (silent by default — startup is fast enough not to need
-# narration). Stops at the first non-flag arg so `-c '<script>'`
-# reaches the dispatch block intact.
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        -v|--verbose)
-            VERBOSE=1
-            shift
-            ;;
-        *)
-            break
-            ;;
-    esac
-done
-
-step() {
-    if [[ $VERBOSE -eq 1 ]]; then
-        printf 'iac-impl: %s\n' "$*" >&2
-    fi
-}
-
-if [[ ! -r "$SECRETS_FILE" ]]; then
-    echo "iac-impl: $SECRETS_FILE missing or unreadable" >&2
-    exit 1
-fi
-
-# ----- 1) Parse secrets.yaml -----------------------------------------
-
-step "parsing $SECRETS_FILE"
-
-# env: entries — null-delimited TSV survives newlines in values.
-while IFS=$'\t' read -r -d '' name value; do
-    [[ -z "$name" ]] && continue
-    export "$name=$value"
-done < <(yq -r '.env[]? | [.name, .value] | @tsv' "$SECRETS_FILE" | tr '\n' '\0')
-
-# files: entries. mode is required (no default). Materialize content
-# byte-for-byte; chmod after writing so a write to a pre-existing
-# 0600-mode file goes through under root.
-mapfile -t _file_paths < <(yq -r '.files[]?.path' "$SECRETS_FILE")
-for path in "${_file_paths[@]}"; do
-    [[ -z "$path" || "$path" == "null" ]] && continue
-    mode=$(yq -r ".files[] | select(.path == \"$path\") | .mode" "$SECRETS_FILE")
-    if [[ -z "$mode" || "$mode" == "null" ]]; then
-        echo "iac-impl: files entry $path is missing required 'mode'" >&2
-        exit 1
-    fi
-    install -D -m "$mode" /dev/null "$path"
-    yq -r ".files[] | select(.path == \"$path\") | .content" "$SECRETS_FILE" > "$path"
-    chmod "$mode" "$path"
-done
-
-if [[ -z "${GIT_API_TOKEN:-}" ]]; then
-    echo "iac-impl: GIT_API_TOKEN missing from $SECRETS_FILE" >&2
-    exit 1
-fi
-
-# ----- 2) Clone repos -------------------------------------------------
-
-mkdir -p "$WORK"
-git config --global init.defaultBranch main
-step "cloning pvginkel/Ansible"
-git clone --quiet --depth 1 "https://${GIT_API_TOKEN}@${ANSIBLE_REPO_PATH}" "$WORK/Ansible"
-step "cloning pvginkel/TerraformState"
-git clone --quiet --depth 1 "https://${GIT_API_TOKEN}@${STATE_REPO_PATH}" "$WORK/TerraformState"
-git -C "$WORK/TerraformState" config user.name "$GIT_USER_NAME"
-git -C "$WORK/TerraformState" config user.email "$GIT_USER_EMAIL"
-
-# ----- 3) State files: sync in ---------------------------------------
-
-step "syncing terraform state files in"
-for scope in "${SCOPES[@]}"; do
-    src="$WORK/TerraformState/$scope/terraform.tfstate"
-    dst="$WORK/Ansible/terraform/$scope/terraform.tfstate"
-    if [[ -f "$src" ]]; then
-        mkdir -p "$(dirname "$dst")"
-        cp "$src" "$dst"
-    fi
-done
-
-# ----- 4) verify the baked Python venv is fresh ----------------------
-
-# The container ships /app/.venv pre-built from pyproject.toml +
-# poetry.lock at image-build time, and the image's ENV puts
-# /app/.venv/bin on PATH — so ansible-playbook resolves without us
-# touching anything here.
+# Per /work/AnsibleSpecs/phases/openbao.md §Secrets resolver and
+# slices/iac-secrets-resolver.md:
 #
-# The image is rebuilt automatically on every push to pvginkel/Ansible.
-# Between push and rebuild-complete there's a window where the cloned
-# poetry.lock is ahead of the image's bake. Warn loudly when that
-# happens so the operator knows to wait + re-pull before relying on
-# the run; we don't hard-fail because most iac calls (terraform-only,
-# anything that doesn't touch new deps) still work fine.
-if [[ ! -f /app/poetry.lock ]]; then
-    echo "iac-impl: WARNING — no /app/poetry.lock found; this image is not the expected iac image. ansible-playbook may not be on PATH." >&2
-elif ! cmp -s /app/poetry.lock "$WORK/Ansible/poetry.lock"; then
-    echo "iac-impl: WARNING — /work/Ansible/poetry.lock differs from the image's baked /app/poetry.lock." >&2
-    echo "iac-impl: WARNING — ansible may run with stale dependencies. Wait for the iac image rebuild to land, then re-pull." >&2
-fi
+#   1. Parse /etc/iac/secrets.yaml. `!bao mount/path#key` references
+#      become BaoRef sentinels at YAML-parse time so a typo can't
+#      silently fall through as a literal string.
+#   2. First-pass: materialise the irreducible-literal env entries
+#      (OPENBAO_URL, OPENBAO_ROLE_ID, OPENBAO_SECRET_ID, GIT_API_TOKEN)
+#      so we can authenticate to OpenBao.
+#   3. If any BaoRef exists in the tree, AppRole-login and resolve
+#      every sentinel against OpenBao. Hard-fail before any clone /
+#      state-sync / user command if anything is missing or auth fails.
+#   4. Materialise resolved env: into os.environ; resolved files: at
+#      their declared mode (no default — `mode` is required).
+#   5. Clone pvginkel/Ansible and pvginkel/TerraformState into /work,
+#      sync state files in.
+#   6. Warn (don't fail) when /work/Ansible/poetry.lock differs from
+#      the image's baked /app/poetry.lock.
+#   7. Exec interactive bash (no args) or `sh -c "$1"` (the -c form).
+#   8. Sync state files out; commit + push any changes.
 
-# ----- 5) Run user command -------------------------------------------
+from __future__ import annotations
 
-step "ready"
+import filecmp
+import os
+import shutil
+import subprocess
+import sys
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
 
-cd "$WORK"
-exit_code=0
-if [[ $# -eq 0 ]]; then
-    bash || exit_code=$?
-elif [[ "$1" == "-c" && $# -eq 2 ]]; then
-    sh -c "$2" || exit_code=$?
-else
-    echo "iac-impl: unrecognised arguments: $*" >&2
-    echo "Usage: iac-impl [-v]              (interactive bash)" >&2
-    echo "       iac-impl [-v] -c <script>  (single-arg shell script)" >&2
-    exit 2
-fi
+import hvac  # type: ignore[import-untyped]
+import yaml
 
-# ----- 6) State files: sync out, commit + push ----------------------
 
-for scope in "${SCOPES[@]}"; do
-    src="$WORK/Ansible/terraform/$scope/terraform.tfstate"
-    dst="$WORK/TerraformState/$scope/terraform.tfstate"
-    if [[ -f "$src" ]]; then
-        mkdir -p "$(dirname "$dst")"
-        cp "$src" "$dst"
-    fi
-done
+# ----- configuration ------------------------------------------------------
 
-if git -C "$WORK/TerraformState" status --porcelain | grep -q .; then
-    msg="iac-impl: state update $(date -Iseconds)"
-    if [[ -n "${JOB_NAME:-}" && -n "${BUILD_NUMBER:-}" ]]; then
-        msg+=" ($JOB_NAME#$BUILD_NUMBER)"
-    fi
-    git -C "$WORK/TerraformState" add -A
-    git -C "$WORK/TerraformState" commit --quiet -m "$msg"
-    if ! git -C "$WORK/TerraformState" push --quiet; then
-        head=$(git -C "$WORK/TerraformState" rev-parse HEAD)
-        echo "iac-impl: WARNING — TerraformState push failed." >&2
-        echo "iac-impl: state is committed locally at $head but the container is about to exit and the commit will be lost." >&2
-        echo "iac-impl: investigate the remote and replay the state files from /work/TerraformState/<scope>/terraform.tfstate before this container terminates." >&2
-        if (( exit_code == 0 )); then
-            exit_code=1
-        fi
-    fi
-fi
+SECRETS_FILE = Path(os.environ.get("SECRETS_FILE", "/etc/iac/secrets.yaml"))
+WORK = Path(os.environ.get("WORK", "/work"))
+SCOPES = ("prd", "scratch")
+ANSIBLE_REPO_PATH = "github.com/pvginkel/Ansible.git"
+STATE_REPO_PATH = "github.com/pvginkel/TerraformState.git"
+GIT_USER_NAME = "iac-agent"
+GIT_USER_EMAIL = "iac-agent@srviac.home"
+BAKED_LOCK = Path("/app/poetry.lock")
 
-exit "$exit_code"
+# Env names that MUST resolve to literals — !bao on any of these is a
+# hard error because they gate the path that fetches every other
+# secret. The cold-boot runbook is the escape hatch when OpenBao is
+# unreachable.
+IRREDUCIBLE_LITERAL_ENVS = (
+    "OPENBAO_URL",
+    "OPENBAO_ROLE_ID",
+    "OPENBAO_SECRET_ID",
+    "GIT_API_TOKEN",
+)
+
+
+# ----- error + logging ----------------------------------------------------
+
+VERBOSE = False
+
+
+def fail(msg: str) -> None:
+    print(f"iac-impl: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+def step(msg: str) -> None:
+    if VERBOSE:
+        print(f"iac-impl: {msg}", file=sys.stderr)
+
+
+def warn(msg: str) -> None:
+    print(f"iac-impl: WARNING — {msg}", file=sys.stderr)
+
+
+# ----- YAML !bao constructor ---------------------------------------------
+
+
+@dataclass(frozen=True)
+class BaoRef:
+    """A `!bao mount/path#key` reference parsed from secrets.yaml."""
+
+    mount: str
+    path: str
+    key: str
+    source: str  # original tag value, for diagnostics
+
+    @classmethod
+    def parse(cls, raw: str) -> "BaoRef":
+        # Schema: "<mount>/<path>#<key>". Mount and key are mandatory;
+        # path is everything between the first '/' and the '#'.
+        if "#" not in raw:
+            raise ValueError(
+                f"!bao ref {raw!r} is missing the '#key' suffix"
+            )
+        head, key = raw.rsplit("#", 1)
+        if "/" not in head:
+            raise ValueError(
+                f"!bao ref {raw!r} must be 'mount/path#key' (no mount/)"
+            )
+        mount, path = head.split("/", 1)
+        if not (mount and path and key):
+            raise ValueError(
+                f"!bao ref {raw!r} has an empty mount, path, or key"
+            )
+        return cls(mount=mount, path=path, key=key, source=raw)
+
+
+def _bao_constructor(loader: yaml.Loader, node: yaml.Node) -> BaoRef:
+    return BaoRef.parse(loader.construct_scalar(node))
+
+
+class IacLoader(yaml.SafeLoader):
+    """SafeLoader with the !bao constructor registered."""
+
+
+IacLoader.add_constructor("!bao", _bao_constructor)
+
+
+# ----- OpenBao resolver --------------------------------------------------
+
+
+class Resolver:
+    """Walks the parsed YAML tree and replaces BaoRef sentinels.
+
+    Hard-fails on any miss — unresolvable refs, auth failure, network
+    error. The container is short-lived; running with stale or missing
+    values is unsafe.
+    """
+
+    def __init__(self, url: str, role_id: str, secret_id: str) -> None:
+        self._client = hvac.Client(url=url)
+        try:
+            self._client.auth.approle.login(
+                role_id=role_id,
+                secret_id=secret_id,
+                use_token=True,
+            )
+        except Exception as exc:
+            fail(f"OpenBao AppRole login failed: {exc}")
+        if not self._client.is_authenticated():
+            fail("OpenBao AppRole login returned no token")
+        step(f"openbao authenticated ({url})")
+
+    def resolve(self, ref: BaoRef) -> str:
+        try:
+            response = self._client.secrets.kv.v2.read_secret_version(
+                mount_point=ref.mount,
+                path=ref.path,
+                raise_on_deleted_version=True,
+            )
+        except hvac.exceptions.InvalidPath:
+            fail(
+                f"!bao {ref.source}: path {ref.mount}/{ref.path} does "
+                f"not exist (or the iac-agent policy does not grant "
+                f"read on it)"
+            )
+        except Exception as exc:
+            fail(f"!bao {ref.source}: read failed: {exc}")
+        data = response["data"]["data"]
+        if ref.key not in data:
+            fail(
+                f"!bao {ref.source}: key {ref.key!r} not present at "
+                f"{ref.mount}/{ref.path}"
+            )
+        value = data[ref.key]
+        if not isinstance(value, str):
+            fail(
+                f"!bao {ref.source}: key {ref.key!r} is not a string "
+                f"(got {type(value).__name__})"
+            )
+        return value
+
+
+def _walk_resolve(node: Any, resolver: Resolver) -> Any:
+    """Replace every BaoRef in a parsed YAML tree with its value."""
+    if isinstance(node, BaoRef):
+        return resolver.resolve(node)
+    if isinstance(node, list):
+        return [_walk_resolve(item, resolver) for item in node]
+    if isinstance(node, dict):
+        return {k: _walk_resolve(v, resolver) for k, v in node.items()}
+    return node
+
+
+def _has_bao_ref(node: Any) -> bool:
+    if isinstance(node, BaoRef):
+        return True
+    if isinstance(node, list):
+        return any(_has_bao_ref(item) for item in node)
+    if isinstance(node, dict):
+        return any(_has_bao_ref(v) for v in node.values())
+    return False
+
+
+# ----- secrets.yaml parse + materialise ----------------------------------
+
+
+def parse_secrets() -> dict[str, Any]:
+    if not SECRETS_FILE.is_file():
+        fail(f"{SECRETS_FILE} missing or unreadable")
+    try:
+        with SECRETS_FILE.open("r", encoding="utf-8") as fp:
+            data = yaml.load(fp, Loader=IacLoader)
+    except yaml.YAMLError as exc:
+        fail(f"{SECRETS_FILE} parse error: {exc}")
+    except ValueError as exc:
+        # raised by BaoRef.parse via the !bao constructor
+        fail(f"{SECRETS_FILE} parse error: {exc}")
+    if not isinstance(data, dict):
+        fail(f"{SECRETS_FILE} must be a YAML mapping at the top level")
+    return data
+
+
+def materialise_env(env_entries: list[dict[str, Any]]) -> None:
+    """Export each env: entry into os.environ.
+
+    Entries are dicts of `{name: str, value: str}`. Sentinels MUST be
+    resolved before this runs; if a value is still a BaoRef it's a
+    bug in the resolve pass — assert loudly.
+    """
+    for entry in env_entries:
+        name = entry.get("name")
+        value = entry.get("value")
+        if not isinstance(name, str) or not name:
+            fail(f"env entry missing string `name`: {entry!r}")
+        if isinstance(value, BaoRef):
+            fail(
+                f"env {name}: unresolved !bao ref — resolver bug "
+                f"({value.source})"
+            )
+        if value is None:
+            fail(f"env {name}: value is null in {SECRETS_FILE}")
+        if not isinstance(value, str):
+            value = str(value)
+        os.environ[name] = value
+
+
+def materialise_files(file_entries: list[dict[str, Any]]) -> None:
+    """Write each files: entry to disk at its declared mode.
+
+    `mode` is required — no default. Parent dirs are created. Mode is
+    applied after the write so a write through a pre-existing 0600
+    file goes through under root.
+    """
+    for entry in file_entries:
+        path = entry.get("path")
+        mode = entry.get("mode")
+        content = entry.get("content")
+        if not isinstance(path, str) or not path:
+            fail(f"files entry missing string `path`: {entry!r}")
+        if not isinstance(mode, str) or not mode:
+            fail(f"files entry {path} is missing required 'mode'")
+        if isinstance(content, BaoRef):
+            fail(
+                f"files {path}: unresolved !bao ref — resolver bug "
+                f"({content.source})"
+            )
+        if content is None:
+            fail(f"files {path}: content is null in {SECRETS_FILE}")
+        if not isinstance(content, str):
+            fail(f"files {path}: content must be a string")
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        target.chmod(int(mode, 8))
+
+
+# ----- repo clone + state sync -------------------------------------------
+
+
+def _run(*argv: str, cwd: Path | None = None) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        argv,
+        cwd=str(cwd) if cwd else None,
+        check=True,
+        text=True,
+    )
+
+
+def clone_repos(token: str) -> None:
+    WORK.mkdir(parents=True, exist_ok=True)
+    _run("git", "config", "--global", "init.defaultBranch", "main")
+    step("cloning pvginkel/Ansible")
+    _run(
+        "git",
+        "clone",
+        "--quiet",
+        "--depth",
+        "1",
+        f"https://{token}@{ANSIBLE_REPO_PATH}",
+        str(WORK / "Ansible"),
+    )
+    step("cloning pvginkel/TerraformState")
+    _run(
+        "git",
+        "clone",
+        "--quiet",
+        "--depth",
+        "1",
+        f"https://{token}@{STATE_REPO_PATH}",
+        str(WORK / "TerraformState"),
+    )
+    state_repo = WORK / "TerraformState"
+    _run("git", "-C", str(state_repo), "config", "user.name", GIT_USER_NAME)
+    _run("git", "-C", str(state_repo), "config", "user.email", GIT_USER_EMAIL)
+
+
+def sync_state_in() -> None:
+    step("syncing terraform state files in")
+    for scope in SCOPES:
+        src = WORK / "TerraformState" / scope / "terraform.tfstate"
+        dst = WORK / "Ansible" / "terraform" / scope / "terraform.tfstate"
+        if src.is_file():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+
+
+def check_baked_venv() -> None:
+    """Warn loudly when the cloned lockfile is ahead of the image's bake.
+
+    Same logic as the bash version: not a hard fail because most iac
+    calls don't touch new deps and run fine against the old venv.
+    """
+    cloned_lock = WORK / "Ansible" / "poetry.lock"
+    if not BAKED_LOCK.is_file():
+        warn(
+            f"no {BAKED_LOCK} found; this image is not the expected "
+            f"iac image. ansible-playbook may not be on PATH."
+        )
+        return
+    if not cloned_lock.is_file():
+        warn(f"no {cloned_lock} found; lockfile-drift check skipped.")
+        return
+    if not filecmp.cmp(BAKED_LOCK, cloned_lock, shallow=False):
+        warn(f"{cloned_lock} differs from the image's baked {BAKED_LOCK}.")
+        warn(
+            "ansible may run with stale dependencies. Wait for the "
+            "iac image rebuild to land, then re-pull."
+        )
+
+
+def sync_state_out_and_push() -> int:
+    """Sync TF state out, commit, push. Returns 0 ok, 1 on push fail."""
+    for scope in SCOPES:
+        src = WORK / "Ansible" / "terraform" / scope / "terraform.tfstate"
+        dst = WORK / "TerraformState" / scope / "terraform.tfstate"
+        if src.is_file():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+
+    state_repo = WORK / "TerraformState"
+    status = subprocess.run(
+        ["git", "-C", str(state_repo), "status", "--porcelain"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    if not status.stdout.strip():
+        return 0
+
+    msg = (
+        "iac-impl: state update "
+        + datetime.now(timezone.utc).isoformat(timespec="seconds")
+    )
+    job = os.environ.get("JOB_NAME")
+    build = os.environ.get("BUILD_NUMBER")
+    if job and build:
+        msg += f" ({job}#{build})"
+
+    _run("git", "-C", str(state_repo), "add", "-A")
+    _run("git", "-C", str(state_repo), "commit", "--quiet", "-m", msg)
+    push = subprocess.run(
+        ["git", "-C", str(state_repo), "push", "--quiet"],
+    )
+    if push.returncode != 0:
+        head = subprocess.run(
+            ["git", "-C", str(state_repo), "rev-parse", "HEAD"],
+            check=False,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        warn("TerraformState push failed.")
+        warn(
+            f"state is committed locally at {head} but the container is "
+            f"about to exit and the commit will be lost."
+        )
+        warn(
+            "investigate the remote and replay the state files from "
+            "/work/TerraformState/<scope>/terraform.tfstate before "
+            "this container terminates."
+        )
+        return 1
+    return 0
+
+
+# ----- main --------------------------------------------------------------
+
+
+def parse_argv() -> tuple[bool, list[str]]:
+    """Strip leading -v/--verbose; return (verbose, remaining_args)."""
+    argv = sys.argv[1:]
+    verbose = False
+    while argv and argv[0] in ("-v", "--verbose"):
+        verbose = True
+        argv = argv[1:]
+    return verbose, argv
+
+
+def main() -> int:
+    global VERBOSE
+    VERBOSE, argv = parse_argv()
+
+    step(f"parsing {SECRETS_FILE}")
+    parsed = parse_secrets()
+
+    env_entries = parsed.get("env") or []
+    file_entries = parsed.get("files") or []
+    if not isinstance(env_entries, list) or not isinstance(file_entries, list):
+        fail(f"{SECRETS_FILE}: env and files must be lists")
+
+    # First pass — pluck the irreducible literals so we can log in to
+    # OpenBao. Any of them showing up as a BaoRef is a hard error; the
+    # cold-boot runbook is the escape hatch when OpenBao is unreachable.
+    irreducible: dict[str, str] = {}
+    for entry in env_entries:
+        name = entry.get("name") if isinstance(entry, dict) else None
+        value = entry.get("value") if isinstance(entry, dict) else None
+        if name in IRREDUCIBLE_LITERAL_ENVS:
+            if isinstance(value, BaoRef):
+                fail(
+                    f"env {name} cannot be a !bao ref — it is part of "
+                    f"the irreducible-literal set that gates OpenBao "
+                    f"itself. See docs/runbooks/iac-cold-boot.md."
+                )
+            if not isinstance(value, str) or not value:
+                fail(f"env {name}: empty or non-string value in {SECRETS_FILE}")
+            irreducible[name] = value
+
+    for name in IRREDUCIBLE_LITERAL_ENVS:
+        if name not in irreducible:
+            fail(f"env {name}: missing from {SECRETS_FILE}")
+
+    # Second pass — resolve every BaoRef anywhere in the tree.
+    if _has_bao_ref(parsed):
+        step("resolving !bao references against OpenBao")
+        resolver = Resolver(
+            url=irreducible["OPENBAO_URL"],
+            role_id=irreducible["OPENBAO_ROLE_ID"],
+            secret_id=irreducible["OPENBAO_SECRET_ID"],
+        )
+        parsed = _walk_resolve(parsed, resolver)
+        env_entries = parsed.get("env") or []
+        file_entries = parsed.get("files") or []
+
+    materialise_env(env_entries)
+    materialise_files(file_entries)
+
+    git_token = os.environ.get("GIT_API_TOKEN", "")
+    if not git_token:
+        fail(f"GIT_API_TOKEN missing from {SECRETS_FILE}")
+
+    clone_repos(git_token)
+    sync_state_in()
+    check_baked_venv()
+
+    step("ready")
+
+    # Run the user command — interactive bash (no args) or `sh -c <script>`.
+    os.chdir(WORK)
+    if not argv:
+        cmd = ["bash"]
+    elif argv[0] == "-c" and len(argv) == 2:
+        cmd = ["sh", "-c", argv[1]]
+    else:
+        print(
+            "iac-impl: unrecognised arguments: " + " ".join(argv),
+            file=sys.stderr,
+        )
+        print(
+            "Usage: iac-impl [-v]              (interactive bash)",
+            file=sys.stderr,
+        )
+        print(
+            "       iac-impl [-v] -c <script>  (single-arg shell script)",
+            file=sys.stderr,
+        )
+        return 2
+    exit_code = subprocess.call(cmd)
+
+    push_status = sync_state_out_and_push()
+    return exit_code or push_status
+
+
+if __name__ == "__main__":
+    sys.exit(main())
