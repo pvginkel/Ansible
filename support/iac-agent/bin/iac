@@ -37,7 +37,7 @@ fi
 # Add -it only when stdin is a tty (interactive shell case). Non-tty
 # invocations (Jenkins stages, scripted ssh) skip it so docker doesn't
 # fail allocating a pseudo-tty.
-docker_flags=("--rm" "--pull=always", "--quiet")
+docker_flags=("--rm" "--pull=always" "--quiet")
 if [[ -t 0 ]]; then
     docker_flags+=("-it")
 fi
