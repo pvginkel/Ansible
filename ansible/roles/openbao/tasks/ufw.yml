@@ -37,15 +37,25 @@
   ansible.builtin.set_fact:
     _openbao_ufw_srviac_ip: "{{ _openbao_ufw_srviac.stdout | regex_search('\\S+') }}"
 
+# Default-policy tasks gated on `openbao_ufw_enable`. While ufw is
+# inactive the community.general.ufw module can't read the current
+# defaults from `ufw status verbose` (output is "Status: inactive"),
+# so it reports changed=1 on every run for both directions even
+# when nothing has drifted. Setting the defaults only when we're
+# about to enable ufw keeps drift cycles honest and still seeds the
+# right defaults before the enable task fires below.
+
 - name: Default-deny inbound
   community.general.ufw:
     direction: incoming
     policy: deny
+  when: openbao_ufw_enable | bool
 
 - name: Default-allow outbound
   community.general.ufw:
     direction: outgoing
     policy: allow
+  when: openbao_ufw_enable | bool
 
 # SSH — 22/tcp from srviac only. Operator's wrkdev path to srvvaultN
 # closes when this rule lands AND ufw is enabled. The bootstrap
