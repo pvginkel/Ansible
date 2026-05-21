@@ -1,8 +1,8 @@
 // iac-on-push — fires on every push to main on pvginkel/Ansible.
 // Sequential, fail-fast: plan + destroy-check, apply, site (sans
-// iac_agent), update-k8s. Each stage wraps its work in a single
-// `iac -c '...'` so the IaC mutex is held across the steps that must
-// be atomic.
+// iac_agent), site-openbao, update-k8s. Each stage wraps its work
+// in a single `iac -c '...'` so the IaC mutex is held across the
+// steps that must be atomic.
 //
 // Controller config:
 //   - SCM: pvginkel/IaCAgent, branch main
@@ -60,6 +60,25 @@ pipeline {
                         set -euo pipefail
                         cd /work/Ansible/ansible
                         ansible-playbook --diff playbooks/site.yml --limit "!iac_agent"
+                    '
+                '''
+            }
+        }
+
+        stage('Ansible site-openbao') {
+            // site-openbao.yml converges the OpenBao service VMs;
+            // site.yml excludes them because the Play 0 transient
+            // known_hosts handoff (pre-cert SSH for srvvaultN) lives
+            // here, not in site.yml. Play 0 reads `terraform output
+            // host_pubkeys` and writes tmp/known_hosts.openbao at
+            // run time, so this works from CI without operator
+            // priming.
+            steps {
+                sh '''
+                    iac -c '
+                        set -euo pipefail
+                        cd /work/Ansible/ansible
+                        ansible-playbook --diff playbooks/site-openbao.yml
                     '
                 '''
             }

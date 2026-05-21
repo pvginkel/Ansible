@@ -2,9 +2,9 @@
 // Push-notifies on detected changes or non-zero exit. Read-only; no
 // terraform apply, no ansible run without --check.
 //
-// Three stages run sequentially so a failure in one doesn't mask
-// findings in the other. All stages are inside the same Jenkins
-// build; any failing trips the post-failure handler exactly once.
+// Stages run sequentially so a failure in one doesn't mask findings
+// in the others. All stages are inside the same Jenkins build; any
+// failing trips the post-failure handler exactly once.
 //
 // Controller config:
 //   - SCM: pvginkel/IaCAgent, branch main
@@ -81,6 +81,25 @@ pipeline {
                         set -euo pipefail
                         cd /work/Ansible/ansible
                         check-ansible-drift.sh playbooks/site-k8s.yml --skip-tags os_update
+                    '
+                '''
+            }
+        }
+
+        stage('Ansible drift (openbao)') {
+            steps {
+                // site-openbao.yml converges the OpenBao service VMs;
+                // site.yml excludes them so the pre-cert known_hosts
+                // handoff lives in this playbook's Play 0. Same
+                // rationale as the k8s stage above — an openbao config
+                // change is invisible to site.yml drift, so this stage
+                // covers it. --skip-tags os_update for the same patch-
+                // posture reason.
+                sh '''
+                    iac -c '
+                        set -euo pipefail
+                        cd /work/Ansible/ansible
+                        check-ansible-drift.sh playbooks/site-openbao.yml --skip-tags os_update
                     '
                 '''
             }
