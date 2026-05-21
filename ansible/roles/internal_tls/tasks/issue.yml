@@ -40,11 +40,37 @@
   check_mode: false
   when: _internal_tls_cert.stat.exists
 
+# Reissue if the caller has changed `internal_tls_san_list` since the
+# last apply — otherwise a SAN addition would silently wait for the
+# 14-day renewal window before taking effect.
+- name: Read DNS SANs from the existing leaf
+  ansible.builtin.command:
+    argv:
+      - step
+      - certificate
+      - inspect
+      - "{{ internal_tls_cert_path }}"
+      - "--format"
+      - "json"
+  register: _internal_tls_inspect
+  changed_when: false
+  check_mode: false
+  when: _internal_tls_cert.stat.exists
+
+- name: Compute SAN drift vs the requested list
+  ansible.builtin.set_fact:
+    _internal_tls_san_drift: >-
+      {{ ((_internal_tls_inspect.stdout | from_json)
+            .extensions.subject_alt_name.dns_names | default([]) | sort)
+         != (internal_tls_san_list | sort) }}
+  when: _internal_tls_cert.stat.exists
+
 - name: Decide whether the leaf needs issuing
   ansible.builtin.set_fact:
     _internal_tls_issue: >-
       {{ not _internal_tls_cert.stat.exists
-         or (_internal_tls_renew.rc | default(1)) == 0 }}
+         or (_internal_tls_renew.rc | default(1)) == 0
+         or (_internal_tls_san_drift | default(false)) }}
 
 - name: Issue or renew the leaf certificate
   when: _internal_tls_issue | bool

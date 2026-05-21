@@ -58,9 +58,11 @@ role asserts it is defined.
 
 1. **Install** — adds Smallstep's apt repository (signing key +
    `deb822` source) and installs `step-cli`.
-2. **Check** — `step certificate needs-renewal` against the existing
-   leaf; the role issues when the cert is missing or inside the
-   renewal threshold, and is otherwise a no-op.
+2. **Check** — the role issues when *any* of these is true: the leaf
+   is missing; `step certificate needs-renewal` reports it inside the
+   renewal threshold; or its DNS SANs differ from
+   `internal_tls_san_list` (read back via `step certificate inspect`).
+   Otherwise it is a no-op.
 3. **Issue (split)**:
    - On the **controller** (the iac agent container): write the JWK
      password to a `/dev/shm` tempfile, `step ca token` to mint a
@@ -99,8 +101,5 @@ idempotent under that cadence.
 
 ## Out of scope
 
-- **SAN drift** — a cert outside the renewal threshold but with the
-  wrong SANs is not re-issued automatically. Operator-driven re-issue
-  is cheap: `rm <cert>` on the target and re-run.
 - **In-cluster consumers** use cert-manager + step-ca's ACME
   provisioner, not this role.
