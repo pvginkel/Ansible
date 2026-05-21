@@ -2,12 +2,15 @@
 - name: Apply bootstrap and baseline to managed hosts
   # k8s + ceph clusters are excluded at the play level — drain-requiring
   # role applies on those hosts flow only through update-k8s.yml /
-  # rebuild-k8s.yml (future: update-ceph.yml). Phase 1 (iac-agent) makes
-  # this contract explicit; the larger structural question — whether
+  # rebuild-k8s.yml (future: update-ceph.yml). openbao is excluded for
+  # the same reason: its converge flows through site-openbao.yml, which
+  # carries the Play 0 known_hosts handoff srvvaultN needs before
+  # ssh_host_cert has signed them. Phase 1 (iac-agent) makes this
+  # contract explicit; the larger structural question — whether
   # site.yml is the right organizing artefact at all once exclusions
   # start accumulating — is carved into slices/site-yml-layout.md in
   # the AnsibleSpecs repo.
-  hosts: managed:!k8s_prd:!k8s_dev:!ceph_prd
+  hosts: managed:!k8s_prd:!k8s_dev:!ceph_prd:!openbao
   become: true
   gather_facts: true
   roles:

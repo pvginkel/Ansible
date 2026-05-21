@@ -1,0 +1,120 @@
+---
+# site-openbao.yml — converge the OpenBao service VMs against role +
+# baseline state.
+#
+# Card #7 scope: bootstrap + baseline + managed_filesystems +
+# ssh_host_cert on srvvault1/2/3 to bring them into fleet parity. The
+# `openbao` role itself lands in card #8, between managed_filesystems
+# and ssh_host_cert.
+#
+# Run:
+#   ansible-playbook playbooks/site-openbao.yml --diff
+#
+# Operation class — the OpenBao counterpart to site-k8s.yml. site.yml
+# excludes the `openbao` group; any convergence on srvvaultN flows
+# through this playbook.
+#
+# Pre-cert bootstrap channel: until ssh_host_cert (the trailing role
+# below) signs each srvvaultN a host certificate, the committed
+# `@cert-authority` line in files/known_hosts.d/homelab cannot vouch
+# for the hosts. Play 0 seeds a transient tmp/known_hosts.openbao
+# from `terraform output host_pubkeys` (the host keys Terraform
+# generated and embedded via cloud-init — authoritative, no TOFU)
+# for the pre-certificate connection. Every later connection trusts
+# the certificate normally. See AnsibleSpecs slices/ssh-host-ca.md.
+
+- name: Seed a transient known_hosts for the openbao hosts
+  hosts: localhost
+  gather_facts: false
+  become: false
+  vars:
+    _tf_workspace: "{{ playbook_dir }}/../../terraform/prd"
+    _transient_known_hosts: "{{ playbook_dir }}/../../tmp/known_hosts.openbao"
+  tasks:
+    - name: Read from-scratch host public keys from terraform output
+      ansible.builtin.command:
+        argv:
+          - terraform
+          - "-chdir={{ _tf_workspace }}"
+          - output
+          - -json
+          - host_pubkeys
+      register: _tf_host_pubkeys
+      changed_when: false
+      check_mode: false
+
+    - name: Require a host key entry for every openbao host
+      ansible.builtin.assert:
+        that: item in (_tf_host_pubkeys.stdout | from_json)
+        fail_msg: >-
+          terraform output host_pubkeys has no entry for {{ item }} —
+          has `terraform apply` run for srvvault1/2/3?
+      loop: "{{ groups['openbao'] }}"
+
+    - name: Ensure the transient known_hosts directory exists
+      ansible.builtin.file:
+        path: "{{ _transient_known_hosts | dirname }}"
+        state: directory
+        mode: "0755"
+      check_mode: false
+
+    - name: Write the openbao hosts' pinned keys to the transient known_hosts
+      ansible.builtin.copy:
+        dest: "{{ _transient_known_hosts }}"
+        content: |
+          {% for h in groups['openbao'] %}
+          {{ h }},{{ h }}.home {{ (_tf_host_pubkeys.stdout | from_json)[h] }}
+          {% endfor %}
+        mode: "0644"
+      check_mode: false
+
+# Pre-certificate ssh_args override (used by both the bootstrap play
+# and the converge play below). Replaces ssh_args wholesale — for
+# repeated `-o` options OpenSSH takes the first value, so an appended
+# common_args cannot override ansible.cfg's UserKnownHostsFile. The
+# transient file carries the pre-certificate key; known_hosts.d/homelab
+# carries the `@cert-authority` line. Mirrors rebuild-k8s.yml.
+
+- name: Bootstrap srvvault1/2/3 over the transient known_hosts
+  hosts: openbao
+  become: true
+  gather_facts: true
+  vars:
+    ansible_ssh_args: >-
+      -o ControlMaster=auto -o ControlPersist=60s
+      -o PreferredAuthentications=publickey
+      -o "UserKnownHostsFile={{ playbook_dir }}/../../tmp/known_hosts.openbao {{ playbook_dir }}/../files/known_hosts.d/homelab"
+      -o GlobalKnownHostsFile=/dev/null
+      -o HostKeyAlgorithms=ssh-ed25519-cert-v01@openssh.com,ssh-ed25519
+      -o IdentityFile=~/.ssh/id_ed25519_ansible -o IdentitiesOnly=yes
+  roles:
+    - role: bootstrap
+
+- name: Converge baseline + ssh_host_cert on the openbao hosts
+  hosts: openbao
+  become: true
+  gather_facts: true
+  # Fan out under --check (drift) for speed; serialize on apply so a
+  # future addition of the `openbao` role (card #8) doesn't race Raft
+  # config across nodes.
+  serial: "{{ ansible_play_hosts | length if ansible_check_mode | bool else 1 }}"
+  vars:
+    # Same transient known_hosts as the bootstrap play above —
+    # ssh_host_cert is the trailing role below, so until it runs the
+    # hosts are still on bare ed25519 keys. Subsequent runs (after the
+    # cert has been signed) tolerate the transient file being stale or
+    # absent; OpenSSH falls through to known_hosts.d/homelab.
+    ansible_ssh_args: >-
+      -o ControlMaster=auto -o ControlPersist=60s
+      -o PreferredAuthentications=publickey
+      -o "UserKnownHostsFile={{ playbook_dir }}/../../tmp/known_hosts.openbao {{ playbook_dir }}/../files/known_hosts.d/homelab"
+      -o GlobalKnownHostsFile=/dev/null
+      -o HostKeyAlgorithms=ssh-ed25519-cert-v01@openssh.com,ssh-ed25519
+      -o IdentityFile=~/.ssh/id_ed25519_ansible -o IdentitiesOnly=yes
+  roles:
+    - role: baseline
+    - role: managed_filesystems
+    # Card #8 will insert the `openbao` role here (after baseline for
+    # the `ca.home` /etc/hosts pin, before ssh_host_cert so the host is
+    # in steady state when its host cert is signed).
+    - role: ssh_host_cert
