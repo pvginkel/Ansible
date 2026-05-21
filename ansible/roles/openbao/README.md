@@ -3,9 +3,8 @@
 Stands up an OpenBao node as a member of a 3-node integrated-Raft
 cluster (`srvvault1/2/3`). On first apply against a greenfield cluster
 the elected bootstrap node (lowest-sorted member, i.e. `srvvault1`)
-runs `bao operator init`; later applies are no-ops on an already-
-initialized cluster. Card #9 will add `tasks/join.yml` for `srvvault2`
-and `srvvault3` to Raft-join.
+runs `bao operator init`; the other two then Raft-join. Later applies
+are no-ops on an already-initialized cluster.
 
 Design context:
 [`/work/AnsibleSpecs/phases/openbao.md`](../../../../AnsibleSpecs/phases/openbao.md).
@@ -35,6 +34,11 @@ Design context:
    node, but only when no peer reports initialized. Captures the root
    token + Shamir recovery keys to `/dev/shm` for the operator to
    transfer to Roboform.
+7. **Join** the cluster from each non-bootstrap node, but only when
+   the cluster is initialized and the local node hasn't already
+   joined (sys/health still reports `initialized: false`). The
+   static seal auto-unseals each follower once the leader has
+   streamed the Raft snapshot to it.
 
 ## Inputs
 
@@ -96,8 +100,10 @@ the phase-2 doc §Bootstrap procedure.
    cd ansible && poetry run ansible-playbook playbooks/site-openbao.yml --ask-vault-pass --diff
    ```
 
-   On `srvvault1` the role inits the cluster; on `srvvault2`/`srvvault3`
-   the service comes up uninitialized (waiting for the card #9 join).
+   On `srvvault1` the role inits the cluster; `srvvault2` and
+   `srvvault3` then Raft-join (the converge play runs `serial: 1`,
+   so srvvault2/3's elect-bootstrap probe sees srvvault1 already
+   initialized and routes through `tasks/join.yml`).
 
 7. **Capture** the init output into Roboform — root token + 5 recovery
    keys — and delete the staged file:

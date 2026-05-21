@@ -1,0 +1,32 @@
+---
+# Raft-join an already-initialized cluster. Gated by main.yml on the
+# combination of cluster_initialized=true (some peer reports it) and
+# the local sys/health still reporting initialized=false. After the
+# join, the leader streams the Raft snapshot; the static seal then
+# auto-unseals the node, and sys/health flips from 501 to 200/429.
+#
+# `bao operator raft join` is not idempotent on its own — re-running
+# against an already-joined node errors. The main.yml gate is the
+# idempotency boundary; this file assumes it's been told to join.
+
+- name: Join the Raft cluster via {{ openbao_bootstrap_host }}
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/bao
+      - operator
+      - raft
+      - join
+      - "https://{{ openbao_bootstrap_host }}.home:8200"
+  environment:
+    BAO_ADDR: "{{ openbao_api_addr }}"
+  changed_when: true
+
+- name: Wait for the local node to inherit cluster state + auto-unseal
+  ansible.builtin.uri:
+    url: "{{ openbao_api_addr }}/v1/sys/health"
+    status_code: [200, 429]
+    validate_certs: true
+  register: _openbao_join_health
+  until: _openbao_join_health.status is defined and _openbao_join_health.status in [200, 429]
+  retries: 30
+  delay: 2

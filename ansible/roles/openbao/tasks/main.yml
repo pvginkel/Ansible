@@ -65,3 +65,15 @@
   when:
     - inventory_hostname == openbao_bootstrap_host
     - not openbao_cluster_initialized | bool
+
+# Non-bootstrap nodes join the cluster the bootstrap node just (or
+# previously) initialized. The local-initialized check is the
+# idempotency boundary — a node that's already a voter inherits the
+# cluster's initialized state via Raft, so sys/health here reports
+# initialized=true and the join is skipped.
+- name: Raft-join the cluster (non-bootstrap nodes)
+  ansible.builtin.import_tasks: join.yml
+  when:
+    - inventory_hostname != openbao_bootstrap_host
+    - openbao_cluster_initialized | bool
+    - not (_openbao_health.json.initialized | default(false))
