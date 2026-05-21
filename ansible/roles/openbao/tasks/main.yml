@@ -21,6 +21,11 @@
 - name: Install OpenBao
   ansible.builtin.import_tasks: install.yml
 
+# Subdirectories first so internal_tls has somewhere to write the leaf
+# and config.yml has somewhere to drop the seal key.
+- name: Ensure OpenBao subdirectories exist
+  ansible.builtin.import_tasks: dirs.yml
+
 - name: Issue the OpenBao listener TLS leaf
   ansible.builtin.import_tasks: internal_tls.yml
 

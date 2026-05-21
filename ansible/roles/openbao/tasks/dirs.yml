@@ -1,0 +1,20 @@
+---
+# Runs before internal_tls so the TLS leaf has a target directory,
+# and before config.yml so the seal-key copy lands in an existing
+# /etc/openbao/seal/. The .deb postinst chowns /etc/openbao
+# recursively to openbao:openbao on every install/upgrade, so the
+# 0750 + openbao:openbao ownership here matches and dpkg's chown is
+# a no-op on subsequent runs.
+
+- name: Ensure OpenBao subdirectories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: openbao
+    group: openbao
+    mode: "0750"
+  loop:
+    - "{{ openbao_config_dir }}/seal"
+    - "{{ openbao_tls_dir }}"
+    - "{{ openbao_data_dir }}"
+    - "{{ openbao_data_dir }}/raft"
