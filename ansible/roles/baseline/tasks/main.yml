@@ -189,11 +189,29 @@
     owner: root
     group: root
     mode: "0644"
-  notify: Update CA certificates
   # Tagged so the homelab root can be distributed on its own — e.g. to
   # k8s nodes that need it for the internal_tls consumer but predate
-  # this task (site.yml excludes k8s from baseline). The notified
-  # `Update CA certificates` handler still fires under `--tags ca_trust`.
+  # this task (site.yml excludes k8s from baseline). The refresh task
+  # below runs under the same tag.
+  tags: [ca_trust]
+
+- name: Ensure the system CA trust bundle includes the homelab root
+  # Self-heal: a notify-handler firing only on the copy task's `changed`
+  # output is fragile to bundle drift — Debian's ca-certificates package
+  # rebuilds /etc/ssl/certs/ca-certificates.crt on its own triggers
+  # (apt upgrades, openssl post-install hooks), and the rebuild walks
+  # /etc/ca-certificates.conf rather than /usr/local/share/ca-certificates,
+  # so a previously-installed homelab root can quietly disappear from
+  # the bundle. update-ca-certificates without -f respects an mtime
+  # heuristic and skips re-processing in that case. Run it with -f on
+  # every converge — idempotent, ~1s, and the changed_when below keeps
+  # the diff quiet on no-op runs.
+  ansible.builtin.command:
+    cmd: update-ca-certificates -f
+  register: _baseline_ca_update
+  changed_when: >-
+    _baseline_ca_update.stdout is search('[1-9]\d* added')
+    or _baseline_ca_update.stdout is search('[1-9]\d* removed')
   tags: [ca_trust]
 
 # Re-asserts the netplan render that cloud-init writes on first boot
