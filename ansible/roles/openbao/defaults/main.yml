@@ -87,6 +87,10 @@ openbao_jenkins_token_ttl: 1h
 openbao_jenkins_token_max_ttl: 1h
 openbao_eso_token_ttl: 1h
 openbao_eso_token_max_ttl: 1h
+# Backup AppRole runs once per srvvaultN per day, finishes in seconds;
+# 5m envelope covers a slow run + retries without lingering.
+openbao_backup_token_ttl: 5m
+openbao_backup_token_max_ttl: 5m
 
 # KV-v2 read paths granted to each consumer's policy. Empty lists give
 # the AppRole an inert policy that grants nothing — safe default; the

@@ -1,0 +1,31 @@
+# backup — managed by the openbao role
+#
+# Read-only export scope for the daily JSON dump (card #12). Covers
+# the policy catalog, auth methods, mounts, and the full KV-v2 tree.
+# No write capability anywhere; the daily timer on each srvvaultN
+# authenticates with this AppRole and produces a `bao operator
+# export`-equivalent dump for the backup-server.
+
+path "sys/policies/acl" {
+  capabilities = ["list"]
+}
+
+path "sys/policies/acl/*" {
+  capabilities = ["read"]
+}
+
+path "sys/auth" {
+  capabilities = ["read"]
+}
+
+path "sys/mounts" {
+  capabilities = ["read"]
+}
+
+path "{{ openbao_kv_mount }}/data/*" {
+  capabilities = ["read"]
+}
+
+path "{{ openbao_kv_mount }}/metadata/*" {
+  capabilities = ["read", "list"]
+}

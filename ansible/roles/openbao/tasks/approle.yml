@@ -107,6 +107,7 @@
         - iac-agent
         - jenkins
         - eso
+        - backup
       no_log: true
 
     # Iterative dict build — each loop iteration combines the prior
@@ -163,6 +164,10 @@
       ansible.builtin.set_fact:
         _openbao_eso_policy_text: "{{ lookup('template', 'policy.hcl.j2') }}"
 
+    - name: Render the backup policy
+      ansible.builtin.set_fact:
+        _openbao_backup_policy_text: "{{ lookup('template', 'backup-policy.hcl.j2') }}"
+
     - name: Build the consolidated policy-text dict
       ansible.builtin.set_fact:
         _openbao_policy_texts:
@@ -170,6 +175,7 @@
           iac-agent: "{{ _openbao_iac_agent_policy_text }}"
           jenkins: "{{ _openbao_jenkins_policy_text }}"
           eso: "{{ _openbao_eso_policy_text }}"
+          backup: "{{ _openbao_backup_policy_text }}"
 
     - name: Write consumer policies (only when text differs)
       ansible.builtin.uri:
@@ -186,6 +192,7 @@
         - iac-agent
         - jenkins
         - eso
+        - backup
       when: _openbao_policy_texts[item] != _openbao_existing_policy_texts[item]
 
     # ----- AppRoles ---------------------------------------------------
@@ -221,6 +228,10 @@
           policy: eso
           token_ttl: "{{ openbao_eso_token_ttl }}"
           token_max_ttl: "{{ openbao_eso_token_max_ttl }}"
+        - name: backup
+          policy: backup
+          token_ttl: "{{ openbao_backup_token_ttl }}"
+          token_max_ttl: "{{ openbao_backup_token_max_ttl }}"
       loop_control:
         label: "{{ item.name }}"
 
@@ -256,6 +267,10 @@
           policy: eso
           token_ttl: "{{ openbao_eso_token_ttl }}"
           token_max_ttl: "{{ openbao_eso_token_max_ttl }}"
+        - name: backup
+          policy: backup
+          token_ttl: "{{ openbao_backup_token_ttl }}"
+          token_max_ttl: "{{ openbao_backup_token_max_ttl }}"
       loop_control:
         label: "{{ item.name }}"
 
@@ -274,6 +289,7 @@
         - iac-agent
         - jenkins
         - eso
+        - backup
       no_log: true
 
     # ----- secret_id mint (only on operator-driven rotation) ----------
@@ -299,6 +315,7 @@
         - iac-agent
         - jenkins
         - eso
+        - backup
       no_log: true
       when: openbao_rotate_secret_ids | bool
 
@@ -327,6 +344,10 @@
           eso (in-cluster SecretStore credentials):
             role_id:   {{ _openbao_role_ids.results[3].json.data.role_id }}
             secret_id: {{ (_openbao_secret_ids.results[3].json.data.secret_id) if openbao_rotate_secret_ids | bool else '<unchanged>' }}
+
+          backup (daily JSON dump on each srvvaultN — see card #12):
+            role_id:   {{ _openbao_role_ids.results[4].json.data.role_id }}
+            secret_id: {{ (_openbao_secret_ids.results[4].json.data.secret_id) if openbao_rotate_secret_ids | bool else '<unchanged>' }}
       run_once: true
 
     # ----- root-token retire ------------------------------------------
