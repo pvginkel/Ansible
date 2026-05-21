@@ -36,6 +36,21 @@
     _tf_workspace: "{{ playbook_dir }}/../../terraform/prd"
     _transient_known_hosts: "{{ playbook_dir }}/../../tmp/bootstrap-known-hosts"
   tasks:
+    # `terraform output` opens the working directory and validates
+    # against .terraform/providers, so a fresh checkout / container
+    # without a prior init fails the same way `terraform plan` does.
+    # init is idempotent and fast when .terraform/ is already warm.
+    - name: Ensure the terraform working directory is initialised
+      ansible.builtin.command:
+        argv:
+          - terraform
+          - "-chdir={{ _tf_workspace }}"
+          - init
+          - -input=false
+          - -no-color
+      changed_when: false
+      check_mode: false
+
     - name: Read from-scratch host public keys from terraform output
       ansible.builtin.command:
         argv:
