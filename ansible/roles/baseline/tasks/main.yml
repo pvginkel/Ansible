@@ -235,23 +235,34 @@
       ExecStart=/lib/systemd/systemd-networkd-wait-online --any -o routable
   notify: Reload systemd
 
-- name: Ensure the system CA trust bundle includes the homelab root
-  # Self-heal: a notify-handler firing only on the copy task's `changed`
-  # output is fragile to bundle drift — Debian's ca-certificates package
-  # rebuilds /etc/ssl/certs/ca-certificates.crt on its own triggers
-  # (apt upgrades, openssl post-install hooks), and the rebuild walks
+- name: Check the homelab root is registered in the system CA trust bundle
+  # Self-heal: Debian's ca-certificates package rebuilds
+  # /etc/ssl/certs/ca-certificates.crt on its own triggers (apt upgrades,
+  # openssl post-install hooks), and the rebuild walks
   # /etc/ca-certificates.conf rather than /usr/local/share/ca-certificates,
-  # so a previously-installed homelab root can quietly disappear from
-  # the bundle. update-ca-certificates without -f respects an mtime
-  # heuristic and skips re-processing in that case. Run it with -f on
-  # every converge — idempotent, ~1s, and the changed_when below keeps
-  # the diff quiet on no-op runs.
+  # so a previously-installed homelab root can quietly disappear from the
+  # bundle. Detect that by grepping the cert body (sans PEM markers, which
+  # appear in every cert) against the bundle.
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail;
+      grep -qFf <(sed '/^-----/d' /usr/local/share/ca-certificates/homelab-root.crt)
+      /etc/ssl/certs/ca-certificates.crt
+    executable: /bin/bash
+  register: _baseline_ca_present
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  tags: [ca_trust]
+
+- name: Rebuild the system CA trust bundle when the homelab root is missing
+  # update-ca-certificates without -f respects an mtime heuristic and may
+  # skip re-processing even when the bundle is stale, so force a full
+  # rebuild on the drift path.
   ansible.builtin.command:
     cmd: update-ca-certificates -f
-  register: _baseline_ca_update
-  changed_when: >-
-    _baseline_ca_update.stdout is search('[1-9]\d* added')
-    or _baseline_ca_update.stdout is search('[1-9]\d* removed')
+  when: _baseline_ca_present.rc != 0
+  changed_when: true
   tags: [ca_trust]
 
 # Re-asserts the netplan render that cloud-init writes on first boot
