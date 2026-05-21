@@ -84,21 +84,15 @@ microk8s_registry_mirrors:
   - registry:5000
   - registry-dev:5000
 
-# Node-local /etc/hosts entries. These nodes resolve through public
-# DNS (8.8.8.8) for cold-boot independence, so any homelab-internal
-# name a node itself needs is pinned here rather than left to the
-# in-cluster dnsmasq.
-#   - registry: the LAN's dnsmasq runs in-cluster behind the registry
-#     itself, so node DNS for `registry` through dnsmasq would be a
-#     cold-boot ordering failure. Hand-picked 172.17.0.3 lives outside
-#     the dynamic service-IP allocation range.
-#   - ca.home: the homelab step-ca (a MetalLB LoadBalancer at
-#     10.2.1.15, reachable on the workload VLAN). The internal_tls
-#     consumer's `step` CLI must resolve it to issue/renew the
-#     kube-apiserver leaf — see slices/internal-tls-step-ca.md §F.
+# Node-local /etc/hosts entry. `registry` stays pinned because the
+# LAN's dnsmasq runs in-cluster behind the registry itself — node DNS
+# for `registry` through dnsmasq would be a cold-boot ordering
+# failure. Hand-picked 172.17.0.3 lives outside the dynamic service-IP
+# allocation range. Every other .home name (ca.home, etc.) resolves
+# through the baseline-rendered ~home routing drop-in to the
+# in-cluster dnsmasq LBs — see slices/completed/home-dns-routing.md.
 baseline_etc_hosts_entries:
   - "172.17.0.3 registry"
-  - "10.2.1.15 ca.home"
 
 # CoreDNS hosts overrides. In-cluster runtime references (Kaniko
 # pushing builds, etc.) need bare `registry`/`registry.home` to

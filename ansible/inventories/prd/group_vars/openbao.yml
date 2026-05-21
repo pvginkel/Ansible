@@ -6,27 +6,11 @@
 # "Stagger reboot windows across the four standalone service VMs".
 baseline_os_update_class: standalone
 
-# Static-netplan hosts on public DNS (8.8.8.8/8.8.4.4 for cold-boot
-# independence — same rationale as the k8s_prd nodes). homelab dnsmasq
-# isn't on the resolver path, so /etc/hosts pins every .home name an
-# srvvaultN reaches at runtime:
-#   - ca.home — step-ca, for ssh_host_cert + the openbao role's
-#     internal_tls listener-leaf issuance.
-#   - backup-server.home — the in-cluster backup-server's NGINX LB;
-#     the card #12 daily JSON dump POSTs to this hostname.
-#   - secrets.home — the leader-tracking VIP; clients on the node
-#     itself hit this hostname (matches the TLS SAN).
-#   - srvvault{1,2,3}.home — self + peers, for openbao's api_addr /
-#     cluster_addr and the elect-bootstrap peer probes. IPs come from
-#     each peer's host_vars network_devices (single source of truth);
-#     baseline renders the block, openbao tasks resolve locally.
-baseline_etc_hosts_entries:
-  - "10.2.1.15 ca.home"
-  - "10.2.1.7 backup-server.home backup-server"
-  - "{{ homelab_vips.openbao.address }} {{ homelab_vips.openbao.hostname }}"
-  - "{{ hostvars.srvvault1.network_devices[0].addresses[0] | regex_replace('/.*', '') }} srvvault1.home srvvault1"
-  - "{{ hostvars.srvvault2.network_devices[0].addresses[0] | regex_replace('/.*', '') }} srvvault2.home srvvault2"
-  - "{{ hostvars.srvvault3.network_devices[0].addresses[0] | regex_replace('/.*', '') }} srvvault3.home srvvault3"
+# Static-netplan hosts on public DNS (8.8.8.8/8.8.4.4) plus the
+# baseline-rendered ~home routing drop-in pointing at the in-cluster
+# dnsmasq LBs. The pairing is what lets ca.home / backup-server.home /
+# secrets.home / srvvault{1,2,3}.home resolve at runtime without
+# /etc/hosts pins — see slices/completed/home-dns-routing.md.
 
 openbao_seal_current_key_id: "20260521-1"
 
