@@ -1,0 +1,63 @@
+---
+# Leader-tracking VIP for `secrets.home`. Every srvvaultN runs
+# keepalived with the same base priority; a vrrp_script polls the
+# local OpenBao's /v1/sys/leader and exits 0 only on the Raft leader,
+# whose weight then lifts its effective priority above the followers'.
+# The VIP follows leadership; failover ~(fall * interval) = ~4s.
+
+- name: Assert the shared VRRP password is available
+  ansible.builtin.assert:
+    that:
+      - vrrp_auth_password is defined
+    fail_msg: >-
+      vrrp_auth_password is not defined. It is the ansible-vault'd shared
+      VRRP secret in inventories/prd/group_vars/all/vips.yml — populate it
+      with `ansible-vault encrypt_string` per that file's header.
+    quiet: true
+
+- name: Resolve openbao-peer LAN IPs for VRRP unicast
+  # VRRP unicast peers must be IP addresses, but inventory is hostname-
+  # only. Resolve on the Ansible controller, not the target: the
+  # controller is on the homelab LAN and returns the same address
+  # Ansible already used to reach the peer. Mirrors microk8s's
+  # tasks/keepalived.yml.
+  ansible.builtin.command:
+    argv: [getent, ahostsv4, "{{ item }}"]
+  loop: "{{ groups['openbao'] | difference([inventory_hostname]) | sort }}"
+  delegate_to: localhost
+  become: false
+  register: _openbao_vrrp_peers
+  changed_when: false
+  check_mode: false
+
+- name: Configure the secrets.home VIP (keepalived, leader-tracking)
+  ansible.builtin.include_role:
+    name: keepalived
+  vars:
+    keepalived_vip: "{{ homelab_vips.openbao.address }}"
+    keepalived_instance_name: VI_openbao
+    keepalived_virtual_router_id: "{{ homelab_vips.openbao.virtual_router_id }}"
+    keepalived_password: "{{ vrrp_auth_password }}"
+    keepalived_unicast_peers: >-
+      {{ _openbao_vrrp_peers.results
+         | map(attribute='stdout')
+         | map('regex_search', '\S+')
+         | list }}
+    keepalived_track_script:
+      name: chk_openbao_leader
+      # Exits 0 only when the local OpenBao is the Raft leader.
+      # `is_self` flips back to false on a follower or a sealed node,
+      # so the same check covers both planned step-down and a stuck
+      # leader. --max-time 1 keeps a hung listener from blocking the
+      # 2-second poll interval.
+      content: |
+        #!/bin/sh
+        curl -sS --max-time 1 \
+            --cacert /etc/ssl/certs/ca-certificates.crt \
+            https://{{ inventory_hostname }}.home:8200/v1/sys/leader \
+            2>/dev/null | grep -q '"is_self":true'
+      interval: 2
+      timeout: 2
+      fall: 2
+      rise: 1
+      weight: 50

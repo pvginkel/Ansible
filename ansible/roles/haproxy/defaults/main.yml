@@ -1,0 +1,47 @@
+---
+# Frontend section list. Each item:
+#   name             - section name (`frontend <name>`); must be unique.
+#   bind             - "<addr>:<port>" or full bind line argument.
+#   mode             - "tcp" or "http".
+#   default_backend  - backend name traffic falls through to.
+#   options          - optional list of raw config lines emitted inside
+#                      the section (e.g. "option httpchk ...",
+#                      "http-check expect status 200 429"). The role does
+#                      not parse them — pass exactly what HAProxy expects.
+haproxy_frontends: []
+
+# Backend section list. Each item:
+#   name     - section name; referenced by a frontend's default_backend.
+#   mode     - "tcp" or "http"; must match the frontend feeding it.
+#   options  - optional list of raw config lines emitted inside the
+#              section, before `server` lines.
+#   servers  - list of dicts:
+#                name    - server label.
+#                address - "<host-or-ip>:<port>".
+#                options - optional string appended after the address,
+#                          e.g. "check check-ssl verify required
+#                          ca-file /etc/ssl/certs/ca-certificates.crt".
+haproxy_backends: []
+
+# Whether the daemon is enabled at boot + started after a converge.
+haproxy_enabled: true
+
+# global/defaults blocks are templated from these. Callers can override
+# either as a whole or per-line.
+haproxy_global_lines:
+  - "log /dev/log local0"
+  - "log /dev/log local1 notice"
+  - "chroot /var/lib/haproxy"
+  - "stats socket /run/haproxy/admin.sock mode 660 level admin"
+  - "stats timeout 30s"
+  - "user haproxy"
+  - "group haproxy"
+  - "daemon"
+  - "maxconn 4096"
+
+haproxy_defaults_lines:
+  - "log global"
+  - "option dontlognull"
+  - "timeout connect 5s"
+  - "timeout client 30s"
+  - "timeout server 30s"

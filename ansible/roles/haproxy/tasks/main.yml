@@ -1,0 +1,33 @@
+---
+- name: Assert haproxy inputs are set
+  ansible.builtin.assert:
+    that:
+      - haproxy_frontends | length > 0
+      - haproxy_backends | length > 0
+    fail_msg: >-
+      The haproxy role needs haproxy_frontends and haproxy_backends
+      lists supplied by the caller. See roles/haproxy/README.md.
+    quiet: true
+
+- name: Install haproxy
+  ansible.builtin.apt:
+    name: haproxy
+    state: present
+  environment:
+    NEEDRESTART_MODE: a
+
+- name: Render haproxy.cfg
+  ansible.builtin.template:
+    src: haproxy.cfg.j2
+    dest: /etc/haproxy/haproxy.cfg
+    owner: root
+    group: root
+    mode: "0644"
+    validate: haproxy -c -f %s
+  notify: Restart haproxy
+
+- name: Enable and start haproxy
+  ansible.builtin.systemd:
+    name: haproxy
+    enabled: "{{ haproxy_enabled | bool }}"
+    state: "{{ 'started' if haproxy_enabled | bool else 'stopped' }}"

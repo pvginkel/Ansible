@@ -1,0 +1,28 @@
+---
+# Port-front 443 → 127.0.0.1:8200 in TCP pass-through mode so clients
+# can reach the cluster on `https://secrets/` (bare hostname, default
+# HTTPS port). The cert OpenBao presents is forwarded to the client
+# unmodified — see openbao_san_list for the matching SAN coverage.
+#
+# Plain TCP `check` only: the leader-tracking VIP already keeps traffic
+# off sealed / follower nodes, so an HTTP-level httpchk would only kick
+# in during an all-nodes-sealed scenario — where it would turn
+# OpenBao's `503 {"errors":["Vault is sealed"]}` into a transport-level
+# connection refusal and rob the client of a clear diagnostic.
+
+- name: Port-front 443 → 8200 (haproxy, tcp pass-through)
+  ansible.builtin.include_role:
+    name: haproxy
+  vars:
+    haproxy_frontends:
+      - name: openbao_https
+        bind: "0.0.0.0:443"
+        mode: tcp
+        default_backend: openbao
+    haproxy_backends:
+      - name: openbao
+        mode: tcp
+        servers:
+          - name: local
+            address: "127.0.0.1:8200"
+            options: check

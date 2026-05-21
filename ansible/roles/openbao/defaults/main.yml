@@ -31,11 +31,14 @@ openbao_api_addr: "https://{{ inventory_hostname }}.home:8200"
 openbao_cluster_addr: "https://{{ inventory_hostname }}.home:8201"
 
 # Listener SANs — each node holds its own short hostname + .home FQDN
-# (peer-to-peer Raft validates against the FQDN), plus the shared VIP
-# hostname so clients hitting secrets.home land on a cert that matches.
+# (peer-to-peer Raft validates against the FQDN), plus the VIP hostname
+# in both forms so clients reaching `https://secrets/` (HAProxy port-
+# fronts 443 → 8200, TCP pass-through) and `https://secrets.home/`
+# land on a cert that matches.
 openbao_san_list:
   - "{{ inventory_hostname }}"
   - "{{ inventory_hostname }}.home"
+  - secrets
   - secrets.home
 
 # `bao operator init` shape under static-seal auto-unseal: there are no

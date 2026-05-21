@@ -39,6 +39,17 @@ Design context:
    joined (sys/health still reports `initialized: false`). The
    static seal auto-unseals each follower once the leader has
    streamed the Raft snapshot to it.
+8. **Port-front** the listener via [`haproxy`](../haproxy/README.md) in
+   `mode tcp` so clients reach the cluster on `https://secrets/` (edge
+   port 443 → local `127.0.0.1:8200`). HAProxy does **not** terminate
+   TLS — the per-node `internal_tls` cert is forwarded straight to the
+   client, so a follower upgrade or VIP migration doesn't need cert
+   synchronisation.
+9. **Bind the VIP** via [`keepalived`](../keepalived/README.md) in
+   leader-tracking mode against `homelab_vips.openbao`. A `vrrp_script`
+   polls `/v1/sys/leader` every 2s; only the Raft leader's check
+   passes, raising its effective priority above the followers so the
+   VIP (`secrets.home`) follows leadership. Failover ~4 s.
 
 ## Inputs
 
@@ -54,7 +65,9 @@ Optional (defaults in [`defaults/main.yml`](defaults/main.yml)):
 - `openbao_version` — release tag (default pinned in defaults).
 - `openbao_deb_sha256` — checksum for the pinned `.deb`.
 - `openbao_san_list` — listener SANs. Defaults cover short hostname,
-  `.home` FQDN, and `secrets.home`.
+  `.home` FQDN, and the VIP in both `secrets` / `secrets.home` forms
+  so the bare `https://secrets/` URL HAProxy fronts validates against
+  the same per-node cert HAProxy passes through.
 - `openbao_recovery_shares` / `openbao_recovery_threshold` — Shamir
   shape for the recovery keys. Defaults 5/3.
 

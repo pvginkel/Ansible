@@ -77,3 +77,14 @@
     - inventory_hostname != openbao_bootstrap_host
     - openbao_cluster_initialized | bool
     - not (_openbao_health.json.initialized | default(false))
+
+# Port-fronting + leader-tracking VIP run after the cluster is up:
+# haproxy needs the local listener responding to its httpchk, and the
+# vrrp_script needs /v1/sys/leader to return a real answer. Greenfield
+# converge under `serial: 1` keeps these strictly ordered after init
+# and join.
+- name: Port-front 443 → 8200 (haproxy, tcp pass-through)
+  ansible.builtin.import_tasks: haproxy.yml
+
+- name: Configure the secrets.home VIP (keepalived, leader-tracking)
+  ansible.builtin.import_tasks: keepalived.yml

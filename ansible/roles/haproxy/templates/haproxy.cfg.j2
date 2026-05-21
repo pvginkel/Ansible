@@ -1,0 +1,34 @@
+# {{ ansible_managed }}
+# Rendered by the `haproxy` Ansible role — edits will be overwritten.
+
+global
+{% for line in haproxy_global_lines %}
+    {{ line }}
+{% endfor %}
+
+defaults
+{% for line in haproxy_defaults_lines %}
+    {{ line }}
+{% endfor %}
+{% for fe in haproxy_frontends %}
+
+frontend {{ fe.name }}
+    bind {{ fe.bind }}
+    mode {{ fe.mode }}
+{% for line in fe.options | default([]) %}
+    {{ line }}
+{% endfor %}
+    default_backend {{ fe.default_backend }}
+{% endfor %}
+{% for be in haproxy_backends %}
+
+backend {{ be.name }}
+    mode {{ be.mode }}
+{% for line in be.options | default([]) %}
+    {{ line }}
+{% endfor %}
+{% for srv in be.servers %}
+    server {{ srv.name }} {{ srv.address }}{% if srv.options is defined %} {{ srv.options }}{% endif %}
+
+{% endfor %}
+{% endfor %}

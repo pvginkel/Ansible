@@ -1,0 +1,15 @@
+---
+galaxy_info:
+  role_name: haproxy
+  author: pvginkel
+  description: Render an HAProxy instance — install haproxy, write haproxy.cfg from caller-supplied frontends/backends, enable the service.
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - noble
+
+# Reusable role consumed via include_role with per-call vars (same
+# pattern as keepalived). No host-class of its own, no role deps.
+dependencies: []
