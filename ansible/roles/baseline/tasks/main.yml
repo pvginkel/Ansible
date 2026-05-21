@@ -285,3 +285,44 @@
     | selectattr('addresses', 'defined') | selectattr('addresses')
     | list | length > 0
   tags: [netplan]
+
+# Paired with the public-DNS render above: a host whose network_devices
+# declare explicit nameservers gets a systemd-resolved drop-in that
+# routes *.home queries to the in-cluster dnsmasq LBs. `~home` is a
+# routing domain (tilde-prefixed), not a search domain — no bare-name
+# expansion. Link DNS (8.8.8.8/4.4) stays the default route; this is a
+# side channel. See slices/completed/home-dns-routing.md.
+- name: Ensure /etc/systemd/resolved.conf.d exists
+  ansible.builtin.file:
+    path: /etc/systemd/resolved.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: >-
+    network_devices | default([])
+    | selectattr('nameservers', 'defined') | selectattr('nameservers')
+    | list | length > 0
+
+- name: Render the systemd-resolved .home routing drop-in
+  ansible.builtin.template:
+    src: home-routing.conf.j2
+    dest: /etc/systemd/resolved.conf.d/home-routing.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart systemd-resolved
+  when: >-
+    network_devices | default([])
+    | selectattr('nameservers', 'defined') | selectattr('nameservers')
+    | list | length > 0
+
+- name: Remove the systemd-resolved .home routing drop-in when not on public DNS
+  ansible.builtin.file:
+    path: /etc/systemd/resolved.conf.d/home-routing.conf
+    state: absent
+  notify: Restart systemd-resolved
+  when: >-
+    network_devices | default([])
+    | selectattr('nameservers', 'defined') | selectattr('nameservers')
+    | list | length == 0

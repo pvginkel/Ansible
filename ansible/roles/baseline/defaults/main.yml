@@ -60,6 +60,14 @@ baseline_unattended_reboot_time: "03:00"
 # resolves the .home names.
 baseline_etc_hosts_entries: []
 
+# Routing-domain resolvers for *.home queries on hosts that resolve
+# through public DNS upstreams. The two in-cluster dnsmasq LB IPs;
+# systemd-resolved rotates between them. Same pair as
+# microk8s_coredns_home_forwarders.
+baseline_home_dns_routing_servers:
+  - 10.2.1.2
+  - 10.2.1.3
+
 # MOTD scripts to strip the execute bit from — matches the chmod -x list
 # in /work/Obsidian/Linux.md.
 baseline_disabled_motd_scripts:

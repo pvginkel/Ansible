@@ -1,0 +1,8 @@
+# Managed by Ansible (baseline role).
+# Paired with the public-DNS netplan render: hosts whose
+# network_devices declare explicit nameservers resolve through
+# public upstreams and use this drop-in to route .home queries to
+# the in-cluster dnsmasq LBs. See slices/completed/home-dns-routing.md.
+[Resolve]
+DNS={{ baseline_home_dns_routing_servers | join(' ') }}
+Domains=~home
