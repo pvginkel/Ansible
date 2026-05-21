@@ -195,6 +195,46 @@
   # below runs under the same tag.
   tags: [ca_trust]
 
+# Netplan's systemd-generator (`/lib/systemd/system-generators/netplan`)
+# writes /run/systemd/system/systemd-networkd-wait-online.service.d/
+# 10-netplan.conf at every boot, with `-i <ifname>` clauses computed
+# from the netplan's view of each link's predictable name (e.g.
+# `enp6s18` from the PCI path). udev's NamePolicy can resolve to a
+# different name (the kernel-assigned `eth0` via the `keep` step in
+# 99-default.link), and on hosts where udev does NOT add the
+# predictable name as an altname, wait-online's `-i` clause matches
+# nothing and the unit hangs the full 120s timeout on every boot.
+# Surfaced on srvvault1 (single NIC, no altname registered);
+# multi-NIC hosts like srvk8s1 escaped because `--any` matched their
+# real eth0 even with stale entries in the list. Override with a
+# higher-lex drop-in in /etc that resets ExecStart and re-emits the
+# wait-online invocation without per-interface flags — `--any -o
+# routable` already meant "any of these counts" and the broader
+# "any managed link counts" preserves that intent.
+- name: Ensure the systemd-networkd-wait-online drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/systemd-networkd-wait-online.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Override netplan's systemd-networkd-wait-online drop-in
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/systemd-networkd-wait-online.service.d/20-baseline.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible — roles/baseline.
+      # Overrides the per-boot netplan drop-in at
+      # /run/systemd/system/systemd-networkd-wait-online.service.d/10-netplan.conf
+      # which can hold stale interface names that no longer resolve.
+      [Service]
+      ExecStart=
+      ExecStart=/lib/systemd/systemd-networkd-wait-online --any -o routable
+  notify: Reload systemd
+
 - name: Ensure the system CA trust bundle includes the homelab root
   # Self-heal: a notify-handler firing only on the copy task's `changed`
   # output is fragile to bundle drift — Debian's ca-certificates package
