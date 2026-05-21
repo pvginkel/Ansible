@@ -1,0 +1,40 @@
+---
+# One-shot, operator-driven: capture the root token + recovery keys
+# off /dev/shm into Roboform, then delete the file. The role never
+# persists these secrets to controller logs (no_log) or to the
+# node's disk (tmpfs only).
+
+- name: Initialize the OpenBao cluster
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/bao
+      - operator
+      - init
+      - -format=json
+      - "-recovery-shares={{ openbao_recovery_shares }}"
+      - "-recovery-threshold={{ openbao_recovery_threshold }}"
+  environment:
+    BAO_ADDR: "{{ openbao_api_addr }}"
+  register: _openbao_init
+  changed_when: true
+  no_log: true
+
+- name: Stage init output for operator capture (tmpfs, root-only)
+  ansible.builtin.copy:
+    content: "{{ _openbao_init.stdout }}\n"
+    dest: /dev/shm/openbao-init.json
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Print operator-capture instructions
+  ansible.builtin.debug:
+    msg: |
+      OpenBao initialized on {{ inventory_hostname }}.
+      Capture the root token + {{ openbao_recovery_shares }} recovery
+      keys into Roboform, then delete the on-host file:
+        ssh {{ inventory_hostname }} sudo cat /dev/shm/openbao-init.json
+        ssh {{ inventory_hostname }} sudo rm  /dev/shm/openbao-init.json
+      Verify auto-unseal across a reboot before moving on to card #9
+      (raft join for srvvault2/3).

@@ -1,0 +1,36 @@
+---
+# The OpenBao project does not maintain an apt repository; .deb assets
+# ship on GitHub releases. sha256 is pinned in defaults/main.yml —
+# bump openbao_version and openbao_deb_sha256 together when upgrading.
+# The standalone-service-VM unattended-upgrades policy doesn't cover
+# OpenBao for this reason: upgrades are Ansible-driven (bump the vars,
+# next iac-scheduled-drift cycle picks them up).
+
+- name: Ensure the OpenBao .deb cache directory exists
+  ansible.builtin.file:
+    path: "{{ openbao_deb_cache_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Fetch the OpenBao .deb
+  ansible.builtin.get_url:
+    url: "{{ openbao_deb_url }}"
+    dest: "{{ openbao_deb_cache_dir }}/openbao_{{ openbao_version }}_linux_{{ openbao_arch }}.deb"
+    checksum: "sha256:{{ openbao_deb_sha256 }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install OpenBao from the cached .deb
+  # Idempotent: apt is a no-op when the installed version matches the
+  # .deb's. Package preinst creates the openbao user/group; postinst
+  # chowns /etc/openbao + /opt/openbao to openbao:openbao on every
+  # install/upgrade — config.yml's owner=openbao on the files we drop
+  # under /etc/openbao matches that, so dpkg's chown is a no-op too.
+  ansible.builtin.apt:
+    deb: "{{ openbao_deb_cache_dir }}/openbao_{{ openbao_version }}_linux_{{ openbao_arch }}.deb"
+    state: present
+  environment:
+    DEBIAN_FRONTEND: noninteractive

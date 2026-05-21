@@ -1,0 +1,15 @@
+---
+- name: Issue the OpenBao listener TLS leaf
+  ansible.builtin.include_role:
+    name: internal_tls
+  vars:
+    internal_tls_san_list: "{{ openbao_san_list }}"
+    internal_tls_cert_path: "{{ openbao_tls_cert_path }}"
+    internal_tls_key_path: "{{ openbao_tls_key_path }}"
+    # openbao runs as openbao:openbao and reads the leaf on start +
+    # SIGHUP. Matching the .deb's recursive chown of /etc/openbao keeps
+    # dpkg's postinst from drifting ownership on every upgrade.
+    internal_tls_owner: openbao
+    internal_tls_group: openbao
+    internal_tls_mode: "0640"
+    internal_tls_reload_handler: Reload openbao

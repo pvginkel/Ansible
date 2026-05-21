@@ -1,0 +1,45 @@
+---
+# OpenBao release pinned by version + sha256. The OpenBao project does
+# not maintain an apt repository today; .deb assets ship on GitHub
+# releases. Bump both fields together when upgrading.
+openbao_version: "2.5.4"
+openbao_deb_sha256: "dd807d5adeb72552472f8b886a46fd59ff8836b299cc21df88f134527df15110"
+
+openbao_arch: amd64
+openbao_deb_url: >-
+  https://github.com/openbao/openbao/releases/download/v{{ openbao_version }}/openbao_{{ openbao_version }}_linux_{{ openbao_arch }}.deb
+openbao_deb_cache_dir: /var/cache/openbao
+
+# Filesystem layout. /etc/openbao and /opt/openbao are chowned to
+# openbao:openbao by the .deb postinst on every install/upgrade, so
+# anything we drop into /etc/openbao matches that ownership.
+openbao_config_dir: /etc/openbao
+openbao_data_dir: /var/lib/openbao
+openbao_seal_key_path: "{{ openbao_config_dir }}/seal/static.key"
+openbao_tls_dir: "{{ openbao_config_dir }}/tls"
+openbao_tls_cert_path: "{{ openbao_tls_dir }}/tls.crt"
+openbao_tls_key_path: "{{ openbao_tls_dir }}/tls.key"
+
+# Required — set in inventories/prd/group_vars/openbao.yml after
+# generating the static seal key. Identifies the underlying key bytes
+# for OpenBao's seal "static" stanza; bump whenever the key file
+# changes (suggested scheme: YYYYMMDD-N).
+openbao_seal_current_key_id: ""
+
+openbao_listener_address: "0.0.0.0:8200"
+openbao_api_addr: "https://{{ inventory_hostname }}.home:8200"
+openbao_cluster_addr: "https://{{ inventory_hostname }}.home:8201"
+
+# Listener SANs — each node holds its own short hostname + .home FQDN
+# (peer-to-peer Raft validates against the FQDN), plus the shared VIP
+# hostname so clients hitting secrets.home land on a cert that matches.
+openbao_san_list:
+  - "{{ inventory_hostname }}"
+  - "{{ inventory_hostname }}.home"
+  - secrets.home
+
+# `bao operator init` shape under static-seal auto-unseal: there are no
+# unseal keys, only recovery keys (used for admin operations like
+# rekey / re-seal / new root token).
+openbao_recovery_shares: 5
+openbao_recovery_threshold: 3

@@ -1,0 +1,47 @@
+---
+# Per-cluster bootstrap-node election. Mirrors microk8s/elect-primary.yml
+# in spirit: pick a deterministic candidate by hostname sort, but learn
+# the cluster's initialized state from the network so a rebuilt
+# candidate doesn't re-init on top of a live cluster.
+#
+# Each host probes every peer independently. Under the converge play's
+# serial: 1, srvvault1's run inits the cluster before srvvault2's
+# run starts; srvvault2's probe loop then sees srvvault1 reporting
+# initialized and routes itself down the join path (card #9), not init.
+
+- name: Pick the bootstrap candidate (lowest-sorted openbao host)
+  ansible.builtin.set_fact:
+    openbao_bootstrap_host: "{{ groups['openbao'] | sort | first }}"
+
+- name: Probe each openbao peer's sys/health
+  ansible.builtin.uri:
+    url: "https://{{ item }}.home:8200/v1/sys/health"
+    status_code: [200, 429, 501, 503]
+    timeout: 5
+    validate_certs: true
+  register: _openbao_peer_health
+  failed_when: false
+  ignore_unreachable: true
+  changed_when: false
+  check_mode: false
+  loop: "{{ groups['openbao'] }}"
+
+- name: Determine cluster-wide initialized state
+  # True if at least one peer's sys/health JSON reports initialized.
+  # On a greenfield run every probe fails (connection refused), the
+  # result list filters down to empty, and this comes back false —
+  # which is exactly what routes the first apply to init.yml.
+  ansible.builtin.set_fact:
+    openbao_cluster_initialized: >-
+      {{ _openbao_peer_health.results
+         | selectattr('json', 'defined')
+         | map(attribute='json')
+         | selectattr('initialized', 'defined')
+         | selectattr('initialized', 'eq', true)
+         | list | length > 0 }}
+
+- name: Report bootstrap election
+  ansible.builtin.debug:
+    msg: >-
+      bootstrap={{ openbao_bootstrap_host }}
+      cluster_initialized={{ openbao_cluster_initialized }}

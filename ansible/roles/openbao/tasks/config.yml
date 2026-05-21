@@ -1,0 +1,35 @@
+---
+- name: Ensure OpenBao subdirectories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: openbao
+    group: openbao
+    mode: "0750"
+  loop:
+    - "{{ openbao_config_dir }}/seal"
+    - "{{ openbao_tls_dir }}"
+    - "{{ openbao_data_dir }}"
+    - "{{ openbao_data_dir }}/raft"
+
+- name: Install the ansible-vault'd static seal key
+  # owner=openbao 0400 is tighter than the slice's root:openbao 0440 —
+  # the slice's choice would drift on every dpkg upgrade because the
+  # .deb postinst runs `chown --recursive openbao:openbao /etc/openbao`.
+  # Only the openbao process needs to read this; root can read anything.
+  ansible.builtin.copy:
+    src: static.key
+    dest: "{{ openbao_seal_key_path }}"
+    owner: openbao
+    group: openbao
+    mode: "0400"
+  notify: Restart openbao
+
+- name: Render the OpenBao server config
+  ansible.builtin.template:
+    src: openbao.hcl.j2
+    dest: "{{ openbao_config_dir }}/openbao.hcl"
+    owner: openbao
+    group: openbao
+    mode: "0640"
+  notify: Restart openbao

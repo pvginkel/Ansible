@@ -1,0 +1,62 @@
+---
+- name: Assert role preconditions
+  ansible.builtin.assert:
+    that:
+      - openbao_version | length > 0
+      - openbao_deb_sha256 | length > 0
+      - openbao_seal_current_key_id | length > 0
+      - openbao_san_list | length > 0
+    fail_msg: >-
+      OpenBao role inputs missing. Most likely
+      openbao_seal_current_key_id is unset in
+      inventories/prd/group_vars/openbao.yml — set it when you commit
+      the ansible-vault'd static seal key into roles/openbao/files/.
+      See roles/openbao/README.md §Bootstrap.
+
+# Election + cluster-init probe runs first so the init.yml gate below
+# can rely on its facts.
+- name: Elect bootstrap node + read cluster init state
+  ansible.builtin.import_tasks: elect-bootstrap.yml
+
+- name: Install OpenBao
+  ansible.builtin.import_tasks: install.yml
+
+- name: Issue the OpenBao listener TLS leaf
+  ansible.builtin.import_tasks: internal_tls.yml
+
+- name: Render config + place the static seal key
+  ansible.builtin.import_tasks: config.yml
+
+# Flush handlers here so a config / cert / seal-key change is applied
+# before init runs — init talks to the running service and would
+# otherwise hit the stale config.
+- name: Apply pending restarts before init
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable + start openbao.service
+  ansible.builtin.systemd:
+    name: openbao
+    state: started
+    enabled: true
+
+# Acceptable health-endpoint codes:
+#   200 initialized + unsealed + active
+#   429 initialized + unsealed + standby (Raft follower)
+#   501 not initialized
+#   503 sealed
+# Anything in that set means the listener is up and we can move on.
+- name: Wait for the OpenBao API to be reachable
+  ansible.builtin.uri:
+    url: "{{ openbao_api_addr }}/v1/sys/health"
+    status_code: [200, 429, 501, 503]
+    validate_certs: true
+  register: _openbao_health
+  until: _openbao_health.status is defined and _openbao_health.status in [200, 429, 501, 503]
+  retries: 30
+  delay: 2
+
+- name: Initialize the cluster (bootstrap node only, first time)
+  ansible.builtin.import_tasks: init.yml
+  when:
+    - inventory_hostname == openbao_bootstrap_host
+    - not openbao_cluster_initialized | bool
