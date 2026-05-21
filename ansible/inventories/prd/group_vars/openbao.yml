@@ -12,6 +12,8 @@ baseline_os_update_class: standalone
 # srvvaultN reaches at runtime:
 #   - ca.home — step-ca, for ssh_host_cert + the openbao role's
 #     internal_tls listener-leaf issuance.
+#   - backup-server.home — the in-cluster backup-server's NGINX LB;
+#     the card #12 daily JSON dump POSTs to this hostname.
 #   - secrets.home — the leader-tracking VIP; clients on the node
 #     itself hit this hostname (matches the TLS SAN).
 #   - srvvault{1,2,3}.home — self + peers, for openbao's api_addr /
@@ -20,6 +22,7 @@ baseline_os_update_class: standalone
 #     baseline renders the block, openbao tasks resolve locally.
 baseline_etc_hosts_entries:
   - "10.2.1.15 ca.home"
+  - "10.2.1.7 backup-server.home backup-server"
   - "{{ homelab_vips.openbao.address }} {{ homelab_vips.openbao.hostname }}"
   - "{{ hostvars.srvvault1.network_devices[0].addresses[0] | regex_replace('/.*', '') }} srvvault1.home srvvault1"
   - "{{ hostvars.srvvault2.network_devices[0].addresses[0] | regex_replace('/.*', '') }} srvvault2.home srvvault2"
