@@ -8,9 +8,24 @@ baseline_os_update_class: standalone
 
 # Static-netplan hosts on public DNS (8.8.8.8/8.8.4.4) plus the
 # baseline-rendered ~home routing drop-in pointing at the in-cluster
-# dnsmasq LBs. The pairing is what lets ca.home / backup-server.home /
-# secrets.home / srvvault{1,2,3}.home resolve at runtime without
-# /etc/hosts pins — see slices/completed/home-dns-routing.md.
+# dnsmasq LBs. The routing domain covers ca.home, backup-server.home,
+# and secrets.home — none of which srvvaultN resolves on the
+# bootstrap path (ca.home renewal has a ~33-day envelope, the daily
+# backup tolerates missed cycles, and keepalived's vrrp_script polls
+# the local hostname rather than the VIP).
+#
+# srvvault{1,2,3}.home stay pinned: openbaod uses cluster_addr
+# (https://srvvaultN.home:8201) for Raft peer comms on every restart,
+# and `bao operator raft join` / the elect-bootstrap peer probes hit
+# https://srvvaultM.home:8200 at converge. Whole-cluster cold-boot
+# (or any roll where the in-cluster dnsmasq is down) must not block
+# on .home resolution for peers. IPs come from each peer's host_vars
+# network_devices (single source of truth). See
+# slices/completed/home-dns-routing.md.
+baseline_etc_hosts_entries:
+  - "{{ hostvars.srvvault1.network_devices[0].addresses[0] | regex_replace('/.*', '') }} srvvault1.home srvvault1"
+  - "{{ hostvars.srvvault2.network_devices[0].addresses[0] | regex_replace('/.*', '') }} srvvault2.home srvvault2"
+  - "{{ hostvars.srvvault3.network_devices[0].addresses[0] | regex_replace('/.*', '') }} srvvault3.home srvvault3"
 
 openbao_seal_current_key_id: "20260521-1"
 
