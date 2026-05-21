@@ -16,3 +16,6 @@ proxmox_insecure = true
 
 dns_reservation_url   = "https://dns-reservation.home/"
 dns_reservation_token = "REPLACE-ME"
+
+backup_server_url   = "https://backup-server.home/"
+backup_server_token = "REPLACE-ME"

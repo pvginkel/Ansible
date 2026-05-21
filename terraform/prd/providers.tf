@@ -40,4 +40,6 @@ provider "proxmox" {
 provider "homelab" {
   dns_reservation_url   = var.dns_reservation_url
   dns_reservation_token = var.dns_reservation_token
+  backup_server_url     = var.backup_server_url
+  backup_server_token   = var.backup_server_token
 }

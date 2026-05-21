@@ -31,3 +31,14 @@ variable "dns_reservation_token" {
   type        = string
   sensitive   = true
 }
+
+variable "backup_server_url" {
+  description = "Base URL of the in-cluster backup-server (e.g. https://backup-server.home/). See /work/DockerImages/backup-server/upload-api.md."
+  type        = string
+}
+
+variable "backup_server_token" {
+  description = "Management bearer token for the backup-server admin API; authorizes minting + destroying scope-bound upload credentials. Source: backupServer.managementToken in HelmCharts configs/prd/storage-values.yaml. Lives in terraform.tfvars (gitignored)."
+  type        = string
+  sensitive   = true
+}
