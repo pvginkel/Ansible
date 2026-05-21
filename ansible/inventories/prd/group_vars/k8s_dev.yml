@@ -65,7 +65,7 @@ microk8s_registry_mirrors:
 # Node-local /etc/hosts entry. dev resolves the dev registry direct
 # to its LAN address; no in-cluster service IP is involved on dev.
 # Cold-boot independent because 192.168.178.43 is a stable LAN host.
-microk8s_etc_hosts_entries:
+baseline_etc_hosts_entries:
   - "192.168.178.43 registry-dev"
 
 # No CoreDNS hosts/templates on dev. A pre-rebuild cluster carries a

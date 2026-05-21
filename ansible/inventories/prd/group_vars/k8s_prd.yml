@@ -77,7 +77,7 @@ microk8s_metallb_pool_addresses:
   - 2a10:3781:16a9:0:7912:b75b::/96
 
 # Containerd registry mirrors. The operator's in-cluster registry
-# (ServiceIP 172.17.0.3, see microk8s_etc_hosts_entries below) and
+# (ServiceIP 172.17.0.3, see baseline_etc_hosts_entries below) and
 # the dev-cluster registry (LAN-direct on the dev side) — prd pulls
 # images tagged with both prefixes. Both are plain HTTP.
 microk8s_registry_mirrors:
@@ -96,7 +96,7 @@ microk8s_registry_mirrors:
 #     10.2.1.15, reachable on the workload VLAN). The internal_tls
 #     consumer's `step` CLI must resolve it to issue/renew the
 #     kube-apiserver leaf — see slices/internal-tls-step-ca.md §F.
-microk8s_etc_hosts_entries:
+baseline_etc_hosts_entries:
   - "172.17.0.3 registry"
   - "10.2.1.15 ca.home"
 

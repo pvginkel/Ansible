@@ -34,10 +34,6 @@
   ansible.builtin.import_tasks: registry-mirrors.yml
   when: _microk8s_installed.stat.exists
 
-- name: Reconcile node-local /etc/hosts entries
-  ansible.builtin.import_tasks: etc-hosts.yml
-  when: _microk8s_installed.stat.exists
-
 - name: Configure cluster network (Calico autodetect)
   ansible.builtin.import_tasks: network.yml
   when: _microk8s_installed.stat.exists

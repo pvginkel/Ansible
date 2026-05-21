@@ -44,6 +44,22 @@ baseline_os_update_class: cluster
 # don't compound failure modes (operator design rule).
 baseline_unattended_reboot_time: "03:00"
 
+# /etc/hosts entries the baseline role manages on the host. Each list
+# item is a full line ("<ip> <name1> [name2 ...]"), managed as a single
+# blockinfile-marked block. Empty list removes the block.
+#
+# Intended for hosts that resolve through public DNS or otherwise need
+# homelab names pinned locally:
+#   - openbao service VMs (10.2.1.15 ca.home, group_vars/openbao.yml)
+#     so ssh_host_cert and internal_tls can reach the CA;
+#   - prd k8s nodes (172.17.0.3 registry, 10.2.1.15 ca.home,
+#     group_vars/k8s_prd.yml) so containerd's image-pull DNS path
+#     and the internal_tls consumer don't depend on dnsmasq;
+#   - dev k8s node (192.168.178.43 registry-dev, group_vars/k8s_dev.yml).
+# DHCP hosts under homelab dnsmasq do not need this — their DNS already
+# resolves the .home names.
+baseline_etc_hosts_entries: []
+
 # MOTD scripts to strip the execute bit from — matches the chmod -x list
 # in /work/Obsidian/Linux.md.
 baseline_disabled_motd_scripts:

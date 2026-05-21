@@ -4,7 +4,7 @@ Installs and configures microk8s on a k8s node. Lands an Ubuntu host at "ready t
 
 ## Scope
 
-This role covers install, idempotent multi-node join, capability-label reconciliation, MetalLB pool reconciliation, registry-mirror config, node-local `/etc/hosts` entries, and full-Corefile CoreDNS reconciliation. The set of moving parts handled today:
+This role covers install, idempotent multi-node join, capability-label reconciliation, MetalLB pool reconciliation, registry-mirror config, and full-Corefile CoreDNS reconciliation. Node-local `/etc/hosts` entries are managed by the `baseline` role via `baseline_etc_hosts_entries` (set in `group_vars/k8s_*.yml`). The set of moving parts handled today:
 
 | Concern | Mechanism |
 |---|---|
@@ -19,7 +19,6 @@ This role covers install, idempotent multi-node join, capability-label reconcili
 | Capability labels (primary only) | strategic-merge patch via `kubernetes.core.k8s` of each cluster member's Node object, sourcing labels from per-host `k8s_node_labels` |
 | MetalLB pool (primary only) | `kubernetes.core.k8s` upserts the `IPAddressPool` and `L2Advertisement` the `metallb` addon creates, replacing the addon's colon-arg range with `microk8s_metallb_pool_addresses` |
 | Registry mirrors | renders `/var/snap/microk8s/current/args/certs.d/<host>/hosts.toml` per `microk8s_registry_mirrors` entry; notifies a `microk8s stop && start` handler |
-| Node-local `/etc/hosts` | blockinfile-managed entries from `microk8s_etc_hosts_entries` (containerd resolves image-pull names via node DNS, never via CoreDNS) |
 | CoreDNS Corefile (primary only) | full-Corefile authoritative render via `kubernetes.core.k8s`, driven by `microk8s_coredns_hosts` and `microk8s_coredns_templates`; notifies a `kubectl rollout restart deployment/coredns` handler |
 | Users | `user` module appends membership to the `microk8s` group; `~/.kube` per user |
 | `kubectl` alias | `snap alias microk8s.kubectl kubectl`, guarded by a stat |
@@ -34,7 +33,7 @@ Cluster boundary is the inventory `k8s_<env>` child group each host belongs to. 
 
 The split:
 
-- **Per-node state** runs on every node (modules, packages, snap install, `.microk8s.yaml`, Calico autodetect patch, registry mirrors, `/etc/hosts`, group membership, kubectl alias).
+- **Per-node state** runs on every node (modules, packages, snap install, `.microk8s.yaml`, Calico autodetect patch, registry mirrors, group membership, kubectl alias).
 - **Cluster-scoped state** runs only on the primary — addons, capability labels, the MetalLB pool spec, and the CoreDNS Corefile. This avoids racing two `microk8s enable X` invocations or two competing patches against the same kube-system state.
 - **Join** runs only on non-primary nodes. The role checks `high-availability.nodes` on the joining node; count > 1 means it's already in the cluster, count == 1 means it's still on its post-install solo cluster and needs to join. The join token comes from `microk8s add-node --format json --token-ttl 60` issued on the primary via `delegate_to`; the URL it returns is consumed immediately by `microk8s join` on the secondary. Tokens are single-use and short-TTL so they don't survive logs or process lists.
 
@@ -66,7 +65,6 @@ The role asserts that the four cluster-CIDR variables are set; per-cluster `grou
 | `microk8s_metallb_advertisement_name` | optional | `default-advertise-all-pools` | Name of the `L2Advertisement` to upsert — same rationale, matches the addon's auto-created advertisement. |
 | `microk8s_metallb_pool_addresses` | optional | `[]` | List of CIDRs / `start-end` ranges (IPv4 and/or IPv6) — source of truth for the pool. Empty skips the task. |
 | `microk8s_registry_mirrors` | optional | `[]` | List of `<host>:<port>` strings; per entry, a `certs.d/<host>:<port>/hosts.toml` is rendered pointing at `http://<entry>` with pull+resolve capabilities. |
-| `microk8s_etc_hosts_entries` | optional | `[]` | List of `<ip> <name1> [name2 ...]` strings managed as a single marked block in `/etc/hosts`. Empty list removes the block. |
 | `microk8s_coredns_hosts` | optional | `[]` | List of `{ip, names}` entries for the CoreDNS `hosts { ... fallthrough }` block. Reconciled on the primary. |
 | `microk8s_coredns_templates` | optional | `[]` | List of `{domain, answer_a, ttl}` entries; each renders a `template IN A <domain>` block answering any subdomain with `<answer_a>`. Reconciled on the primary. |
 | `microk8s_manage_apiserver_vip` | optional | `false` | `true` folds in a Keepalived VIP for the kube-apiserver. Set only on the 3-node prd cluster — `tasks/keepalived.yml` reads the VIP/VRID from `group_vars/all/vips.yml` and the `vrrp_auth_password` secret from there. The single-node dev cluster and the scratch fleet leave it `false`. |

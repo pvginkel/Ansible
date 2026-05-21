@@ -85,11 +85,6 @@ microk8s_ceph_client_packages:
 # the microk8s registry addon) are left alone either way.
 microk8s_registry_mirrors: []
 
-# /etc/hosts entries owned by the role. Each list item is a full line
-# (`<ip> <name1> [name2 ...]`). Managed as a single marked block;
-# empty list removes the block entirely.
-microk8s_etc_hosts_entries: []
-
 # CoreDNS hosts overrides. Reconciled on the cluster primary into the
 # kube-system/coredns ConfigMap. Each entry is `{ip, names}`. Empty =
 # no hosts block in the rendered Corefile.

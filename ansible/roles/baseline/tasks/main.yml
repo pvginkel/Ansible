@@ -167,6 +167,29 @@
     group: pvginkel
     mode: "0644"
 
+# Node-local /etc/hosts pins (k8s nodes for `registry`/`ca.home`,
+# openbao service VMs for `ca.home`). Managed as a single marked
+# block; state=absent when the list is empty so the markers don't
+# linger on hosts that opt out.
+- name: Manage baseline-owned /etc/hosts entries
+  ansible.builtin.blockinfile:
+    path: /etc/hosts
+    marker: "# {mark} ANSIBLE baseline"
+    block: "{{ baseline_etc_hosts_entries | join('\n') }}"
+    state: "{{ 'present' if baseline_etc_hosts_entries | length > 0 else 'absent' }}"
+
+# Transitional: the microk8s role previously owned an /etc/hosts block
+# under the marker `# {mark} ANSIBLE microk8s`. Consolidation moved
+# those entries to `baseline_etc_hosts_entries` and dropped the role
+# task; this absent-block task removes the legacy marker on existing
+# k8s nodes. No-op on every other host. Remove this task once every
+# k8s node has had one converge cycle and the legacy markers are gone.
+- name: Remove legacy microk8s-owned /etc/hosts block
+  ansible.builtin.blockinfile:
+    path: /etc/hosts
+    marker: "# {mark} ANSIBLE microk8s"
+    state: absent
+
 # Homelab step-ca root cert — every managed host trusts step-ca-issued
 # internal TLS leaves once this lands. The cert file is also the
 # artefact the step-ca-bootstrap runbook reads for CA rotation and
