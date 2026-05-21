@@ -106,14 +106,6 @@
   tags:
     - openbao_auth
 
-# Card #11 — file audit device. Same bootstrap-host gating as
-# approle.yml since audit-device enables also replicate via Raft.
-- name: Enable the file audit device
-  ansible.builtin.import_tasks: audit.yml
-  when: inventory_hostname == openbao_bootstrap_host
-  tags:
-    - openbao_auth
-
 # Card #11 — ufw on each srvvaultN. Rules inserted unconditionally;
 # ufw `state: enabled` is gated on openbao_ufw_enable (default false).
 - name: Configure ufw

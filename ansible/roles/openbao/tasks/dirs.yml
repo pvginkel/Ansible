@@ -18,3 +18,8 @@
     - "{{ openbao_tls_dir }}"
     - "{{ openbao_data_dir }}"
     - "{{ openbao_data_dir }}/raft"
+    # /var/log/openbao is outside /etc/openbao, so the .deb postinst
+    # doesn't manage ownership for it. OpenBao writes the append-only
+    # audit log here on start; the directory must exist before
+    # config.yml triggers a restart with the audit "file" stanza.
+    - "{{ openbao_audit_file_path | dirname }}"

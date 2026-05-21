@@ -66,7 +66,11 @@ Design context:
     `openbao_admin_role_id` / `_secret_id`. Skips cleanly when neither
     is configured so the drift cycle no-ops before first provisioning.
 12. **Enable the file audit device** at
-    `/var/log/openbao/audit.log`. Same gating as the auth tasks.
+    `/var/log/openbao/audit.log` via an `audit "file"` stanza in
+    `openbao.hcl`. OpenBao 2.5 rejects the API enable path; audit
+    devices must be declarative. The parent directory is created
+    by `dirs.yml` ahead of the config render so the daemon can open
+    the log on first restart.
 13. **Configure ufw** on each node with the documented allow-list
     (22/tcp from `srviac`, 443/tcp from `k8s_prd` + `srviac`,
     8200/tcp from peers + `srviac`, 8201/tcp + VRRP from peers).
