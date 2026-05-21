@@ -21,6 +21,11 @@ listener "tcp" {
   cluster_address = "{{ ansible_facts.default_ipv4.address }}:8201"
   tls_cert_file   = "{{ openbao_tls_cert_path }}"
   tls_key_file    = "{{ openbao_tls_key_path }}"
+  # Stop the listener from advertising optional client-cert auth in
+  # the TLS handshake, which makes browsers prompt the operator to
+  # pick a client cert. We don't use TLS cert-auth — AppRole is the
+  # only auth method enabled.
+  tls_disable_client_certs = "true"
 }
 
 seal "static" {
