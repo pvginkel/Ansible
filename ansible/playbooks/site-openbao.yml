@@ -129,7 +129,5 @@
   roles:
     - role: baseline
     - role: managed_filesystems
-    # Card #8 will insert the `openbao` role here (after baseline for
-    # the `ca.home` /etc/hosts pin, before ssh_host_cert so the host is
-    # in steady state when its host cert is signed).
+    - role: openbao
     - role: ssh_host_cert

@@ -13,3 +13,5 @@ baseline_os_update_class: standalone
 # pinned locally; LAN dnsmasq isn't on the resolver path.
 baseline_etc_hosts_entries:
   - "10.2.1.15 ca.home"
+
+openbao_seal_current_key_id: "20260521-1"
