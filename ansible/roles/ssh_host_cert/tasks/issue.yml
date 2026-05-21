@@ -89,7 +89,7 @@
     _ssh_host_cert_issue: >-
       {{ not _ssh_host_cert_cert.stat.exists
          or ((_ssh_host_cert_not_after.stdout | int)
-             - (ansible_date_time.epoch | int))
+             - (ansible_facts.date_time.epoch | int))
             < (ssh_host_cert_renewal_threshold_days * 86400)
          or inventory_hostname not in (
               _ssh_host_cert_inspect.stdout

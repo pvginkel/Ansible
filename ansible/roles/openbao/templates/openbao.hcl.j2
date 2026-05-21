@@ -18,7 +18,7 @@ storage "raft" {
 
 listener "tcp" {
   address         = "{{ openbao_listener_address }}"
-  cluster_address = "{{ ansible_default_ipv4.address }}:8201"
+  cluster_address = "{{ ansible_facts.default_ipv4.address }}:8201"
   tls_cert_file   = "{{ openbao_tls_cert_path }}"
   tls_key_file    = "{{ openbao_tls_key_path }}"
 }
