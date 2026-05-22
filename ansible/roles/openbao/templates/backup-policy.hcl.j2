@@ -1,10 +1,14 @@
 # backup — managed by the openbao role
 #
-# Read-only export scope for the daily JSON dump (card #12). Covers
-# the policy catalog, auth methods, mounts, and the full KV-v2 tree.
-# No write capability anywhere; the daily timer on each srvvaultN
-# authenticates with this AppRole and produces a `bao operator
-# export`-equivalent dump for the backup-server.
+# Read-only export scope for the daily backup. Covers a native Raft
+# snapshot plus a plaintext export of the policy catalog, auth
+# methods, mounts, and the full KV-v2 tree. No write capability
+# anywhere; the daily timer on each srvvaultN authenticates with this
+# AppRole and ships a `.tgz` to the backup-server.
+
+path "sys/storage/raft/snapshot" {
+  capabilities = ["read"]
+}
 
 path "sys/policies/acl" {
   capabilities = ["list"]

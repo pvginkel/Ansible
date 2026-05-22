@@ -78,12 +78,12 @@ Design context:
     Rules are inserted unconditionally; ufw is only `state: enabled`
     when `openbao_ufw_enable` is `true` (default `false`).
 14. **Run a daily backup** on each node via a leader-guarded systemd
-    timer. The wrapper authenticates with the `backup` AppRole,
-    produces a JSON dump (ACL policies + auth methods + mounts + the
-    KV-v2 tree) on the Raft leader only, and POSTs it to the
-    in-cluster backup-server; followers exit 0. Self-skips until the
-    `backup` AppRole creds and the upload token are both available —
-    see §Backup pipeline below.
+    timer. On the Raft leader only, the wrapper authenticates with the
+    `backup` AppRole, assembles a `.tgz` (a native Raft snapshot plus
+    a plaintext JSON export of policies, auth methods, mounts, and the
+    KV-v2 tree), and POSTs it to the in-cluster backup-server;
+    followers exit 0. Self-skips until the `backup` AppRole creds and
+    the upload token are both available — see §Backup pipeline below.
 
 ## Inputs
 
@@ -133,7 +133,7 @@ Auth + audit + ufw inputs (cards #40 / #11):
 Backup pipeline inputs (card #12):
 
 - `openbao_backup_server_url` — in-cluster backup-server base URL
-  (default `https://backup-server.home`); the daily dump POSTs here.
+  (default `https://backup-server.home`); the daily backup POSTs here.
 - `openbao_backup_oncalendar` / `openbao_backup_randomized_delay` —
   systemd `OnCalendar` + `RandomizedDelaySec` for the timer. Defaults
   fire before the staggered unattended-reboot windows.
@@ -214,9 +214,11 @@ to break-glass.
 
 ## Backup pipeline (card #12)
 
-A daily systemd timer on each node runs a leader-guarded JSON dump to
-the in-cluster backup-server. Bring it online after the cluster is
-provisioned:
+A daily systemd timer on each node runs a leader-guarded backup to
+the in-cluster backup-server — a `.tgz` bundling a native Raft
+snapshot (the restore artifact) and a plaintext JSON export (KV tree,
+policies, auth methods, mounts) for break-glass reads. Bring it
+online after the cluster is provisioned:
 
 1. **Mint the upload credential** (operator runs Terraform):
 
