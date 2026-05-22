@@ -61,13 +61,20 @@ session. For interactive administration:
 
   ```bash
   export BAO_ADDR=https://secrets
-  bao login -method=approle \
-      role_id=<openbao-admin role_id> secret_id=<openbao-admin secret_id>
+  export BAO_TOKEN=$(bao write -field=token auth/approle/login \
+      role_id=<openbao-admin role_id> secret_id=<openbao-admin secret_id>)
   ```
 
-  The `openbao-admin` creds are ansible-vault'd in
-  `inventories/prd/group_vars/openbao.yml` — decrypt with
-  `ansible-vault view` to read them.
+  AppRole login is `bao write auth/approle/login`, not
+  `bao login -method=` — the CLI's `-method` flag has no approle
+  handler. The `openbao-admin` creds are ansible-vault'd inline in
+  `inventories/prd/group_vars/openbao.yml`; read them back with:
+
+  ```bash
+  cd ansible && poetry run ansible srvvault1 -m debug \
+      -a 'msg="{{ openbao_admin_role_id }} {{ openbao_admin_secret_id }}"' \
+      --ask-vault-pass
+  ```
 
 ## 2 — Single-node loss
 
