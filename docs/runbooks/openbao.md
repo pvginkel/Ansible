@@ -221,8 +221,8 @@ Timings from the recovery drills (cards #13 / #14):
 ## What can go wrong
 
 - **Snapshot endpoint returns 403** — the `backup` AppRole policy is
-  missing `read` on `sys/storage/raft/snapshot`. Re-apply the role;
-  if 2.5 marks the path root-protected, the policy needs `sudo` too.
+  missing `read` on `sys/storage/raft/snapshot`. Re-apply the role.
+  (`read` alone is sufficient — confirmed against OpenBao 2.5.4.)
 - **Restore rejected for a seal mismatch** — the rebuilt cluster
   must use the same static seal key as the snapshot. Confirm
   `openbao_seal_current_key_id` and `files/static.key` match what
