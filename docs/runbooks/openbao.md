@@ -72,7 +72,7 @@ session. For interactive administration:
 
   ```bash
   cd ansible && poetry run ansible srvvault1 -m debug \
-      -a 'msg="{{ openbao_admin_role_id }} {{ openbao_admin_secret_id }}"' \
+      -a 'msg="role_id={{ openbao_admin_role_id }} secret_id={{ openbao_admin_secret_id }}"' \
       --ask-vault-pass
   ```
 
