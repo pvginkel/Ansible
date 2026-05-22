@@ -3,12 +3,16 @@
 # backup-server. Runs on every srvvaultN (each gets the timer; the
 # wrapper's leader guard decides who actually dumps).
 #
-# Two inputs, both delivered by earlier stages:
-#   - backup AppRole role_id + secret_id — provisioned by approle.yml
+# Three inputs the wrapper needs on disk, all delivered here:
+#   - backup AppRole role_id — provisioned every run by approle.yml
 #     on the bootstrap host; read here from its hostvars.
+#   - backup AppRole secret_id — minted by approle.yml only on
+#     rotation runs (-e openbao_rotate_secret_ids=true); on other
+#     runs the file already on disk is left untouched.
 #   - the scope-bound upload token — captured by site-openbao.yml
 #     Play 0 from `terraform output` onto localhost.
-# Until both exist the pipeline self-skips: no timer, no failing unit.
+# Until all three can be satisfied the pipeline self-skips: no timer,
+# no failing unit.
 
 - name: Resolve the backup pipeline inputs
   ansible.builtin.set_fact:
@@ -21,22 +25,35 @@
       {{ hostvars['localhost'].openbao_backup_upload_token | default('') }}
   no_log: true
 
+- name: Check whether the backup AppRole secret_id is already on disk
+  ansible.builtin.stat:
+    path: "{{ openbao_config_dir }}/backup-secret-id"
+  register: _openbao_backup_secret_id
+
+# Configurable once the role_id + upload token are available AND the
+# secret_id can be placed — either this run mints it (rotation) or a
+# prior rotation run already delivered the file.
+- name: Decide whether the backup pipeline can be configured
+  ansible.builtin.set_fact:
+    _openbao_backup_ready: >-
+      {{ (_openbao_backup_role_id | length > 0)
+         and (_openbao_backup_upload_token | length > 0)
+         and ((openbao_rotate_secret_ids | bool)
+              or _openbao_backup_secret_id.stat.exists) }}
+
 - name: Skip the backup pipeline until its inputs exist
   ansible.builtin.debug:
     msg: >-
-      OpenBao backup pipeline not configured — the backup AppRole
-      creds and/or the backup-server upload token are not yet
-      available. Provision auth (-e openbao_admin_token /
-      openbao_rotate_secret_ids) and run `terraform apply` for
-      homelab_backup_credential, then re-run site-openbao.yml.
-  when: >-
-    _openbao_backup_role_id | length == 0
-    or _openbao_backup_upload_token | length == 0
+      OpenBao backup pipeline not configured. Needs: the backup
+      AppRole creds (provision auth with -e openbao_admin_token), the
+      backup-server upload token (`terraform apply` for
+      homelab_backup_credential), and one run with
+      -e openbao_rotate_secret_ids=true to mint the backup secret_id.
+      Re-run site-openbao.yml once those are in place.
+  when: not _openbao_backup_ready
 
 - name: Configure the backup pipeline
-  when:
-    - _openbao_backup_role_id | length > 0
-    - _openbao_backup_upload_token | length > 0
+  when: _openbao_backup_ready
   block:
 
     - name: Install jq for the backup wrapper
@@ -53,8 +70,6 @@
         mode: "0400"
       no_log: true
 
-    # secret_id is only minted on rotation runs; on every other run the
-    # file already on disk stays untouched.
     - name: Deliver the backup AppRole secret_id (rotation runs only)
       ansible.builtin.copy:
         dest: "{{ openbao_config_dir }}/backup-secret-id"
@@ -67,19 +82,6 @@
         mode: "0400"
       when: openbao_rotate_secret_ids | bool
       no_log: true
-
-    - name: Check whether the backup secret_id has been delivered
-      ansible.builtin.stat:
-        path: "{{ openbao_config_dir }}/backup-secret-id"
-      register: _openbao_backup_secret_id
-
-    - name: Fail when the backup secret_id was never minted
-      ansible.builtin.fail:
-        msg: >-
-          {{ openbao_config_dir }}/backup-secret-id is missing. Run
-          site-openbao.yml once with -e openbao_rotate_secret_ids=true
-          to mint and deliver the backup AppRole secret_id.
-      when: not _openbao_backup_secret_id.stat.exists
 
     - name: Deliver the backup-server upload token
       ansible.builtin.copy:
