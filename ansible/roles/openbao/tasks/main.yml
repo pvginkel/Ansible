@@ -60,21 +60,25 @@
   retries: 30
   delay: 2
 
-- name: Initialize the cluster (bootstrap node only, first time)
+# Greenfield only: when no peer reports the cluster initialized, the
+# elected bootstrap candidate inits it. The candidate check keeps a
+# single node initialising when all three are fresh.
+- name: Initialize the cluster (bootstrap candidate, greenfield only)
   ansible.builtin.import_tasks: init.yml
   when:
-    - inventory_hostname == openbao_bootstrap_host
     - not openbao_cluster_initialized | bool
+    - inventory_hostname == openbao_bootstrap_host
 
-# Non-bootstrap nodes join the cluster the bootstrap node just (or
-# previously) initialized. The local-initialized check is the
-# idempotency boundary — a node that's already a voter inherits the
-# cluster's initialized state via Raft, so sys/health here reports
-# initialized=true and the join is skipped.
-- name: Raft-join the cluster (non-bootstrap nodes)
+# Any node whose local sys/health still reports initialized=false
+# joins, once some peer reports the cluster initialized. The gate
+# keys off cluster + local state, not host identity — so a rebuilt
+# srvvault1 joins exactly like a rebuilt srvvault2/3 (join.yml targets
+# a live initialized peer, not the static bootstrap host). The
+# local-initialized check is the idempotency boundary: a node that's
+# already a voter inherits initialized=true via Raft and skips.
+- name: Raft-join the cluster (any uninitialized node)
   ansible.builtin.import_tasks: join.yml
   when:
-    - inventory_hostname != openbao_bootstrap_host
     - openbao_cluster_initialized | bool
     - not (_openbao_health.json.initialized | default(false))
 

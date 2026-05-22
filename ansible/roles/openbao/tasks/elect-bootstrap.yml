@@ -40,8 +40,24 @@
          | selectattr('initialized', 'eq', true)
          | list | length > 0 }}
 
+- name: Pick the join target — first initialized peer that isn't this node
+  # main.yml routes any uninitialized node to join.yml once the
+  # cluster is initialized — including a rebuilt srvvault1. The target
+  # is therefore discovered from live peer health, not assumed to be
+  # the bootstrap host (which may itself be the node being rebuilt).
+  ansible.builtin.set_fact:
+    openbao_join_target: >-
+      {{ _openbao_peer_health.results
+         | selectattr('json', 'defined')
+         | selectattr('json.initialized', 'defined')
+         | selectattr('json.initialized', 'eq', true)
+         | map(attribute='item')
+         | reject('eq', inventory_hostname)
+         | sort | first | default('') }}
+
 - name: Report bootstrap election
   ansible.builtin.debug:
     msg: >-
       bootstrap={{ openbao_bootstrap_host }}
       cluster_initialized={{ openbao_cluster_initialized }}
+      join_target={{ openbao_join_target | default('(none)') }}

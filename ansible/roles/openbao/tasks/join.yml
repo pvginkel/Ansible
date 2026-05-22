@@ -8,15 +8,28 @@
 # `bao operator raft join` is not idempotent on its own — re-running
 # against an already-joined node errors. The main.yml gate is the
 # idempotency boundary; this file assumes it's been told to join.
+#
+# The join target is a live initialized peer that isn't this node
+# (elect-bootstrap.yml), not the static bootstrap host — so a rebuilt
+# srvvault1 joins srvvault2/3 instead of pointing at itself.
 
-- name: Join the Raft cluster via {{ openbao_bootstrap_host }}
+- name: Assert a join target was found
+  ansible.builtin.assert:
+    that: openbao_join_target | length > 0
+    fail_msg: >-
+      Raft join requested but no initialized peer was found to join
+      against — elect-bootstrap.yml saw the cluster initialized yet
+      openbao_join_target is empty. Check peer reachability from
+      {{ inventory_hostname }}.
+
+- name: Join the Raft cluster via {{ openbao_join_target }}
   ansible.builtin.command:
     argv:
       - /usr/bin/bao
       - operator
       - raft
       - join
-      - "https://{{ openbao_bootstrap_host }}.home:8200"
+      - "https://{{ openbao_join_target }}.home:8200"
   environment:
     BAO_ADDR: "{{ openbao_api_addr }}"
   changed_when: true
