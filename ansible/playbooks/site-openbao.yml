@@ -22,8 +22,14 @@
 # generated and embedded via cloud-init — authoritative, no TOFU)
 # for the pre-certificate connection. Every later connection trusts
 # the certificate normally. See AnsibleSpecs slices/ssh-host-ca.md.
+#
+# Play 0 also captures `terraform output openbao_backup_token` — the
+# scope-bound upload token minted by homelab_backup_credential — and
+# stashes it on localhost for the openbao role's backup task (card
+# #12). A missing output (no `terraform apply` yet) is tolerated: the
+# token stays empty and backup.yml self-skips.
 
-- name: Seed a transient known_hosts for the openbao hosts
+- name: Seed transient known_hosts + capture the backup token
   hosts: localhost
   gather_facts: false
   become: false
@@ -82,6 +88,29 @@
           {% endfor %}
         mode: "0644"
       check_mode: false
+
+    # Card #12 — the backup pipeline's scope-bound upload token, minted
+    # by homelab_backup_credential.openbao. A non-zero rc means the
+    # output doesn't exist yet (no `terraform apply` since the resource
+    # landed); the token is left empty and backup.yml self-skips.
+    - name: Read the backup-server upload token from terraform output
+      ansible.builtin.command:
+        argv:
+          - terraform
+          - "-chdir={{ _tf_workspace }}"
+          - output
+          - -raw
+          - openbao_backup_token
+      register: _tf_backup_token
+      changed_when: false
+      check_mode: false
+      failed_when: false
+      no_log: true
+
+    - name: Stash the backup-server upload token for the openbao role
+      ansible.builtin.set_fact:
+        openbao_backup_upload_token: "{{ _tf_backup_token.stdout if _tf_backup_token.rc == 0 else '' }}"
+      no_log: true
 
 # Pre-certificate ssh_args override (used by both the bootstrap play
 # and the converge play below). Replaces ssh_args wholesale — for
