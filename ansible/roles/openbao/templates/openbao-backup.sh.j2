@@ -1,0 +1,107 @@
+#!/bin/bash
+# openbao-backup — daily leader-guarded JSON dump to the homelab
+# backup-server. Managed by the openbao Ansible role; do not edit.
+#
+# Followers exit 0 immediately; only the Raft leader produces a dump.
+# Any failure exits non-zero so the systemd unit is marked failed and
+# surfaces in `systemctl --failed`.
+set -euo pipefail
+
+OPENBAO_ADDR="{{ openbao_api_addr }}"
+KV_MOUNT="{{ openbao_kv_mount }}"
+BACKUP_SERVER_URL="{{ openbao_backup_server_url }}"
+ROLE_ID_FILE="{{ openbao_config_dir }}/backup-role-id"
+SECRET_ID_FILE="{{ openbao_config_dir }}/backup-secret-id"
+UPLOAD_TOKEN_FILE="{{ openbao_config_dir }}/backup-token"
+UPLOAD_FILENAME="openbao-dump.json"
+
+log() { echo "openbao-backup: $*"; }
+
+# --- leader guard (sys/leader is unauthenticated) -------------------
+is_self=$(curl -fsS "${OPENBAO_ADDR}/v1/sys/leader" | jq -r '.is_self')
+if [[ "${is_self}" != "true" ]]; then
+  log "not the Raft leader; nothing to do"
+  exit 0
+fi
+
+# --- authenticate via the backup AppRole ----------------------------
+login_body=$(jq -n --arg r "$(< "${ROLE_ID_FILE}")" \
+  --arg s "$(< "${SECRET_ID_FILE}")" '{role_id: $r, secret_id: $s}')
+token=$(curl -fsS -X POST -H 'Content-Type: application/json' \
+  -d "${login_body}" "${OPENBAO_ADDR}/v1/auth/approle/login" \
+  | jq -r '.auth.client_token')
+if [[ -z "${token}" || "${token}" == "null" ]]; then
+  log "AppRole login returned no token" >&2
+  exit 1
+fi
+
+bao_get() { curl -fsS -H "X-Vault-Token: ${token}" "${OPENBAO_ADDR}/v1/$1"; }
+
+# --- collect ACL policies (name -> HCL text) ------------------------
+policies='{}'
+policy_names=$(curl -fsS -H "X-Vault-Token: ${token}" -X LIST \
+  "${OPENBAO_ADDR}/v1/sys/policies/acl" | jq -r '(.data.keys // [])[]')
+while IFS= read -r name; do
+  [[ -n "${name}" ]] || continue
+  hcl=$(bao_get "sys/policies/acl/${name}" | jq -r '.data.policy // ""')
+  policies=$(jq -n --argjson o "${policies}" --arg n "${name}" \
+    --arg p "${hcl}" '$o + {($n): $p}')
+done <<< "${policy_names}"
+
+# --- collect the KV-v2 tree (path -> secret data) -------------------
+# An empty metadata path lists as 404; the walk treats that as "no
+# keys here" so a freshly-mounted, still-empty kv/ is not an error.
+kv='{}'
+kv_walk() {
+  local prefix="$1" listing http
+  listing=$(curl -sS -H "X-Vault-Token: ${token}" -X LIST \
+    -w '\n%{http_code}' \
+    "${OPENBAO_ADDR}/v1/${KV_MOUNT}/metadata/${prefix}")
+  http="${listing##*$'\n'}"
+  listing="${listing%$'\n'*}"
+  if [[ "${http}" == "404" ]]; then
+    return 0
+  elif [[ "${http}" != "200" ]]; then
+    log "LIST ${KV_MOUNT}/metadata/${prefix} returned ${http}" >&2
+    return 1
+  fi
+  local key
+  while IFS= read -r key; do
+    [[ -n "${key}" ]] || continue
+    if [[ "${key}" == */ ]]; then
+      kv_walk "${prefix}${key}"
+    else
+      local secret
+      secret=$(bao_get "${KV_MOUNT}/data/${prefix}${key}")
+      kv=$(jq -n --argjson o "${kv}" --arg p "${prefix}${key}" \
+        --argjson d "$(jq '.data.data' <<< "${secret}")" \
+        '$o + {($p): $d}')
+    fi
+  done <<< "$(jq -r '(.data.keys // [])[]' <<< "${listing}")"
+}
+kv_walk "" || { log "KV walk failed" >&2; exit 1; }
+
+# --- assemble + upload ----------------------------------------------
+auth=$(bao_get "sys/auth" | jq '.data')
+mounts=$(bao_get "sys/mounts" | jq '.data')
+
+dump=$(mktemp /dev/shm/openbao-dump.XXXXXX)
+trap 'rm -f "${dump}"' EXIT
+jq -n \
+  --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --arg host "$(hostname -s)" \
+  --argjson auth "${auth}" \
+  --argjson mounts "${mounts}" \
+  --argjson policies "${policies}" \
+  --argjson kv "${kv}" \
+  '{exported_at: $ts, exported_by: $host, auth: $auth, mounts: $mounts, policies: $policies, kv: $kv}' \
+  > "${dump}"
+
+curl -fsS -X POST \
+  -H "Authorization: Bearer $(< "${UPLOAD_TOKEN_FILE}")" \
+  -H 'Content-Type: application/octet-stream' \
+  --data-binary "@${dump}" \
+  "${BACKUP_SERVER_URL}/upload?filename=${UPLOAD_FILENAME}" \
+  > /dev/null
+
+log "dump uploaded ($(stat -c %s "${dump}") bytes plaintext)"

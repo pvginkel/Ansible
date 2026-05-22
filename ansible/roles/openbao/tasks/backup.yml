@@ -1,0 +1,117 @@
+---
+# Card #12 — daily leader-guarded JSON dump to the in-cluster
+# backup-server. Runs on every srvvaultN (each gets the timer; the
+# wrapper's leader guard decides who actually dumps).
+#
+# Two inputs, both delivered by earlier stages:
+#   - backup AppRole role_id + secret_id — provisioned by approle.yml
+#     on the bootstrap host; read here from its hostvars.
+#   - the scope-bound upload token — captured by site-openbao.yml
+#     Play 0 from `terraform output` onto localhost.
+# Until both exist the pipeline self-skips: no timer, no failing unit.
+
+- name: Resolve the backup pipeline inputs
+  ansible.builtin.set_fact:
+    _openbao_backup_role_id: >-
+      {{ (hostvars[openbao_bootstrap_host]._openbao_role_ids.results
+          | selectattr('item', 'equalto', 'backup') | first).json.data.role_id
+         if hostvars[openbao_bootstrap_host]._openbao_role_ids is defined
+         else '' }}
+    _openbao_backup_upload_token: >-
+      {{ hostvars['localhost'].openbao_backup_upload_token | default('') }}
+  no_log: true
+
+- name: Skip the backup pipeline until its inputs exist
+  ansible.builtin.debug:
+    msg: >-
+      OpenBao backup pipeline not configured — the backup AppRole
+      creds and/or the backup-server upload token are not yet
+      available. Provision auth (-e openbao_admin_token /
+      openbao_rotate_secret_ids) and run `terraform apply` for
+      homelab_backup_credential, then re-run site-openbao.yml.
+  when: >-
+    _openbao_backup_role_id | length == 0
+    or _openbao_backup_upload_token | length == 0
+
+- name: Configure the backup pipeline
+  when:
+    - _openbao_backup_role_id | length > 0
+    - _openbao_backup_upload_token | length > 0
+  block:
+
+    - name: Install jq for the backup wrapper
+      ansible.builtin.apt:
+        name: jq
+        state: present
+
+    - name: Deliver the backup AppRole role_id
+      ansible.builtin.copy:
+        dest: "{{ openbao_config_dir }}/backup-role-id"
+        content: "{{ _openbao_backup_role_id }}"
+        owner: openbao
+        group: openbao
+        mode: "0400"
+      no_log: true
+
+    # secret_id is only minted on rotation runs; on every other run the
+    # file already on disk stays untouched.
+    - name: Deliver the backup AppRole secret_id (rotation runs only)
+      ansible.builtin.copy:
+        dest: "{{ openbao_config_dir }}/backup-secret-id"
+        content: >-
+          {{ (hostvars[openbao_bootstrap_host]._openbao_secret_ids.results
+              | selectattr('item', 'equalto', 'backup')
+              | first).json.data.secret_id }}
+        owner: openbao
+        group: openbao
+        mode: "0400"
+      when: openbao_rotate_secret_ids | bool
+      no_log: true
+
+    - name: Check whether the backup secret_id has been delivered
+      ansible.builtin.stat:
+        path: "{{ openbao_config_dir }}/backup-secret-id"
+      register: _openbao_backup_secret_id
+
+    - name: Fail when the backup secret_id was never minted
+      ansible.builtin.fail:
+        msg: >-
+          {{ openbao_config_dir }}/backup-secret-id is missing. Run
+          site-openbao.yml once with -e openbao_rotate_secret_ids=true
+          to mint and deliver the backup AppRole secret_id.
+      when: not _openbao_backup_secret_id.stat.exists
+
+    - name: Deliver the backup-server upload token
+      ansible.builtin.copy:
+        dest: "{{ openbao_config_dir }}/backup-token"
+        content: "{{ _openbao_backup_upload_token }}"
+        owner: openbao
+        group: openbao
+        mode: "0400"
+      no_log: true
+
+    - name: Install the backup wrapper script
+      ansible.builtin.template:
+        src: openbao-backup.sh.j2
+        dest: /usr/local/sbin/openbao-backup
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install the backup systemd service + timer
+      ansible.builtin.template:
+        src: "openbao-backup.{{ item }}.j2"
+        dest: "/etc/systemd/system/openbao-backup.{{ item }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop:
+        - service
+        - timer
+
+    - name: Enable + start the backup timer
+      ansible.builtin.systemd:
+        name: openbao-backup.timer
+        enabled: true
+        state: started
+        daemon_reload: true

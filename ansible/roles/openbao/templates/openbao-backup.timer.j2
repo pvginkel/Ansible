@@ -1,0 +1,11 @@
+# Managed by the openbao Ansible role.
+[Unit]
+Description=Daily OpenBao backup
+
+[Timer]
+OnCalendar={{ openbao_backup_oncalendar }}
+RandomizedDelaySec={{ openbao_backup_randomized_delay }}
+Persistent=true
+
+[Install]
+WantedBy=timers.target

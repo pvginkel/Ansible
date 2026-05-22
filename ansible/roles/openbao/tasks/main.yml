@@ -106,6 +106,15 @@
   tags:
     - openbao_auth
 
+# Card #12 — daily backup pipeline. Runs on every srvvaultN (each
+# gets the timer); reads the backup AppRole creds from the bootstrap
+# host's approle.yml facts and the upload token from Play 0. Self-skips
+# until both exist.
+- name: Configure the daily backup pipeline
+  ansible.builtin.import_tasks: backup.yml
+  tags:
+    - openbao_backup
+
 # Card #11 — ufw on each srvvaultN. Rules inserted unconditionally;
 # ufw `state: enabled` is gated on openbao_ufw_enable (default false).
 - name: Configure ufw

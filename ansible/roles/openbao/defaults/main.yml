@@ -138,3 +138,15 @@ openbao_ufw_ssh_source_hostname: "srviac.home"
 openbao_ufw_https_source_groups:
   - k8s_prd
   - iac_agent
+
+# ----- Card #12: backup pipeline --------------------------------------
+
+# Daily leader-guarded JSON dump (policies + auth + mounts + KV tree)
+# uploaded to the in-cluster backup-server. The upload token + backup
+# AppRole creds are delivered by tasks/backup.yml; these defaults only
+# shape the wrapper target + timer schedule.
+openbao_backup_server_url: "https://backup-server.home"
+# Fire before the staggered unattended-reboot windows (03:30 / 04:00 /
+# 04:30); the randomized delay spreads the three nodes' timers.
+openbao_backup_oncalendar: "*-*-* 02:00:00"
+openbao_backup_randomized_delay: "1h"
