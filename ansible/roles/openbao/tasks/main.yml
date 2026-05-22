@@ -26,6 +26,16 @@
 - name: Ensure OpenBao subdirectories exist
   ansible.builtin.import_tasks: dirs.yml
 
+# internal_tls runs `step ca certificate` on the target, which must
+# resolve ca.home. ca.home routes through the ~home systemd-resolved
+# drop-in the baseline role renders — but baseline's resolved-restart
+# handler is still pending here (handlers flush at play end), so on a
+# freshly-rebuilt node DNS would be stale for the first leaf issuance.
+# Flush now so ~home routing is live first. No-op on steady-state
+# runs, where baseline notified nothing.
+- name: Apply pending baseline handlers before issuing the leaf
+  ansible.builtin.meta: flush_handlers
+
 - name: Issue the OpenBao listener TLS leaf
   ansible.builtin.import_tasks: internal_tls.yml
 
