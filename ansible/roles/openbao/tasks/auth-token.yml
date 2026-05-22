@@ -9,10 +9,13 @@
 #     group_vars/openbao.yml) — steady state. Drift cycle authenticates
 #     here; root token has been retired.
 #
-# If neither is available, sets `_openbao_token` to empty — calling
-# tasks must `when: _openbao_token | length > 0` to skip cleanly. This
-# is what lets the drift cycle run end-to-end before the admin AppRole
-# is provisioned: auth tasks no-op, everything else converges.
+# If neither yields a usable token — credentials absent, or rejected
+# by a fresh / not-yet-provisioned cluster with no admin AppRole yet —
+# `_openbao_token` is set empty; calling tasks must
+# `when: _openbao_token | length > 0` to skip cleanly. This lets a
+# drift cycle, or a whole-cluster recovery converge, run end-to-end
+# before the admin AppRole exists: auth tasks no-op, everything else
+# converges.
 
 - name: Use the operator-supplied admin token when present
   ansible.builtin.set_fact:
@@ -32,6 +35,10 @@
     validate_certs: true
   register: _openbao_login
   no_log: true
+  # A fresh / not-yet-provisioned cluster has no admin AppRole, so the
+  # login is rejected. Tolerate it and fall through to the empty-token
+  # skip below rather than aborting the converge.
+  failed_when: false
   when:
     - openbao_admin_token | length == 0
     - openbao_admin_role_id | length > 0
@@ -41,11 +48,23 @@
   ansible.builtin.set_fact:
     _openbao_token: "{{ _openbao_login.json.auth.client_token }}"
   no_log: true
+  when: _openbao_login.json.auth.client_token is defined
+
+- name: Warn when the admin AppRole login did not return a token
+  ansible.builtin.debug:
+    msg: >-
+      Admin AppRole login returned no token (HTTP
+      {{ _openbao_login.status | default('n/a') }}); auth-dependent
+      tasks will be skipped. Expected on a fresh or not-yet-provisioned
+      cluster — e.g. a whole-cluster recovery before the snapshot
+      restore. Otherwise check the ansible-vault'd
+      openbao_admin_role_id / openbao_admin_secret_id.
   when:
     - _openbao_login is defined
-    - _openbao_login.json is defined
+    - not (_openbao_login.skipped | default(false))
+    - _openbao_login.json.auth.client_token is not defined
 
-- name: Default _openbao_token to empty when no credentials are configured
+- name: Default _openbao_token to empty when no token was acquired
   ansible.builtin.set_fact:
     _openbao_token: ""
   when: _openbao_token is not defined
