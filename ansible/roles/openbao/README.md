@@ -58,9 +58,10 @@ Design context:
     for the rationale.
 11. **Provision auth** on the bootstrap node — enable approle, write
     the kv-v2 mount, render and write policies (`openbao-admin`,
-    `iac-agent`, `jenkins`, `eso`), write the AppRoles bound to each.
-    Optionally rotate secret-ids (`-e openbao_rotate_secret_ids=true`)
-    and retire the root token (`-e openbao_retire_root_token=true`).
+    `iac-agent`, `jenkins`, `eso`, `backup`), write the AppRoles bound
+    to each. Optionally rotate secret-ids
+    (`-e openbao_rotate_secret_ids=true`) and retire the root token
+    (`-e openbao_retire_root_token=true`).
     Gated on a controller token: `openbao_admin_token` (operator-
     supplied) or an admin AppRole login via vault'd
     `openbao_admin_role_id` / `_secret_id`. Skips cleanly when neither
@@ -76,6 +77,13 @@ Design context:
     8200/tcp from peers + `srviac`, 8201/tcp + VRRP from peers).
     Rules are inserted unconditionally; ufw is only `state: enabled`
     when `openbao_ufw_enable` is `true` (default `false`).
+14. **Run a daily backup** on each node via a leader-guarded systemd
+    timer. The wrapper authenticates with the `backup` AppRole,
+    produces a JSON dump (ACL policies + auth methods + mounts + the
+    KV-v2 tree) on the Raft leader only, and POSTs it to the
+    in-cluster backup-server; followers exit 0. Self-skips until the
+    `backup` AppRole creds and the upload token are both available —
+    see §Backup pipeline below.
 
 ## Inputs
 
@@ -110,8 +118,9 @@ Auth + audit + ufw inputs (cards #40 / #11):
   consumer's policy. Empty list = inert policy (AppRole exists, reads
   return 403 until a path is added). Extend per migrated ref.
 - `openbao_rotate_secret_ids` — when `true`, mints + prints fresh
-  secret-ids for every AppRole (admin, iac-agent, jenkins, eso).
-  Default `false`; flip on the first apply and whenever you rotate.
+  secret-ids for every AppRole (admin, iac-agent, jenkins, eso,
+  backup). Default `false`; flip on the first apply and whenever you
+  rotate.
 - `openbao_retire_root_token` — when `true` and
   `openbao_admin_token` is the root token, revokes it via
   revoke-self. One-shot; set only once admin AppRole creds are in
@@ -120,6 +129,19 @@ Auth + audit + ufw inputs (cards #40 / #11):
   activated). Flip to `true` to lock the host down to the allow-list
   in `tasks/ufw.yml`. Doing so closes wrkdev's SSH path to
   `srvvaultN`; future runs must come through srviac/Jenkins.
+
+Backup pipeline inputs (card #12):
+
+- `openbao_backup_server_url` — in-cluster backup-server base URL
+  (default `https://backup-server.home`); the daily dump POSTs here.
+- `openbao_backup_oncalendar` / `openbao_backup_randomized_delay` —
+  systemd `OnCalendar` + `RandomizedDelaySec` for the timer. Defaults
+  fire before the staggered unattended-reboot windows.
+
+The pipeline takes no group_vars/vault input of its own: it consumes
+the `backup` AppRole creds (provisioned by the auth tasks) and the
+backup-server upload token captured by `site-openbao.yml` Play 0 from
+`terraform output openbao_backup_token`.
 
 ## First-apply procedure (cards #40 / #11)
 
@@ -137,9 +159,11 @@ can capture the admin AppRole creds into vault between them.
    ```
 
    The `approle.yml` task prints role_ids + secret_ids for
-   `openbao-admin`, `iac-agent`, `jenkins`, and `eso` at the end of
-   the play. Capture them before the buffer scrolls off — secret-ids
-   are not recoverable from OpenBao.
+   `openbao-admin`, `iac-agent`, `jenkins`, `eso`, and `backup` at the
+   end of the play. Capture them before the buffer scrolls off —
+   secret-ids are not recoverable from OpenBao. The `backup` creds are
+   the exception: `backup.yml` delivers them straight to each node, so
+   there is nothing to capture for that one.
 
 2. **Vault the admin AppRole creds** into
    `inventories/prd/group_vars/openbao.yml`:
@@ -187,6 +211,39 @@ all OpenBao management must flow through `iac` on `srviac` (the
 Jenkins-driven pipelines or interactive `iac` from VSCode Remote-SSH
 into the Jenkins agent VM). Disable ufw out-of-band (`ufw disable`)
 to break-glass.
+
+## Backup pipeline (card #12)
+
+A daily systemd timer on each node runs a leader-guarded JSON dump to
+the in-cluster backup-server. Bring it online after the cluster is
+provisioned:
+
+1. **Mint the upload credential** (operator runs Terraform):
+
+   ```
+   cd terraform/prd && terraform apply
+   ```
+
+   This creates `homelab_backup_credential.openbao` and exposes the
+   scope-bound token as the `openbao_backup_token` output.
+
+2. **Provision the backup AppRole + deploy the timer:**
+
+   ```
+   cd ansible && poetry run ansible-playbook playbooks/site-openbao.yml \
+       --diff -e openbao_rotate_secret_ids=true
+   ```
+
+   Play 0 reads the token from `terraform output`; `approle.yml` mints
+   the `backup` secret-id; `backup.yml` delivers role_id + secret_id +
+   token to `/etc/openbao/` on each node and enables
+   `openbao-backup.timer`. The rotate flag is required only on this
+   first run — it is what mints the `backup` secret-id.
+
+Steady-state applies need no flag: the role_id re-delivers
+idempotently, the secret-id file persists, the timer stays enabled.
+To rotate the upload token, `terraform taint
+homelab_backup_credential.openbao` then re-apply both steps.
 
 ## Bootstrap procedure
 
