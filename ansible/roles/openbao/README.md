@@ -137,6 +137,9 @@ Backup pipeline inputs (card #12):
 - `openbao_backup_oncalendar` / `openbao_backup_randomized_delay` —
   systemd `OnCalendar` + `RandomizedDelaySec` for the timer. Defaults
   fire before the staggered unattended-reboot windows.
+- `openbao_backup_staging_dir` — controller-side directory the three
+  backup inputs are staged through (default: the playbook's `tmp/`).
+  See §Backup pipeline.
 
 The pipeline takes no group_vars/vault input of its own: it consumes
 the `backup` AppRole creds (provisioned by the auth tasks) and the
@@ -236,16 +239,28 @@ online after the cluster is provisioned:
        --diff -e openbao_rotate_secret_ids=true
    ```
 
-   Play 0 reads the token from `terraform output`; `approle.yml` mints
-   the `backup` secret-id; `backup.yml` delivers role_id + secret_id +
-   token to `/etc/openbao/` on each node and enables
-   `openbao-backup.timer`. The rotate flag is required only on this
-   first run — it is what mints the `backup` secret-id.
+   Play 0 stages the token; `approle.yml` mints the `backup` secret-id
+   and stages it with the role_id; `backup.yml` delivers all three to
+   `/etc/openbao/` on each node and enables `openbao-backup.timer`. The
+   rotate flag is required only on this first run — it is what mints
+   the `backup` secret-id.
 
 Steady-state applies need no flag: the role_id re-delivers
 idempotently, the secret-id file persists, the timer stays enabled.
 To rotate the upload token, `terraform taint
 homelab_backup_credential.openbao` then re-apply both steps.
+
+**Credential transport.** The three inputs reach each node through
+controller-side staging files in `openbao_backup_staging_dir` (the
+playbook's `tmp/`): `approle.yml`, on the bootstrap host, writes the
+`backup` AppRole `role_id` every provisioning run and the `secret_id`
+on rotation runs; `site-openbao.yml` Play 0 writes the upload token.
+`backup.yml` on every node reads them back. The handoff cannot use
+`hostvars` — the values are `no_log`, and ansible-core 2.20 no longer
+exposes `no_log` data across hosts. The staging files persist: they
+are the rendezvous between the bootstrap host's converge and the
+later `serial: 1` batches, and they keep `backup.yml` evaluable under
+a drift `--check`. `tmp/` is gitignored.
 
 ## Bootstrap procedure
 

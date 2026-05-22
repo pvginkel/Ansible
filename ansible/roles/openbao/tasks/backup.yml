@@ -1,55 +1,70 @@
 ---
-# Card #12 — daily leader-guarded JSON dump to the in-cluster
+# Card #12 — daily leader-guarded backup to the in-cluster
 # backup-server. Runs on every srvvaultN (each gets the timer; the
 # wrapper's leader guard decides who actually dumps).
 #
-# Three inputs the wrapper needs on disk, all delivered here:
-#   - backup AppRole role_id — provisioned every run by approle.yml
-#     on the bootstrap host; read here from its hostvars.
-#   - backup AppRole secret_id — minted by approle.yml only on
-#     rotation runs (-e openbao_rotate_secret_ids=true); on other
-#     runs the file already on disk is left untouched.
-#   - the scope-bound upload token — captured by site-openbao.yml
-#     Play 0 from `terraform output` onto localhost.
-# Until all three can be satisfied the pipeline self-skips: no timer,
-# no failing unit.
+# Three inputs the wrapper needs on disk under {{ openbao_config_dir }}:
+#   backup-role-id    — the backup AppRole role_id
+#   backup-secret-id  — the backup AppRole secret_id
+#   backup-token      — the scope-bound backup-server upload token
+#
+# None can be read across `hostvars`: they are no_log, and ansible-core
+# 2.20 no longer exposes no_log data between hosts. The producers stage
+# them to controller-side files instead (openbao_backup_staging_dir):
+#   - approle.yml, on the bootstrap host, stages role_id every
+#     provisioning run and secret_id on rotation runs;
+#   - site-openbao.yml Play 0 stages the upload token from
+#     `terraform output`.
+# This task reads those files back and delivers them to every node.
+# Until all three inputs are resolvable the pipeline self-skips: no
+# timer, no failing unit.
 
-- name: Resolve the backup pipeline inputs
-  ansible.builtin.set_fact:
-    _openbao_backup_role_id: >-
-      {{ (hostvars[openbao_bootstrap_host]._openbao_role_ids.results
-          | selectattr('item', 'equalto', 'backup') | first).json.data.role_id
-         if hostvars[openbao_bootstrap_host]._openbao_role_ids is defined
-         else '' }}
-    _openbao_backup_upload_token: >-
-      {{ hostvars['localhost'].openbao_backup_upload_token | default('') }}
-  no_log: true
+- name: Stat the staged backup AppRole role_id
+  ansible.builtin.stat:
+    path: "{{ openbao_backup_staging_dir }}/openbao-backup-role-id"
+  delegate_to: localhost
+  become: false
+  register: _openbao_staged_role_id
 
-- name: Check whether the backup AppRole secret_id is already on disk
+- name: Stat the staged backup AppRole secret_id
+  ansible.builtin.stat:
+    path: "{{ openbao_backup_staging_dir }}/openbao-backup-secret-id"
+  delegate_to: localhost
+  become: false
+  register: _openbao_staged_secret_id
+
+- name: Stat the staged backup-server upload token
+  ansible.builtin.stat:
+    path: "{{ openbao_backup_staging_dir }}/openbao-backup-token"
+  delegate_to: localhost
+  become: false
+  register: _openbao_staged_token
+
+- name: Check whether the backup AppRole secret_id is already on the node
   ansible.builtin.stat:
     path: "{{ openbao_config_dir }}/backup-secret-id"
-  register: _openbao_backup_secret_id
+  register: _openbao_node_secret_id
 
-# Configurable once the role_id + upload token are available AND the
-# secret_id can be placed — either this run mints it (rotation) or a
-# prior rotation run already delivered the file.
+# Configurable once the role_id + upload token are staged AND the
+# secret_id can be placed — either it is staged now (a rotation run
+# just minted it) or a prior run already delivered it to the node.
 - name: Decide whether the backup pipeline can be configured
   ansible.builtin.set_fact:
     _openbao_backup_ready: >-
-      {{ (_openbao_backup_role_id | length > 0)
-         and (_openbao_backup_upload_token | length > 0)
-         and ((openbao_rotate_secret_ids | bool)
-              or _openbao_backup_secret_id.stat.exists) }}
+      {{ _openbao_staged_role_id.stat.exists
+         and _openbao_staged_token.stat.exists
+         and (_openbao_staged_secret_id.stat.exists
+              or _openbao_node_secret_id.stat.exists) }}
 
 - name: Skip the backup pipeline until its inputs exist
   ansible.builtin.debug:
     msg: >-
       OpenBao backup pipeline not configured. Needs: the backup
-      AppRole creds (provision auth with -e openbao_admin_token), the
-      backup-server upload token (`terraform apply` for
-      homelab_backup_credential), and one run with
-      -e openbao_rotate_secret_ids=true to mint the backup secret_id.
-      Re-run site-openbao.yml once those are in place.
+      AppRole creds (provision auth with -e openbao_admin_token, plus
+      one run with -e openbao_rotate_secret_ids=true to mint the
+      backup secret_id) and the backup-server upload token
+      (`terraform apply` for homelab_backup_credential). Re-run
+      site-openbao.yml once those are in place.
   when: not _openbao_backup_ready
 
 - name: Configure the backup pipeline
@@ -64,29 +79,30 @@
     - name: Deliver the backup AppRole role_id
       ansible.builtin.copy:
         dest: "{{ openbao_config_dir }}/backup-role-id"
-        content: "{{ _openbao_backup_role_id }}"
+        content: "{{ lookup('file', openbao_backup_staging_dir + '/openbao-backup-role-id') }}"
         owner: openbao
         group: openbao
         mode: "0400"
       no_log: true
 
-    - name: Deliver the backup AppRole secret_id (rotation runs only)
+    # Delivered whenever a staged secret_id exists — a rotation run
+    # just staged a fresh one, or a prior rotation's file persists.
+    # When neither, _openbao_backup_ready already required the file to
+    # be on the node, so the wrapper still has a usable credential.
+    - name: Deliver the backup AppRole secret_id
       ansible.builtin.copy:
         dest: "{{ openbao_config_dir }}/backup-secret-id"
-        content: >-
-          {{ (hostvars[openbao_bootstrap_host]._openbao_secret_ids.results
-              | selectattr('item', 'equalto', 'backup')
-              | first).json.data.secret_id }}
+        content: "{{ lookup('file', openbao_backup_staging_dir + '/openbao-backup-secret-id') }}"
         owner: openbao
         group: openbao
         mode: "0400"
-      when: openbao_rotate_secret_ids | bool
+      when: _openbao_staged_secret_id.stat.exists
       no_log: true
 
     - name: Deliver the backup-server upload token
       ansible.builtin.copy:
         dest: "{{ openbao_config_dir }}/backup-token"
-        content: "{{ _openbao_backup_upload_token }}"
+        content: "{{ lookup('file', openbao_backup_staging_dir + '/openbao-backup-token') }}"
         owner: openbao
         group: openbao
         mode: "0400"

@@ -141,12 +141,22 @@ openbao_ufw_https_source_groups:
 
 # ----- Card #12: backup pipeline --------------------------------------
 
-# Daily leader-guarded JSON dump (policies + auth + mounts + KV tree)
-# uploaded to the in-cluster backup-server. The upload token + backup
-# AppRole creds are delivered by tasks/backup.yml; these defaults only
-# shape the wrapper target + timer schedule.
+# Daily leader-guarded backup (a Raft snapshot plus a plaintext export
+# of policies, auth methods, mounts, and the KV tree) uploaded to the
+# in-cluster backup-server. The upload token + backup AppRole creds are
+# delivered by tasks/backup.yml; these defaults only shape the wrapper
+# target + timer schedule.
 openbao_backup_server_url: "https://backup-server.home"
 # Fire before the staggered unattended-reboot windows (03:30 / 04:00 /
 # 04:30); the randomized delay spreads the three nodes' timers.
 openbao_backup_oncalendar: "*-*-* 02:00:00"
 openbao_backup_randomized_delay: "1h"
+
+# Controller-side staging directory for the backup pipeline's three
+# inputs (the backup AppRole role_id + secret_id and the upload token).
+# The cross-host handoff — bootstrap host's approle.yml and Play 0 to
+# every node's backup.yml — cannot go through `hostvars`: the values
+# are no_log, and ansible-core 2.20 no longer exposes no_log data
+# across hosts. Each producer writes a file here; backup.yml reads them
+# back. Same tmp/ the playbook stages the transient known_hosts in.
+openbao_backup_staging_dir: "{{ playbook_dir }}/../../tmp"

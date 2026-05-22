@@ -25,9 +25,12 @@
 #
 # Play 0 also captures `terraform output openbao_backup_token` — the
 # scope-bound upload token minted by homelab_backup_credential — and
-# stashes it on localhost for the openbao role's backup task (card
-# #12). A missing output (no `terraform apply` yet) is tolerated: the
-# token stays empty and backup.yml self-skips.
+# stages it to tmp/openbao-backup-token for the openbao role's backup
+# task (card #12). The handoff is a file, not a `hostvars` fact: the
+# token is no_log, and ansible-core 2.20 no longer exposes no_log data
+# across hosts. A missing output (no `terraform apply` yet) is
+# tolerated: any stale staged token is removed and backup.yml
+# self-skips.
 
 - name: Seed transient known_hosts + capture the backup token
   hosts: localhost
@@ -36,6 +39,7 @@
   vars:
     _tf_workspace: "{{ playbook_dir }}/../../terraform/prd"
     _transient_known_hosts: "{{ playbook_dir }}/../../tmp/known_hosts.openbao"
+    _backup_token_file: "{{ playbook_dir }}/../../tmp/openbao-backup-token"
   tasks:
     # `terraform output` opens the working directory and validates
     # against .terraform/providers, so a fresh checkout / container
@@ -92,7 +96,8 @@
     # Card #12 — the backup pipeline's scope-bound upload token, minted
     # by homelab_backup_credential.openbao. A non-zero rc means the
     # output doesn't exist yet (no `terraform apply` since the resource
-    # landed); the token is left empty and backup.yml self-skips.
+    # landed); the staged token file is removed and backup.yml
+    # self-skips.
     - name: Read the backup-server upload token from terraform output
       ansible.builtin.command:
         argv:
@@ -107,10 +112,22 @@
       failed_when: false
       no_log: true
 
-    - name: Stash the backup-server upload token for the openbao role
-      ansible.builtin.set_fact:
-        openbao_backup_upload_token: "{{ _tf_backup_token.stdout if _tf_backup_token.rc == 0 else '' }}"
+    # The openbao role's backup.yml reads this file back on every node.
+    # It cannot cross `hostvars` — the token is no_log, which ansible-
+    # core 2.20 no longer exposes between hosts.
+    - name: Stage the backup-server upload token for the openbao role
+      ansible.builtin.copy:
+        dest: "{{ _backup_token_file }}"
+        content: "{{ _tf_backup_token.stdout }}"
+        mode: "0600"
+      when: _tf_backup_token.rc == 0
       no_log: true
+
+    - name: Drop a stale staged upload token when terraform has none
+      ansible.builtin.file:
+        path: "{{ _backup_token_file }}"
+        state: absent
+      when: _tf_backup_token.rc != 0
 
 # Pre-certificate ssh_args override (used by both the bootstrap play
 # and the converge play below). Replaces ssh_args wholesale — for
