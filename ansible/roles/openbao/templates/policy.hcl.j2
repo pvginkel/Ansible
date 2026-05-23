@@ -3,10 +3,27 @@
    paths secrets.yaml references, never blanket `kv/*`. KV-v2 splits
    reads (kv/data/<...>) from list/version ops (kv/metadata/<...>);
    we grant both for each entry so `bao kv list` works in operator
-   diagnostics. An empty path list produces a comment-only policy
-   that grants nothing — a fully-formed but inert AppRole. #}
+   diagnostics. An empty path list produces a token-self-only policy —
+   the AppRole authenticates and can introspect its own token, but
+   reads nothing. #}
 # {{ _policy_name }} — managed by the openbao role
 # Paths: {{ _policy_paths | length }}
+
+# Token-self management. AppRoles run with `token_no_default_policy`,
+# so the default policy's lookup-self / renew-self grants are absent;
+# Vault clients (ESO, the Jenkins Vault plugin, the iac-impl resolver)
+# call lookup-self after login to validate the token and renew-self
+# before expiry. No privilege escalation — these only act on the
+# caller's own token.
+path "auth/token/lookup-self" {
+  capabilities = ["read"]
+}
+path "auth/token/renew-self" {
+  capabilities = ["update"]
+}
+path "sys/capabilities-self" {
+  capabilities = ["update"]
+}
 
 {% for p in _policy_paths %}
 path "{{ openbao_kv_mount }}/data/{{ p }}" {
