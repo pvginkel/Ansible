@@ -46,3 +46,11 @@ openbao_admin_secret_id: !vault |
           3636633331316634350a366333353934636637366236353532613632383566303936616531353165
           65323665623033303161613133376661623632303834653235613063386362303837373861623865
           3030386561316462643036323965643265626333393338663536
+
+# Pipelines reference Jenkins secrets dynamically — there's no
+# enumerable manifest like iac/secrets.yaml or an ExternalSecret's
+# remoteRefs to mirror — so the policy grants the consumer's whole
+# prefix instead of each leaf. Cross-consumer isolation is preserved:
+# the jenkins AppRole still cannot read kv/iac, kv/eso, or kv/shared.
+openbao_jenkins_kv_paths:
+  - jenkins/*
