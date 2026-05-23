@@ -7,7 +7,7 @@ runs `bao operator init`; the other two then Raft-join. Later applies
 are no-ops on an already-initialized cluster.
 
 Design context:
-[`/work/AnsibleSpecs/phases/openbao.md`](../../../../AnsibleSpecs/phases/openbao.md).
+[`/work/AnsibleSpecs/phases/completed/openbao.md`](../../../../AnsibleSpecs/phases/completed/openbao.md).
 
 ## What it does
 
@@ -331,7 +331,7 @@ the phase-2 doc §Bootstrap procedure.
   template sets it explicitly.
 
 - **Seal-key ownership.** The phase doc and the
-  [`openbao-static-seal`](../../../../AnsibleSpecs/slices/openbao-static-seal.md)
+  [`openbao-static-seal`](../../../../AnsibleSpecs/slices/completed/openbao-static-seal.md)
   slice pin the seal key at `root:openbao 0440`. This role installs
   it as `openbao:openbao 0400` instead — the .deb postinst runs
   `chown --recursive openbao:openbao /etc/openbao` on every

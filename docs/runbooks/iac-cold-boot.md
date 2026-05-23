@@ -13,11 +13,11 @@ literals for every `!bao` ref so `iac` runs without an OpenBao round
 trip, do the recovery work, then flip back.
 
 Design context:
-[`/work/AnsibleSpecs/slices/iac-secrets-resolver.md`](../../../AnsibleSpecs/slices/iac-secrets-resolver.md),
+[`/work/AnsibleSpecs/slices/completed/iac-secrets-resolver.md`](../../../AnsibleSpecs/slices/completed/iac-secrets-resolver.md),
 "Runtime secrets — IaC agent resolver" in
 [`/work/AnsibleSpecs/decisions.md`](../../../AnsibleSpecs/decisions.md),
 and §Secrets resolver in
-[`/work/AnsibleSpecs/phases/openbao.md`](../../../AnsibleSpecs/phases/openbao.md).
+[`/work/AnsibleSpecs/phases/completed/openbao.md`](../../../AnsibleSpecs/phases/completed/openbao.md).
 
 ## Conventions
 

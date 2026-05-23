@@ -6,7 +6,7 @@ admin, recover a lost node, recover the whole cluster, or read a
 secret out of a backup.
 
 Design context:
-[`../../../AnsibleSpecs/phases/openbao.md`](../../../AnsibleSpecs/phases/openbao.md),
+[`../../../AnsibleSpecs/phases/completed/openbao.md`](../../../AnsibleSpecs/phases/completed/openbao.md),
 "Secrets — OpenBao" and "OpenBao backup / DR" in
 [`../../../AnsibleSpecs/decisions.md`](../../../AnsibleSpecs/decisions.md),
 and the role README at
