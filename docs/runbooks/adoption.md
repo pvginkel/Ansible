@@ -67,7 +67,7 @@ poetry run ansible-playbook playbooks/adopt.yml \
 
 (No `-K` — root needs no sudo password. The `pve-root` key must be loaded in `ssh-agent`.)
 
-The PVE adoption order is operator's choice; the cluster keeps working through it. Default suggestion: pick a non-master node first (`pve2`), confirm `site.yml --check --diff` against it, then the second non-master (`pve1`), then the master (`pve`).
+The PVE adoption order is operator's choice; the cluster keeps working through it. Default suggestion: pick a non-master node first (`pve2`), confirm `site.yml --check` against it, then the second non-master (`pve1`), then the master (`pve`).
 
 ## Wire the new file into ansible.cfg
 
@@ -82,7 +82,7 @@ Commit `ansible.cfg` and the new `files/known_hosts.d/<basename>` together. From
 ## Verify
 
 ```sh
-poetry run ansible-playbook playbooks/site.yml -i inventories/<inv> --limit <host> --check --diff
+poetry run ansible-playbook playbooks/site.yml -i inventories/<inv> --limit <host> --check
 ```
 
 A second run should report `changed=0`. If `--check` flags drift, that's expected on first contact — apply for real:

@@ -72,8 +72,7 @@ session. For interactive administration:
 
   ```bash
   cd ansible && poetry run ansible srvvault1 -m debug \
-      -a 'msg="role_id={{ openbao_admin_role_id }} secret_id={{ openbao_admin_secret_id }}"' \
-      --ask-vault-pass
+      -a 'msg="role_id={{ openbao_admin_role_id }} secret_id={{ openbao_admin_secret_id }}"'
   ```
 
 ## 2 — Single-node loss
@@ -94,8 +93,7 @@ voter.
    reconverge to a no-op:
 
    ```bash
-   cd ansible && poetry run ansible-playbook playbooks/site-openbao.yml \
-       --ask-vault-pass --diff
+   cd ansible && poetry run ansible-playbook playbooks/site-openbao.yml
    ```
 
    `elect-bootstrap.yml` probes all peers, sees the cluster already
@@ -145,8 +143,7 @@ and the latest backup's Raft snapshot is restored into it.
    auto-unseals; `srvvault1` initialises, `srvvault2/3` join:
 
    ```bash
-   cd ansible && poetry run ansible-playbook playbooks/site-openbao.yml \
-       --ask-vault-pass --diff
+   cd ansible && poetry run ansible-playbook playbooks/site-openbao.yml
    ```
 
    Capture the fresh root token from the init output — it authorises

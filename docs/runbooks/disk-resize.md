@@ -35,7 +35,7 @@ PVE resizes the underlying logical volume online — no VM reboot.
 From the `ansible/` directory:
 
 ```sh
-poetry run ansible-playbook playbooks/grow-disks.yml --limit <host> --check --diff
+poetry run ansible-playbook playbooks/grow-disks.yml --limit <host> --check
 poetry run ansible-playbook playbooks/grow-disks.yml --limit <host>
 ```
 

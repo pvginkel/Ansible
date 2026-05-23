@@ -35,7 +35,7 @@ SSH in and use `iac`. Two forms, one lock:
 ```sh
 ssh srviac
 iac                           # interactive bash inside the container
-iac -c 'cd /work/Ansible/ansible && ansible-playbook playbooks/site.yml --check --diff --limit srvxxx'
+iac -c 'cd /work/Ansible/ansible && ansible-playbook playbooks/site.yml --limit srvxxx --check'
 ```
 
 Both acquire `/var/lock/iac.lock` via `flock -w 60`. On contention, the call fails fast (within 60 s) with the holder PID surfaced — there is no waiting; rerun once the holder releases.
@@ -63,7 +63,7 @@ This is the sequence to stand `srviac` up the first time, after all the source c
 2. **Apply Ansible to `srviac`** — bootstrap, baseline (including node_exporter + unattended-upgrades), `iac_agent` role.
 
    ```sh
-   cd ansible && poetry run ansible-playbook playbooks/site.yml --diff --limit srviac
+   cd ansible && poetry run ansible-playbook playbooks/site.yml --limit srviac
    ```
 
    The role will fail loudly at the secrets step with "you need to populate secrets" — that's expected on a fresh host.
@@ -84,7 +84,7 @@ This is the sequence to stand `srviac` up the first time, after all the source c
 4. **Re-apply the role** to verify it converges cleanly.
 
    ```sh
-   poetry run ansible-playbook playbooks/site.yml --diff --limit srviac
+   poetry run ansible-playbook playbooks/site.yml --limit srviac
    ```
 
    The agent container should reach the controller; `systemctl status jenkins-agent` on `srviac` shows it running.
@@ -102,7 +102,7 @@ This is the sequence to stand `srviac` up the first time, after all the source c
    ```sh
    ssh srviac
    iac -c 'cd /work/Ansible/terraform/prd && terraform plan'           # should be no-op
-   iac -c 'cd /work/Ansible/ansible && ansible-playbook playbooks/site.yml --check --diff --limit "!iac_agent"'
+   iac -c 'cd /work/Ansible/ansible && ansible-playbook playbooks/site.yml --limit "!iac_agent" --check'
    ```
 
    Both clean → green light.
@@ -124,7 +124,7 @@ From `wrkdev`:
 
 ```sh
 cd terraform/prd && terraform apply -replace='module.vm["srviac"]'
-cd ../../ansible && poetry run ansible-playbook playbooks/site.yml --diff --limit srviac
+cd ../../ansible && poetry run ansible-playbook playbooks/site.yml --limit srviac
 # then re-populate /etc/iac/secrets.yaml as in step 3 of cutover
 ```
 

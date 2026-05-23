@@ -38,7 +38,7 @@ terraform plan -detailed-exitcode ; echo "exit=$?"        # expect 0
 ```sh
 cd ../../ansible
 poetry run ansible-playbook playbooks/site.yml \
-    -i inventories/scratch --limit wrkscratchk8s1 --check --diff
+    -i inventories/scratch --limit wrkscratchk8s1 --check
 # expect: changed=0, failed=0
 ```
 
@@ -69,7 +69,7 @@ First run on a fresh VM has `changed > 0` — that's the role landing. Watch for
 
 ```sh
 poetry run ansible-playbook playbooks/site.yml \
-    -i inventories/scratch --limit wrkscratchk8s1 --check --diff
+    -i inventories/scratch --limit wrkscratchk8s1 --check
 # expect: changed=0
 ```
 
@@ -91,7 +91,7 @@ The full procedure lands when Phase 4 (k8s) and Phase 5 (Ceph) need it. Outline 
 4. **`terraform apply -replace`** on the VM resource. Same shape as the scratch flow above.
 5. **`site.yml`** — bootstrap + baseline + microk8s/microceph role lands the cluster bits.
 6. **Re-join the cluster.** k8s: uncordon. Ceph: `noout` lifted, OSDs come back, wait for `HEALTH_OK`.
-7. **Verify zero residual** with `--check --diff` against the rebuilt host.
+7. **Verify zero residual** with `--check` against the rebuilt host.
 
 Phase 4 / 5 will produce concrete playbooks for steps 1, 6. Until then, this section is forward-looking — don't try to rebuild a k8s or Ceph node by hand without the playbook backing.
 
@@ -136,4 +136,4 @@ The Ceph side (re-adding the OSD on top of the new disk, balancing) is owned by 
 - **VM created but cloud-init never finished:** Terraform times out waiting for the IP. SSH to the PVE host and `qm console <vmid>` or check `journalctl -u cloud-init` on the VM. Usually `qemu-guest-agent` failing to install — fix the snippet, `terraform apply -replace` again.
 - **`site.yml` fails on the rebuilt VM:** the VM exists, just isn't fully roled. Fix the role and re-run; cloud-init has done its part (`ansible` user + host key) and bootstrap can re-run idempotently.
 
-For cluster members, leave the node cordoned/drained until `site.yml --check --diff` reports zero changes. Only then bring it back to the cluster.
+For cluster members, leave the node cordoned/drained until `site.yml --check` reports zero changes. Only then bring it back to the cluster.

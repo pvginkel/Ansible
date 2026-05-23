@@ -46,13 +46,13 @@ From the `ansible/` directory, against the whole scratch fleet:
 
 ```sh
 cd ../../ansible
-poetry run ansible-playbook playbooks/site.yml -i inventories/scratch --limit scratch --check --diff
+poetry run ansible-playbook playbooks/site.yml -i inventories/scratch --limit scratch --check
 ```
 
 Or against a single host:
 
 ```sh
-poetry run ansible-playbook playbooks/site.yml -i inventories/scratch --limit wrkscratchk8s1 --check --diff
+poetry run ansible-playbook playbooks/site.yml -i inventories/scratch --limit wrkscratchk8s1 --check
 ```
 
 Review the diff. It should show:

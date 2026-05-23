@@ -127,7 +127,7 @@ poetry run ansible -i inventories/prd k8s_prd -m command \
     -a 'microk8s kubectl get nodes -o wide' --become
 # expect: all three workers Ready
 
-poetry run ansible-playbook playbooks/site.yml --limit <target> --check --diff
+poetry run ansible-playbook playbooks/site.yml --limit <target> --check
 # expect: changed=0
 ```
 
@@ -206,7 +206,7 @@ poetry run ansible -i inventories/prd srvk8s1 -m command \
     -a 'zpool list -H -o name,health' --become
 # expect: zpool2 ONLINE
 
-poetry run ansible-playbook playbooks/site.yml --limit srvk8s1 --check --diff
+poetry run ansible-playbook playbooks/site.yml --limit srvk8s1 --check
 # expect: changed=0
 ```
 
@@ -253,7 +253,7 @@ There's no "uncordon to roll back" — by the time `terraform apply` runs the ol
 - **`rebuild-k8s.yml` fails on cluster-join:** the new VM exists but isn't in the cluster. `microk8s status` on the rebuild target tells you what's happening. Common cause: stale `/var/snap/microk8s/common/var/lib/dqlite` from a half-completed prior attempt. `microk8s reset` on the new node, re-run the playbook.
 - **`zpool import zpool2` fails on `srvk8s1`:** the role passes `-f` because rebuilds always cross hostids (the new VM has a different ZFS hostid than the destroyed one). The multi-mount risk that `-f` overrides cannot apply because the source VM is destroyed before the NVMe is reattached. If a future rebuild surfaces a different import failure, fix forward — `microk8s reset` on the new node and re-run the playbook is the reset hammer.
 
-Verify `site.yml --check --diff` reports zero changes against the rebuild target before declaring success.
+Verify `site.yml --check` reports zero changes against the rebuild target before declaring success.
 
 ## What this runbook does not cover
 
