@@ -164,6 +164,8 @@ and the latest backup's Raft snapshot is restored into it.
    root token is overwritten in the process; from here authenticate
    with the `openbao-admin` AppRole (its creds are in the snapshot,
    unchanged) or mint a root token from the Shamir recovery keys.
+   The fresh init file at `/dev/shm/openbao-init.json` is now stale —
+   leave it; tmpfs clears on reboot and the keys it holds are inert.
 
 5. **Verify.**
 
@@ -212,8 +214,11 @@ Timings from the recovery drills (cards #13 / #14):
 
 - **Single-node loss** — _TBD: record VM rebuild, converge, and
   Raft-join durations from the card #13 drill._
-- **Whole-cluster loss** — _TBD: record rebuild, converge, snapshot
-  fetch/decrypt, and restore durations from the card #14 drill._
+- **Whole-cluster loss** (card #14, 2026-05-23) — converge of a
+  fresh empty cluster took 6m32s; snapshot restore plus end-to-end
+  verification (peers, kv read) finished ~5 min after that. Terraform
+  rebuild and snapshot fetch/decrypt durations weren't captured this
+  round; record them next drill.
 
 ## What can go wrong
 
