@@ -104,6 +104,42 @@ pipeline {
                 '''
             }
         }
+
+        stage('Homelab CA root drift') {
+            steps {
+                // The in-repo homelab-root.crt is the trust anchor
+                // baseline distributes to every managed host. step-ca
+                // serves the live set of configured roots at
+                // https://ca.home/roots.pem; if those disagree, either
+                // the CA has been rotated without updating the repo or
+                // the repo copy was edited without rotating the CA —
+                // both are drift the operator wants to know about.
+                //
+                // --cacert pins the TLS handshake to the in-repo root,
+                // so this also catches the case where ca.home's leaf
+                // has been re-issued under a new root the repo does not
+                // yet trust (curl exits non-zero before we ever read
+                // the body).
+                sh '''
+                    iac -c '
+                        set -euo pipefail
+                        cd /work/Ansible
+                        expected=ansible/roles/baseline/files/homelab-root.crt
+                        tmp=$(mktemp)
+                        trap "rm -f $tmp" EXIT
+                        if ! curl --cacert "$expected" --silent --fail --show-error \
+                                https://ca.home/roots.pem -o "$tmp"; then
+                            echo "DRIFT: could not fetch https://ca.home/roots.pem with the in-repo root as the trust anchor — CA may have been rotated" >&2
+                            exit 1
+                        fi
+                        if ! diff -u "$expected" "$tmp"; then
+                            echo "DRIFT: https://ca.home/roots.pem differs from $expected" >&2
+                            exit 1
+                        fi
+                    '
+                '''
+            }
+        }
     }
 
     post {
