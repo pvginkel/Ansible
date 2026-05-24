@@ -147,6 +147,16 @@
   tags:
     - openbao_auth
 
+# Keycloak-backed OIDC auth for the web UI + CLI. Bootstrap-host only;
+# gated internally on openbao_oidc_client_secret being non-empty so the
+# role stays a no-op for environments that haven't wired Keycloak yet.
+- name: Provision OIDC auth + admin role
+  ansible.builtin.import_tasks: oidc.yml
+  when: inventory_hostname == openbao_bootstrap_host
+  tags:
+    - openbao_auth
+    - openbao_oidc
+
 # Card #12 — daily backup pipeline. Runs on every srvvaultN (each
 # gets the timer); reads the backup AppRole creds from the bootstrap
 # host's approle.yml facts and the upload token from Play 0. Self-skips

@@ -149,6 +149,65 @@ openbao_ufw_https_source_groups:
   - k8s_prd
   - iac_agent
 
+# ----- OIDC (Keycloak-backed UI / CLI login) --------------------------
+#
+# OIDC is opt-in per environment. tasks/oidc.yml gates the whole
+# provisioning on a non-empty openbao_oidc_client_secret, so leaving
+# these defaults empty keeps the role no-op until Keycloak is wired in
+# group_vars.
+
+# Keycloak realm issuer URL — `https://<keycloak>/realms/<realm>`. The
+# OIDC discovery endpoint hangs off `.well-known/openid-configuration`
+# under this URL; OpenBao reaches it from each srvvaultN at login time.
+openbao_oidc_discovery_url: ""
+
+# Keycloak client id for the OpenBao client. Matches the Client ID
+# field in the Keycloak admin UI.
+openbao_oidc_client_id: "openbao"
+
+# Vaulted client secret. Empty default → oidc.yml no-ops entirely.
+openbao_oidc_client_secret: ""
+
+# Default OIDC role — what the UI's "Sign in with OIDC" button maps to
+# when no role is supplied. 1:1 with the OpenBao policy name so a
+# Keycloak group, the OIDC role, and the policy all share the name.
+openbao_oidc_default_role: "openbao-admin"
+
+# ID-token claim used as the OpenBao identity in audit logs.
+# `preferred_username` is the Keycloak default for human-readable
+# usernames.
+openbao_oidc_admin_user_claim: "preferred_username"
+
+# ID-token claim carrying group membership. Matches the Token Claim
+# Name on the client's Group Membership mapper (with Full Group Path
+# = off, so values are bare names like `openbao-admin` rather than
+# `/openbao-admin`).
+openbao_oidc_admin_groups_claim: "groups"
+
+# Keycloak group whose members the OIDC role accepts.
+openbao_oidc_admin_bound_group: "openbao-admin"
+
+# Policies the OIDC role's token carries. token_no_default_policy is
+# set unconditionally so the role is strictly bound here.
+openbao_oidc_admin_policies:
+  - openbao-admin
+
+# Token TTLs for the admin OIDC role. Renewable up to max_ttl —
+# covers a workday with periodic refresh, then forces re-login.
+openbao_oidc_admin_token_ttl: 1h
+openbao_oidc_admin_token_max_ttl: 8h
+
+# Allowed redirect URIs. The UI callback covers `https://secrets/...`
+# (the short-name VIP — listener cert SAN list covers both `secrets`
+# and `secrets.home`, but the bare form is the canonical entry point
+# and the only redirect registered in Keycloak); localhost:8250 covers
+# `bao login -method=oidc` from a CLI session, which spins up a local
+# listener on that port.
+openbao_oidc_admin_redirect_uris:
+  - "https://secrets/ui/vault/auth/oidc/oidc/callback"
+  - "https://secrets.home/ui/vault/auth/oidc/oidc/callback"
+  - "http://localhost:8250/oidc/callback"
+
 # ----- Card #12: backup pipeline --------------------------------------
 
 # Daily leader-guarded backup (a Raft snapshot plus a plaintext export

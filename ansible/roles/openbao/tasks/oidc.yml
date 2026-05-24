@@ -1,0 +1,137 @@
+---
+# OIDC provisioning — Keycloak-backed web UI / CLI login. Runs only on
+# the bootstrap host; OIDC config, role, and the underlying auth mount
+# live in the Raft store and replicate to followers. Gated on a
+# non-empty `openbao_oidc_client_secret`: when unset (default), the
+# entire file no-ops so a drift cycle stays quiet before OIDC is wired
+# in. The same gate handles the unexercised-config concern — set the
+# secret in ansible-vault when you actually wire it up.
+
+- name: Acquire the controller's OpenBao token
+  ansible.builtin.import_tasks: auth-token.yml
+
+- name: Skip OIDC provisioning when no client secret is configured
+  ansible.builtin.debug:
+    msg: >-
+      No openbao_oidc_client_secret configured. Vault the Keycloak
+      client secret into inventories/prd/group_vars/openbao.yml and
+      set openbao_oidc_discovery_url to the Keycloak realm issuer URL.
+      OIDC provisioning skipped.
+  when: openbao_oidc_client_secret | length == 0
+
+- name: Provision OIDC auth method, config, and admin role
+  when:
+    - openbao_oidc_client_secret | length > 0
+    - _openbao_token | length > 0
+  vars:
+    _bao_headers:
+      X-Vault-Token: "{{ _openbao_token }}"
+  block:
+
+    - name: Assert OIDC inputs
+      ansible.builtin.assert:
+        that:
+          - openbao_oidc_discovery_url | length > 0
+          - openbao_oidc_client_id | length > 0
+          - openbao_oidc_default_role | length > 0
+          - openbao_oidc_admin_user_claim | length > 0
+          - openbao_oidc_admin_groups_claim | length > 0
+          - openbao_oidc_admin_bound_group | length > 0
+          - openbao_oidc_admin_policies | length > 0
+          - openbao_oidc_admin_redirect_uris | length > 0
+        fail_msg: >-
+          OIDC inputs missing. Required when the client secret is set:
+          openbao_oidc_discovery_url, openbao_oidc_client_id,
+          openbao_oidc_default_role, openbao_oidc_admin_user_claim,
+          openbao_oidc_admin_groups_claim,
+          openbao_oidc_admin_bound_group,
+          openbao_oidc_admin_policies,
+          openbao_oidc_admin_redirect_uris.
+
+    # ----- oidc auth method -------------------------------------------
+
+    - name: Read enabled auth methods
+      ansible.builtin.uri:
+        url: "{{ openbao_admin_api_addr }}/v1/sys/auth"
+        method: GET
+        headers: "{{ _bao_headers }}"
+        status_code: 200
+        validate_certs: true
+      register: _openbao_auth_methods_oidc
+      no_log: true
+
+    - name: Enable the oidc auth method
+      ansible.builtin.uri:
+        url: "{{ openbao_admin_api_addr }}/v1/sys/auth/oidc"
+        method: POST
+        headers: "{{ _bao_headers }}"
+        body_format: json
+        body:
+          type: oidc
+        status_code: 204
+        validate_certs: true
+      when: "'oidc/' not in _openbao_auth_methods_oidc.json"
+
+    # ----- oidc config ------------------------------------------------
+    #
+    # POST replaces the whole config. The readback redacts
+    # oidc_client_secret, so a strict drift comparison would never
+    # match — we always write instead. Server-side write is cheap and
+    # the vault-sourced secret stays in sync without an explicit
+    # rotation flag.
+
+    - name: Write the OIDC config (Keycloak realm)
+      ansible.builtin.uri:
+        url: "{{ openbao_admin_api_addr }}/v1/auth/oidc/config"
+        method: POST
+        headers: "{{ _bao_headers }}"
+        body_format: json
+        body:
+          oidc_discovery_url: "{{ openbao_oidc_discovery_url }}"
+          oidc_client_id: "{{ openbao_oidc_client_id }}"
+          oidc_client_secret: "{{ openbao_oidc_client_secret }}"
+          default_role: "{{ openbao_oidc_default_role }}"
+        status_code: [200, 204]
+        validate_certs: true
+      no_log: true
+
+    # ----- oidc admin role --------------------------------------------
+    #
+    # 1:1 mapping: members of the Keycloak group named in
+    # openbao_oidc_admin_bound_group log in to the OIDC role named in
+    # openbao_oidc_default_role and receive the policies listed in
+    # openbao_oidc_admin_policies. Defaults wire all three to
+    # "openbao-admin" so a Keycloak admin's `groups` claim maps
+    # straight to the OpenBao admin policy. bound_audiences pins the
+    # ID token's `aud` to this client; Keycloak's default ID token
+    # already carries aud=<client_id>, no extra audience mapper needed.
+
+    - name: Build the OIDC role's bound_claims dict
+      ansible.builtin.set_fact:
+        _openbao_oidc_admin_bound_claims: >-
+          {{
+            {} | combine({
+              openbao_oidc_admin_groups_claim: [openbao_oidc_admin_bound_group]
+            })
+          }}
+
+    - name: Write the OIDC admin role
+      ansible.builtin.uri:
+        url: "{{ openbao_admin_api_addr }}/v1/auth/oidc/role/{{ openbao_oidc_default_role }}"
+        method: POST
+        headers: "{{ _bao_headers }}"
+        body_format: json
+        body:
+          role_type: oidc
+          user_claim: "{{ openbao_oidc_admin_user_claim }}"
+          groups_claim: "{{ openbao_oidc_admin_groups_claim }}"
+          bound_audiences:
+            - "{{ openbao_oidc_client_id }}"
+          bound_claims: "{{ _openbao_oidc_admin_bound_claims }}"
+          token_policies: "{{ openbao_oidc_admin_policies }}"
+          token_ttl: "{{ openbao_oidc_admin_token_ttl }}"
+          token_max_ttl: "{{ openbao_oidc_admin_token_max_ttl }}"
+          token_no_default_policy: true
+          allowed_redirect_uris: "{{ openbao_oidc_admin_redirect_uris }}"
+        status_code: [200, 204]
+        validate_certs: true

@@ -138,6 +138,22 @@ Auth + audit + ufw inputs (cards #40 / #11):
   in `tasks/ufw.yml`. Doing so closes wrkdev's SSH path to
   `srvvaultN`; future runs must come through srviac/Jenkins.
 
+OIDC inputs (Keycloak-backed login — see §OIDC below):
+
+- `openbao_oidc_client_secret` — vaulted Keycloak client secret. Empty
+  default makes the whole OIDC provisioning skip cleanly.
+- `openbao_oidc_discovery_url` — Keycloak realm issuer URL
+  (`https://<keycloak>/realms/<realm>`). Set in
+  `group_vars/openbao.yml` plaintext.
+- `openbao_oidc_client_id` — defaults to `openbao`.
+- `openbao_oidc_default_role` / `openbao_oidc_admin_bound_group` /
+  `openbao_oidc_admin_policies` — default to `openbao-admin` 1:1:1.
+- `openbao_oidc_admin_user_claim` / `_groups_claim` — defaults
+  `preferred_username` / `groups`; match the Keycloak mappers.
+- `openbao_oidc_admin_token_ttl` / `_max_ttl` — default 1h / 8h.
+- `openbao_oidc_admin_redirect_uris` — defaults cover the UI callback
+  and `bao login -method=oidc`'s localhost:8250.
+
 Backup pipeline inputs (card #12):
 
 - `openbao_backup_server_url` — in-cluster backup-server base URL
@@ -231,6 +247,75 @@ all OpenBao management must flow through `iac` on `srviac` (the
 Jenkins-driven pipelines or interactive `iac` from VSCode Remote-SSH
 into the Jenkins agent VM). Disable ufw out-of-band (`ufw disable`)
 to break-glass.
+
+## OIDC (Keycloak-backed UI + CLI login)
+
+OIDC is opt-in. `tasks/oidc.yml` no-ops until `openbao_oidc_client_secret`
+is set, so the role stays committable with the secret absent. The
+defaults wire a 1:1 mapping: the Keycloak group `openbao-admin` →
+OpenBao OIDC role `openbao-admin` → OpenBao policy `openbao-admin`. Adding
+a second persona later means another group + another OIDC role + another
+policy; the defaults are parameterised so a sibling task file can stand
+up additional roles without forking the admin path.
+
+Prerequisites on the Keycloak side (one-time, done out of band):
+
+1. Group `openbao-admin` exists; the operator's user is a member.
+2. Client `openbao` exists, confidential, with redirect URIs:
+   - `https://secrets/ui/vault/auth/oidc/oidc/callback`
+   - `http://localhost:8250/oidc/callback`
+3. A Group Membership mapper on the client emits the `groups` claim
+   into both the ID token and the access token, with **Full Group
+   Path = off** (so values look like `openbao-admin`, not
+   `/openbao-admin`).
+
+First-apply procedure:
+
+1. **Vault the client secret** into
+   `inventories/prd/group_vars/openbao.yml`. From the project root:
+
+   ```
+   cd ansible && poetry run ansible-vault encrypt_string \
+       --name openbao_oidc_client_secret '<paste from Keycloak Credentials tab>'
+   ```
+
+   Paste the resulting `openbao_oidc_client_secret: !vault | …` block
+   into `group_vars/openbao.yml` alongside the existing admin AppRole
+   creds.
+
+2. **Set the discovery URL** in the same file (plaintext — it's not a
+   secret):
+
+   ```yaml
+   openbao_oidc_discovery_url: "https://<keycloak-host>.home/realms/<realm>"
+   ```
+
+   Use the realm's issuer URL — the same value Keycloak prints under
+   *Realm settings → OpenID Endpoint Configuration*'s `issuer` field.
+
+3. **Commit** both changes.
+
+4. **Apply.** Same playbook, no extra flags:
+
+   ```
+   cd ansible && poetry run ansible-playbook playbooks/site-openbao.yml --limit openbao
+   ```
+
+   The provisioning runs on the bootstrap host; reads/writes go through
+   Raft and replicate to followers. Steady-state drift runs re-write
+   the config (the client secret isn't readable through the API, so
+   we always write — cheap server-side, keeps the vault content
+   authoritative).
+
+5. **Verify** by hitting `https://secrets/` in a browser — pick
+   "Sign in with OIDC", leave the role field blank (the default is
+   set), authenticate against Keycloak. The resulting token should
+   carry the `openbao-admin` policy.
+
+   For CLI: `BAO_ADDR=https://secrets bao login -method=oidc`.
+
+Rotation: re-vault `openbao_oidc_client_secret` (after rotating in
+Keycloak) and re-apply. No flag required.
 
 ## Backup pipeline (card #12)
 
