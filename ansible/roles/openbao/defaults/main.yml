@@ -160,3 +160,11 @@ openbao_backup_randomized_delay: "1h"
 # across hosts. Each producer writes a file here; backup.yml reads them
 # back. Same tmp/ the playbook stages the transient known_hosts in.
 openbao_backup_staging_dir: "{{ playbook_dir }}/../../tmp"
+
+# Controller-side staging directory for operator-facing AppRole creds
+# (openbao-admin, iac-agent, jenkins, eso). Written only on rotation
+# runs (-e openbao_rotate_secret_ids=true); the operator captures each
+# file into ansible-vault / the consumer config, then `shred -u`s them.
+# Kept distinct from openbao_backup_staging_dir: those files persist as
+# the cross-play rendezvous for backup.yml, these are throwaways.
+openbao_credential_staging_dir: "{{ playbook_dir }}/../../tmp/openbao-credentials"

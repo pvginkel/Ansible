@@ -117,10 +117,18 @@ Auth + audit + ufw inputs (cards #40 / #11):
   `openbao_eso_kv_paths` — KV-v2 read paths granted to each
   consumer's policy. Empty list = inert policy (AppRole exists, reads
   return 403 until a path is added). Extend per migrated ref.
-- `openbao_rotate_secret_ids` — when `true`, mints + prints fresh
-  secret-ids for every AppRole (admin, iac-agent, jenkins, eso,
-  backup). Default `false`; flip on the first apply and whenever you
-  rotate.
+- `openbao_rotate_secret_ids` — when `true`, mints fresh secret-ids
+  for every AppRole (admin, iac-agent, jenkins, eso, backup) and
+  stages the four operator-facing ones to
+  `openbao_credential_staging_dir` for capture. Default `false`; flip
+  on the first apply and whenever you rotate. Steady-state runs skip
+  the mint and the staging entirely — nothing is written or printed.
+- `openbao_credential_staging_dir` — controller-side directory where
+  rotation runs drop one `<approle>-role-id` and one
+  `<approle>-secret-id` file per operator-facing AppRole, mode `0600`.
+  Default: `tmp/openbao-credentials` under the playbook. The operator
+  captures each into its destination and `shred -u`s the directory
+  afterwards.
 - `openbao_retire_root_token` — when `true` and
   `openbao_admin_token` is the root token, revokes it via
   revoke-self. One-shot; set only once admin AppRole creds are in
@@ -156,24 +164,23 @@ can capture the admin AppRole creds into vault between them.
 
    ```
    cd ansible && poetry run ansible-playbook playbooks/site-openbao.yml \
-       --ask-vault-pass --diff \
        -e openbao_admin_token=<root token from Roboform> \
        -e openbao_rotate_secret_ids=true
    ```
 
-   The `approle.yml` task prints role_ids + secret_ids for
-   `openbao-admin`, `iac-agent`, `jenkins`, `eso`, and `backup` at the
-   end of the play. Capture them before the buffer scrolls off —
-   secret-ids are not recoverable from OpenBao. The `backup` creds are
-   the exception: `backup.yml` delivers them straight to each node, so
-   there is nothing to capture for that one.
+   `approle.yml` writes the freshly minted role_ids + secret_ids for
+   `openbao-admin`, `iac-agent`, `jenkins`, and `eso` to mode-`0600`
+   files in `openbao_credential_staging_dir`
+   (`ansible/tmp/openbao-credentials/` by default). Nothing is printed
+   to stdout. `backup` is excluded — `backup.yml` delivers its creds
+   directly to each node.
 
 2. **Vault the admin AppRole creds** into
    `inventories/prd/group_vars/openbao.yml`:
 
    ```
-   ansible-vault encrypt_string --name openbao_admin_role_id   '<from step 1>'
-   ansible-vault encrypt_string --name openbao_admin_secret_id '<from step 1>'
+   ansible-vault encrypt_string --name openbao_admin_role_id   "$(cat tmp/openbao-credentials/openbao-admin-role-id)"
+   ansible-vault encrypt_string --name openbao_admin_secret_id "$(cat tmp/openbao-credentials/openbao-admin-secret-id)"
    ```
 
    Commit. The drift cycle now authenticates via the admin AppRole.
@@ -181,13 +188,23 @@ can capture the admin AppRole creds into vault between them.
 3. **Paste the iac-agent creds** into `srviac:/etc/iac/secrets.yaml`
    (`OPENBAO_ROLE_ID`, `OPENBAO_SECRET_ID`). Paste the jenkins and
    eso creds into their respective consumer configs (Jenkins Vault
-   plugin, ESO SecretStore CR).
+   plugin, ESO SecretStore CR). Source each value from the matching
+   `<approle>-role-id` / `<approle>-secret-id` file under
+   `tmp/openbao-credentials/`.
 
-4. **Retire the root token:**
+4. **Wipe the staging directory** once every credential is captured:
 
    ```
-   poetry run ansible-playbook playbooks/site-openbao.yml \
-       --ask-vault-pass --diff \
+   shred -u tmp/openbao-credentials/*
+   ```
+
+   secret_ids are not recoverable from OpenBao after the files are
+   gone — re-run step 1 to mint fresh ones if a capture was missed.
+
+5. **Retire the root token:**
+
+   ```
+   cd ansible && poetry run ansible-playbook playbooks/site-openbao.yml \
        -e openbao_admin_token=<root token> \
        -e openbao_retire_root_token=true
    ```
@@ -196,7 +213,7 @@ can capture the admin AppRole creds into vault between them.
    Roboform entry afterwards; the recovery keys (Shamir 3-of-5) can
    mint a new root token if needed.
 
-5. **Flip ufw on** when ready — see the next section.
+6. **Flip ufw on** when ready — see the next section.
 
 ## Locking down with ufw
 

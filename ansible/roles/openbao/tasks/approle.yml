@@ -362,36 +362,94 @@
       when: openbao_rotate_secret_ids | bool
       no_log: true
 
-    - name: Print AppRole credentials for operator capture
-      # role_ids print every run (they're deterministic and harmless
-      # to surface). secret_ids only print when openbao_rotate_secret_ids
-      # is set — they're shown once and not recoverable from OpenBao.
-      ansible.builtin.debug:
-        msg: |
-          AppRole credentials — capture into ansible-vault + the
-          consumer's config:
+    # ----- operator-capture staging (rotation runs only) --------------
+    #
+    # The four operator-facing AppRoles (openbao-admin, iac-agent,
+    # jenkins, eso) each land in their own role_id + secret_id file
+    # under openbao_credential_staging_dir. The operator captures each
+    # file into ansible-vault or the consumer's config, then `shred -u`s
+    # the staging files. We never print secret_ids to stdout — the
+    # debug task we used to have leaked them into terminal scrollback
+    # and any captured Ansible output. backup is excluded: backup.yml
+    # already delivers its creds straight to each srvvaultN.
 
-          openbao-admin (controller identity, after root retire):
-            role_id:   {{ _openbao_role_ids.results[0].json.data.role_id }}
-            secret_id: {{ (_openbao_secret_ids.results[0].json.data.secret_id) if openbao_rotate_secret_ids | bool
-                          else '<unchanged; re-run with -e openbao_rotate_secret_ids=true to rotate>' }}
+    - name: Stage AppRole credentials for operator capture (rotation runs only)
+      when: openbao_rotate_secret_ids | bool
+      delegate_to: localhost
+      become: false
+      block:
 
-          iac-agent (srviac /etc/iac/secrets.yaml):
-            role_id:   {{ _openbao_role_ids.results[1].json.data.role_id }}
-            secret_id: {{ (_openbao_secret_ids.results[1].json.data.secret_id) if openbao_rotate_secret_ids | bool else '<unchanged>' }}
+        - name: Ensure the controller-side credential staging directory exists
+          ansible.builtin.file:
+            path: "{{ openbao_credential_staging_dir }}"
+            state: directory
+            mode: "0700"
 
-          jenkins (Jenkins controller Vault plugin config):
-            role_id:   {{ _openbao_role_ids.results[2].json.data.role_id }}
-            secret_id: {{ (_openbao_secret_ids.results[2].json.data.secret_id) if openbao_rotate_secret_ids | bool else '<unchanged>' }}
+        - name: Stage each operator-facing AppRole role_id
+          ansible.builtin.copy:
+            dest: "{{ openbao_credential_staging_dir }}/{{ approle }}-role-id"
+            content: >-
+              {{ (_openbao_role_ids.results
+                  | selectattr('item', 'equalto', approle)
+                  | first).json.data.role_id }}
+            mode: "0600"
+          loop:
+            - openbao-admin
+            - iac-agent
+            - jenkins
+            - eso
+          loop_control:
+            loop_var: approle
+          no_log: true
 
-          eso (in-cluster SecretStore credentials):
-            role_id:   {{ _openbao_role_ids.results[3].json.data.role_id }}
-            secret_id: {{ (_openbao_secret_ids.results[3].json.data.secret_id) if openbao_rotate_secret_ids | bool else '<unchanged>' }}
+        - name: Stage each operator-facing AppRole secret_id
+          ansible.builtin.copy:
+            dest: "{{ openbao_credential_staging_dir }}/{{ approle }}-secret-id"
+            content: >-
+              {{ (_openbao_secret_ids.results
+                  | selectattr('item', 'equalto', approle)
+                  | first).json.data.secret_id }}
+            mode: "0600"
+          loop:
+            - openbao-admin
+            - iac-agent
+            - jenkins
+            - eso
+          loop_control:
+            loop_var: approle
+          no_log: true
 
-          backup (daily JSON dump on each srvvaultN — see card #12):
-            role_id:   {{ _openbao_role_ids.results[4].json.data.role_id }}
-            secret_id: {{ (_openbao_secret_ids.results[4].json.data.secret_id) if openbao_rotate_secret_ids | bool else '<unchanged>' }}
-      run_once: true
+        - name: Point the operator at the staged credentials
+          ansible.builtin.debug:
+            msg: |
+              Fresh AppRole credentials staged for capture in:
+
+                {{ openbao_credential_staging_dir }}/
+
+              Files (one role_id and one secret_id per AppRole):
+
+                openbao-admin-role-id   openbao-admin-secret-id
+                iac-agent-role-id       iac-agent-secret-id
+                jenkins-role-id         jenkins-secret-id
+                eso-role-id             eso-secret-id
+
+              Capture targets:
+
+                openbao-admin → ansible-vault'd openbao_admin_role_id /
+                                openbao_admin_secret_id in
+                                inventories/prd/group_vars/openbao.yml
+                iac-agent     → srviac:/etc/iac/secrets.yaml
+                                (OPENBAO_ROLE_ID / OPENBAO_SECRET_ID)
+                jenkins       → Jenkins controller Vault plugin config
+                eso           → in-cluster SecretStore CR
+
+              Then wipe the staging files:
+
+                shred -u {{ openbao_credential_staging_dir }}/*
+
+              secret_ids are not recoverable from OpenBao — re-run with
+              -e openbao_rotate_secret_ids=true to mint fresh ones.
+          run_once: true
 
     # ----- root-token retire ------------------------------------------
     #
