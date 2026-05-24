@@ -14,9 +14,14 @@
       See roles/openbao/README.md §Bootstrap.
 
 # Election + cluster-init probe runs first so the init.yml gate below
-# can rely on its facts.
+# can rely on its facts. Tagged `always` so that tag-filtered runs
+# (e.g. `--tags openbao_oidc`, `--tags openbao_ufw`) still set
+# openbao_bootstrap_host before any bootstrap-host-gated task evaluates
+# its `when:`.
 - name: Elect bootstrap node + read cluster init state
   ansible.builtin.import_tasks: elect-bootstrap.yml
+  tags:
+    - always
 
 - name: Install OpenBao
   ansible.builtin.import_tasks: install.yml
