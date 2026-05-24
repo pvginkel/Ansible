@@ -25,7 +25,7 @@
 
 - name: Log in via the admin AppRole when no operator token is supplied
   ansible.builtin.uri:
-    url: "{{ openbao_api_addr }}/v1/auth/approle/login"
+    url: "{{ openbao_admin_api_addr }}/v1/auth/approle/login"
     method: POST
     body_format: json
     body:
@@ -54,8 +54,9 @@
   ansible.builtin.debug:
     msg: >-
       Admin AppRole login returned no token (HTTP
-      {{ _openbao_login.status | default('n/a') }}); auth-dependent
-      tasks will be skipped. Expected on a fresh or not-yet-provisioned
+      {{ _openbao_login.status | default('n/a') }}, msg:
+      {{ _openbao_login.msg | default('n/a') }}); auth-dependent tasks
+      will be skipped. Expected on a fresh or not-yet-provisioned
       cluster — e.g. a whole-cluster recovery before the snapshot
       restore. Otherwise check the ansible-vault'd
       openbao_admin_role_id / openbao_admin_secret_id.

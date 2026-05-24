@@ -2,10 +2,12 @@
 # Approle provisioning — card #40 (iac-agent AppRole) + card #11
 # (jenkins + eso AppRoles, admin AppRole, root-token retire). Run only
 # on the bootstrap host; AppRoles, policies, mounts, and audit devices
-# live in the Raft store and replicate to followers automatically. The
-# `bao` listener on the local node could service the writes from any
-# srvvaultN, but pinning to one host avoids three-way write contention
-# under `serial: 1`.
+# live in the Raft store and replicate to followers automatically.
+# Writes target `openbao_admin_api_addr` (the leader-tracking VIP) so
+# they always land on the leader directly — OpenBao 2.5 has been
+# observed to drop the connection on follower-forwarded writes rather
+# than returning a clean response, which silently broke this whole
+# block on a run where the bootstrap host happened to be a follower.
 #
 # Idempotency model: read-then-write on every assertion. Reads come
 # back with the current state; writes only fire when the desired state
@@ -41,7 +43,7 @@
 
     - name: Read enabled auth methods
       ansible.builtin.uri:
-        url: "{{ openbao_api_addr }}/v1/sys/auth"
+        url: "{{ openbao_admin_api_addr }}/v1/sys/auth"
         method: GET
         headers: "{{ _bao_headers }}"
         status_code: 200
@@ -51,7 +53,7 @@
 
     - name: Enable the approle auth method
       ansible.builtin.uri:
-        url: "{{ openbao_api_addr }}/v1/sys/auth/approle"
+        url: "{{ openbao_admin_api_addr }}/v1/sys/auth/approle"
         method: POST
         headers: "{{ _bao_headers }}"
         body_format: json
@@ -65,7 +67,7 @@
 
     - name: Read enabled secret engines
       ansible.builtin.uri:
-        url: "{{ openbao_api_addr }}/v1/sys/mounts"
+        url: "{{ openbao_admin_api_addr }}/v1/sys/mounts"
         method: GET
         headers: "{{ _bao_headers }}"
         status_code: 200
@@ -75,7 +77,7 @@
 
     - name: Enable the kv-v2 secrets engine
       ansible.builtin.uri:
-        url: "{{ openbao_api_addr }}/v1/sys/mounts/{{ openbao_kv_mount }}"
+        url: "{{ openbao_admin_api_addr }}/v1/sys/mounts/{{ openbao_kv_mount }}"
         method: POST
         headers: "{{ _bao_headers }}"
         body_format: json
@@ -96,7 +98,7 @@
 
     - name: Read existing consumer policies
       ansible.builtin.uri:
-        url: "{{ openbao_api_addr }}/v1/sys/policies/acl/{{ item }}"
+        url: "{{ openbao_admin_api_addr }}/v1/sys/policies/acl/{{ item }}"
         method: GET
         headers: "{{ _bao_headers }}"
         status_code: [200, 404]
@@ -179,7 +181,7 @@
 
     - name: Write consumer policies (only when text differs)
       ansible.builtin.uri:
-        url: "{{ openbao_api_addr }}/v1/sys/policies/acl/{{ item }}"
+        url: "{{ openbao_admin_api_addr }}/v1/sys/policies/acl/{{ item }}"
         method: PUT
         headers: "{{ _bao_headers }}"
         body_format: json
@@ -205,7 +207,7 @@
 
     - name: Read existing AppRoles
       ansible.builtin.uri:
-        url: "{{ openbao_api_addr }}/v1/auth/approle/role/{{ item.name }}"
+        url: "{{ openbao_admin_api_addr }}/v1/auth/approle/role/{{ item.name }}"
         method: GET
         headers: "{{ _bao_headers }}"
         status_code: [200, 404]
@@ -237,7 +239,7 @@
 
     - name: Write AppRoles
       ansible.builtin.uri:
-        url: "{{ openbao_api_addr }}/v1/auth/approle/role/{{ item.name }}"
+        url: "{{ openbao_admin_api_addr }}/v1/auth/approle/role/{{ item.name }}"
         method: POST
         headers: "{{ _bao_headers }}"
         body_format: json
@@ -278,7 +280,7 @@
 
     - name: Read each AppRole's role_id
       ansible.builtin.uri:
-        url: "{{ openbao_api_addr }}/v1/auth/approle/role/{{ item }}/role-id"
+        url: "{{ openbao_admin_api_addr }}/v1/auth/approle/role/{{ item }}/role-id"
         method: GET
         headers: "{{ _bao_headers }}"
         status_code: 200
@@ -302,7 +304,7 @@
 
     - name: Mint a fresh secret-id for each AppRole
       ansible.builtin.uri:
-        url: "{{ openbao_api_addr }}/v1/auth/approle/role/{{ item }}/secret-id"
+        url: "{{ openbao_admin_api_addr }}/v1/auth/approle/role/{{ item }}/secret-id"
         method: POST
         headers: "{{ _bao_headers }}"
         body_format: json
@@ -462,7 +464,7 @@
 
     - name: Retire the root token (revoke-self)
       ansible.builtin.uri:
-        url: "{{ openbao_api_addr }}/v1/auth/token/revoke-self"
+        url: "{{ openbao_admin_api_addr }}/v1/auth/token/revoke-self"
         method: POST
         headers: "{{ _bao_headers }}"
         status_code: 204

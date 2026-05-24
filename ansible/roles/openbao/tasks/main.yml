@@ -115,6 +115,28 @@
 - name: Apply systemd hardening drop-in
   ansible.builtin.import_tasks: hardening.yml
 
+# Admin-side blocks (approle.yml + oidc.yml) target the leader-tracking
+# VIP, not the local listener. On a greenfield bootstrap run
+# keepalived.yml has only just started the service above, so the
+# vrrp_script's first eval (interval 2s, rise 1) hasn't yet flipped
+# MASTER and bound the VIP. Wait for sys/health on the VIP to respond
+# before any admin write fires; otherwise the first request races the
+# BACKUP→MASTER transition. On steady-state runs the VIP is already up
+# and this returns immediately. Tagged `always` so tag-filtered runs
+# (`--tags openbao_auth`, `--tags openbao_oidc`) also fire the wait.
+- name: Wait for the leader-tracking VIP to respond
+  ansible.builtin.uri:
+    url: "{{ openbao_admin_api_addr }}/v1/sys/health"
+    status_code: [200, 429, 501, 503]
+    validate_certs: true
+  register: _openbao_vip_health
+  until: _openbao_vip_health.status is defined and _openbao_vip_health.status in [200, 429, 501, 503]
+  retries: 15
+  delay: 2
+  when: inventory_hostname == openbao_bootstrap_host
+  tags:
+    - always
+
 # Card #40 — AppRole + policies + admin AppRole. Runs only on the
 # bootstrap host; reads/writes go through Raft and replicate to
 # followers. Gated internally on _openbao_token availability so the

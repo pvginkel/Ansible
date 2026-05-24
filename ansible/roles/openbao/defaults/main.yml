@@ -30,6 +30,16 @@ openbao_listener_address: "0.0.0.0:8200"
 openbao_api_addr: "https://{{ inventory_hostname }}.home:8200"
 openbao_cluster_addr: "https://{{ inventory_hostname }}.home:8201"
 
+# Admin-side endpoint. Used by every controller-driven write
+# (AppRole login, policy/auth/mount/role CRUD) so the request always
+# lands on the Raft leader rather than relying on follower forwarding
+# — which OpenBao 2.5 has been observed to fail by closing the
+# connection rather than returning a clean response. `secrets.home`
+# is the keepalived VIP that tracks the leader; the per-node listener
+# cert SANs cover `secrets.home`, so TLS validates against the same
+# leaf the VIP carries on whichever node currently holds it.
+openbao_admin_api_addr: "https://secrets.home:8200"
+
 # Listener SANs — each node holds its own short hostname + .home FQDN
 # (peer-to-peer Raft validates against the FQDN), plus the VIP hostname
 # in both forms so clients reaching `https://secrets/` (HAProxy port-
