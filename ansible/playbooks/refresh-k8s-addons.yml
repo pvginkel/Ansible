@@ -41,9 +41,23 @@
       # function (DNS, dashboard, MetalLB controller, etc.) until the
       # matching enable runs in the next task. Operator-driven, run
       # during a maintenance window.
+      #
+      # NotFound tolerance: a snap refresh that adds new addon
+      # resources (e.g. MetalLB 0.13 → 0.14 introducing
+      # servicebgpstatuses.metallb.io and servicel2statuses.metallb.io
+      # CRDs) breaks the bundled `kubectl delete -f crd.yaml` in
+      # microk8s' disable script — it tries to delete every resource
+      # in the new manifest, including the new CRDs that the live
+      # cluster never installed. Treat rc=1 with only NotFound errors
+      # in stderr as success: the resources we're trying to delete
+      # are already in the state disable wants them in.
       ansible.builtin.command: "microk8s disable {{ item }}"
       loop: "{{ microk8s_addons }}"
+      register: _disable_result
       changed_when: true
+      failed_when:
+        - _disable_result.rc != 0
+        - "'NotFound' not in _disable_result.stderr"
 
     - name: Re-enable each configured addon
       # Same metallb-arg quirk as the role's addons.yml — sentinel
