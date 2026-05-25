@@ -54,13 +54,24 @@
         name: microk8s
         tasks_from: elect-primary
 
-- name: Refuse to roll if any k8s node is already cordoned
+- name: Refuse to roll if a cordoned node sits outside this run's target
   # A leftover cordon usually means a prior update-k8s.yml run failed
   # between pre-drain-handoff (which cordons the target) and the
-  # post-roll uncordon. Re-running blindly into that state breaks
-  # surge scheduling — a 3-node cluster with 2 cordoned peers can't
-  # land keycloak's RollingUpdate maxSurge=1 onto a healthy node, and
-  # the resulting pod-sandbox errors are opaque. Fail fast instead.
+  # post-roll uncordon. Two shapes to distinguish:
+  #
+  #   - Cordoned node IS in this run's target set → resume case.
+  #     The operator is re-running update-k8s.yml --limit <same target>
+  #     to pick up where the prior run failed. Pre-drain-handoff is
+  #     idempotent (cordon stays set, rollout restart re-fires on
+  #     opt-in Deployments, drain on an already-empty node returns
+  #     fast). Allow and continue.
+  #
+  #   - Cordoned node is OUTSIDE the target set → refuse. Re-running
+  #     blindly into that state breaks surge scheduling — a 3-node
+  #     cluster with 2 cordoned peers can't land keycloak's
+  #     RollingUpdate maxSurge=1 onto a healthy node, and the
+  #     resulting pod-sandbox errors are opaque. Fail fast instead.
+  #
   # `kubectl get nodes` via the local apiserver is naturally scoped
   # to the host's cluster, so prd and dev are each checked against
   # their own primary.
@@ -82,16 +93,26 @@
       changed_when: false
       check_mode: false
 
-    - name: Refuse if any cordoned node exists
+    - name: Refuse if a cordoned node is not part of this run
       ansible.builtin.assert:
         that:
-          - _precheck_cordoned.stdout_lines | length == 0
+          - (_precheck_cordoned.stdout_lines | difference(ansible_play_hosts_all)) | length == 0
         fail_msg: >-
-          Cordoned nodes detected via {{ microk8s_primary_host }}:
-          {{ _precheck_cordoned.stdout_lines | join(', ') }}. A prior
-          run likely failed between pre-drain-handoff and the post-roll
-          uncordon. Uncordon them (`microk8s kubectl uncordon <node>`
-          on the primary) and re-run.
+          Cordoned nodes detected via {{ microk8s_primary_host }} that
+          are not part of this run:
+          {{ (_precheck_cordoned.stdout_lines | difference(ansible_play_hosts_all)) | join(', ') }}.
+          A prior run likely failed between pre-drain-handoff and the
+          post-roll uncordon. Uncordon them (`microk8s kubectl uncordon
+          <node>` on the primary) and re-run.
+
+    - name: Note already-cordoned targets (resume case)
+      ansible.builtin.debug:
+        msg: >-
+          Resuming with already-cordoned target(s):
+          {{ _precheck_cordoned.stdout_lines | intersect(ansible_play_hosts_all) | join(', ') }}.
+          Pre-drain-handoff is idempotent; the cycle will pick up where
+          the prior run left off.
+      when: (_precheck_cordoned.stdout_lines | intersect(ansible_play_hosts_all)) | length > 0
 
 - name: Rolling upgrade for k8s cluster members
   hosts: k8s
