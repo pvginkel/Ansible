@@ -23,7 +23,7 @@ managed_filesystems_volumes:
     mountpoint: /var/snap
     fstype: ext4
 
-microk8s_channel: 1.32/stable
+microk8s_channel: 1.33/stable
 
 microk8s_cluster_cidr_v4: 172.16.0.0/16
 microk8s_service_cidr_v4: 172.17.0.0/16
