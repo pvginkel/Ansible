@@ -28,7 +28,6 @@ microk8s_addons:
   - helm
   - helm3
   - metrics-server
-  - dashboard
   - community
   - metallb
 
