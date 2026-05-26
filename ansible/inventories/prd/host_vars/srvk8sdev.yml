@@ -4,7 +4,7 @@ workload_class: background
 
 # Per-VM NIC config — the single source of truth, read by both
 # terraform/prd/vms.tf (via yamldecode) and the baseline netplan task.
-# wrkdevk8s is hybrid: vmbr0 dynamic (DHCP via dnsmasq reservation),
+# srvk8sdev is hybrid: vmbr0 dynamic (DHCP via dnsmasq reservation),
 # vmbr1 hand-curated on the 10 Gb backplane.
 network_devices:
   - bridge: vmbr0

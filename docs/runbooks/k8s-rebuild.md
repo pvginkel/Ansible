@@ -4,7 +4,7 @@ End-to-end procedure for rebuilding `k8s_prd` and `k8s_dev` nodes from scratch. 
 
 This runbook is the orchestrator. Each step is operator-driven; nothing automates the full sequence. Per `decisions.md` "Terraform and Ansible are peer tools — neither invokes the other."
 
-**Networking shape**: prd k8s + Ceph nodes are bring-up tier — static IPs in `vms.tf`, hostname → IP triples curated by hand in HelmCharts `configs/prd/dnsmasq.yaml`. They opt out of the dynamic `homelab_dns_reservation` API via `static_ip = true` on the `managed-vm` module, because the dnsmasq sidecar runs in-cluster and the cluster nodes can't get their own DNS from a service they're required to bring up. wrkdevk8s is dev-tier — single node, no in-cluster registry/dnsmasq dependency, dynamic reservation via the standard module path. See `decisions.md` "Ceph nodes and prd k8s nodes are static infrastructure".
+**Networking shape**: prd k8s + Ceph nodes are bring-up tier — static IPs in `vms.tf`, hostname → IP triples curated by hand in HelmCharts `configs/prd/dnsmasq.yaml`. They opt out of the dynamic `homelab_dns_reservation` API via `static_ip = true` on the `managed-vm` module, because the dnsmasq sidecar runs in-cluster and the cluster nodes can't get their own DNS from a service they're required to bring up. srvk8sdev is dev-tier — single node, no in-cluster registry/dnsmasq dependency, dynamic reservation via the standard module path. See `decisions.md` "Ceph nodes and prd k8s nodes are static infrastructure".
 
 ## Order
 
@@ -13,7 +13,7 @@ For a multi-node rebuild (e.g. recovering after a host failure that takes more t
 1. **Pre-flight** — cordon + drain + uncordon a single worker. No rebuild. Sanity check that the cluster handles a worker-shaped outage cleanly.
 2. **Workers first**, one at a time, leaving the primary intact through both worker rebuilds (the surviving primary mints join tokens for the new workers).
 3. **Primary last** — workers serve as the join-token mint, which is also where the role's runtime election lands the new primary.
-4. **wrkdevk8s** (single-node dev) is independent — rebuild any time.
+4. **srvk8sdev** (single-node dev) is independent — rebuild any time.
 
 For a single-node rebuild (the common steady-state case), drop the pre-flight step and run the matching subsection directly.
 
@@ -22,7 +22,7 @@ For a single-node rebuild (the common steady-state case), drop the pre-flight st
 - All nodes `Ready`, no PDB-blocked pods. `microk8s kubectl get nodes -o wide`, `microk8s kubectl get pdb -A`.
 - SSH agent loaded with both operator and ansible keys (see `operator-workstation.md`).
 - Workstation has a secondary DNS resolver configured (per `decisions.md` "DNS and hostnames"). A node reboot blacks out resolution from the workstation otherwise.
-- Maintenance window for prd. `wrkdevk8s` is dev only.
+- Maintenance window for prd. `srvk8sdev` is dev only.
 - `git status` clean. `terraform plan` shows only the queued rebuild entries (no unrelated drift). If a previous half-rebuild left an orphan `module.vm["<old-hostname>"]` in state, `terraform state rm 'module.vm["<old-hostname>"].proxmox_virtual_environment_vm.this'` first — `for_each` orphan reconciliation isn't suppressed by `-target`, and a leftover orphan otherwise queues a destroy alongside the targeted apply.
 
 ## Pre-drain hand-off
@@ -38,7 +38,7 @@ Forward contract: a Deployment that needs a controlled hand-off (single replica,
 
 If a labeled rollout fails to reach Ready inside 5 minutes, the play aborts before draining. Fix the workload, then re-run.
 
-Single-node clusters (today: `wrkdevk8s`) skip the hand-off and the drain together — same peer-count gate.
+Single-node clusters (today: `srvk8sdev`) skip the hand-off and the drain together — same peer-count gate.
 
 ## Pre-flight — observe an eviction on a worker
 
@@ -212,9 +212,9 @@ poetry run ansible-playbook playbooks/site.yml --limit srvk8s1 --check
 
 `zpool2`-pinned workloads (storage chart, Prometheus) reschedule onto `srvk8s1` once the import is done.
 
-## Rebuild — `wrkdevk8s` (single-node dev)
+## Rebuild — `srvk8sdev` (single-node dev)
 
-Different shape from prd: dev cluster is a single node, dev-tier networking (DHCP via the standard `homelab_dns_reservation`, not a static-hosts entry — see "Networking shape" at the top), no inter-node traffic, no zpool, no Ceph. The peer-count gate skips the eviction shape, so `evict-k8s.yml` is not part of this flow. The cluster gets fully replaced; HelmCharts deployments under `wrkdevk8s` need re-deployment afterward (operator workflow, separate from this runbook).
+Different shape from prd: dev cluster is a single node, dev-tier networking (DHCP via the standard `homelab_dns_reservation`, not a static-hosts entry — see "Networking shape" at the top), no inter-node traffic, no zpool, no Ceph. The peer-count gate skips the eviction shape, so `evict-k8s.yml` is not part of this flow. The cluster gets fully replaced; HelmCharts deployments under `srvk8sdev` need re-deployment afterward (operator workflow, separate from this runbook).
 
 ```sh
 # 1. Destroy the live VM:
@@ -222,24 +222,24 @@ ssh root@pve 'qm shutdown 919 ; sleep 5 ; qm destroy 919'
 
 # 2. terraform apply (creates the homelab_dns_reservation + VM):
 cd terraform/prd
-terraform apply -target='module.vm["wrkdevk8s"]'
+terraform apply -target='module.vm["srvk8sdev"]'
 
 # 3. Apply roles:
 cd ../../ansible
 poetry run ansible-playbook playbooks/rebuild-k8s.yml \
-    -e rebuild_target=wrkdevk8s
+    -e rebuild_target=srvk8sdev
 
 # 4. Verify:
-poetry run ansible -i inventories/prd wrkdevk8s -m command \
+poetry run ansible -i inventories/prd srvk8sdev -m command \
     -a 'microk8s kubectl get nodes' --become
-# expect: wrkdevk8s Ready (1.32.x or current channel), STATUS without
+# expect: srvk8sdev Ready (1.32.x or current channel), STATUS without
 # SchedulingDisabled
 ```
 
 **Known wrinkle on retry**: several `microk8s status`-based tasks in the role (addons.yml, elect-primary.yml) substring-match `" Ready "` in `kubectl get nodes`. A cordoned single-node cluster prints `Ready,SchedulingDisabled` and the gate fails. If the playbook fails partway through and you re-run, manually uncordon first:
 
 ```sh
-ssh ansible@wrkdevk8s.home 'sudo microk8s kubectl uncordon wrkdevk8s'
+ssh ansible@srvk8sdev.home 'sudo microk8s kubectl uncordon srvk8sdev'
 ```
 
 The role-wide cordon-safety pass is queued as a slice; only bites on partial-rerun against single-node dev.
@@ -258,5 +258,5 @@ Verify `site.yml --check` reports zero changes against the rebuild target before
 ## What this runbook does not cover
 
 - Microceph rebuilds (Phase 5).
-- HelmCharts redeploy on `wrkdevk8s` after rebuild — operator workflow, see HelmCharts repo.
+- HelmCharts redeploy on `srvk8sdev` after rebuild — operator workflow, see HelmCharts repo.
 - Recovering from a corrupted dqlite database — `microk8s reset` is the reset hammer; deeper recovery is per microk8s upstream docs.

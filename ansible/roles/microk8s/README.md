@@ -39,7 +39,7 @@ The split:
 
 The label, MetalLB, and CoreDNS tasks all run `kubernetes.core.k8s` on the primary; that requires the `python3-kubernetes` apt package, which `prereqs.yml` installs on the primary only.
 
-For single-node clusters (`k8s_dev` today, `wrkdevk8s` is the only host) election picks the only host; the join branch is a no-op.
+For single-node clusters (`k8s_dev` today, `srvk8sdev` is the only host) election picks the only host; the join branch is a no-op.
 
 Standalone playbooks that don't apply the role (`update-k8s.yml`, `evict-k8s.yml`, `refresh-k8s-addons.yml`) call `tasks_from: elect-primary` in a pre-flight play before any task that references `microk8s_primary_host`.
 

@@ -60,7 +60,7 @@ locals {
       # NICs: inventories/prd/host_vars/srvk8s3.yml
     }
 
-    wrkdevk8s = {
+    srvk8sdev = {
       vm_id          = 919
       pve_node       = "pve"
       workload_class = "background"
@@ -83,7 +83,7 @@ locals {
         { interface = "scsi0", size = 60 },
       ]
 
-      # NICs: inventories/prd/host_vars/wrkdevk8s.yml
+      # NICs: inventories/prd/host_vars/srvk8sdev.yml
     }
 
     srviac = {

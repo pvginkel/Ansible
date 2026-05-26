@@ -17,7 +17,7 @@ locals {
   # OS image channels. Promote a release by moving its entry from
   # `testing` to `stable`. VMs default to `stable`; a VM opts into
   # `testing` per-VM via `image_channel = "testing"` in vms.tf —
-  # wrkdevk8s is the live canary slot.
+  # srvk8sdev is the live canary slot.
   os_image_channels = {
     stable = {
       url       = "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
@@ -126,7 +126,7 @@ resource "proxmox_virtual_environment_file" "cloud_init" {
       # "nic1", ...) since match-by-MAC is what selects the kernel device.
       # NICs without `addresses` render as `dhcp4: true; dhcp6: true`,
       # NICs with `addresses` render as static. Hybrid (some-DHCP, some-
-      # static) is supported — wrkdevk8s is the live case (vmbr0 dynamic
+      # static) is supported — srvk8sdev is the live case (vmbr0 dynamic
       # via dnsmasq, vmbr1 hand-curated on the 10 Gb backplane).
       nics = [
         for i, n in each.value.network_devices : {

@@ -1,5 +1,5 @@
 ---
-# Development microk8s cluster — single node (wrkdevk8s), HelmCharts
+# Development microk8s cluster — single node (srvk8sdev), HelmCharts
 # iteration target. Canary track for both Kubernetes (latest stable
 # microk8s channel) and the OS (see vms.tf `image_channel = "testing"`).
 
@@ -14,7 +14,7 @@ microk8s_extra_sans:
   - 172.19.0.1
 
 # Homelab-CA TLS leaf for the kube-apiserver, served additively via the
-# apiserver's SNI cert flag. wrkdevk8s is single-node with no VIP — the
+# apiserver's SNI cert flag. srvk8sdev is single-node with no VIP — the
 # kubernetes-api-dev.home alias points straight at it. microk8s's own
 # server.crt is untouched. See slices/internal-tls-step-ca.md §F.
 microk8s_apiserver_homelab_sans:
@@ -40,7 +40,7 @@ microk8s_users:
   - pvginkel
 
 # Cluster primary is elected at runtime by the role — see
-# roles/microk8s/tasks/elect-primary.yml. wrkdevk8s is the only node
+# roles/microk8s/tasks/elect-primary.yml. srvk8sdev is the only node
 # in the cluster, so election always picks it.
 
 # microk8s_metallb_pool_addresses is left empty (defaults/main.yml) —

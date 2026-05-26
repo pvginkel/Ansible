@@ -12,7 +12,7 @@
 #
 # Requires `_cluster_peer_count` already set as a fact by the caller.
 # All steps gate on `_cluster_peer_count | int > 1` so that single-node
-# clusters (today: wrkdevk8s) skip the hand-off cleanly — same shape
+# clusters (today: srvk8sdev) skip the hand-off cleanly — same shape
 # as the drain task that follows.
 #
 # Workloads opt in by carrying `iac.webathome.org/pre-drain=true` on

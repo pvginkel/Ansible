@@ -193,7 +193,7 @@ Notes:
   the homelab-facing name it answers on:
   - prd: `kubernetes-api` + `kubernetes-api.home` — the HA VIP.
   - dev: `kubernetes-api-dev` + `kubernetes-api-dev.home` — the alias
-    pointing at wrkdevk8s.
+    pointing at srvk8sdev.
 
   These are DNS-only — no IP SAN is needed, since SNI matches on the
   hostname the client dials.
