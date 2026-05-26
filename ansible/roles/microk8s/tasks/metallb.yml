@@ -6,10 +6,18 @@
 # the reconcile runs and the role becomes the single source of truth.
 # Empty addresses → both tasks skip.
 
+# `validate_certs: false` on every kubernetes.core call below: the
+# microk8s self-signed CA omits the KeyUsage extension, which Python
+# 3.13 (resolute / 26.04) rejects per RFC 5280. The kubeconfig
+# authenticates via client cert against the apiserver at 127.0.0.1 —
+# verifying the loopback server cert adds no security here, so disable
+# the check. Same rationale applies in labels.yml and coredns.yml.
+
 - name: Reconcile MetalLB IPAddressPool ({{ microk8s_metallb_pool_name }})
   kubernetes.core.k8s:
     state: present
     kubeconfig: /var/snap/microk8s/current/credentials/client.config
+    validate_certs: false
     definition:
       apiVersion: metallb.io/v1beta1
       kind: IPAddressPool
@@ -24,6 +32,7 @@
   kubernetes.core.k8s:
     state: present
     kubeconfig: /var/snap/microk8s/current/credentials/client.config
+    validate_certs: false
     definition:
       apiVersion: metallb.io/v1beta1
       kind: L2Advertisement

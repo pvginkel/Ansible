@@ -17,6 +17,8 @@
     name: "{{ item }}"
     state: patched
     kubeconfig: /var/snap/microk8s/current/credentials/client.config
+    # See metallb.yml header for why validate_certs is disabled.
+    validate_certs: false
     definition:
       metadata:
         labels: "{{ hostvars[item].k8s_node_labels | default({}) }}"

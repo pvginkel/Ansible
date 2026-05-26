@@ -27,6 +27,8 @@
     namespace: kube-system
     name: coredns
     kubeconfig: /var/snap/microk8s/current/credentials/client.config
+    # See metallb.yml header for why validate_certs is disabled.
+    validate_certs: false
   register: _microk8s_coredns_cm
   check_mode: false
 
@@ -34,6 +36,7 @@
   kubernetes.core.k8s:
     state: present
     kubeconfig: /var/snap/microk8s/current/credentials/client.config
+    validate_certs: false
     definition:
       apiVersion: v1
       kind: ConfigMap
