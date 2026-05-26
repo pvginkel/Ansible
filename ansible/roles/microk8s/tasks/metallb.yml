@@ -13,32 +13,14 @@
 # verifying the loopback server cert adds no security here, so disable
 # the check. Same rationale applies in labels.yml and coredns.yml.
 
-- name: Wait for the MetalLB validating webhook to accept connections
-  # The IPAddressPool / L2Advertisement reconciles below go through
-  # metallb's `ipaddresspoolvalidationwebhook.metallb.io` and
-  # `l2advertisementvalidationwebhook.metallb.io`. The microk8s
-  # `metallb` addon enable in addons.yml returns the moment kubectl
-  # apply finishes — the controller Deployment (which serves the
-  # webhook) is still rolling. Without this gate the first reconcile
-  # on a fresh rebuild races and fails with 500 connection refused.
-  # Poll the Endpoints of metallb-webhook-service until at least one
-  # subset reports a Ready address.
-  kubernetes.core.k8s_info:
-    kubeconfig: /var/snap/microk8s/current/credentials/client.config
-    validate_certs: false
-    api_version: v1
-    kind: Endpoints
-    namespace: "{{ microk8s_metallb_namespace }}"
-    name: metallb-webhook-service
-  register: _microk8s_metallb_webhook_endpoints
-  until: >-
-    (_microk8s_metallb_webhook_endpoints.resources | length > 0)
-    and ((_microk8s_metallb_webhook_endpoints.resources[0].subsets | default([])) | length > 0)
-  retries: 60
-  delay: 2
-  changed_when: false
-  check_mode: false
-  when: microk8s_metallb_pool_addresses | length > 0
+# Reconcile-with-retry rather than wait-then-reconcile: metallb's
+# controller passes its readiness probe (and so the webhook Service
+# gets Ready endpoints) before the validating-webhook listener is
+# actually accepting connections — cert generation, server
+# registration, and pod-IP routing each add a small lag. The only
+# signal that proves the webhook is up is the call succeeding, so
+# retry the reconcile itself. ~2 minute budget (60 × 2s) covers a
+# cold rebuild; idempotent re-runs succeed on the first attempt.
 
 - name: Reconcile MetalLB IPAddressPool ({{ microk8s_metallb_pool_name }})
   kubernetes.core.k8s:
@@ -53,6 +35,10 @@
         namespace: "{{ microk8s_metallb_namespace }}"
       spec:
         addresses: "{{ microk8s_metallb_pool_addresses }}"
+  register: _microk8s_metallb_pool_apply
+  until: _microk8s_metallb_pool_apply is success
+  retries: 60
+  delay: 2
   when: microk8s_metallb_pool_addresses | length > 0
 
 - name: Reconcile MetalLB L2Advertisement ({{ microk8s_metallb_advertisement_name }})
@@ -69,4 +55,8 @@
       spec:
         ipAddressPools:
           - "{{ microk8s_metallb_pool_name }}"
+  register: _microk8s_metallb_advert_apply
+  until: _microk8s_metallb_advert_apply is success
+  retries: 60
+  delay: 2
   when: microk8s_metallb_pool_addresses | length > 0
