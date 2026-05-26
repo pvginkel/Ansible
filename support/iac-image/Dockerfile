@@ -45,6 +45,16 @@ RUN apt-get update -yqq && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+# Trust the homelab step-ca root the same way managed hosts do via the
+# baseline role — tools in this image (curl, terraform providers,
+# kubectl against internal apiservers) hit step-ca-signed TLS leaves
+# and would otherwise fail verification. Same cert artefact as
+# roles/baseline/files/homelab-root.crt; -f matches the baseline role's
+# forced refresh so later ca-certificates triggers can't drop it.
+COPY ansible/roles/baseline/files/homelab-root.crt /usr/local/share/ca-certificates/homelab-root.crt
+RUN chmod 644 /usr/local/share/ca-certificates/homelab-root.crt && \
+    update-ca-certificates -f
+
 COPY support/iac-image/smallstep.sources /etc/apt/sources.list.d/smallstep.sources
 
 RUN set -o pipefail && \
