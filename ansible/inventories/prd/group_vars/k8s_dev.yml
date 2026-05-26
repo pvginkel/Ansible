@@ -23,13 +23,17 @@ microk8s_apiserver_homelab_sans:
 
 # core/ingress excluded per decisions.md "Tool split": operator runs
 # their own ingress controller. ha-cluster auto-enabled by microk8s.
+# MetalLB excluded: installed via the HelmCharts metallb chart
+# (configs/dev/metallb.sh) — dev pioneered the move off the addon to
+# escape the upstream addon-vs-binary CRD drift in microk8s 1.36 and
+# to keep the path open to FRR mode for prd's BGP rollout later.
+# Pool + L2Advertisement live in configs/dev/metallb.yaml.
 microk8s_addons:
   - dns
   - helm
   - helm3
   - metrics-server
   - community
-  - metallb
 
 microk8s_users:
   - pvginkel
@@ -38,10 +42,9 @@ microk8s_users:
 # roles/microk8s/tasks/elect-primary.yml. wrkdevk8s is the only node
 # in the cluster, so election always picks it.
 
-# MetalLB pool from /work/KubernetesConfig/metallb/dev.yaml.
-microk8s_metallb_pool_addresses:
-  - 10.1.2.1-10.1.2.199
-  - 2a10:3781:16a9:1:7912:b75a::/96
+# microk8s_metallb_pool_addresses is left empty (defaults/main.yml) —
+# the role's metallb.yml reconcile skips on an empty list, leaving
+# the HelmCharts install in charge.
 
 # Containerd registry mirrors. dev primarily pulls from the dev
 # registry (image refs in HelmCharts dev configs carry the
