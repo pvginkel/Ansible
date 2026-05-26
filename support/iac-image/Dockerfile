@@ -55,6 +55,15 @@ COPY ansible/roles/baseline/files/homelab-root.crt /usr/local/share/ca-certifica
 RUN chmod 644 /usr/local/share/ca-certificates/homelab-root.crt && \
     update-ca-certificates -f
 
+# Python's `requests` / `urllib3` use certifi's bundled trust by
+# default, which doesn't carry the homelab root even though
+# update-ca-certificates seeded the system trust above. Point them at
+# the system bundle so iac-impl's OpenBao client (and any other Python
+# TLS code in this image) honours the homelab root. Same trick the
+# `hvac` and `requests` docs recommend for private CAs.
+ENV REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+
 COPY support/iac-image/smallstep.sources /etc/apt/sources.list.d/smallstep.sources
 
 RUN set -o pipefail && \
