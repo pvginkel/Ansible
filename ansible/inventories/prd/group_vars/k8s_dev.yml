@@ -1,16 +1,9 @@
 ---
-# Development microk8s cluster — single node (wrkdevk8s), used for
-# HelmCharts iteration. Rebuilt in Phase 4a step 11 to settle the
-# target CIDRs (live cluster CIDR is 10.3.0.0/16 today; the role's
-# launch-config render is cosmetic until first init).
-#
-# Cluster and service CIDRs codified from
-# /work/KubernetesConfig/microk8s/lc-dev.yaml.
+# Development microk8s cluster — single node (wrkdevk8s), HelmCharts
+# iteration target. Canary track for both Kubernetes (latest stable
+# microk8s channel) and the OS (see vms.tf `image_channel = "testing"`).
 
-# Target channel for k8s_dev. wrkdevk8s is currently pinned to
-# 1.30/stable in host_vars until the Phase 4a step 11 rebuild — the
-# rebuild lifts the override and the cluster lands here.
-microk8s_channel: 1.32/stable
+microk8s_channel: 1.36/stable
 
 microk8s_cluster_cidr_v4: 172.18.0.0/16
 microk8s_service_cidr_v4: 172.19.0.0/16
@@ -29,8 +22,7 @@ microk8s_apiserver_homelab_sans:
   - kubernetes-api-dev.home
 
 # core/ingress excluded per decisions.md "Tool split": operator runs
-# their own ingress controller. Live cluster has it enabled today;
-# settles at the step 11 rebuild. ha-cluster auto-enabled by microk8s.
+# their own ingress controller. ha-cluster auto-enabled by microk8s.
 microk8s_addons:
   - dns
   - helm
@@ -68,10 +60,7 @@ microk8s_registry_mirrors:
 baseline_etc_hosts_entries:
   - "192.168.178.43 registry-dev"
 
-# No CoreDNS hosts/templates on dev. A pre-rebuild cluster carries a
-# stale `10.153.182.3 registry` hosts entry from the legacy service
-# CIDR; the role's authoritative Corefile render drops it. Phase 4c
-# rebuilds dev under the target CIDRs and from there the empty
-# overrides are correct.
+# No CoreDNS hosts/templates on dev — single-node cluster doesn't
+# need cross-node name pinning.
 microk8s_coredns_hosts: []
 microk8s_coredns_templates: []
