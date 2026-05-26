@@ -60,8 +60,28 @@ openbao_oidc_client_secret: !vault |
 # enumerable manifest like iac/secrets.yaml or an ExternalSecret's
 # remoteRefs to mirror — so the policy grants the consumer's whole
 # prefix instead of each leaf. Cross-consumer isolation is preserved:
-# the jenkins AppRole still cannot read kv/iac, kv/eso, or kv/shared.
+# the jenkins AppRole still cannot read kv/iac or kv/eso.
+#
+# kv/shared/* paths are enumerated explicitly per consumer (not a
+# wildcard) — `kv/shared` carries cross-consumer values but each
+# consumer reads only the leaves it actually needs. Jenkins consumes
+# the RGW S3 user (artifact-upload pipelines) and the Wi-Fi password
+# (firmware-burn pipelines).
 openbao_jenkins_kv_paths:
   - jenkins/*
+  - shared/ceph-rgw/s3
+  - shared/wifi-iot
+
+# ESO is the cross-cluster k8s consumer; the four kv/shared leaves
+# all reach k8s charts. samba/users feeds the prd-cluster storage /
+# media / scantopdf / fundachecker / shell namespaces; admin-password
+# feeds infra-statistics; ceph-rgw/s3 feeds every chart with an S3
+# bucket; wifi-iot feeds the iot chart's management UI. Per-chart
+# kv/eso/<cluster>/<ns-base>/<stage>/* entries land in C.3 sweeps.
+openbao_eso_kv_paths:
+  - shared/ceph-rgw/s3
+  - shared/samba/users
+  - shared/jenkins/admin-password
+  - shared/wifi-iot
 
 openbao_oidc_discovery_url: https://auth.ginbov.nl/realms/homelab
