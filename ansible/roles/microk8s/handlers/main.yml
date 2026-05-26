@@ -3,7 +3,16 @@
   # The IP_AUTODETECTION_METHOD patch lives in the snap-shipped cni.yaml
   # daemonset spec. Editing the file alone doesn't reach the running
   # cluster — Calico has to pick the change up via kubectl apply.
+  #
+  # `microk8s enable` (addons.yml) is async and can leave the apiserver
+  # briefly unreachable when this handler fires at end of play. Retry
+  # rather than gate on a separate readiness probe — kubectl apply
+  # itself is the truthful signal that the apiserver is back.
   ansible.builtin.command: microk8s kubectl apply -f /var/snap/microk8s/current/args/cni-network/cni.yaml
+  register: _microk8s_calico_apply
+  until: _microk8s_calico_apply.rc == 0
+  retries: 30
+  delay: 2
   changed_when: true
 
 - name: Restart microk8s
@@ -18,7 +27,14 @@
   changed_when: true
 
 - name: Rollout-restart coredns
+  # Same end-of-play apiserver-transient race as the Calico handler
+  # above — retry the call rather than chasing a separate readiness
+  # probe.
   ansible.builtin.command: microk8s kubectl rollout restart -n kube-system deployment/coredns
+  register: _microk8s_coredns_rollout
+  until: _microk8s_coredns_rollout.rc == 0
+  retries: 30
+  delay: 2
   changed_when: true
 
 - name: Restart microk8s kubelite
