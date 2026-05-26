@@ -40,14 +40,14 @@ poetry run ansible-playbook playbooks/update-k8s.yml \
 
 Two-node cluster, exercises drain/uncordon. Snap-refresh is a no-op (scratch already runs the pinned channel); apt may have updates and a reboot to apply.
 
-### `wrkdevk8s` (single-node smoke)
+### `srvk8sdev` (single-node smoke)
 
 ```sh
 poetry run ansible-playbook playbooks/update-k8s.yml \
-    -i inventories/prd --limit wrkdevk8s
+    -i inventories/prd --limit srvk8sdev
 ```
 
-Single node — drain and uncordon skip. Snap-refresh is a no-op while `wrkdevk8s` is pinned to `1.30/stable` in `host_vars/`; apt full-upgrade still runs.
+Single node — drain and uncordon skip. Snap-refresh exercises the channel pinned in `group_vars/k8s_dev.yml`; apt full-upgrade still runs.
 
 ### `k8s_prd` (real exercise)
 
@@ -117,10 +117,6 @@ microk8s kubectl uncordon <bad-node>
 `snap revert` rolls microk8s to the previous installed revision. To roll further back, inspect `snap info microk8s` for available revisions and `snap refresh microk8s --revision=<rev>`.
 
 For an apt-induced regression, fix the offending package or kernel manually (`apt install <previous-version>`, `apt-mark hold <package>`); the playbook does not enforce package versions.
-
-## Don't use this to channel-bump `wrkdevk8s` to `1.32/stable`
-
-`wrkdevk8s` runs `1.30/stable` until the Phase 4a step 11 rebuild brings it clean to `1.32/stable` with the deterministic-MAC rotation, new CIDRs, and clean addon set. The rebuild handles the channel transition; this playbook does not. Until then, `microk8s_channel` is pinned to `1.30/stable` in `host_vars/wrkdevk8s.yml` so snap-refresh is a no-op even if the playbook is run against it.
 
 ## Verify
 
