@@ -48,6 +48,28 @@ Claude **may** use the SSH keys in `/work/Obsidian/Attachments/` to read state f
 
 Read-only Ansible is fine when it's clearly read-only: `ansible -m setup`, `ansible-playbook --check --diff` against a host where the role itself has no side effects (e.g. fact gathering). When in doubt, hand the command to the operator.
 
+## What Claude doesn't read on its own
+
+- **OpenBao secrets.** `bao kv get`, the underlying `kv/data/...` HTTP endpoint, and anything else that returns a credential value require explicit operator permission for *each* path. Listing (`bao kv list`) and metadata reads (`bao kv metadata get`, `bao policy read`) are fine for navigation and audit. Reading a value is a credential disclosure; ask first, scope to the specific leaf, and don't widen on your own.
+- **The operator's shell history.** `~/.bash_history` / `~/.zsh_history` / equivalents on srviac / wrkdev / any managed host are off-limits regardless of file mode. They expose past credential entry and unrelated activity. If you need to know what command was run, ask.
+
+## Writing OpenBao secrets via `bao kv put`
+
+`bao kv put` accepts a value from stdin when the key's RHS is `-`. Prefer this over inline `key=value` whenever the value is sensitive: positional args land in the controller's terminal scrollback and shell history (`~/.bash_history`); stdin doesn't.
+
+```
+# single-key leaf — pipe the value, don't quote it on the command line
+printf %s "$VALUE" | bao kv put -mount=kv iac/foo bar=-
+
+# multi-key leaf — assemble a JSON dict and use the @file form
+jq -n --arg a "$AKEY" --arg s "$SKEY" '{access_key_id:$a, secret_access_key:$s}' \
+  > /tmp/kv.json
+bao kv put -mount=kv shared/ceph-rgw/s3 @/tmp/kv.json
+shred -u /tmp/kv.json
+```
+
+Same logic applies to `bao kv metadata put -custom-metadata=...` for non-sensitive annotations: those are fine inline since they're not secret material.
+
 ### Canonical command shape
 
 When handing a command to the operator to run, use this exact shape:
