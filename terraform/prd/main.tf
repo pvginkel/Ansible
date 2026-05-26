@@ -14,23 +14,61 @@ locals {
   # apply that follows the rebuild can connect.
   ansible_ssh_public_key = trimspace(file("${path.module}/../../ansible/roles/bootstrap/files/ansible.pub"))
 
-  # Ubuntu cloud image must land on each pve_node that hosts at least
-  # one from-scratch VM. Adopted-only nodes need no download.
-  from_scratch_pve_nodes = toset([for vm in local.vms_from_scratch : vm.pve_node])
+  # OS image channels. Promote a release by moving its entry from
+  # `testing` to `stable`. VMs default to `stable`; a VM opts into
+  # `testing` per-VM via `image_channel = "testing"` in vms.tf —
+  # wrkdevk8s is the live canary slot.
+  os_image_channels = {
+    stable = {
+      url       = "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
+      file_name = "noble-server-cloudimg-amd64.img"
+    }
+    testing = {
+      url       = "https://cloud-images.ubuntu.com/resolute/current/resolute-server-cloudimg-amd64.img"
+      file_name = "resolute-server-cloudimg-amd64.img"
+    }
+  }
+
+  # (pve_node, channel) tuples actually needed by from-scratch VMs.
+  # A channel's image lands on a node only if at least one from-scratch
+  # VM on that node selects it; adopted-only nodes need no download.
+  from_scratch_image_keys = toset([
+    for vm in local.vms_from_scratch :
+    "${vm.pve_node}:${try(vm.image_channel, "stable")}"
+  ])
 }
 
 resource "proxmox_download_file" "ubuntu_cloud_image" {
-  for_each     = local.from_scratch_pve_nodes
+  for_each = local.from_scratch_image_keys
+
   content_type = "iso"
   datastore_id = "local"
-  node_name    = each.value
-  url          = "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
-  file_name    = "noble-server-cloudimg-amd64.img"
+  node_name    = split(":", each.key)[0]
+  url          = local.os_image_channels[split(":", each.key)[1]].url
+  file_name    = local.os_image_channels[split(":", each.key)[1]].file_name
   overwrite    = false
   # Scratch's TF can land the same image on a shared PVE node before
   # this state's first apply. Adopt the existing file instead of
   # erroring; the two states reference the same physical artifact.
   overwrite_unmanaged = true
+}
+
+# State re-key from the pre-channel shape (for_each over pve_nodes)
+# to the post-channel shape (for_each over node:channel tuples).
+# All existing from-scratch VMs default to `stable`, so the three
+# live keys map cleanly onto their :stable variants. Safe to delete
+# these blocks once the first post-refactor apply has run.
+moved {
+  from = proxmox_download_file.ubuntu_cloud_image["pve"]
+  to   = proxmox_download_file.ubuntu_cloud_image["pve:stable"]
+}
+moved {
+  from = proxmox_download_file.ubuntu_cloud_image["pve1"]
+  to   = proxmox_download_file.ubuntu_cloud_image["pve1:stable"]
+}
+moved {
+  from = proxmox_download_file.ubuntu_cloud_image["pve2"]
+  to   = proxmox_download_file.ubuntu_cloud_image["pve2:stable"]
 }
 
 # Per-VM SSH host key. Generated once, persists in tfstate, and
@@ -137,7 +175,7 @@ module "vm" {
   include_cdrom_ide2 = !try(each.value.from_scratch, false)
 
   cloud_init = try(each.value.from_scratch, false) ? {
-    image_file_id     = proxmox_download_file.ubuntu_cloud_image[each.value.pve_node].id
+    image_file_id     = proxmox_download_file.ubuntu_cloud_image["${each.value.pve_node}:${try(each.value.image_channel, "stable")}"].id
     user_data_file_id = proxmox_virtual_environment_file.cloud_init[each.key].id
   } : null
 

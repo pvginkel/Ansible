@@ -65,10 +65,15 @@ locals {
       pve_node       = "pve"
       workload_class = "background"
       from_scratch   = true
-      description    = "microk8s dev single-node cluster (k8s_dev group). HelmCharts iteration target."
-      tags           = ["ansible-managed", "terraform", "k8s"]
-      bios           = "ovmf"
-      machine        = "q35"
+      # Dev canary for the next Ubuntu LTS. The `testing` image
+      # channel maps to resolute (26.04); other from-scratch VMs
+      # default to `stable` (noble / 24.04). See main.tf
+      # `os_image_channels`.
+      image_channel = "testing"
+      description   = "microk8s dev single-node cluster (k8s_dev group). HelmCharts iteration target."
+      tags          = ["ansible-managed", "terraform", "k8s"]
+      bios          = "ovmf"
+      machine       = "q35"
 
       cpu_cores   = 4
       cpu_sockets = 1
