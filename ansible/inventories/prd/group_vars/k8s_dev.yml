@@ -23,11 +23,12 @@ microk8s_apiserver_homelab_sans:
 
 # core/ingress excluded per decisions.md "Tool split": operator runs
 # their own ingress controller. ha-cluster auto-enabled by microk8s.
-# MetalLB excluded: installed via the HelmCharts metallb chart
-# (configs/dev/metallb.sh) — dev pioneered the move off the addon to
-# escape the upstream addon-vs-binary CRD drift in microk8s 1.36 and
-# to keep the path open to FRR mode for prd's BGP rollout later.
-# Pool + L2Advertisement live in configs/dev/metallb.yaml.
+# MetalLB excluded: installed via the HelmCharts metallb-system
+# chart (configs/dev/metallb-system.sh) — dev pioneered the move
+# off the addon to escape the upstream addon-vs-binary CRD drift in
+# microk8s 1.36 and to keep the path open to FRR mode for prd's BGP
+# rollout later. Pool + L2Advertisement live in
+# charts/metallb-system/files/dev.yaml.
 microk8s_addons:
   - dns
   - helm
