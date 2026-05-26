@@ -90,6 +90,27 @@
   hosts: k8s
   become: true
   gather_facts: false
+  vars:
+    # The rebuilt VM presents a bare host key until ssh_host_cert (in
+    # the play below) signs it a certificate. Replace ssh_args
+    # wholesale — for repeated `-o` options OpenSSH takes the first
+    # value, so an appended common_args cannot override ansible.cfg's
+    # UserKnownHostsFile. The transient file (localhost play above)
+    # carries the pre-certificate key; known_hosts.d/homelab carries
+    # the `@cert-authority` line for the survivors. The rest mirrors
+    # ansible.cfg's ssh_args.
+    #
+    # Anchored so the next play (bootstrap + roles, which also needs
+    # to talk to the freshly-rebuilt target before it gets a cert)
+    # references the same string via *bootstrap_ssh_args. Keep them
+    # bound together — drifting them apart re-opens the same gap.
+    ansible_ssh_args: &bootstrap_ssh_args >-
+      -o ControlMaster=auto -o ControlPersist=60s
+      -o PreferredAuthentications=publickey
+      -o "UserKnownHostsFile={{ playbook_dir }}/../../tmp/bootstrap-known-hosts {{ playbook_dir }}/../files/known_hosts.d/homelab"
+      -o GlobalKnownHostsFile=/dev/null
+      -o HostKeyAlgorithms=ssh-ed25519-cert-v01@openssh.com,ssh-ed25519
+      -o IdentityFile=~/.ssh/id_ed25519_ansible -o IdentitiesOnly=yes
   tasks:
     - name: Elect primary
       ansible.builtin.import_role:
@@ -101,20 +122,7 @@
   become: true
   gather_facts: true
   vars:
-    # The rebuilt VM presents a bare host key until ssh_host_cert (the
-    # last role below) signs it a certificate. Replace ssh_args
-    # wholesale — for repeated `-o` options OpenSSH takes the first
-    # value, so an appended common_args cannot override ansible.cfg's
-    # UserKnownHostsFile. The transient file (previous play) carries
-    # the pre-certificate key; known_hosts.d/homelab carries the
-    # `@cert-authority` line. The rest mirrors ansible.cfg's ssh_args.
-    ansible_ssh_args: >-
-      -o ControlMaster=auto -o ControlPersist=60s
-      -o PreferredAuthentications=publickey
-      -o "UserKnownHostsFile={{ playbook_dir }}/../../tmp/bootstrap-known-hosts {{ playbook_dir }}/../files/known_hosts.d/homelab"
-      -o GlobalKnownHostsFile=/dev/null
-      -o HostKeyAlgorithms=ssh-ed25519-cert-v01@openssh.com,ssh-ed25519
-      -o IdentityFile=~/.ssh/id_ed25519_ansible -o IdentitiesOnly=yes
+    ansible_ssh_args: *bootstrap_ssh_args
   roles:
     - role: bootstrap
     - role: baseline
