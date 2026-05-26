@@ -50,6 +50,7 @@
         validate_certs: true
       register: _openbao_auth_methods
       no_log: true
+      check_mode: false
 
     - name: Enable the approle auth method
       ansible.builtin.uri:
@@ -74,6 +75,7 @@
         validate_certs: true
       register: _openbao_mounts
       no_log: true
+      check_mode: false
 
     - name: Enable the kv-v2 secrets engine
       ansible.builtin.uri:
@@ -111,6 +113,7 @@
         - eso
         - backup
       no_log: true
+      check_mode: false
 
     # Iterative dict build — each loop iteration combines the prior
     # value with one more key. Lets us tolerate 404s (which produce
@@ -213,6 +216,7 @@
         status_code: [200, 404]
         validate_certs: true
       register: _openbao_approles
+      check_mode: false
       loop:
         - name: openbao-admin
           policy: openbao-admin
@@ -293,6 +297,7 @@
         - eso
         - backup
       no_log: true
+      check_mode: false
 
     # ----- secret_id mint (only on operator-driven rotation) ----------
     #

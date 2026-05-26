@@ -35,6 +35,12 @@
     validate_certs: true
   register: _openbao_login
   no_log: true
+  # Mints a short-TTL token (openbao_admin_token_ttl, default 1h) used
+  # by the rest of the role's read/write tasks. Run in check mode too —
+  # without a token the auth-gated block below skips, and `--check`
+  # against site-openbao.yml reports 0 changes for any policy/role
+  # diff the operator's trying to preview.
+  check_mode: false
   # A fresh / not-yet-provisioned cluster has no admin AppRole, so the
   # login is rejected. Tolerate it and fall through to the empty-token
   # skip below rather than aborting the converge.

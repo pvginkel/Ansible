@@ -59,6 +59,7 @@
         validate_certs: true
       register: _openbao_auth_methods_oidc
       no_log: true
+      check_mode: false
 
     - name: Enable the oidc auth method
       ansible.builtin.uri:
