@@ -208,6 +208,47 @@ through the snapshot (§3).
   `openbao_seal_current_key_id`, and follow the seal-rekey path; the
   old key id must stay declared until every node has migrated.
 
+### `rotated_at` custom metadata
+
+OpenBao KV-v2 supports per-path `custom_metadata` — string→string
+pairs that travel alongside the secret data but are invisible to
+consumers (ESO, the Jenkins Vault plugin, the iac-impl `!bao`
+resolver). The homelab uses one key by convention:
+
+| Key | Meaning |
+|---|---|
+| `rotated_at` | ISO-date the value was last rotated to a freshly-minted secret. The leaf is exempt from the next slice-close rotation pass — its value isn't in any transcript or scratch file. |
+
+Apply pattern (after a `bao kv put` of a freshly-minted value):
+
+```
+bao kv metadata put -mount=kv \
+  -custom-metadata=rotated_at=$(date -I) \
+  -custom-metadata=notes='<one-liner: source / scope / consumer>' \
+  <path>
+```
+
+Inspect with `bao kv metadata get -mount=kv <path>` or, in bulk:
+
+```
+for leaf in $(bao kv list -format=json kv/iac | jq -r '.[]'); do
+  printf '%-40s ' "kv/iac/$leaf"
+  bao kv metadata get -mount=kv -format=json "iac/$leaf" \
+    | jq -r '.data.custom_metadata.rotated_at // "(no rotated_at)"'
+done
+```
+
+Inverse: a leaf without `rotated_at` carries a value that was
+transcript-exposed during migration (Jenkins-credentials-dump,
+HelmCharts configs, the iac-impl `secrets.yaml` capture during the
+runtime-secrets-sweep slice). Rotate at slice close, then set
+`rotated_at` to today's date.
+
+`notes` is freeform context — where to re-mint, what consumer it
+serves, scope grants on a PAT. Convention is documented in the
+naming-review §7 alongside the original mechanism note; adopting it
+broadly is operator-driven, not enforced by the role.
+
 ## Drill log
 
 Timings from the recovery drills (cards #13 / #14):
