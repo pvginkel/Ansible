@@ -9,6 +9,7 @@ galaxy_info:
     - name: Ubuntu
       versions:
         - noble
+        - resolute
 
 # Reusable role consumed via include_role with per-call vars (same
 # pattern as keepalived). No host-class of its own, no role deps.

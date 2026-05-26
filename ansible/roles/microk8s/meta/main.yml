@@ -9,6 +9,7 @@ galaxy_info:
     - name: Ubuntu
       versions:
         - noble
+        - resolute
 
 # site.yml runs the bootstrap+baseline plays against `managed` before
 # this role's play executes, so a meta dep on baseline would re-run it
