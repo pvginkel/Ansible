@@ -83,6 +83,43 @@ openbao_eso_kv_paths:
   - shared/samba/users
   - shared/jenkins/admin-password
   - shared/wifi-iot
+  # Per-chart paths added during the C.3 sweeps. A future per-cluster
+  # glob (`eso/prd/*`) would simplify maintenance but loses cross-chart
+  # isolation; keeping the per-(chart, stage) enumeration explicit
+  # matches the slice's stated policy-granularity principle.
+  - eso/prd/dnsmasq/prd/management-api
+  - eso/prd/dnsmasq/prd/dhcp-app
+  - eso/prd/dnsmasq/prd/oidc
+  - eso/prd/filebeat/prd/elastic-credentials
+  - eso/prd/ceph-csi-rbd/prd/credentials
+  - eso/prd/ceph-csi-cephfs/prd/credentials
+  - eso/prd/intercom/prd/mqtt
+  - eso/prd/git-sync/prd/github
+  - eso/prd/homeassistant-mcp/prd/homeassistant
+  - eso/prd/zigbee2mqtt/prd/app
+  - eso/prd/zigbee2mqtt/prd/oidc
+  - eso/prd/open-webui/prd/oidc
+  - eso/prd/open-webui/prd/db
+  - eso/prd/newsfilter/prd/openai
+  - eso/prd/newsfilter/prd/twitter
+  - eso/prd/electronics-inventory/prd/app
+  - eso/prd/electronics-inventory/prd/openai
+  - eso/prd/electronics-inventory/prd/mouser
+  - eso/prd/electronics-inventory/prd/oidc
+  - eso/prd/electronics-inventory/prd/db
+  - eso/prd/electronics-inventory/prd/drain-auth
+  - eso/prd/iot/prd/elastic-credentials
+  - eso/prd/iot/prd/mqtt
+  - eso/prd/iot/prd/mqtt-cronjob
+  - eso/prd/iot/prd/app
+  - eso/prd/iot/prd/oidc
+  - eso/prd/iot/prd/keycloak-admin
+  - eso/prd/iot/prd/db
+  - eso/prd/storage/prd/backup-server
+  - eso/prd/keycloak/prd/db
+  - eso/prd/guacamole/prd/db
+  - eso/prd/registry/prd/http-signing
+  - eso/prd/media/prd/mydownloads-user
 
 # iac-impl reads /etc/iac/secrets.yaml on srviac and resolves any
 # `!bao kv/iac/<leaf>#<key>` reference via this AppRole. Paths are
