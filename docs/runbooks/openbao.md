@@ -249,6 +249,78 @@ serves, scope grants on a PAT. Convention is documented in the
 naming-review §7 alongside the original mechanism note; adopting it
 broadly is operator-driven, not enforced by the role.
 
+## Consumer cold-boot
+
+Three consumers read from OpenBao at runtime: the iac-agent
+container on srviac, the Jenkins controller, and ESO inside each
+microk8s cluster. When OpenBao is unreachable (whole-cluster loss
+mid-recovery, network partition, listener cert expired), each one
+degrades differently. The right intervention depends on which one
+is on fire.
+
+### iac-agent
+
+`iac-impl` resolves every `!bao kv/iac/<leaf>#<key>` reference in
+`/etc/iac/secrets.yaml` at container startup, before any iac flow
+runs. With OpenBao unreachable the container exits non-zero and
+the iac CLI prints the failed path / property.
+
+Escape hatch: edit `/etc/iac/secrets.yaml` on srviac and replace
+the failing `!bao` ref with a literal value from Roboform. The
+file format accepts a literal where a `!bao` tag was expected, so
+the swap is a one-line edit. Restart the iac container, run the
+flow, swap back when OpenBao is up.
+
+Full sequence is in [`iac-cold-boot.md`](iac-cold-boot.md).
+
+### Jenkins (HashiCorp Vault plugin)
+
+In-flight pipelines that hit `withVault` block at the resolution
+step and fail with the path/property the plugin couldn't read.
+Pipelines already past `withVault` keep running on the values they
+captured into the closure body. Queued pipelines retry per the
+plugin's retry config (default: none — they fail immediately).
+
+Escape hatch: Jenkins → Manage Credentials → System → Global —
+re-create the now-deleted Secret-text credential with the same
+ID as the `withVault` block's `envVar`. The pipeline reads the
+*Secret text* credential at the same env-var name; if it sees one
+that matches, it doesn't touch Vault. Restore the value from
+Roboform. Delete the credential entry when OpenBao is back.
+
+Tokens already minted by `withVault` (during a successful
+pipeline run) have a 1h TTL (`openbao_jenkins_token_ttl`); a
+mid-pipeline OpenBao outage past that window kills the next
+in-pipeline resolution attempt. Long-running pipelines that need
+to span an outage should pre-resolve every secret at the top.
+
+### ESO (External Secrets Operator)
+
+Existing k8s Secrets keep working (ESO caches the last successful
+sync). New `ExternalSecret` values stall at
+`status.conditions.reason=SecretSyncError`; consumer pods don't
+see updates, but the cached Secret content is still served from
+the API server. Pods that restart pull the *cached* value, not a
+fresh one — that's a footgun on rolling deploys during an outage.
+
+Escape hatches:
+
+1. **Edit the target Secret directly.** Replace the ESO-managed
+   data field with the Roboform value, then add
+   `external-secrets.io/suspend: "true"` as an annotation on the
+   ExternalSecret so ESO doesn't overwrite the edit on the next
+   sync attempt. Remove the annotation when OpenBao is back.
+2. **Hand-stage Secrets in the namespace** with the same name,
+   then delete the ExternalSecret. Re-deploy the chart later to
+   restore the ExternalSecret CR.
+
+Bootstrap-tier reminder: the `eso` AppRole's `secret_id` itself
+reaches ESO via the hand-staged `openbao-eso-approle` Secret in
+the `external-secrets` namespace — not via ESO. Losing that
+Secret (or rotating the eso AppRole's secret_id in OpenBao
+without re-staging) breaks ESO until you re-create it. The
+secret_id lives in Roboform under "OpenBao eso AppRole".
+
 ## Drill log
 
 Timings from the recovery drills (cards #13 / #14):
