@@ -20,5 +20,17 @@ podTemplate(inheritFrom: 'jenkins-agent kaniko') {
                 ])
             }
         }
+
+        stage('Validate architecture artifact') {
+            if (fileExists('docs/architecture/ansible-architecture.yaml')) {
+                sh './scripts/arch-validate docs/architecture/ansible-architecture.yaml'
+            } else {
+                echo 'docs/architecture/ansible-architecture.yaml not present yet — skipping.'
+            }
+        }
+
+        stage('Archive architecture artifact') {
+            archiveArtifacts artifacts: 'docs/architecture/*.yaml', fingerprint: true
+        }
     }
 }

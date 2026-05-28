@@ -1,0 +1,1282 @@
+schemaVersion: "0.1"
+producer: ansible
+
+nodes:
+  - id: node:pve,d8382d6f-8075-4e4f-8666-73dde53aba9c
+    label: pve
+    summary: Proxmox VE host 1 of 3. Primary node; carries the cluster vzdump cron. Hosts srvk8s1, srvk8sdev, srviac, srvvault1, srvceph3.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    cluster: pve-prd
+
+  - id: node:pve1,e75ca28c-ba50-49cd-8f15-fbdf9196f566
+    label: pve1
+    summary: Proxmox VE host 2 of 3. Hosts srvk8s2, srvvault2, srvceph1.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    cluster: pve-prd
+
+  - id: node:pve2,bba43036-a0e6-4e2a-8b2f-107db3dd0fe1
+    label: pve2
+    summary: Proxmox VE host 3 of 3. Hosts srvk8s3, srvvault3, srvceph2.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    cluster: pve-prd
+
+  - id: node:pve-prd-cluster,8fba5f23-2ba2-49e0-b7df-b86d0133263c
+    label: Proxmox prd cluster
+    summary: Three-node Proxmox VE cluster (pve, pve1, pve2). Hosts every Ansible-managed VM in prd.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    cluster: pve-prd
+
+  - id: node:srvk8s1,548ea766-f8d6-4f4f-938b-f4a3ea3d8125
+    label: srvk8s1
+    summary: microk8s prd VM, member 1 of 3. Carries zpool2 on NVMe passthrough.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    cluster: k8s-prd
+    stats:
+      vmid: "910"
+      pve_host: pve
+
+  - id: node:srvk8s2,d62cfe4c-fc88-41dd-9c51-e960a827c67f
+    label: srvk8s2
+    summary: microk8s prd VM, member 2 of 3.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    cluster: k8s-prd
+    stats:
+      vmid: "911"
+      pve_host: pve1
+
+  - id: node:srvk8s3,6b881c16-e39e-4061-a3b1-34c588a791fa
+    label: srvk8s3
+    summary: microk8s prd VM, member 3 of 3.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    cluster: k8s-prd
+    stats:
+      vmid: "912"
+      pve_host: pve2
+
+  - id: node:k8s-prd-cluster,139a5ddf-cead-4f6a-b439-de88c3bf0f8a
+    label: Kubernetes prd cluster
+    summary: Three-node microk8s prd cluster (srvk8s1/2/3). API VIP at kubernetes-api.home:16443.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    cluster: k8s-prd
+    stats:
+      api_vip: 10.1.0.37
+      api_endpoint: https://kubernetes-api.home:16443
+
+  - id: node:srvk8sdev,ed565690-df32-449a-b9ee-7e50a560a6d8
+    label: srvk8sdev
+    summary: Single-node microk8s dev VM.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: dev
+    cluster: k8s-dev
+    stats:
+      vmid: "919"
+      pve_host: pve
+
+  - id: node:k8s-dev-cluster,40b59d10-2082-4de4-9608-3f24e265b08c
+    label: Kubernetes dev cluster
+    summary: Single-node microk8s dev cluster.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: dev
+    cluster: k8s-dev
+
+  - id: node:srvceph1,ea3fe47f-0a97-4f5d-9d2f-02b3e8b1041c
+    label: srvceph1
+    summary: microceph prd VM, member 1 of 3. 100G RBD disk + 2TB SSD passthrough.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    cluster: ceph-prd
+    stats:
+      vmid: "113"
+      pve_host: pve1
+
+  - id: node:srvceph2,cd49d2d4-4c63-4211-b196-42e2a02e156b
+    label: srvceph2
+    summary: microceph prd VM, member 2 of 3.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    cluster: ceph-prd
+    stats:
+      vmid: "114"
+      pve_host: pve2
+
+  - id: node:srvceph3,baa77d41-4ab6-4533-af7d-8a27db726c58
+    label: srvceph3
+    summary: microceph prd VM, member 3 of 3.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    cluster: ceph-prd
+    stats:
+      vmid: "115"
+      pve_host: pve
+
+  - id: node:ceph-prd-cluster,76b1db61-b084-4602-b680-01ebcefe9e0e
+    label: Ceph prd cluster
+    summary: Three-node microceph cluster (srvceph1/2/3). VIP at ceph.home (10.1.0.38).
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    cluster: ceph-prd
+    stats:
+      vip: 10.1.0.38
+      vip_dns: ceph.home
+
+  - id: node:srvvault1,176b4b88-83af-4e04-88be-918069290e0b
+    label: srvvault1
+    summary: OpenBao Raft node 1 of 3. Excluded from backup (snapshots emitted separately).
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    cluster: openbao-prd
+    stats:
+      vmid: "913"
+      pve_host: pve
+      ip: 10.1.0.40
+
+  - id: node:srvvault2,7dd76883-7fd6-44e2-9b81-6431cf37c62a
+    label: srvvault2
+    summary: OpenBao Raft node 2 of 3.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    cluster: openbao-prd
+    stats:
+      vmid: "914"
+      pve_host: pve1
+
+  - id: node:srvvault3,7ea61d25-0718-41f6-bb15-dde9e7cb027a
+    label: srvvault3
+    summary: OpenBao Raft node 3 of 3.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    cluster: openbao-prd
+    stats:
+      vmid: "915"
+      pve_host: pve2
+
+  - id: node:openbao-prd-cluster,482a08e9-4187-4d9c-abcf-3f30bb55f3af
+    label: OpenBao prd cluster
+    summary: Three-node OpenBao Raft cluster (srvvault1/2/3). VIP at secrets.home (10.1.0.39).
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    cluster: openbao-prd
+    stats:
+      vip: 10.1.0.39
+      vip_dns: secrets.home
+
+  - id: node:srviac,745e2656-5750-460d-9b93-4d08b8952ac8
+    label: srviac
+    summary: IaC orchestrator VM. Hosts the iac Docker-driven shim that runs Terraform and Ansible against the homelab, plus the Jenkins inbound agent.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    stats:
+      vmid: "920"
+      pve_host: pve
+
+  - id: node:wrkdev,48e6f9d6-27d9-4f82-95eb-cf861f8fc0c7
+    label: wrkdev
+    summary: Operator workstation VM on pve. Ansible-managed for baseline only; not Terraform-provisioned today.
+    introduced: 2026-05-28
+    lifecycle: active
+    stats:
+      pve_host: pve
+
+systemSoftware:
+  # ─── SoftwareProduct catalog (bare-kebab) ────────────────────────────
+  - id: ss:proxmox-ve
+    label: Proxmox VE
+    summary: Open-source server virtualization platform combining KVM hypervisor and LXC.
+    introduced: 2026-05-28
+    lifecycle: active
+    stereotype: SoftwareProduct
+    homepage: https://www.proxmox.com/en/proxmox-virtual-environment
+
+  - id: ss:microk8s
+    label: MicroK8s
+    summary: Canonical's lightweight Kubernetes distribution. Singletons, snap-packaged.
+    introduced: 2026-05-28
+    lifecycle: active
+    stereotype: SoftwareProduct
+    homepage: https://microk8s.io/
+
+  - id: ss:kubernetes
+    label: Kubernetes
+    summary: Open-source container orchestration platform. Upstream of MicroK8s.
+    introduced: 2026-05-28
+    lifecycle: active
+    stereotype: SoftwareProduct
+    homepage: https://kubernetes.io/
+
+  - id: ss:microceph
+    label: MicroCeph
+    summary: Canonical's snap-packaged Ceph distribution for small clusters.
+    introduced: 2026-05-28
+    lifecycle: active
+    stereotype: SoftwareProduct
+    homepage: https://canonical.com/microceph
+
+  - id: ss:ceph
+    label: Ceph
+    summary: Open-source distributed object/block/filesystem storage. Upstream of MicroCeph.
+    introduced: 2026-05-28
+    lifecycle: active
+    stereotype: SoftwareProduct
+    homepage: https://ceph.io/
+
+  - id: ss:openbao
+    label: OpenBao
+    summary: Open-source fork of HashiCorp Vault for secret management.
+    introduced: 2026-05-28
+    lifecycle: active
+    stereotype: SoftwareProduct
+    homepage: https://openbao.org/
+
+  - id: ss:haproxy
+    label: HAProxy
+    summary: Open-source TCP/HTTP load balancer and proxy.
+    introduced: 2026-05-28
+    lifecycle: active
+    stereotype: SoftwareProduct
+    homepage: https://www.haproxy.org/
+
+  - id: ss:keepalived
+    label: Keepalived
+    summary: Linux daemon for IP failover (VRRP) and health-checked load balancing.
+    introduced: 2026-05-28
+    lifecycle: active
+    stereotype: SoftwareProduct
+    homepage: https://www.keepalived.org/
+
+  - id: ss:prometheus-node-exporter
+    label: Prometheus node_exporter
+    summary: Prometheus exporter exposing hardware and OS metrics for *NIX hosts.
+    introduced: 2026-05-28
+    lifecycle: active
+    stereotype: SoftwareProduct
+    homepage: https://github.com/prometheus/node_exporter
+
+  - id: ss:metallb
+    label: MetalLB
+    summary: Bare-metal load-balancer implementation for Kubernetes via L2 (ARP/NDP) or BGP advertisement.
+    introduced: 2026-05-28
+    lifecycle: active
+    stereotype: SoftwareProduct
+    homepage: https://metallb.universe.tf/
+
+  - id: ss:iac
+    label: iac shim
+    summary: Homelab-specific Docker-driven shim that wraps Terraform and Ansible, fetches OpenBao secrets at invocation, and serializes concurrent runs via a file lock.
+    introduced: 2026-05-28
+    lifecycle: active
+    stereotype: SoftwareProduct
+    sourceRepository: git:pvginkel/IaCAgent
+
+  # ─── Instances (composite) ──────────────────────────────────────────
+  - id: ss:proxmox-ve-prd,c387dc26-d523-4139-9976-cb31b419ee05
+    label: Proxmox VE (prd)
+    summary: Production Proxmox VE cluster software (pmxcfs + pveproxy + the daily vzdump cron, primary on pve).
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    cluster: pve-prd
+
+  - id: ss:microk8s-prd,54ca8c6c-27ec-4e0d-ac17-cf3f65e7c5d4
+    label: microk8s (prd)
+    summary: Production microk8s install across the three k8s-prd VMs. Channel pin, addons, CoreDNS Corefile, and registry mirrors reconciled by the microk8s role.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    cluster: k8s-prd
+    stats:
+      channel: 1.35/stable
+
+  - id: ss:microk8s-dev,7cdf628b-670d-4e20-bd53-d96b62f780c3
+    label: microk8s (dev)
+    summary: Single-node microk8s dev install on srvk8sdev.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: dev
+    cluster: k8s-dev
+    stats:
+      channel: 1.36/stable
+
+  - id: ss:microceph-prd,9de43740-5f01-4a3d-9ee4-feadbe1f79b0
+    label: microceph (prd)
+    summary: Production microceph cluster across srvceph1/2/3. Block, object, and filesystem pools.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    cluster: ceph-prd
+
+  - id: ss:openbao-prd,089cec90-db60-4478-b3d7-d2ffa2e6c399
+    label: OpenBao (prd)
+    summary: Production OpenBao Raft cluster across srvvault1/2/3. Listener on :8200, integrated storage, OIDC via Keycloak, AppRoles for iac-agent, jenkins, eso, backup. Daily snapshot to the cluster backup-server.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    cluster: openbao-prd
+    stats:
+      version: 2.5.4
+
+  - id: ss:haproxy-srvvault1,f137a9a9-f1da-415f-a5e8-c05d2feff4f2
+    label: HAProxy on srvvault1
+    summary: TCP-passthrough proxy on srvvault1, :443 → 127.0.0.1:8200. One of three per-node front-doors for OpenBao.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    cluster: openbao-prd
+
+  - id: ss:haproxy-srvvault2,7995e045-14bf-4f06-b6e2-92597db98a8d
+    label: HAProxy on srvvault2
+    summary: TCP-passthrough proxy on srvvault2, :443 → 127.0.0.1:8200.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    cluster: openbao-prd
+
+  - id: ss:haproxy-srvvault3,b1f49dfb-1533-46da-a8fb-3224ca81abe0
+    label: HAProxy on srvvault3
+    summary: TCP-passthrough proxy on srvvault3, :443 → 127.0.0.1:8200.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    cluster: openbao-prd
+
+  - id: ss:keepalived-k8s-prd,227a7e8a-0be4-4694-9f50-0665462b7359
+    label: Keepalived (k8s-prd)
+    summary: VRRP failover for kubernetes-api.home (10.1.0.37) across the three k8s-prd nodes.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    cluster: k8s-prd
+
+  - id: ss:keepalived-openbao-prd,8208cc28-3518-4a7d-a246-b60e0e0d4a98
+    label: Keepalived (openbao-prd)
+    summary: VRRP failover for secrets.home (10.1.0.39) across the three openbao-prd nodes. Leader-tracking — VIP follows the Raft leader.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    cluster: openbao-prd
+
+  - id: ss:keepalived-ceph-prd,453bcadb-11f0-4a39-bc74-33889430db07
+    label: Keepalived (ceph-prd)
+    summary: VRRP failover for ceph.home (10.1.0.38) across the three ceph-prd nodes.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    cluster: ceph-prd
+
+  - id: ss:iac-prd,3341d790-a475-4f6d-ab93-efe1a3fced12
+    label: iac shim (prd)
+    summary: Production iac shim on srviac. Wraps Terraform + Ansible inside a container that auto-fetches OpenBao secrets per run and serializes invocations through a file lock. Used both by Jenkins pipelines and by the operator manually.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+
+  - id: ss:jenkins-inbound-agent-srviac,220788bb-ca5d-497c-bf83-38211b7d6d12
+    label: Jenkins inbound agent on srviac
+    summary: Generic Jenkins inbound-agent systemd unit on srviac. Provides Jenkins the means to schedule pipelines onto this node; the work itself runs via the iac shim. No Specialization edge today — the ss:jenkins-agent catalog entry will land with HelmCharts.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+
+  - id: ss:metallb-prd,02b1bffa-b296-428e-b6ba-be2a957285b5
+    label: MetalLB (prd)
+    summary: MetalLB addon on the k8s-prd cluster, configured in L2 mode. Allocates LoadBalancer IPs from the pool below and announces them via gratuitous ARP. HelmCharts attaches per-LB interfaces on its consumers.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    cluster: k8s-prd
+    stats:
+      mode: L2
+      pool_v4: 10.2.1.1-10.2.1.199
+
+  - id: ss:prometheus-node-exporter-pve,d0d090bd-27fe-4643-a394-6c27460443a7
+    label: node_exporter on pve
+    summary: Debian-package prometheus-node-exporter on pve, listening on :9100.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+
+  - id: ss:prometheus-node-exporter-pve1,d69c8cc2-f236-4588-ae00-ec40164727a2
+    label: node_exporter on pve1
+    summary: Debian-package prometheus-node-exporter on pve1, listening on :9100.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+
+  - id: ss:prometheus-node-exporter-pve2,85cee3c3-83a9-4740-9684-40e975b579ab
+    label: node_exporter on pve2
+    summary: Debian-package prometheus-node-exporter on pve2, listening on :9100.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+
+  - id: ss:prometheus-node-exporter-srvceph1,5048c039-14ef-46ac-8475-c1eae537812b
+    label: node_exporter on srvceph1
+    summary: Debian-package prometheus-node-exporter on srvceph1, listening on :9100.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+
+  - id: ss:prometheus-node-exporter-srvceph2,9a1c231c-f59a-4cdd-850a-69685b22c10c
+    label: node_exporter on srvceph2
+    summary: Debian-package prometheus-node-exporter on srvceph2, listening on :9100.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+
+  - id: ss:prometheus-node-exporter-srvceph3,afd4a027-7fff-48a2-99fc-02e2171e9561
+    label: node_exporter on srvceph3
+    summary: Debian-package prometheus-node-exporter on srvceph3, listening on :9100.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+
+  - id: ss:prometheus-node-exporter-srvvault1,5bf91fc6-e738-443c-9a52-374e36817c4e
+    label: node_exporter on srvvault1
+    summary: Debian-package prometheus-node-exporter on srvvault1, listening on :9100.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+
+  - id: ss:prometheus-node-exporter-srvvault2,57e26a33-2e37-4f3c-8855-957429b3ffc0
+    label: node_exporter on srvvault2
+    summary: Debian-package prometheus-node-exporter on srvvault2, listening on :9100.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+
+  - id: ss:prometheus-node-exporter-srvvault3,3942bb65-9b8f-4fb0-8b57-04ba8e5b3982
+    label: node_exporter on srvvault3
+    summary: Debian-package prometheus-node-exporter on srvvault3, listening on :9100.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+
+  - id: ss:prometheus-node-exporter-srviac,beb7d549-73da-4ccd-a2ac-fabcdcb8493d
+    label: node_exporter on srviac
+    summary: Debian-package prometheus-node-exporter on srviac, listening on :9100.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+
+  - id: ss:prometheus-node-exporter-wrkdev,95c87af2-7f6b-4a53-a430-b4d0ef94af89
+    label: node_exporter on wrkdev
+    summary: Debian-package prometheus-node-exporter on wrkdev, listening on :9100.
+    introduced: 2026-05-28
+    lifecycle: active
+
+technologyServices:
+  - id: svc:proxmox-api-prd,18a9fb9e-cfcb-49e2-a423-650d0c866774
+    label: Proxmox API (prd)
+    summary: PVE cluster API surface, reached at the cluster-wide endpoint. Consumed by Terraform (bpg/proxmox provider) and the iac shim.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    cluster: pve-prd
+
+  - id: svc:k8s-apiserver-prd,fbd09c41-3e9f-4771-80ab-4a0d9693559f
+    label: Kubernetes API (prd)
+    summary: kube-apiserver of the k8s-prd cluster, fronted by the Keepalived-managed VIP.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    cluster: k8s-prd
+
+  - id: svc:k8s-apiserver-dev,e9d5182e-59e6-4295-bc9f-e2fab8babf57
+    label: Kubernetes API (dev)
+    summary: kube-apiserver of the single-node k8s-dev cluster.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: dev
+    cluster: k8s-dev
+
+  - id: svc:openbao-api-prd,6efb187c-9ae8-4d73-b267-56c826983cd8
+    label: OpenBao API (prd)
+    summary: OpenBao HTTPS API on the openbao-prd cluster. TCP-passthrough via per-node HAProxy onto the local OpenBao listener; addressed via the Keepalived VIP at secrets.home.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    cluster: openbao-prd
+
+  - id: svc:ceph-vip-prd,ce1a9051-db85-4aca-93d6-15b2064c663d
+    label: Ceph VIP (prd)
+    summary: Cluster-level Ceph access surface at ceph.home (10.1.0.38). Keepalived-managed VIP fronting the three microceph nodes.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    cluster: ceph-prd
+
+  - id: svc:jenkins-inbound-agent-srviac,944c6a01-8b7a-4ab2-85f2-b37afd33dda9
+    label: Jenkins inbound agent surface on srviac
+    summary: TCP listener used by the Jenkins controller to schedule build work onto srviac.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+
+  - id: svc:node-exporter-prd,87c9a549-efe2-4df9-a1be-47673bfff4c3
+    label: node_exporter fleet (prd)
+    summary: Aggregate Prometheus node_exporter scrape surface across the eleven non-k8s managed prd hosts. Per-host scrape endpoints are composed into this service.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+
+technologyInterfaces:
+  - id: if:proxmox-api-prd,6adcbe6e-12cd-4ab5-959c-f8953288d251
+    label: Proxmox API endpoint
+    summary: Cluster-wide PVE API at https://pve.home:8006/. Cluster routes the request internally.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    cluster: pve-prd
+    stats:
+      url: https://pve.home:8006/
+
+  - id: if:k8s-apiserver-vip-prd,bb61a82a-29fd-4f19-90c7-f05184a5d2d3
+    label: kube-apiserver VIP (prd)
+    summary: kubernetes-api.home:16443. The Keepalived-managed VIP fronts the three k8s-prd member nodes.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    cluster: k8s-prd
+    stats:
+      url: https://kubernetes-api.home:16443
+
+  - id: if:k8s-apiserver-dev,5cc5bf3a-3985-4bbb-9d2d-c570aa65a40e
+    label: kube-apiserver (dev)
+    summary: kubernetes-api-dev.home:16443. Single-node, no VIP.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: dev
+    cluster: k8s-dev
+    stats:
+      url: https://kubernetes-api-dev.home:16443
+
+  - id: if:openbao-vip-https-prd,1122aa35-b174-407a-a1c7-5a943af6adaf
+    label: OpenBao VIP (HTTPS 443)
+    summary: Primary client entry at https://secrets.home/ — port 443 TCP-passthrough through HAProxy to OpenBao on 8200.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    cluster: openbao-prd
+    stats:
+      url: https://secrets.home/
+
+  - id: if:openbao-vip-8200-prd,ef13bfe8-c5da-4a7c-88f3-e89bf79cea43
+    label: OpenBao VIP (HTTPS 8200)
+    summary: Admin-side entry at https://secrets.home:8200. Used by the Ansible controller for write operations (must hit the leader VIP, not per-node listeners).
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    cluster: openbao-prd
+    stats:
+      url: https://secrets.home:8200
+
+  - id: if:ceph-vip-prd,733427ef-f2e3-49ef-9d20-70a999fecf81
+    label: Ceph VIP endpoint
+    summary: Cluster VIP at ceph.home (10.1.0.38).
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    cluster: ceph-prd
+    stats:
+      vip: 10.1.0.38
+      dns: ceph.home
+
+  - id: if:jenkins-inbound-agent-srviac,8abc4a60-f9ed-4c4d-928e-42a31a4fba89
+    label: Jenkins inbound agent endpoint on srviac
+    summary: TCP socket on srviac that the Jenkins controller connects to for dispatching jobs.
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+
+  - id: if:node-exporter-pve,5af65252-9222-4385-97f6-e4a80b84fad3
+    label: node_exporter on pve
+    summary: http://pve.home:9100/metrics
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    stats:
+      url: http://pve.home:9100/metrics
+
+  - id: if:node-exporter-pve1,aa4c85b8-d331-4a7a-810d-7aa7aefd20ad
+    label: node_exporter on pve1
+    summary: http://pve1.home:9100/metrics
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    stats:
+      url: http://pve1.home:9100/metrics
+
+  - id: if:node-exporter-pve2,b12144c8-a410-477b-b3db-e78f47f5dfbe
+    label: node_exporter on pve2
+    summary: http://pve2.home:9100/metrics
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    stats:
+      url: http://pve2.home:9100/metrics
+
+  - id: if:node-exporter-srvceph1,9bc37247-3f82-45fc-a0cb-883787095752
+    label: node_exporter on srvceph1
+    summary: http://srvceph1.home:9100/metrics
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    stats:
+      url: http://srvceph1.home:9100/metrics
+
+  - id: if:node-exporter-srvceph2,65d26124-36cd-4de6-9ed3-1a0f62543e2a
+    label: node_exporter on srvceph2
+    summary: http://srvceph2.home:9100/metrics
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    stats:
+      url: http://srvceph2.home:9100/metrics
+
+  - id: if:node-exporter-srvceph3,21eeec93-2809-4ad6-993d-bba911fba71e
+    label: node_exporter on srvceph3
+    summary: http://srvceph3.home:9100/metrics
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    stats:
+      url: http://srvceph3.home:9100/metrics
+
+  - id: if:node-exporter-srvvault1,6c58bbcc-1f45-48fb-b610-b6702cd8d441
+    label: node_exporter on srvvault1
+    summary: http://srvvault1.home:9100/metrics
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    stats:
+      url: http://srvvault1.home:9100/metrics
+
+  - id: if:node-exporter-srvvault2,20703fd0-9b13-4c3a-bfec-19dd37cc1f52
+    label: node_exporter on srvvault2
+    summary: http://srvvault2.home:9100/metrics
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    stats:
+      url: http://srvvault2.home:9100/metrics
+
+  - id: if:node-exporter-srvvault3,f3378c38-cd3e-4cc8-ae77-c7ea6fcf2cbc
+    label: node_exporter on srvvault3
+    summary: http://srvvault3.home:9100/metrics
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    stats:
+      url: http://srvvault3.home:9100/metrics
+
+  - id: if:node-exporter-srviac,8a5790ad-9432-469b-b222-66a1abd3ea60
+    label: node_exporter on srviac
+    summary: http://srviac.home:9100/metrics
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    stats:
+      url: http://srviac.home:9100/metrics
+
+  - id: if:node-exporter-wrkdev,76afd2e5-68a5-4db7-8ad8-813d4df86afe
+    label: node_exporter on wrkdev
+    summary: http://wrkdev.home:9100/metrics
+    introduced: 2026-05-28
+    lifecycle: active
+    environment: prd
+    stats:
+      url: http://wrkdev.home:9100/metrics
+
+capabilities:
+  - id: cap:hypervisor
+    label: Hypervisor
+    summary: VM scheduling and lifecycle.
+    introduced: 2026-05-28
+    lifecycle: active
+
+  - id: cap:container-orchestration
+    label: Container orchestration
+    summary: Container scheduling and lifecycle.
+    introduced: 2026-05-28
+    lifecycle: active
+
+  - id: cap:secrets-management
+    label: Secrets management
+    summary: Secrets storage / rotation / lease management.
+    introduced: 2026-05-28
+    lifecycle: active
+
+  - id: cap:block-storage
+    label: Block storage
+    summary: Raw block devices.
+    introduced: 2026-05-28
+    lifecycle: active
+
+  - id: cap:object-storage
+    label: Object storage
+    summary: S3-style bucket persistence.
+    introduced: 2026-05-28
+    lifecycle: active
+
+  - id: cap:shared-filesystem
+    label: Shared filesystem
+    summary: Network-mountable POSIX-ish filesystem.
+    introduced: 2026-05-28
+    lifecycle: active
+
+  - id: cap:high-availability
+    label: High availability
+    summary: VIP failover / single-active-node redundancy for an addressable surface (VRRP, L2 MetalLB, and similar).
+    introduced: 2026-05-28
+    lifecycle: active
+
+relations:
+  # ─── Specialization: instance → product catalog ─────────────────────
+  - id: rel:proxmox-ve-prd-spec
+    source: ss:proxmox-ve-prd
+    target: ss:proxmox-ve
+    type: Specialization
+  - id: rel:microk8s-prd-spec
+    source: ss:microk8s-prd
+    target: ss:microk8s
+    type: Specialization
+  - id: rel:microk8s-dev-spec
+    source: ss:microk8s-dev
+    target: ss:microk8s
+    type: Specialization
+  - id: rel:microceph-prd-spec
+    source: ss:microceph-prd
+    target: ss:microceph
+    type: Specialization
+  - id: rel:openbao-prd-spec
+    source: ss:openbao-prd
+    target: ss:openbao
+    type: Specialization
+  - id: rel:haproxy-srvvault1-spec
+    source: ss:haproxy-srvvault1
+    target: ss:haproxy
+    type: Specialization
+  - id: rel:haproxy-srvvault2-spec
+    source: ss:haproxy-srvvault2
+    target: ss:haproxy
+    type: Specialization
+  - id: rel:haproxy-srvvault3-spec
+    source: ss:haproxy-srvvault3
+    target: ss:haproxy
+    type: Specialization
+  - id: rel:keepalived-k8s-prd-spec
+    source: ss:keepalived-k8s-prd
+    target: ss:keepalived
+    type: Specialization
+  - id: rel:keepalived-openbao-prd-spec
+    source: ss:keepalived-openbao-prd
+    target: ss:keepalived
+    type: Specialization
+  - id: rel:keepalived-ceph-prd-spec
+    source: ss:keepalived-ceph-prd
+    target: ss:keepalived
+    type: Specialization
+  - id: rel:iac-prd-spec
+    source: ss:iac-prd
+    target: ss:iac
+    type: Specialization
+  - id: rel:metallb-prd-spec
+    source: ss:metallb-prd
+    target: ss:metallb
+    type: Specialization
+  - id: rel:prometheus-node-exporter-pve-spec
+    source: ss:prometheus-node-exporter-pve
+    target: ss:prometheus-node-exporter
+    type: Specialization
+  - id: rel:prometheus-node-exporter-pve1-spec
+    source: ss:prometheus-node-exporter-pve1
+    target: ss:prometheus-node-exporter
+    type: Specialization
+  - id: rel:prometheus-node-exporter-pve2-spec
+    source: ss:prometheus-node-exporter-pve2
+    target: ss:prometheus-node-exporter
+    type: Specialization
+  - id: rel:prometheus-node-exporter-srvceph1-spec
+    source: ss:prometheus-node-exporter-srvceph1
+    target: ss:prometheus-node-exporter
+    type: Specialization
+  - id: rel:prometheus-node-exporter-srvceph2-spec
+    source: ss:prometheus-node-exporter-srvceph2
+    target: ss:prometheus-node-exporter
+    type: Specialization
+  - id: rel:prometheus-node-exporter-srvceph3-spec
+    source: ss:prometheus-node-exporter-srvceph3
+    target: ss:prometheus-node-exporter
+    type: Specialization
+  - id: rel:prometheus-node-exporter-srvvault1-spec
+    source: ss:prometheus-node-exporter-srvvault1
+    target: ss:prometheus-node-exporter
+    type: Specialization
+  - id: rel:prometheus-node-exporter-srvvault2-spec
+    source: ss:prometheus-node-exporter-srvvault2
+    target: ss:prometheus-node-exporter
+    type: Specialization
+  - id: rel:prometheus-node-exporter-srvvault3-spec
+    source: ss:prometheus-node-exporter-srvvault3
+    target: ss:prometheus-node-exporter
+    type: Specialization
+  - id: rel:prometheus-node-exporter-srviac-spec
+    source: ss:prometheus-node-exporter-srviac
+    target: ss:prometheus-node-exporter
+    type: Specialization
+  - id: rel:prometheus-node-exporter-wrkdev-spec
+    source: ss:prometheus-node-exporter-wrkdev
+    target: ss:prometheus-node-exporter
+    type: Specialization
+
+  # ─── Specialization: product → upstream product ─────────────────────
+  - id: rel:microk8s-spec-kubernetes
+    source: ss:microk8s
+    target: ss:kubernetes
+    type: Specialization
+  - id: rel:microceph-spec-ceph
+    source: ss:microceph
+    target: ss:ceph
+    type: Specialization
+
+  # ─── Aggregation: cluster Node → member Nodes ───────────────────────
+  - id: rel:pve-prd-cluster-aggr-pve
+    source: node:pve-prd-cluster
+    target: node:pve
+    type: Aggregation
+  - id: rel:pve-prd-cluster-aggr-pve1
+    source: node:pve-prd-cluster
+    target: node:pve1
+    type: Aggregation
+  - id: rel:pve-prd-cluster-aggr-pve2
+    source: node:pve-prd-cluster
+    target: node:pve2
+    type: Aggregation
+  - id: rel:k8s-prd-cluster-aggr-srvk8s1
+    source: node:k8s-prd-cluster
+    target: node:srvk8s1
+    type: Aggregation
+  - id: rel:k8s-prd-cluster-aggr-srvk8s2
+    source: node:k8s-prd-cluster
+    target: node:srvk8s2
+    type: Aggregation
+  - id: rel:k8s-prd-cluster-aggr-srvk8s3
+    source: node:k8s-prd-cluster
+    target: node:srvk8s3
+    type: Aggregation
+  - id: rel:k8s-dev-cluster-aggr-srvk8sdev
+    source: node:k8s-dev-cluster
+    target: node:srvk8sdev
+    type: Aggregation
+  - id: rel:ceph-prd-cluster-aggr-srvceph1
+    source: node:ceph-prd-cluster
+    target: node:srvceph1
+    type: Aggregation
+  - id: rel:ceph-prd-cluster-aggr-srvceph2
+    source: node:ceph-prd-cluster
+    target: node:srvceph2
+    type: Aggregation
+  - id: rel:ceph-prd-cluster-aggr-srvceph3
+    source: node:ceph-prd-cluster
+    target: node:srvceph3
+    type: Aggregation
+  - id: rel:openbao-prd-cluster-aggr-srvvault1
+    source: node:openbao-prd-cluster
+    target: node:srvvault1
+    type: Aggregation
+  - id: rel:openbao-prd-cluster-aggr-srvvault2
+    source: node:openbao-prd-cluster
+    target: node:srvvault2
+    type: Aggregation
+  - id: rel:openbao-prd-cluster-aggr-srvvault3
+    source: node:openbao-prd-cluster
+    target: node:srvvault3
+    type: Aggregation
+
+  # ─── Assignment: hypervisor Node → VM Node ──────────────────────────
+  - id: rel:pve-runs-srvk8s1
+    source: node:pve
+    target: node:srvk8s1
+    type: Assignment
+  - id: rel:pve-runs-srvk8sdev
+    source: node:pve
+    target: node:srvk8sdev
+    type: Assignment
+  - id: rel:pve-runs-srviac
+    source: node:pve
+    target: node:srviac
+    type: Assignment
+  - id: rel:pve-runs-srvvault1
+    source: node:pve
+    target: node:srvvault1
+    type: Assignment
+  - id: rel:pve-runs-srvceph3
+    source: node:pve
+    target: node:srvceph3
+    type: Assignment
+  - id: rel:pve1-runs-srvk8s2
+    source: node:pve1
+    target: node:srvk8s2
+    type: Assignment
+  - id: rel:pve1-runs-srvvault2
+    source: node:pve1
+    target: node:srvvault2
+    type: Assignment
+  - id: rel:pve1-runs-srvceph1
+    source: node:pve1
+    target: node:srvceph1
+    type: Assignment
+  - id: rel:pve2-runs-srvk8s3
+    source: node:pve2
+    target: node:srvk8s3
+    type: Assignment
+  - id: rel:pve2-runs-srvvault3
+    source: node:pve2
+    target: node:srvvault3
+    type: Assignment
+  - id: rel:pve2-runs-srvceph2
+    source: node:pve2
+    target: node:srvceph2
+    type: Assignment
+  - id: rel:pve-runs-wrkdev
+    source: node:pve
+    target: node:wrkdev
+    type: Assignment
+
+  # ─── Assignment: Node → Device (cross-producer; base publishes the targets) ─
+  - id: rel:pve-assigned-pve-hw
+    source: node:pve
+    target: device:pve-hw,0b33b76b-7aca-4a84-bcc4-f08ef0bc3df0
+    type: Assignment
+  - id: rel:pve1-assigned-pve1-hw
+    source: node:pve1
+    target: device:pve1-hw,66fdb2b8-8b7d-42b2-acf6-c23bb7683eab
+    type: Assignment
+  - id: rel:pve2-assigned-pve2-hw
+    source: node:pve2
+    target: device:pve2-hw,64bc1c28-d388-4c85-b5b2-5852a4f72bb6
+    type: Assignment
+
+  # ─── Assignment: Node → SystemSoftware (host runs daemon) ──────────
+  - id: rel:pve-prd-cluster-runs-proxmox-ve-prd
+    source: node:pve-prd-cluster
+    target: ss:proxmox-ve-prd
+    type: Assignment
+  - id: rel:k8s-prd-cluster-runs-microk8s-prd
+    source: node:k8s-prd-cluster
+    target: ss:microk8s-prd
+    type: Assignment
+  - id: rel:k8s-dev-cluster-runs-microk8s-dev
+    source: node:k8s-dev-cluster
+    target: ss:microk8s-dev
+    type: Assignment
+  - id: rel:ceph-prd-cluster-runs-microceph-prd
+    source: node:ceph-prd-cluster
+    target: ss:microceph-prd
+    type: Assignment
+  - id: rel:openbao-prd-cluster-runs-openbao-prd
+    source: node:openbao-prd-cluster
+    target: ss:openbao-prd
+    type: Assignment
+  - id: rel:k8s-prd-cluster-runs-metallb-prd
+    source: node:k8s-prd-cluster
+    target: ss:metallb-prd
+    type: Assignment
+  - id: rel:srvvault1-runs-haproxy
+    source: node:srvvault1
+    target: ss:haproxy-srvvault1
+    type: Assignment
+  - id: rel:srvvault2-runs-haproxy
+    source: node:srvvault2
+    target: ss:haproxy-srvvault2
+    type: Assignment
+  - id: rel:srvvault3-runs-haproxy
+    source: node:srvvault3
+    target: ss:haproxy-srvvault3
+    type: Assignment
+  - id: rel:k8s-prd-cluster-runs-keepalived
+    source: node:k8s-prd-cluster
+    target: ss:keepalived-k8s-prd
+    type: Assignment
+  - id: rel:openbao-prd-cluster-runs-keepalived
+    source: node:openbao-prd-cluster
+    target: ss:keepalived-openbao-prd
+    type: Assignment
+  - id: rel:ceph-prd-cluster-runs-keepalived
+    source: node:ceph-prd-cluster
+    target: ss:keepalived-ceph-prd
+    type: Assignment
+  - id: rel:srviac-runs-iac-prd
+    source: node:srviac
+    target: ss:iac-prd
+    type: Assignment
+  - id: rel:srviac-runs-jenkins-agent
+    source: node:srviac
+    target: ss:jenkins-inbound-agent-srviac
+    type: Assignment
+  - id: rel:pve-runs-node-exporter
+    source: node:pve
+    target: ss:prometheus-node-exporter-pve
+    type: Assignment
+  - id: rel:pve1-runs-node-exporter
+    source: node:pve1
+    target: ss:prometheus-node-exporter-pve1
+    type: Assignment
+  - id: rel:pve2-runs-node-exporter
+    source: node:pve2
+    target: ss:prometheus-node-exporter-pve2
+    type: Assignment
+  - id: rel:srvceph1-runs-node-exporter
+    source: node:srvceph1
+    target: ss:prometheus-node-exporter-srvceph1
+    type: Assignment
+  - id: rel:srvceph2-runs-node-exporter
+    source: node:srvceph2
+    target: ss:prometheus-node-exporter-srvceph2
+    type: Assignment
+  - id: rel:srvceph3-runs-node-exporter
+    source: node:srvceph3
+    target: ss:prometheus-node-exporter-srvceph3
+    type: Assignment
+  - id: rel:srvvault1-runs-node-exporter
+    source: node:srvvault1
+    target: ss:prometheus-node-exporter-srvvault1
+    type: Assignment
+  - id: rel:srvvault2-runs-node-exporter
+    source: node:srvvault2
+    target: ss:prometheus-node-exporter-srvvault2
+    type: Assignment
+  - id: rel:srvvault3-runs-node-exporter
+    source: node:srvvault3
+    target: ss:prometheus-node-exporter-srvvault3
+    type: Assignment
+  - id: rel:srviac-runs-node-exporter
+    source: node:srviac
+    target: ss:prometheus-node-exporter-srviac
+    type: Assignment
+  - id: rel:wrkdev-runs-node-exporter
+    source: node:wrkdev
+    target: ss:prometheus-node-exporter-wrkdev
+    type: Assignment
+
+  # ─── Composition: SystemSoftware → TechnologyService ───────────────
+  - id: rel:proxmox-ve-prd-exposes-api
+    source: ss:proxmox-ve-prd
+    target: svc:proxmox-api-prd
+    type: Composition
+  - id: rel:microk8s-prd-exposes-apiserver
+    source: ss:microk8s-prd
+    target: svc:k8s-apiserver-prd
+    type: Composition
+  - id: rel:microk8s-dev-exposes-apiserver
+    source: ss:microk8s-dev
+    target: svc:k8s-apiserver-dev
+    type: Composition
+  - id: rel:openbao-prd-exposes-api
+    source: ss:openbao-prd
+    target: svc:openbao-api-prd
+    type: Composition
+  - id: rel:microceph-prd-exposes-vip
+    source: ss:microceph-prd
+    target: svc:ceph-vip-prd
+    type: Composition
+  - id: rel:jenkins-agent-srviac-exposes-svc
+    source: ss:jenkins-inbound-agent-srviac
+    target: svc:jenkins-inbound-agent-srviac
+    type: Composition
+  - id: rel:node-exporter-pve-into-fleet
+    source: ss:prometheus-node-exporter-pve
+    target: svc:node-exporter-prd
+    type: Composition
+  - id: rel:node-exporter-pve1-into-fleet
+    source: ss:prometheus-node-exporter-pve1
+    target: svc:node-exporter-prd
+    type: Composition
+  - id: rel:node-exporter-pve2-into-fleet
+    source: ss:prometheus-node-exporter-pve2
+    target: svc:node-exporter-prd
+    type: Composition
+  - id: rel:node-exporter-srvceph1-into-fleet
+    source: ss:prometheus-node-exporter-srvceph1
+    target: svc:node-exporter-prd
+    type: Composition
+  - id: rel:node-exporter-srvceph2-into-fleet
+    source: ss:prometheus-node-exporter-srvceph2
+    target: svc:node-exporter-prd
+    type: Composition
+  - id: rel:node-exporter-srvceph3-into-fleet
+    source: ss:prometheus-node-exporter-srvceph3
+    target: svc:node-exporter-prd
+    type: Composition
+  - id: rel:node-exporter-srvvault1-into-fleet
+    source: ss:prometheus-node-exporter-srvvault1
+    target: svc:node-exporter-prd
+    type: Composition
+  - id: rel:node-exporter-srvvault2-into-fleet
+    source: ss:prometheus-node-exporter-srvvault2
+    target: svc:node-exporter-prd
+    type: Composition
+  - id: rel:node-exporter-srvvault3-into-fleet
+    source: ss:prometheus-node-exporter-srvvault3
+    target: svc:node-exporter-prd
+    type: Composition
+  - id: rel:node-exporter-srviac-into-fleet
+    source: ss:prometheus-node-exporter-srviac
+    target: svc:node-exporter-prd
+    type: Composition
+  - id: rel:node-exporter-wrkdev-into-fleet
+    source: ss:prometheus-node-exporter-wrkdev
+    target: svc:node-exporter-prd
+    type: Composition
+
+  # ─── Composition: TechnologyService → TechnologyInterface ──────────
+  - id: rel:proxmox-api-prd-has-if
+    source: svc:proxmox-api-prd
+    target: if:proxmox-api-prd
+    type: Composition
+  - id: rel:k8s-apiserver-prd-has-vip-if
+    source: svc:k8s-apiserver-prd
+    target: if:k8s-apiserver-vip-prd
+    type: Composition
+  - id: rel:k8s-apiserver-dev-has-if
+    source: svc:k8s-apiserver-dev
+    target: if:k8s-apiserver-dev
+    type: Composition
+  - id: rel:openbao-api-prd-has-vip-https
+    source: svc:openbao-api-prd
+    target: if:openbao-vip-https-prd
+    type: Composition
+  - id: rel:openbao-api-prd-has-vip-8200
+    source: svc:openbao-api-prd
+    target: if:openbao-vip-8200-prd
+    type: Composition
+  - id: rel:ceph-vip-prd-has-if
+    source: svc:ceph-vip-prd
+    target: if:ceph-vip-prd
+    type: Composition
+  - id: rel:jenkins-agent-srviac-svc-has-if
+    source: svc:jenkins-inbound-agent-srviac
+    target: if:jenkins-inbound-agent-srviac
+    type: Composition
+  - id: rel:node-exporter-prd-has-pve-if
+    source: svc:node-exporter-prd
+    target: if:node-exporter-pve
+    type: Composition
+  - id: rel:node-exporter-prd-has-pve1-if
+    source: svc:node-exporter-prd
+    target: if:node-exporter-pve1
+    type: Composition
+  - id: rel:node-exporter-prd-has-pve2-if
+    source: svc:node-exporter-prd
+    target: if:node-exporter-pve2
+    type: Composition
+  - id: rel:node-exporter-prd-has-srvceph1-if
+    source: svc:node-exporter-prd
+    target: if:node-exporter-srvceph1
+    type: Composition
+  - id: rel:node-exporter-prd-has-srvceph2-if
+    source: svc:node-exporter-prd
+    target: if:node-exporter-srvceph2
+    type: Composition
+  - id: rel:node-exporter-prd-has-srvceph3-if
+    source: svc:node-exporter-prd
+    target: if:node-exporter-srvceph3
+    type: Composition
+  - id: rel:node-exporter-prd-has-srvvault1-if
+    source: svc:node-exporter-prd
+    target: if:node-exporter-srvvault1
+    type: Composition
+  - id: rel:node-exporter-prd-has-srvvault2-if
+    source: svc:node-exporter-prd
+    target: if:node-exporter-srvvault2
+    type: Composition
+  - id: rel:node-exporter-prd-has-srvvault3-if
+    source: svc:node-exporter-prd
+    target: if:node-exporter-srvvault3
+    type: Composition
+  - id: rel:node-exporter-prd-has-srviac-if
+    source: svc:node-exporter-prd
+    target: if:node-exporter-srviac
+    type: Composition
+  - id: rel:node-exporter-prd-has-wrkdev-if
+    source: svc:node-exporter-prd
+    target: if:node-exporter-wrkdev
+    type: Composition
+
+  # ─── Serving: TechnologyService → SystemSoftware (within YAML) ─────
+  - id: rel:openbao-api-prd-serves-iac
+    source: svc:openbao-api-prd
+    target: ss:iac-prd
+    type: Serving
+
+  # ─── Realization: SystemSoftware → Capability ──────────────────────
+  - id: rel:proxmox-ve-prd-realizes-hypervisor
+    source: ss:proxmox-ve-prd
+    target: cap:hypervisor
+    type: Realization
+  - id: rel:microk8s-prd-realizes-container-orch
+    source: ss:microk8s-prd
+    target: cap:container-orchestration
+    type: Realization
+  - id: rel:microk8s-dev-realizes-container-orch
+    source: ss:microk8s-dev
+    target: cap:container-orchestration
+    type: Realization
+  - id: rel:openbao-prd-realizes-secrets
+    source: ss:openbao-prd
+    target: cap:secrets-management
+    type: Realization
+  - id: rel:microceph-prd-realizes-block-storage
+    source: ss:microceph-prd
+    target: cap:block-storage
+    type: Realization
+  - id: rel:microceph-prd-realizes-object-storage
+    source: ss:microceph-prd
+    target: cap:object-storage
+    type: Realization
+  - id: rel:microceph-prd-realizes-shared-fs
+    source: ss:microceph-prd
+    target: cap:shared-filesystem
+    type: Realization
+  - id: rel:keepalived-k8s-prd-realizes-ha
+    source: ss:keepalived-k8s-prd
+    target: cap:high-availability
+    type: Realization
+  - id: rel:keepalived-openbao-prd-realizes-ha
+    source: ss:keepalived-openbao-prd
+    target: cap:high-availability
+    type: Realization
+  - id: rel:keepalived-ceph-prd-realizes-ha
+    source: ss:keepalived-ceph-prd
+    target: cap:high-availability
+    type: Realization
+  - id: rel:metallb-prd-realizes-ha
+    source: ss:metallb-prd
+    target: cap:high-availability
+    type: Realization

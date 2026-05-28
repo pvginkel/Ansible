@@ -1,0 +1,191 @@
+#!/usr/bin/env bash
+#
+# arch-validate — submit architecture artifact(s) to the validation service.
+#
+# Usage:
+#   arch-validate <path> [<path>...]    validate one or more files
+#   arch-validate -                     read a single artifact from stdin
+#
+# Flags:
+#   --json                emit the raw endpoint response to stdout
+#   --quiet               suppress per-file "OK" lines; only print on failure
+#   --format json|yaml    override Content-Type detection (default: from extension; yaml for stdin)
+#
+# Environment:
+#   ARCHITECTURE_VALIDATE_URL    override the endpoint (default: the production service)
+#
+# Exit codes: 0 valid, 1 invalid, 2 transport/server error.
+#
+# Dependencies: bash, curl, jq.
+
+set -euo pipefail
+
+endpoint="${ARCHITECTURE_VALIDATE_URL:-https://architecture.webathome.org/api/validate}"
+mode="human"
+format_override=""
+
+usage() {
+  sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
+  exit "${1:-2}"
+}
+
+# --- parse flags --------------------------------------------------------------
+while [[ "${1:-}" == --* || "${1:-}" == -h || "${1:-}" == --help ]]; do
+  case "$1" in
+    --json)    mode="json"; shift ;;
+    --quiet)   mode="quiet"; shift ;;
+    --format)
+      shift
+      if [[ -z "${1:-}" || ( "$1" != "json" && "$1" != "yaml" ) ]]; then
+        echo "arch-validate: --format requires 'json' or 'yaml'" >&2
+        exit 2
+      fi
+      format_override="$1"; shift ;;
+    -h|--help) usage 0 ;;
+    --)        shift; break ;;
+    *)         echo "arch-validate: unknown flag '$1'" >&2; exit 2 ;;
+  esac
+done
+
+if [[ $# -eq 0 ]]; then
+  echo "arch-validate: no artifact paths given" >&2
+  usage 2
+fi
+
+for tool in curl jq; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "arch-validate: required tool '$tool' not found in PATH" >&2
+    exit 2
+  fi
+done
+
+# --- helpers ------------------------------------------------------------------
+
+# stderr is a TTY? Enables coloured output for human mode.
+if [[ -t 2 ]]; then
+  RED=$'\033[31m'; GREEN=$'\033[32m'; DIM=$'\033[2m'; BOLD=$'\033[1m'; RESET=$'\033[0m'
+else
+  RED=""; GREEN=""; DIM=""; BOLD=""; RESET=""
+fi
+
+ctype_for() {
+  # $1: artifact path or "-"
+  local p="$1"
+  if [[ -n "$format_override" ]]; then
+    echo "application/$format_override"
+    return
+  fi
+  case "$p" in
+    *.json) echo "application/json" ;;
+    *.yaml|*.yml) echo "application/yaml" ;;
+    -)      echo "application/yaml" ;;
+    *)      echo "application/yaml" ;;
+  esac
+}
+
+display_name() {
+  if [[ "$1" == "-" ]]; then echo "<stdin>"; else echo "$1"; fi
+}
+
+print_human() {
+  local name="$1" response="$2"
+  local valid
+  valid="$(jq -r '.valid // empty' <<<"$response")"
+  if [[ "$valid" == "true" ]]; then
+    [[ "$mode" != "quiet" ]] && echo "${GREEN}✓${RESET} $name" >&2
+    return 0
+  fi
+  echo "${RED}✗${RESET} $name" >&2
+  local len
+  len="$(jq -r '.errors | length // 0' <<<"$response")"
+  if [[ "$len" == "0" || -z "$len" ]]; then
+    # Server-side {error: "..."} envelope (4xx/5xx are caught earlier; this is
+    # for any non-standard error shape that still parses as JSON).
+    jq -r '.error // "(unknown failure)"' <<<"$response" | sed 's/^/  /' >&2
+    return 1
+  fi
+  jq -r '.errors[] | "  \(.path)\n    \(.message)\n    schema: \(.schemaUrl)\n" + (if .hint then "    hint: \(.hint)\n" else "" end)' \
+    <<<"$response" >&2
+  return 1
+}
+
+# --- main loop ----------------------------------------------------------------
+
+status=0
+
+for artifact in "$@"; do
+  name="$(display_name "$artifact")"
+
+  if [[ "$artifact" == "-" ]]; then
+    body="$(cat)"
+  else
+    if [[ ! -r "$artifact" ]]; then
+      echo "${RED}✗${RESET} $name" >&2
+      echo "  cannot read file" >&2
+      status=2
+      continue
+    fi
+    body="$(cat "$artifact")"
+  fi
+
+  ctype="$(ctype_for "$artifact")"
+
+  # Write response body to a temp file so we can keep both body and status.
+  tmp="$(mktemp)"
+  err="$(mktemp)"
+  set +e
+  http_code="$(curl -sS -o "$tmp" -w '%{http_code}' \
+    -X POST \
+    -H "Content-Type: $ctype" \
+    --data-binary "$body" \
+    "$endpoint" 2>"$err")"
+  curl_exit=$?
+  set -e
+  response="$(cat "$tmp")"
+  rm -f "$tmp"
+
+  if [[ $curl_exit -ne 0 ]]; then
+    echo "${RED}✗${RESET} $name" >&2
+    echo "  transport error: could not reach $endpoint" >&2
+    [[ -s "$err" ]] && sed 's/^/    /' "$err" >&2
+    rm -f "$err"
+    status=2
+    continue
+  fi
+  rm -f "$err"
+
+  if [[ "$http_code" =~ ^2 ]]; then
+    case "$mode" in
+      json)
+        printf '%s\n' "$response"
+        local_valid="$(jq -r '.valid // empty' <<<"$response" 2>/dev/null || true)"
+        if [[ "$local_valid" != "true" ]] && [[ $status -lt 1 ]]; then status=1; fi
+        ;;
+      *)
+        print_human "$name" "$response" || status=1
+        ;;
+    esac
+    continue
+  fi
+
+  # 4xx / 5xx: server rejected the request itself (not a validation failure).
+  if [[ "$http_code" =~ ^4 ]]; then
+    echo "${RED}✗${RESET} $name ${DIM}(HTTP $http_code)${RESET}" >&2
+    if [[ "$response" == "" ]]; then
+      echo "  server returned no body" >&2
+    elif jq -e . >/dev/null 2>&1 <<<"$response"; then
+      jq -r '.error // tostring' <<<"$response" | sed 's/^/  /' >&2
+    else
+      printf '%s\n' "$response" | sed 's/^/  /' >&2
+    fi
+    # Treat 4xx as invalid (the client supplied something the server refused).
+    if [[ $status -lt 1 ]]; then status=1; fi
+    continue
+  fi
+
+  echo "${RED}✗${RESET} $name ${DIM}(HTTP $http_code)${RESET}" >&2
+  if [[ -n "$response" ]]; then printf '%s\n' "$response" | sed 's/^/  /' >&2; fi
+  status=2
+done
+
+exit "$status"

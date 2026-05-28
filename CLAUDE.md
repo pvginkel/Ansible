@@ -84,6 +84,12 @@ When handing a command to the operator to run, use this exact shape:
 - `/work/DockerImages` — Jenkins-built container images.
 - `/work/Obsidian` — the user's procedural runbook (Proxmox, Kubernetes, Ceph, Linux, network, Keycloak). Primary source material when building roles.
 
+## Federated architecture model
+
+We take part in a federated Architecture-as-Code model. The architecture for this repository is maintained in `docs/architecture/ansible-architecture.yaml`. Whenever a change is made in this repo that could impact an Enterprise Architecture / ArchiMate model modeling everything owned by this repo, nudge the user to spawn the `update-architecture` agent. The agent is incremental, so it's not a hard requirement that it runs on every change. Nudge a bit harder when significant changes are made (new managed host, new daemon, removed service, renamed external identity). When you are performing work unattended, feel free to invoke the agent yourself.
+
+The agent definitions are installed in the operator's `~/.claude/agents/` — `inventory-architecture` (one-shot seed) and `update-architecture` (permanent, incremental). They are not in this repo. The producer manual at `docs/architecture/producer-manual.md` is the authoritative vocabulary reference; both agents read it on startup from the producer repo's working directory.
+
 ## Conventions
 
 - **Hostnames, not IPs.** All managed hosts resolve under the `.home` search domain. Use short hostnames in inventory and task arguments. Don't hard-code IPs.
