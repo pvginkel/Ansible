@@ -45,6 +45,18 @@
   when: baseline_apt_dist_upgrade | bool
   tags: [os_update]
 
+- name: Apt autoremove
+  # Each kernel bump leaves behind a linux-headers-* tree; left alone
+  # they accumulate one set per release and eventually exhaust /boot
+  # inodes. Run unconditionally — autoremove is a no-op when nothing
+  # is orphaned.
+  ansible.builtin.apt:
+    autoremove: true
+  environment:
+    NEEDRESTART_MODE: a
+  when: baseline_apt_dist_upgrade | bool
+  tags: [os_update]
+
 - name: Install baseline packages
   ansible.builtin.apt:
     name:

@@ -333,6 +333,16 @@
           environment:
             NEEDRESTART_MODE: a
 
+        - name: Apt autoremove
+          # Each kernel bump leaves behind a linux-headers-* tree; left
+          # alone they accumulate one set per release and eventually
+          # exhaust /boot inodes. Run unconditionally — autoremove is a
+          # no-op when nothing is orphaned.
+          ansible.builtin.apt:
+            autoremove: true
+          environment:
+            NEEDRESTART_MODE: a
+
         - name: Re-check whether a reboot is now required (post-apt)
           # apt may have just installed a new kernel/glibc; the
           # pre-drain stat only captured what was pending at probe time.
