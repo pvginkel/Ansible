@@ -26,5 +26,3 @@ network_devices:
     nameservers:
       - 8.8.8.8
       - 8.8.4.4
-    search:
-      - home

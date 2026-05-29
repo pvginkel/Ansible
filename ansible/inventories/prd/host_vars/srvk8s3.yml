@@ -17,8 +17,6 @@ network_devices:
     nameservers:
       - 8.8.8.8
       - 8.8.4.4
-    search:
-      - home
   - bridge: vmbr0
     mac_address: "02:A7:F3:03:90:01"
     vlan_id: 2
