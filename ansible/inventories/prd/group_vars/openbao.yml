@@ -72,62 +72,22 @@ openbao_jenkins_kv_paths:
   - shared/ceph-rgw/s3
   - shared/wifi-iot
 
-# ESO is the cross-cluster k8s consumer; the four kv/shared leaves
-# all reach k8s charts. samba/users feeds the prd-cluster storage /
-# media / scantopdf / fundachecker / shell namespaces; admin-password
-# feeds infra-statistics; ceph-rgw/s3 feeds every chart with an S3
-# bucket; wifi-iot feeds the iot chart's management UI. Per-chart
-# kv/eso/<cluster>/<ns-base>/<stage>/* entries land in C.3 sweeps.
+# ESO is the cross-cluster k8s consumer. The four kv/shared leaves are
+# enumerated because kv/shared is read by three consumers (iac, jenkins,
+# eso) and "which shared leaf each consumer gets" is a real per-consumer
+# least-privilege line. kv/eso has no such boundary: ESO is the sole
+# reader of the whole subtree and its job is to materialise every chart's
+# secrets, so a per-chart whitelist grants the same working set as a glob
+# while adding a silent-failure footgun (forget a line → SecretSyncError
+# at deploy). Hence the per-cluster glob. The per-cluster split is the
+# real boundary — the dev workstation cluster is a separate trust domain
+# and gets its own eso/dev/* (likely its own AppRole) when its ESO ships.
 openbao_eso_kv_paths:
   - shared/ceph-rgw/s3
   - shared/samba/users
   - shared/jenkins/admin-password
   - shared/wifi-iot
-  # Per-chart paths added during the C.3 sweeps. A future per-cluster
-  # glob (`eso/prd/*`) would simplify maintenance but loses cross-chart
-  # isolation; keeping the per-(chart, stage) enumeration explicit
-  # matches the slice's stated policy-granularity principle.
-  - eso/prd/dnsmasq/prd/management-api
-  - eso/prd/dnsmasq/prd/dhcp-app
-  - eso/prd/dnsmasq/prd/oidc
-  - eso/prd/filebeat/prd/elastic-credentials
-  - eso/prd/ceph-csi-rbd/prd/credentials
-  - eso/prd/ceph-csi-cephfs/prd/credentials
-  - eso/prd/intercom/prd/mqtt
-  - eso/prd/git-sync/prd/github
-  - eso/prd/homeassistant-mcp/prd/homeassistant
-  - eso/prd/zigbee2mqtt/prd/app
-  - eso/prd/zigbee2mqtt/prd/oidc
-  - eso/prd/open-webui/prd/oidc
-  - eso/prd/open-webui/prd/db
-  - eso/prd/newsfilter/prd/openai
-  - eso/prd/newsfilter/prd/twitter
-  - eso/prd/electronics-inventory/prd/app
-  - eso/prd/electronics-inventory/prd/openai
-  - eso/prd/electronics-inventory/prd/mouser
-  - eso/prd/electronics-inventory/prd/oidc
-  - eso/prd/electronics-inventory/prd/db
-  - eso/prd/electronics-inventory/prd/drain-auth
-  - eso/prd/iot/prd/elastic-credentials
-  - eso/prd/iot/prd/mqtt
-  - eso/prd/iot/prd/mqtt-cronjob
-  - eso/prd/iot/prd/app
-  - eso/prd/iot/prd/oidc
-  - eso/prd/iot/prd/keycloak-admin
-  - eso/prd/iot/prd/db
-  - eso/prd/storage/prd/backup-server
-  - eso/prd/keycloak/prd/db
-  - eso/prd/guacamole/prd/db
-  - eso/prd/registry/prd/http-signing
-  - eso/prd/media/prd/mydownloads-user
-  - eso/prd/media/prd/gluetun-wg
-  - eso/prd/media/prd/mydownloads-config
-  # Pass 4 — files/-glob whole-file leaves migrated to ESO-backed Secrets.
-  - eso/prd/calendar-support/prd/google-service-account
-  - eso/prd/elasticsearch/prd/kibana-config
-  - eso/prd/pgadmin/prd/pgpass
-  - eso/prd/phpmyadmin/prd/webathome-org-config
-  - eso/prd/version-poller/prd/config
+  - eso/prd/*
 
 # iac-impl reads /etc/iac/secrets.yaml on srviac and resolves any
 # `!bao kv/iac/<leaf>#<key>` reference via this AppRole. Paths are
