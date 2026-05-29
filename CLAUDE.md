@@ -74,11 +74,14 @@ Same logic applies to `bao kv metadata put -custom-metadata=...` for non-sensiti
 
 When handing a command to the operator to run, use this exact shape:
 
+- **Paths the operator sees.** Claude's `/work` is the operator's `~/source` — they have no `/work`. In any command you hand the operator, use repo-relative paths, or the `~/source/<repo>` form for cross-repo hops — never a `/work/...` absolute path. (Claude still reads its own files under `/work`; this rule is only about what goes into operator-run commands.)
 - **One line, `cd <dir> && <command>`.** Single copy-paste runs cleanly; if the `cd` fails, the second half doesn't fire.
 - **Terraform**: `cd terraform/prd && terraform apply` — no `poetry run` (terraform doesn't need the venv). Don't propose `terraform plan` as a separate step; `apply` already shows the plan and waits for confirmation.
 - **Ansible**: `cd ansible && poetry run ansible-playbook playbooks/<play>.yml --limit <host>`. Inventory defaults to `inventories/prd` per `ansible.cfg`; pass `-i inventories/scratch` only for scratch-fleet runs. Don't pass `--diff` — `ansible.cfg` sets `diff_always = True`. For the check-mode preflight from "Check-mode first" above, append `--check` to the **very end** of the apply command (e.g. `… --limit <host> --check`) so the operator converts it to an apply by deleting the trailing flag — never put `--check` mid-command. Never include `--ask-vault-pass`: the operator's shell has `ANSIBLE_VAULT_PASSWORD_FILE` set, so the vault unlocks automatically.
 
 ## Related repos on this machine
+
+Paths below are Claude's mount (`/work/...`); the operator sees the same repos under `~/source/...`. Use the operator's form in commands handed to them (see "Paths the operator sees" above).
 
 - `/work/HelmCharts` — Helm charts + per-environment configs. Jenkins-driven deploys.
 - `/work/DockerImages` — Jenkins-built container images.
