@@ -1,0 +1,21 @@
+library('JenkinsPipelineUtils') _
+
+podTemplate(inheritFrom: 'jenkins-agent kaniko', containers: [
+    containerTemplates.python('python')
+]) {
+    node(POD_LABEL) {
+        stage('Cloning repo') {
+            checkout scm
+        }
+
+        stage('Validate architecture artifact') {
+            container('python') {
+                sh './scripts/arch-validate.py docs/architecture/ansible-architecture.yaml'
+            }
+        }
+
+        stage('Archive architecture artifact') {
+            archiveArtifacts artifacts: 'docs/architecture/*.yaml', fingerprint: true
+        }
+    }
+}
