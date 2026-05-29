@@ -120,6 +120,14 @@ openbao_eso_kv_paths:
   - eso/prd/guacamole/prd/db
   - eso/prd/registry/prd/http-signing
   - eso/prd/media/prd/mydownloads-user
+  - eso/prd/media/prd/gluetun-wg
+  - eso/prd/media/prd/mydownloads-config
+  # Pass 4 — files/-glob whole-file leaves migrated to ESO-backed Secrets.
+  - eso/prd/calendar-support/prd/google-service-account
+  - eso/prd/elasticsearch/prd/kibana-config
+  - eso/prd/pgadmin/prd/pgpass
+  - eso/prd/phpmyadmin/prd/webathome-org-config
+  - eso/prd/version-poller/prd/config
 
 # iac-impl reads /etc/iac/secrets.yaml on srviac and resolves any
 # `!bao kv/iac/<leaf>#<key>` reference via this AppRole. Paths are
