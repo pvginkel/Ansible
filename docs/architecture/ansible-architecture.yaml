@@ -206,7 +206,7 @@ nodes:
 
 systemSoftware:
   # ─── SoftwareProduct catalog (bare-kebab) ────────────────────────────
-  - id: ss:proxmox-ve
+  - id: ss:proxmox-ve,3d997569-d5d8-4c78-bd14-2df1b3dc8b4c
     label: Proxmox VE
     summary: Open-source server virtualization platform combining KVM hypervisor and LXC.
     introduced: 2026-05-28
@@ -214,7 +214,7 @@ systemSoftware:
     stereotype: SoftwareProduct
     homepage: https://www.proxmox.com/en/proxmox-virtual-environment
 
-  - id: ss:microk8s
+  - id: ss:microk8s,87ffc437-7f04-4717-8d8f-02b75fa93a71
     label: MicroK8s
     summary: Canonical's lightweight Kubernetes distribution. Singletons, snap-packaged.
     introduced: 2026-05-28
@@ -222,7 +222,7 @@ systemSoftware:
     stereotype: SoftwareProduct
     homepage: https://microk8s.io/
 
-  - id: ss:kubernetes
+  - id: ss:kubernetes,d1cf1707-c755-4551-9cd0-2dd1f9807743
     label: Kubernetes
     summary: Open-source container orchestration platform. Upstream of MicroK8s.
     introduced: 2026-05-28
@@ -230,7 +230,7 @@ systemSoftware:
     stereotype: SoftwareProduct
     homepage: https://kubernetes.io/
 
-  - id: ss:microceph
+  - id: ss:microceph,0ef971c3-90cc-482d-bbff-deaaf7979df9
     label: MicroCeph
     summary: Canonical's snap-packaged Ceph distribution for small clusters.
     introduced: 2026-05-28
@@ -238,7 +238,7 @@ systemSoftware:
     stereotype: SoftwareProduct
     homepage: https://canonical.com/microceph
 
-  - id: ss:ceph
+  - id: ss:ceph,87470acb-7dce-49a6-a7fb-bb38adb1d52d
     label: Ceph
     summary: Open-source distributed object/block/filesystem storage. Upstream of MicroCeph.
     introduced: 2026-05-28
@@ -246,7 +246,7 @@ systemSoftware:
     stereotype: SoftwareProduct
     homepage: https://ceph.io/
 
-  - id: ss:openbao
+  - id: ss:openbao,3254d984-c3d3-4887-bf49-9607c392c01a
     label: OpenBao
     summary: Open-source fork of HashiCorp Vault for secret management.
     introduced: 2026-05-28
@@ -254,7 +254,7 @@ systemSoftware:
     stereotype: SoftwareProduct
     homepage: https://openbao.org/
 
-  - id: ss:haproxy
+  - id: ss:haproxy,7d3d24d7-c556-43a8-9377-bd22c95f9c5f
     label: HAProxy
     summary: Open-source TCP/HTTP load balancer and proxy.
     introduced: 2026-05-28
@@ -262,7 +262,7 @@ systemSoftware:
     stereotype: SoftwareProduct
     homepage: https://www.haproxy.org/
 
-  - id: ss:keepalived
+  - id: ss:keepalived,5397b7ab-942b-4fb8-8a51-0709b97fa07c
     label: Keepalived
     summary: Linux daemon for IP failover (VRRP) and health-checked load balancing.
     introduced: 2026-05-28
@@ -270,7 +270,7 @@ systemSoftware:
     stereotype: SoftwareProduct
     homepage: https://www.keepalived.org/
 
-  - id: ss:prometheus-node-exporter
+  - id: ss:prometheus-node-exporter,73595fbe-a89c-432b-b1d5-1ae4456968f9
     label: Prometheus node_exporter
     summary: Prometheus exporter exposing hardware and OS metrics for *NIX hosts.
     introduced: 2026-05-28
@@ -278,7 +278,7 @@ systemSoftware:
     stereotype: SoftwareProduct
     homepage: https://github.com/prometheus/node_exporter
 
-  - id: ss:metallb
+  - id: ss:metallb,d9e387df-e6c2-444a-9481-8ef9d1a07a7c
     label: MetalLB
     summary: Bare-metal load-balancer implementation for Kubernetes via L2 (ARP/NDP) or BGP advertisement.
     introduced: 2026-05-28
@@ -286,7 +286,7 @@ systemSoftware:
     stereotype: SoftwareProduct
     homepage: https://metallb.universe.tf/
 
-  - id: ss:iac
+  - id: ss:iac,ff6e184a-6ad9-4606-bcfc-a01f059ce740
     label: iac shim
     summary: Homelab-specific Docker-driven shim that wraps Terraform and Ansible, fetches OpenBao secrets at invocation, and serializes concurrent runs via a file lock.
     introduced: 2026-05-28
