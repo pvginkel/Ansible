@@ -1085,149 +1085,149 @@ relations:
     target: ss:prometheus-node-exporter-wrkdev
     type: Assignment
 
-  # ─── Composition: SystemSoftware → TechnologyService ───────────────
+  # ─── Realization: SystemSoftware → TechnologyService ──────────────
   - id: rel:proxmox-ve-prd-exposes-api
     source: ss:proxmox-ve-prd
     target: svc:proxmox-api-prd
-    type: Composition
+    type: Realization
   - id: rel:microk8s-prd-exposes-apiserver
     source: ss:microk8s-prd
     target: svc:k8s-apiserver-prd
-    type: Composition
+    type: Realization
   - id: rel:microk8s-dev-exposes-apiserver
     source: ss:microk8s-dev
     target: svc:k8s-apiserver-dev
-    type: Composition
+    type: Realization
   - id: rel:openbao-prd-exposes-api
     source: ss:openbao-prd
     target: svc:openbao-api-prd
-    type: Composition
+    type: Realization
   - id: rel:microceph-prd-exposes-vip
     source: ss:microceph-prd
     target: svc:ceph-vip-prd
-    type: Composition
+    type: Realization
   - id: rel:jenkins-agent-srviac-exposes-svc
     source: ss:jenkins-inbound-agent-srviac
     target: svc:jenkins-inbound-agent-srviac
-    type: Composition
+    type: Realization
   - id: rel:node-exporter-pve-into-fleet
     source: ss:prometheus-node-exporter-pve
     target: svc:node-exporter-prd
-    type: Composition
+    type: Realization
   - id: rel:node-exporter-pve1-into-fleet
     source: ss:prometheus-node-exporter-pve1
     target: svc:node-exporter-prd
-    type: Composition
+    type: Realization
   - id: rel:node-exporter-pve2-into-fleet
     source: ss:prometheus-node-exporter-pve2
     target: svc:node-exporter-prd
-    type: Composition
+    type: Realization
   - id: rel:node-exporter-srvceph1-into-fleet
     source: ss:prometheus-node-exporter-srvceph1
     target: svc:node-exporter-prd
-    type: Composition
+    type: Realization
   - id: rel:node-exporter-srvceph2-into-fleet
     source: ss:prometheus-node-exporter-srvceph2
     target: svc:node-exporter-prd
-    type: Composition
+    type: Realization
   - id: rel:node-exporter-srvceph3-into-fleet
     source: ss:prometheus-node-exporter-srvceph3
     target: svc:node-exporter-prd
-    type: Composition
+    type: Realization
   - id: rel:node-exporter-srvvault1-into-fleet
     source: ss:prometheus-node-exporter-srvvault1
     target: svc:node-exporter-prd
-    type: Composition
+    type: Realization
   - id: rel:node-exporter-srvvault2-into-fleet
     source: ss:prometheus-node-exporter-srvvault2
     target: svc:node-exporter-prd
-    type: Composition
+    type: Realization
   - id: rel:node-exporter-srvvault3-into-fleet
     source: ss:prometheus-node-exporter-srvvault3
     target: svc:node-exporter-prd
-    type: Composition
+    type: Realization
   - id: rel:node-exporter-srviac-into-fleet
     source: ss:prometheus-node-exporter-srviac
     target: svc:node-exporter-prd
-    type: Composition
+    type: Realization
   - id: rel:node-exporter-wrkdev-into-fleet
     source: ss:prometheus-node-exporter-wrkdev
     target: svc:node-exporter-prd
-    type: Composition
+    type: Realization
 
-  # ─── Composition: TechnologyService → TechnologyInterface ──────────
+  # ─── Assignment: TechnologyInterface → TechnologyService (if exposes svc) ─
   - id: rel:proxmox-api-prd-has-if
-    source: svc:proxmox-api-prd
-    target: if:proxmox-api-prd
-    type: Composition
+    source: if:proxmox-api-prd
+    target: svc:proxmox-api-prd
+    type: Assignment
   - id: rel:k8s-apiserver-prd-has-vip-if
-    source: svc:k8s-apiserver-prd
-    target: if:k8s-apiserver-vip-prd
-    type: Composition
+    source: if:k8s-apiserver-vip-prd
+    target: svc:k8s-apiserver-prd
+    type: Assignment
   - id: rel:k8s-apiserver-dev-has-if
-    source: svc:k8s-apiserver-dev
-    target: if:k8s-apiserver-dev
-    type: Composition
+    source: if:k8s-apiserver-dev
+    target: svc:k8s-apiserver-dev
+    type: Assignment
   - id: rel:openbao-api-prd-has-vip-https
-    source: svc:openbao-api-prd
-    target: if:openbao-vip-https-prd
-    type: Composition
+    source: if:openbao-vip-https-prd
+    target: svc:openbao-api-prd
+    type: Assignment
   - id: rel:openbao-api-prd-has-vip-8200
-    source: svc:openbao-api-prd
-    target: if:openbao-vip-8200-prd
-    type: Composition
+    source: if:openbao-vip-8200-prd
+    target: svc:openbao-api-prd
+    type: Assignment
   - id: rel:ceph-vip-prd-has-if
-    source: svc:ceph-vip-prd
-    target: if:ceph-vip-prd
-    type: Composition
+    source: if:ceph-vip-prd
+    target: svc:ceph-vip-prd
+    type: Assignment
   - id: rel:jenkins-agent-srviac-svc-has-if
-    source: svc:jenkins-inbound-agent-srviac
-    target: if:jenkins-inbound-agent-srviac
-    type: Composition
+    source: if:jenkins-inbound-agent-srviac
+    target: svc:jenkins-inbound-agent-srviac
+    type: Assignment
   - id: rel:node-exporter-prd-has-pve-if
-    source: svc:node-exporter-prd
-    target: if:node-exporter-pve
-    type: Composition
+    source: if:node-exporter-pve
+    target: svc:node-exporter-prd
+    type: Assignment
   - id: rel:node-exporter-prd-has-pve1-if
-    source: svc:node-exporter-prd
-    target: if:node-exporter-pve1
-    type: Composition
+    source: if:node-exporter-pve1
+    target: svc:node-exporter-prd
+    type: Assignment
   - id: rel:node-exporter-prd-has-pve2-if
-    source: svc:node-exporter-prd
-    target: if:node-exporter-pve2
-    type: Composition
+    source: if:node-exporter-pve2
+    target: svc:node-exporter-prd
+    type: Assignment
   - id: rel:node-exporter-prd-has-srvceph1-if
-    source: svc:node-exporter-prd
-    target: if:node-exporter-srvceph1
-    type: Composition
+    source: if:node-exporter-srvceph1
+    target: svc:node-exporter-prd
+    type: Assignment
   - id: rel:node-exporter-prd-has-srvceph2-if
-    source: svc:node-exporter-prd
-    target: if:node-exporter-srvceph2
-    type: Composition
+    source: if:node-exporter-srvceph2
+    target: svc:node-exporter-prd
+    type: Assignment
   - id: rel:node-exporter-prd-has-srvceph3-if
-    source: svc:node-exporter-prd
-    target: if:node-exporter-srvceph3
-    type: Composition
+    source: if:node-exporter-srvceph3
+    target: svc:node-exporter-prd
+    type: Assignment
   - id: rel:node-exporter-prd-has-srvvault1-if
-    source: svc:node-exporter-prd
-    target: if:node-exporter-srvvault1
-    type: Composition
+    source: if:node-exporter-srvvault1
+    target: svc:node-exporter-prd
+    type: Assignment
   - id: rel:node-exporter-prd-has-srvvault2-if
-    source: svc:node-exporter-prd
-    target: if:node-exporter-srvvault2
-    type: Composition
+    source: if:node-exporter-srvvault2
+    target: svc:node-exporter-prd
+    type: Assignment
   - id: rel:node-exporter-prd-has-srvvault3-if
-    source: svc:node-exporter-prd
-    target: if:node-exporter-srvvault3
-    type: Composition
+    source: if:node-exporter-srvvault3
+    target: svc:node-exporter-prd
+    type: Assignment
   - id: rel:node-exporter-prd-has-srviac-if
-    source: svc:node-exporter-prd
-    target: if:node-exporter-srviac
-    type: Composition
+    source: if:node-exporter-srviac
+    target: svc:node-exporter-prd
+    type: Assignment
   - id: rel:node-exporter-prd-has-wrkdev-if
-    source: svc:node-exporter-prd
-    target: if:node-exporter-wrkdev
-    type: Composition
+    source: if:node-exporter-wrkdev
+    target: svc:node-exporter-prd
+    type: Assignment
 
   # ─── Serving: TechnologyService → SystemSoftware (within YAML) ─────
   - id: rel:openbao-api-prd-serves-iac
