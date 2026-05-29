@@ -1,8 +1,15 @@
 // iac-on-push — fires on every push to main on pvginkel/Ansible.
 // Sequential, fail-fast: plan + destroy-check, apply, site (sans
-// iac_agent), site-openbao, update-k8s. Each stage wraps its work
+// iac_agent), site-openbao, site-k8s. Each stage wraps its work
 // in a single `iac -c '...'` so the IaC mutex is held across the
 // steps that must be atomic.
+//
+// All ansible stages run with `--skip-tags os_update`: apt cache
+// refresh + dist-upgrade are patch posture, owned by
+// iac-scheduled-update (today: update-k8s.yml; future: update-ceph).
+// On-push converges config drift only; it never drains, upgrades, or
+// reboots a cluster node. Same skip-tags pattern as
+// iac-scheduled-drift.
 //
 // Controller config:
 //   - SCM: pvginkel/IaCAgent, branch main
@@ -59,7 +66,7 @@ pipeline {
                     iac -c '
                         set -euo pipefail
                         cd /work/Ansible/ansible
-                        ansible-playbook --diff playbooks/site.yml --limit "!iac_agent"
+                        ansible-playbook --diff playbooks/site.yml --limit "!iac_agent" --skip-tags os_update
                     '
                 '''
             }
@@ -78,19 +85,27 @@ pipeline {
                     iac -c '
                         set -euo pipefail
                         cd /work/Ansible/ansible
-                        ansible-playbook --diff playbooks/site-openbao.yml
+                        ansible-playbook --diff playbooks/site-openbao.yml --skip-tags os_update
                     '
                 '''
             }
         }
 
-        stage('Ansible update-k8s') {
+        stage('Ansible site-k8s') {
+            // Converges cluster config drift (baseline, microk8s,
+            // ssh_host_cert) on the running k8s clusters. site.yml
+            // excludes the k8s groups because cluster changes need
+            // serial: 1, so without this stage a microk8s role tweak
+            // wouldn't land on push. --skip-tags os_update keeps the
+            // apt cache refresh + dist-upgrade out — those belong to
+            // iac-scheduled-update / update-k8s.yml, which owns the
+            // drain → upgrade → reboot cycle.
             steps {
                 sh '''
                     iac -c '
                         set -euo pipefail
                         cd /work/Ansible/ansible
-                        ansible-playbook --diff playbooks/update-k8s.yml
+                        ansible-playbook --diff playbooks/site-k8s.yml --skip-tags os_update
                     '
                 '''
             }

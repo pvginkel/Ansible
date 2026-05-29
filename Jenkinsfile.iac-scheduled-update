@@ -1,8 +1,17 @@
-// iac-scheduled-update — weekly cluster maintenance via update-k8s.yml.
+// iac-scheduled-update — weekly cluster-class OS maintenance.
 // Idempotent: no-op when no upgrades are pending.
 //
-// Future stages: update-ceph, the OpenBao reboot window. Reboot
-// stagger is enforced by the play order itself.
+// Coverage is by host class (decisions.md "OS updates"), not by
+// site-* playbook:
+//   - Cluster class (k8s, ceph) is Ansible-orchestrated here.
+//     update-k8s.yml runs today; update-ceph.yml is future work.
+//   - Standalone class (Jenkins agent, srvvault1/2/3) self-updates
+//     via unattended-upgrades in a quiet window — baseline installs
+//     and configures the package, then steps back. No stage needed.
+//   - Self-managed hosts sit outside this system entirely.
+//
+// Reboot stagger across the standalone fleet is enforced by their
+// unattended-upgrades windows, not by anything in this pipeline.
 //
 // Controller config:
 //   - SCM: pvginkel/IaCAgent, branch main
