@@ -713,48 +713,12 @@ technologyInterfaces:
     stats:
       url: http://wrkdev.home:9100/metrics
 
-capabilities:
-  - id: cap:hypervisor
-    label: Hypervisor
-    summary: VM scheduling and lifecycle.
-    introduced: 2026-05-28
-    lifecycle: active
-
-  - id: cap:container-orchestration
-    label: Container orchestration
-    summary: Container scheduling and lifecycle.
-    introduced: 2026-05-28
-    lifecycle: active
-
-  - id: cap:secrets-management
-    label: Secrets management
-    summary: Secrets storage / rotation / lease management.
-    introduced: 2026-05-28
-    lifecycle: active
-
-  - id: cap:block-storage
-    label: Block storage
-    summary: Raw block devices.
-    introduced: 2026-05-28
-    lifecycle: active
-
-  - id: cap:object-storage
-    label: Object storage
-    summary: S3-style bucket persistence.
-    introduced: 2026-05-28
-    lifecycle: active
-
-  - id: cap:shared-filesystem
-    label: Shared filesystem
-    summary: Network-mountable POSIX-ish filesystem.
-    introduced: 2026-05-28
-    lifecycle: active
-
-  - id: cap:high-availability
-    label: High availability
-    summary: VIP failover / single-active-node redundancy for an addressable surface (VRRP, L2 MetalLB, and similar).
-    introduced: 2026-05-28
-    lifecycle: active
+# Capabilities are not declared by producers — the enum
+# (schema/v0.1/enums/capabilities.yaml) is the catalogue, and the collector
+# backfills a node from it for every capability the relations below realize
+# (hypervisor, container-orchestration, secrets-management, block-storage,
+# object-storage, shared-filesystem, high-availability). See the Architecture
+# repo's docs/features/collector-and-pipeline.md § 4.
 
 relations:
   # ─── Specialization: instance → product catalog ─────────────────────
