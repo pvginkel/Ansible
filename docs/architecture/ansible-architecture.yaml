@@ -7,6 +7,7 @@ nodes:
     summary: Proxmox VE host 1 of 3. Primary node; carries the cluster vzdump cron. Hosts srvk8s1, srvk8sdev, srviac, srvvault1, srvceph3.
     introduced: 2026-05-28
     lifecycle: active
+    logo: proxmox
     environment: prd
     cluster: pve-prd
 
@@ -15,6 +16,7 @@ nodes:
     summary: Proxmox VE host 2 of 3. Hosts srvk8s2, srvvault2, srvceph1.
     introduced: 2026-05-28
     lifecycle: active
+    logo: proxmox
     environment: prd
     cluster: pve-prd
 
@@ -23,6 +25,7 @@ nodes:
     summary: Proxmox VE host 3 of 3. Hosts srvk8s3, srvvault3, srvceph2.
     introduced: 2026-05-28
     lifecycle: active
+    logo: proxmox
     environment: prd
     cluster: pve-prd
 
@@ -31,6 +34,7 @@ nodes:
     summary: Three-node Proxmox VE cluster (pve, pve1, pve2). Hosts every Ansible-managed VM in prd.
     introduced: 2026-05-28
     lifecycle: active
+    logo: proxmox
     environment: prd
     cluster: pve-prd
 
@@ -39,6 +43,7 @@ nodes:
     summary: microk8s prd VM, member 1 of 3. Carries zpool2 on NVMe passthrough.
     introduced: 2026-05-28
     lifecycle: active
+    logo: kubernetes
     environment: prd
     cluster: k8s-prd
     stats:
@@ -50,6 +55,7 @@ nodes:
     summary: microk8s prd VM, member 2 of 3.
     introduced: 2026-05-28
     lifecycle: active
+    logo: kubernetes
     environment: prd
     cluster: k8s-prd
     stats:
@@ -61,6 +67,7 @@ nodes:
     summary: microk8s prd VM, member 3 of 3.
     introduced: 2026-05-28
     lifecycle: active
+    logo: kubernetes
     environment: prd
     cluster: k8s-prd
     stats:
@@ -72,6 +79,7 @@ nodes:
     summary: Three-node microk8s prd cluster (srvk8s1/2/3). API VIP at kubernetes-api.home:16443.
     introduced: 2026-05-28
     lifecycle: active
+    logo: kubernetes
     environment: prd
     cluster: k8s-prd
     stats:
@@ -83,6 +91,7 @@ nodes:
     summary: Single-node microk8s dev VM.
     introduced: 2026-05-28
     lifecycle: active
+    logo: kubernetes
     environment: dev
     cluster: k8s-dev
     stats:
@@ -94,6 +103,7 @@ nodes:
     summary: Single-node microk8s dev cluster.
     introduced: 2026-05-28
     lifecycle: active
+    logo: kubernetes
     environment: dev
     cluster: k8s-dev
 
@@ -102,6 +112,7 @@ nodes:
     summary: microceph prd VM, member 1 of 3. 100G RBD disk + 2TB SSD passthrough.
     introduced: 2026-05-28
     lifecycle: active
+    logo: ceph
     environment: prd
     cluster: ceph-prd
     stats:
@@ -113,6 +124,7 @@ nodes:
     summary: microceph prd VM, member 2 of 3.
     introduced: 2026-05-28
     lifecycle: active
+    logo: ceph
     environment: prd
     cluster: ceph-prd
     stats:
@@ -124,6 +136,7 @@ nodes:
     summary: microceph prd VM, member 3 of 3.
     introduced: 2026-05-28
     lifecycle: active
+    logo: ceph
     environment: prd
     cluster: ceph-prd
     stats:
@@ -135,6 +148,7 @@ nodes:
     summary: Three-node microceph cluster (srvceph1/2/3). VIP at ceph.home (10.1.0.38).
     introduced: 2026-05-28
     lifecycle: active
+    logo: ceph
     environment: prd
     cluster: ceph-prd
     stats:
@@ -146,6 +160,7 @@ nodes:
     summary: OpenBao Raft node 1 of 3. Excluded from backup (snapshots emitted separately).
     introduced: 2026-05-28
     lifecycle: active
+    logo: openbao
     environment: prd
     cluster: openbao-prd
     stats:
@@ -158,6 +173,7 @@ nodes:
     summary: OpenBao Raft node 2 of 3.
     introduced: 2026-05-28
     lifecycle: active
+    logo: openbao
     environment: prd
     cluster: openbao-prd
     stats:
@@ -169,6 +185,7 @@ nodes:
     summary: OpenBao Raft node 3 of 3.
     introduced: 2026-05-28
     lifecycle: active
+    logo: openbao
     environment: prd
     cluster: openbao-prd
     stats:
@@ -180,6 +197,7 @@ nodes:
     summary: Three-node OpenBao Raft cluster (srvvault1/2/3). VIP at secrets.home (10.1.0.39).
     introduced: 2026-05-28
     lifecycle: active
+    logo: openbao
     environment: prd
     cluster: openbao-prd
     stats:
@@ -191,6 +209,7 @@ nodes:
     summary: IaC orchestrator VM. Hosts the iac Docker-driven shim that runs Terraform and Ansible against the homelab, plus the Jenkins inbound agent.
     introduced: 2026-05-28
     lifecycle: active
+    logo: ubuntu
     environment: prd
     stats:
       vmid: "920"
@@ -201,6 +220,7 @@ nodes:
     summary: Operator workstation VM on pve. Ansible-managed for baseline only; not Terraform-provisioned today.
     introduced: 2026-05-28
     lifecycle: active
+    logo: ubuntu
     stats:
       pve_host: pve
 
@@ -211,6 +231,7 @@ systemSoftware:
     summary: Open-source server virtualization platform combining KVM hypervisor and LXC.
     introduced: 2026-05-28
     lifecycle: active
+    logo: proxmox
     stereotype: SoftwareProduct
     homepage: https://www.proxmox.com/en/proxmox-virtual-environment
 
@@ -219,6 +240,7 @@ systemSoftware:
     summary: Canonical's lightweight Kubernetes distribution. Singletons, snap-packaged.
     introduced: 2026-05-28
     lifecycle: active
+    logo: kubernetes
     stereotype: SoftwareProduct
     homepage: https://microk8s.io/
 
@@ -227,6 +249,7 @@ systemSoftware:
     summary: Open-source container orchestration platform. Upstream of MicroK8s.
     introduced: 2026-05-28
     lifecycle: active
+    logo: kubernetes
     stereotype: SoftwareProduct
     homepage: https://kubernetes.io/
 
@@ -235,6 +258,7 @@ systemSoftware:
     summary: Canonical's snap-packaged Ceph distribution for small clusters.
     introduced: 2026-05-28
     lifecycle: active
+    logo: ceph
     stereotype: SoftwareProduct
     homepage: https://canonical.com/microceph
 
@@ -243,6 +267,7 @@ systemSoftware:
     summary: Open-source distributed object/block/filesystem storage. Upstream of MicroCeph.
     introduced: 2026-05-28
     lifecycle: active
+    logo: ceph
     stereotype: SoftwareProduct
     homepage: https://ceph.io/
 
@@ -251,6 +276,7 @@ systemSoftware:
     summary: Open-source fork of HashiCorp Vault for secret management.
     introduced: 2026-05-28
     lifecycle: active
+    logo: openbao
     stereotype: SoftwareProduct
     homepage: https://openbao.org/
 
@@ -259,6 +285,7 @@ systemSoftware:
     summary: Open-source TCP/HTTP load balancer and proxy.
     introduced: 2026-05-28
     lifecycle: active
+    logo: haproxy
     stereotype: SoftwareProduct
     homepage: https://www.haproxy.org/
 
@@ -267,6 +294,7 @@ systemSoftware:
     summary: Linux daemon for IP failover (VRRP) and health-checked load balancing.
     introduced: 2026-05-28
     lifecycle: active
+    logo: keepalived
     stereotype: SoftwareProduct
     homepage: https://www.keepalived.org/
 
@@ -275,6 +303,7 @@ systemSoftware:
     summary: Prometheus exporter exposing hardware and OS metrics for *NIX hosts.
     introduced: 2026-05-28
     lifecycle: active
+    logo: prometheus
     stereotype: SoftwareProduct
     homepage: https://github.com/prometheus/node_exporter
 
@@ -283,6 +312,7 @@ systemSoftware:
     summary: Bare-metal load-balancer implementation for Kubernetes via L2 (ARP/NDP) or BGP advertisement.
     introduced: 2026-05-28
     lifecycle: active
+    logo: metallb
     stereotype: SoftwareProduct
     homepage: https://metallb.universe.tf/
 
@@ -300,6 +330,7 @@ systemSoftware:
     summary: Production Proxmox VE cluster software (pmxcfs + pveproxy + the daily vzdump cron, primary on pve).
     introduced: 2026-05-28
     lifecycle: active
+    logo: proxmox
     environment: prd
     cluster: pve-prd
 
@@ -308,6 +339,7 @@ systemSoftware:
     summary: Production microk8s install across the three k8s-prd VMs. Channel pin, addons, CoreDNS Corefile, and registry mirrors reconciled by the microk8s role.
     introduced: 2026-05-28
     lifecycle: active
+    logo: kubernetes
     environment: prd
     cluster: k8s-prd
     stats:
@@ -318,6 +350,7 @@ systemSoftware:
     summary: Single-node microk8s dev install on srvk8sdev.
     introduced: 2026-05-28
     lifecycle: active
+    logo: kubernetes
     environment: dev
     cluster: k8s-dev
     stats:
@@ -328,6 +361,7 @@ systemSoftware:
     summary: Production microceph cluster across srvceph1/2/3. Block, object, and filesystem pools.
     introduced: 2026-05-28
     lifecycle: active
+    logo: ceph
     environment: prd
     cluster: ceph-prd
 
@@ -336,6 +370,7 @@ systemSoftware:
     summary: Production OpenBao Raft cluster across srvvault1/2/3. Listener on :8200, integrated storage, OIDC via Keycloak, AppRoles for iac-agent, jenkins, eso, backup. Daily snapshot to the cluster backup-server.
     introduced: 2026-05-28
     lifecycle: active
+    logo: openbao
     environment: prd
     cluster: openbao-prd
     stats:
@@ -346,6 +381,7 @@ systemSoftware:
     summary: TCP-passthrough proxy on srvvault1, :443 → 127.0.0.1:8200. One of three per-node front-doors for OpenBao.
     introduced: 2026-05-28
     lifecycle: active
+    logo: haproxy
     environment: prd
     cluster: openbao-prd
 
@@ -354,6 +390,7 @@ systemSoftware:
     summary: TCP-passthrough proxy on srvvault2, :443 → 127.0.0.1:8200.
     introduced: 2026-05-28
     lifecycle: active
+    logo: haproxy
     environment: prd
     cluster: openbao-prd
 
@@ -362,6 +399,7 @@ systemSoftware:
     summary: TCP-passthrough proxy on srvvault3, :443 → 127.0.0.1:8200.
     introduced: 2026-05-28
     lifecycle: active
+    logo: haproxy
     environment: prd
     cluster: openbao-prd
 
@@ -370,6 +408,7 @@ systemSoftware:
     summary: VRRP failover for kubernetes-api.home (10.1.0.37) across the three k8s-prd nodes.
     introduced: 2026-05-28
     lifecycle: active
+    logo: keepalived
     environment: prd
     cluster: k8s-prd
 
@@ -378,6 +417,7 @@ systemSoftware:
     summary: VRRP failover for secrets.home (10.1.0.39) across the three openbao-prd nodes. Leader-tracking — VIP follows the Raft leader.
     introduced: 2026-05-28
     lifecycle: active
+    logo: keepalived
     environment: prd
     cluster: openbao-prd
 
@@ -386,6 +426,7 @@ systemSoftware:
     summary: VRRP failover for ceph.home (10.1.0.38) across the three ceph-prd nodes.
     introduced: 2026-05-28
     lifecycle: active
+    logo: keepalived
     environment: prd
     cluster: ceph-prd
 
@@ -401,6 +442,7 @@ systemSoftware:
     summary: Generic Jenkins inbound-agent systemd unit on srviac. Provides Jenkins the means to schedule pipelines onto this node; the work itself runs via the iac shim. No Specialization edge today — the ss:jenkins-agent catalog entry will land with HelmCharts.
     introduced: 2026-05-28
     lifecycle: active
+    logo: jenkins
     environment: prd
 
   - id: ss:metallb-prd,02b1bffa-b296-428e-b6ba-be2a957285b5
@@ -408,6 +450,7 @@ systemSoftware:
     summary: MetalLB addon on the k8s-prd cluster, configured in L2 mode. Allocates LoadBalancer IPs from the pool below and announces them via gratuitous ARP. HelmCharts attaches per-LB interfaces on its consumers.
     introduced: 2026-05-28
     lifecycle: active
+    logo: metallb
     environment: prd
     cluster: k8s-prd
     stats:
@@ -419,6 +462,7 @@ systemSoftware:
     summary: Debian-package prometheus-node-exporter on pve, listening on :9100.
     introduced: 2026-05-28
     lifecycle: active
+    logo: prometheus
     environment: prd
 
   - id: ss:prometheus-node-exporter-pve1,d69c8cc2-f236-4588-ae00-ec40164727a2
@@ -426,6 +470,7 @@ systemSoftware:
     summary: Debian-package prometheus-node-exporter on pve1, listening on :9100.
     introduced: 2026-05-28
     lifecycle: active
+    logo: prometheus
     environment: prd
 
   - id: ss:prometheus-node-exporter-pve2,85cee3c3-83a9-4740-9684-40e975b579ab
@@ -433,6 +478,7 @@ systemSoftware:
     summary: Debian-package prometheus-node-exporter on pve2, listening on :9100.
     introduced: 2026-05-28
     lifecycle: active
+    logo: prometheus
     environment: prd
 
   - id: ss:prometheus-node-exporter-srvceph1,5048c039-14ef-46ac-8475-c1eae537812b
@@ -440,6 +486,7 @@ systemSoftware:
     summary: Debian-package prometheus-node-exporter on srvceph1, listening on :9100.
     introduced: 2026-05-28
     lifecycle: active
+    logo: prometheus
     environment: prd
 
   - id: ss:prometheus-node-exporter-srvceph2,9a1c231c-f59a-4cdd-850a-69685b22c10c
@@ -447,6 +494,7 @@ systemSoftware:
     summary: Debian-package prometheus-node-exporter on srvceph2, listening on :9100.
     introduced: 2026-05-28
     lifecycle: active
+    logo: prometheus
     environment: prd
 
   - id: ss:prometheus-node-exporter-srvceph3,afd4a027-7fff-48a2-99fc-02e2171e9561
@@ -454,6 +502,7 @@ systemSoftware:
     summary: Debian-package prometheus-node-exporter on srvceph3, listening on :9100.
     introduced: 2026-05-28
     lifecycle: active
+    logo: prometheus
     environment: prd
 
   - id: ss:prometheus-node-exporter-srvvault1,5bf91fc6-e738-443c-9a52-374e36817c4e
@@ -461,6 +510,7 @@ systemSoftware:
     summary: Debian-package prometheus-node-exporter on srvvault1, listening on :9100.
     introduced: 2026-05-28
     lifecycle: active
+    logo: prometheus
     environment: prd
 
   - id: ss:prometheus-node-exporter-srvvault2,57e26a33-2e37-4f3c-8855-957429b3ffc0
@@ -468,6 +518,7 @@ systemSoftware:
     summary: Debian-package prometheus-node-exporter on srvvault2, listening on :9100.
     introduced: 2026-05-28
     lifecycle: active
+    logo: prometheus
     environment: prd
 
   - id: ss:prometheus-node-exporter-srvvault3,3942bb65-9b8f-4fb0-8b57-04ba8e5b3982
@@ -475,6 +526,7 @@ systemSoftware:
     summary: Debian-package prometheus-node-exporter on srvvault3, listening on :9100.
     introduced: 2026-05-28
     lifecycle: active
+    logo: prometheus
     environment: prd
 
   - id: ss:prometheus-node-exporter-srviac,beb7d549-73da-4ccd-a2ac-fabcdcb8493d
@@ -482,6 +534,7 @@ systemSoftware:
     summary: Debian-package prometheus-node-exporter on srviac, listening on :9100.
     introduced: 2026-05-28
     lifecycle: active
+    logo: prometheus
     environment: prd
 
   - id: ss:prometheus-node-exporter-wrkdev,95c87af2-7f6b-4a53-a430-b4d0ef94af89
@@ -489,6 +542,7 @@ systemSoftware:
     summary: Debian-package prometheus-node-exporter on wrkdev, listening on :9100.
     introduced: 2026-05-28
     lifecycle: active
+    logo: prometheus
 
 technologyServices:
   - id: svc:proxmox-api-prd,18a9fb9e-cfcb-49e2-a423-650d0c866774
@@ -496,6 +550,7 @@ technologyServices:
     summary: PVE cluster API surface, reached at the cluster-wide endpoint. Consumed by Terraform (bpg/proxmox provider) and the iac shim.
     introduced: 2026-05-28
     lifecycle: active
+    logo: proxmox
     environment: prd
     cluster: pve-prd
 
@@ -504,6 +559,7 @@ technologyServices:
     summary: kube-apiserver of the k8s-prd cluster, fronted by the Keepalived-managed VIP.
     introduced: 2026-05-28
     lifecycle: active
+    logo: kubernetes
     environment: prd
     cluster: k8s-prd
 
@@ -512,6 +568,7 @@ technologyServices:
     summary: kube-apiserver of the single-node k8s-dev cluster.
     introduced: 2026-05-28
     lifecycle: active
+    logo: kubernetes
     environment: dev
     cluster: k8s-dev
 
@@ -520,6 +577,7 @@ technologyServices:
     summary: OpenBao HTTPS API on the openbao-prd cluster. TCP-passthrough via per-node HAProxy onto the local OpenBao listener; addressed via the Keepalived VIP at secrets.home.
     introduced: 2026-05-28
     lifecycle: active
+    logo: openbao
     environment: prd
     cluster: openbao-prd
 
@@ -528,6 +586,7 @@ technologyServices:
     summary: Cluster-level Ceph access surface at ceph.home (10.1.0.38). Keepalived-managed VIP fronting the three microceph nodes.
     introduced: 2026-05-28
     lifecycle: active
+    logo: ceph
     environment: prd
     cluster: ceph-prd
 
@@ -536,6 +595,7 @@ technologyServices:
     summary: TCP listener used by the Jenkins controller to schedule build work onto srviac.
     introduced: 2026-05-28
     lifecycle: active
+    logo: jenkins
     environment: prd
 
   - id: svc:node-exporter-prd,87c9a549-efe2-4df9-a1be-47673bfff4c3
@@ -543,6 +603,7 @@ technologyServices:
     summary: Aggregate Prometheus node_exporter scrape surface across the eleven non-k8s managed prd hosts. Per-host scrape endpoints are composed into this service.
     introduced: 2026-05-28
     lifecycle: active
+    logo: prometheus
     environment: prd
 
 technologyInterfaces:
@@ -551,6 +612,7 @@ technologyInterfaces:
     summary: Cluster-wide PVE API at https://pve.home:8006/. Cluster routes the request internally.
     introduced: 2026-05-28
     lifecycle: active
+    logo: proxmox
     environment: prd
     cluster: pve-prd
     stats:
@@ -561,6 +623,7 @@ technologyInterfaces:
     summary: kubernetes-api.home:16443. The Keepalived-managed VIP fronts the three k8s-prd member nodes.
     introduced: 2026-05-28
     lifecycle: active
+    logo: kubernetes
     environment: prd
     cluster: k8s-prd
     stats:
@@ -571,6 +634,7 @@ technologyInterfaces:
     summary: kubernetes-api-dev.home:16443. Single-node, no VIP.
     introduced: 2026-05-28
     lifecycle: active
+    logo: kubernetes
     environment: dev
     cluster: k8s-dev
     stats:
@@ -581,6 +645,7 @@ technologyInterfaces:
     summary: Primary client entry at https://secrets.home/ — port 443 TCP-passthrough through HAProxy to OpenBao on 8200.
     introduced: 2026-05-28
     lifecycle: active
+    logo: openbao
     environment: prd
     cluster: openbao-prd
     stats:
@@ -591,6 +656,7 @@ technologyInterfaces:
     summary: Admin-side entry at https://secrets.home:8200. Used by the Ansible controller for write operations (must hit the leader VIP, not per-node listeners).
     introduced: 2026-05-28
     lifecycle: active
+    logo: openbao
     environment: prd
     cluster: openbao-prd
     stats:
@@ -601,6 +667,7 @@ technologyInterfaces:
     summary: Cluster VIP at ceph.home (10.1.0.38).
     introduced: 2026-05-28
     lifecycle: active
+    logo: ceph
     environment: prd
     cluster: ceph-prd
     stats:
@@ -612,6 +679,7 @@ technologyInterfaces:
     summary: TCP socket on srviac that the Jenkins controller connects to for dispatching jobs.
     introduced: 2026-05-28
     lifecycle: active
+    logo: jenkins
     environment: prd
 
   - id: if:node-exporter-pve,5af65252-9222-4385-97f6-e4a80b84fad3
@@ -619,6 +687,7 @@ technologyInterfaces:
     summary: http://pve.home:9100/metrics
     introduced: 2026-05-28
     lifecycle: active
+    logo: prometheus
     environment: prd
     stats:
       url: http://pve.home:9100/metrics
@@ -628,6 +697,7 @@ technologyInterfaces:
     summary: http://pve1.home:9100/metrics
     introduced: 2026-05-28
     lifecycle: active
+    logo: prometheus
     environment: prd
     stats:
       url: http://pve1.home:9100/metrics
@@ -637,6 +707,7 @@ technologyInterfaces:
     summary: http://pve2.home:9100/metrics
     introduced: 2026-05-28
     lifecycle: active
+    logo: prometheus
     environment: prd
     stats:
       url: http://pve2.home:9100/metrics
@@ -646,6 +717,7 @@ technologyInterfaces:
     summary: http://srvceph1.home:9100/metrics
     introduced: 2026-05-28
     lifecycle: active
+    logo: prometheus
     environment: prd
     stats:
       url: http://srvceph1.home:9100/metrics
@@ -655,6 +727,7 @@ technologyInterfaces:
     summary: http://srvceph2.home:9100/metrics
     introduced: 2026-05-28
     lifecycle: active
+    logo: prometheus
     environment: prd
     stats:
       url: http://srvceph2.home:9100/metrics
@@ -664,6 +737,7 @@ technologyInterfaces:
     summary: http://srvceph3.home:9100/metrics
     introduced: 2026-05-28
     lifecycle: active
+    logo: prometheus
     environment: prd
     stats:
       url: http://srvceph3.home:9100/metrics
@@ -673,6 +747,7 @@ technologyInterfaces:
     summary: http://srvvault1.home:9100/metrics
     introduced: 2026-05-28
     lifecycle: active
+    logo: prometheus
     environment: prd
     stats:
       url: http://srvvault1.home:9100/metrics
@@ -682,6 +757,7 @@ technologyInterfaces:
     summary: http://srvvault2.home:9100/metrics
     introduced: 2026-05-28
     lifecycle: active
+    logo: prometheus
     environment: prd
     stats:
       url: http://srvvault2.home:9100/metrics
@@ -691,6 +767,7 @@ technologyInterfaces:
     summary: http://srvvault3.home:9100/metrics
     introduced: 2026-05-28
     lifecycle: active
+    logo: prometheus
     environment: prd
     stats:
       url: http://srvvault3.home:9100/metrics
@@ -700,6 +777,7 @@ technologyInterfaces:
     summary: http://srviac.home:9100/metrics
     introduced: 2026-05-28
     lifecycle: active
+    logo: prometheus
     environment: prd
     stats:
       url: http://srviac.home:9100/metrics
@@ -709,6 +787,7 @@ technologyInterfaces:
     summary: http://wrkdev.home:9100/metrics
     introduced: 2026-05-28
     lifecycle: active
+    logo: prometheus
     environment: prd
     stats:
       url: http://wrkdev.home:9100/metrics
