@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# openbao-rotate-unrestricted.sh — auto-rotate the `rotation=unrestricted`
+# rotate-unrestricted.sh (scripts/rotation/) — auto-rotate `rotation=unrestricted`
 # leaves (mechanism `random`): stateless app secrets we own outright. For
 # each, regenerate every key with a fresh random value of the same length,
 # write it, and stamp `rotated_at` (preserving rotation/mechanism/notes).

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# openbao-annotate-rotation.sh — classify every kv leaf with two
+# annotate.sh (scripts/rotation/) — classify every kv leaf with two
 # custom-metadata attributes that drive rotation:
 #
 #   rotation            unrestricted | coordinated | external

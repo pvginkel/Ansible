@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 #
-# openbao-rotation-audit.sh — rotation checklist from kv metadata.
+# audit.sh (scripts/rotation/) — rotation checklist from kv metadata.
 #
 # Lists every leaf that still needs a rotation, grouped by
 # `rotation_mechanism` (the system/handler you rotate it in). A leaf is
 # OFF the list when either:
 #   - it has a `rotated_at` marker (already rotated), or
-#   - `rotation=unrestricted` (handled by openbao-rotate-unrestricted.sh).
+#   - `rotation=unrestricted` (handled by rotate-unrestricted.sh).
 #
 # As you build a handler for a mechanism (keycloak, postgres, …), point
 # its cronjob at `rotation_mechanism=<x>` and those leaves come off this
@@ -15,7 +15,7 @@
 # READ-ONLY (kv list + metadata get) — reads no secret values, depends on
 # nothing in tmp/. Requires a logged-in bao session + BAO_CACERT, jq.
 #
-# Usage:  . scripts/bao-login.sh ; scripts/openbao-rotation-audit.sh [out.md]
+# Usage:  . scripts/bao-login.sh ; scripts/rotation/audit.sh [out.md]
 #
 set -uo pipefail
 MOUNT="${OPENBAO_KV_MOUNT:-kv}"
@@ -54,12 +54,12 @@ done < <(walk "" | sort)
   echo "# OpenBao secret-rotation checklist"
   echo
   echo "_Generated $(date -I) from kv metadata. Excludes \`rotation=unrestricted\`"
-  echo "(auto-rotated by openbao-rotate-unrestricted.sh) and any leaf already"
+  echo "(auto-rotated by rotate-unrestricted.sh) and any leaf already"
   echo "stamped \`rotated_at\`. Grouped by \`rotation_mechanism\` = the handler /"
   echo "system you rotate it in. Reads no secret values._"
   echo
   echo "**${needs} leaves still need rotation** (of ${total} total)."
-  [ "$unann" -eq 0 ] || echo -e "\n> ⚠ ${unann} leaf/leaves have no \`rotation\` attribute — run openbao-annotate-rotation.sh."
+  [ "$unann" -eq 0 ] || echo -e "\n> ⚠ ${unann} leaf/leaves have no \`rotation\` attribute — run scripts/rotation/annotate.sh."
   echo
   echo "## ⚠ Distinct-mint requirements (don't reuse one value)"
   echo "- \`kv/jenkins/mydownloads-android-keystore\` vs \`…/scantopdf-android-keystore\`"
