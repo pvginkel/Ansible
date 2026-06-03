@@ -23,6 +23,8 @@ Small, focused commits with clear messages. Do not batch unrelated changes into 
 
 Commit messages follow the style in existing history: short imperative subject, body explains the why. Always include the `Co-Authored-By` trailer for Claude.
 
+Commit straight to the working branch (usually `main`) as you go — no topic/feature branches. This is single-person homelab territory; there's no one to open a PR against, and a branch just adds a merge step. Same rule in the sibling repos (HelmCharts, DockerImages).
+
 ## Explanatory notes decay
 
 Files gain scaffolding while they're being built — TODO markers, inline justifications, walk-through comments, README-style context embedded in role defaults. Once we've moved past a file, strip the sprinkles. Keep only comments that carry a non-obvious *why*.
