@@ -21,8 +21,6 @@ If a decision changes, update `/work/AnsibleSpecs/decisions.md` — don't leave 
 
 Small, focused commits with clear messages. Do not batch unrelated changes into one commit. When you finish a coherent chunk of work — a role, a runbook update, a decision-record change, a new playbook — commit it before starting the next. When in doubt, commit.
 
-Commit messages follow the style in existing history: short imperative subject, body explains the why. Always include the `Co-Authored-By` trailer for Claude.
-
 Commit straight to the working branch (usually `main`) as you go — no topic/feature branches. This is single-person homelab territory; there's no one to open a PR against, and a branch just adds a merge step. Same rule in the sibling repos (HelmCharts, DockerImages).
 
 ## Explanatory notes decay
