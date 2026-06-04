@@ -82,8 +82,21 @@ creds + an OpenBao policy that can write only that mechanism's leaves
 cronjob holding admin to everything — it would be the highest-value
 target in the homelab. Suggested order: `random` (done) → `keycloak`
 (largest clean chunk) → `postgres`/`rabbitmq` last (stateful: `ALTER` +
-verify the app reconnects + roll back on failure, and rebuild the derived
-`url` key).
+verify the app reconnects + roll back on failure).
+
+### URL-safe passwords for `postgres` / `rabbitmq`
+
+These leaves carry **only** a `password` property — consumers no longer
+store a whole-`url` connection string. The Helm chart composes the
+connection string at deploy time from a literal host/user plus the
+password, injected via Kubernetes `$(VAR)` env interpolation
+(`postgresql+psycopg://user:$(DB_PASSWORD)@host:5432/db`,
+`amqp://user:$(RABBITMQ_PASSWORD)@host:5672/`). That interpolation is a
+plain string substitution — it does **not** percent-encode. So any
+`postgres`/`rabbitmq` password we mint must be **URL-safe**: restrict the
+charset to `[A-Za-z0-9]` (or otherwise avoid `@ : / ? # [ ]`) so it can't
+break the composed URL. The handler that rotates these must enforce that
+constraint when generating the replacement.
 
 ## Notes
 
