@@ -1,8 +1,12 @@
-# Ceph dashboard VIP runbook
+# Ceph VIP runbook
 
 Manual procedure for the `ceph.home` virtual IP (`10.1.0.38`) in front
 of the three-node microceph cluster — `srvceph1` / `srvceph2` /
 `srvceph3`.
+
+The VIP fronts two services on whichever node is mgr-active: the
+**dashboard** (`8443`, below) and **RGW S3** (`7480`, see
+[RGW S3 on the VIP](#rgw-s3-on-the-vip-port-7480)).
 
 Ceph's mgr redirects dashboard traffic to whichever node is currently
 mgr-active, and the redirect lands on that node's *backplane* address
@@ -156,6 +160,40 @@ After all three nodes are up:
   next poll, Keepalived demotes the node's priority, and the VIP moves
   to whichever node Ceph elects active next.
 
+## RGW S3 on the VIP (port 7480)
+
+The same VIP fronts the RGW S3 endpoint. Every S3 consumer targets
+`http://ceph:7480` (HelmCharts `configs/*/…-values.yaml`,
+`s3.endpointUrl`), and the VIP follows the active mgr — so it can land
+on **any** of the three nodes. **All three RGW daemons must therefore
+listen on 7480**, or S3 via the VIP goes dark whenever it sits on a
+node bound to a different port.
+
+MicroCeph's `enable rgw` defaults to port **80**, not 7480, so a
+freshly-enabled node is wrong by default. To enable (or correct) a
+node, per-node, one at a time:
+
+```sh
+sudo microceph disable rgw && sudo microceph enable rgw --port 7480
+```
+
+This is non-destructive — RGW buckets/objects live in RADOS pools, not
+the gateway daemon, so disable/re-enable only cycles the listener.
+Do the VIP-holding node last (find it with `microceph.ceph mgr stat`);
+its re-enable causes a few-seconds S3 blip on the VIP.
+
+Verify every node — and the VIP from any placement — answers on 7480:
+
+```sh
+for h in srvceph1 srvceph2 srvceph3 ceph; do
+  printf '%-9s ' "$h"; curl -s -o /dev/null -w ":7480 -> %{http_code}\n" --max-time 5 "http://$h.home:7480/"
+done   # all four expect 200
+```
+
+A `200` with an `x-amz-request-id` response header confirms it's RGW,
+not just an open port. Nothing should answer on port 80 once all three
+are converted.
+
 ## DNS
 
 `ceph.home → 10.1.0.38` is a dnsmasq static host entry in HelmCharts
@@ -171,3 +209,8 @@ and the VIP from `group_vars/all/vips.yml`. The rendered
 `keepalived.conf` must match this runbook byte-for-byte (modulo
 the `# /etc/keepalived/keepalived.conf` header comment); if it
 diverges, reconcile here first.
+
+The Ceph role must also enable RGW with `--port 7480` on all three
+nodes (see [RGW S3 on the VIP](#rgw-s3-on-the-vip-port-7480)) — the
+microceph default of 80 would silently break S3 via the VIP. Don't let
+a rebuilt node come back on the default port.
