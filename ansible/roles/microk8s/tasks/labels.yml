@@ -22,9 +22,15 @@
     definition:
       metadata:
         labels: "{{ hostvars[item].k8s_node_labels | default({}) }}"
+  # `defined` guard first: an unreachable peer never ran elect-primary,
+  # so its hostvars lack microk8s_primary_host. Without the guard the
+  # `eq` selectattr raises on that entry and fails the reconcile on the
+  # reachable nodes too — one down host shouldn't strand the rest.
+  # Mirrors the same defensive filter in elect-primary.yml.
   loop: >-
     {{ ansible_play_hosts_all
        | map('extract', hostvars)
+       | selectattr('microk8s_primary_host', 'defined')
        | selectattr('microk8s_primary_host', 'eq', microk8s_primary_host)
        | map(attribute='inventory_hostname')
        | list }}
