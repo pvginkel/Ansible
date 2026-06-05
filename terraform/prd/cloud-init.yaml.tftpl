@@ -14,6 +14,14 @@ users:
 ssh_pwauth: false
 disable_root: true
 
+# Pin a deterministic ed25519 host key so the step-ca host certificate
+# stays valid across rebuilds. ssh_deletekeys MUST stay false: on a new
+# instance-id cloud-init's default delete-and-regenerate wipes the host
+# key *and* its `*-cert.pub`, leaving sshd serving a bare key the
+# `@cert-authority` trust line rejects (host UNREACHABLE) with no path
+# to re-sign over SSH. Keeping the keys makes an instance-id change a
+# no-op for host trust.
+ssh_deletekeys: false
 ssh_keys:
   ed25519_private: |
       ${host_ed25519_private}
