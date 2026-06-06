@@ -1,13 +1,9 @@
-# Load the homelab provider straight from the baked-in binary via a Terraform
-# development override. dev_overrides bypasses the registry, the version
-# constraint, and the consumer's .terraform.lock.hcl entirely — a rebuilt
-# binary is picked up with no `terraform init` and no lock refresh. The
-# bpg/proxmox and hashicorp/tls providers still install normally from the
-# registry via `direct`. Path is root's home: terraform runs as root in this
-# image (the bpg provider reads /root/.ssh/known_hosts).
 provider_installation {
-  dev_overrides {
-    "pvginkel/homelab" = "/root/.local/lib/terraform-providers"
+  filesystem_mirror {
+    path    = "/usr/local/share/terraform/plugins"
+    include = ["registry.terraform.io/pvginkel/*"]
   }
-  direct {}
+  direct {
+    exclude = ["registry.terraform.io/pvginkel/*"]
+  }
 }

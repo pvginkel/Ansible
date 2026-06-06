@@ -91,7 +91,7 @@ RUN set -o pipefail && \
 RUN mkdir /work && \
     chown ubuntu:ubuntu /work
 
-COPY artifacts/terraform-provider-homelab /tmp/
+COPY artifacts/terraform-provider-homelab artifacts/terraform-provider-homelab-metadata.json /tmp/
 COPY support/iac-image/terraform.rc /etc/terraform.rc
 
 # The bpg/proxmox provider opens an SSH client of its own (snippet
@@ -107,13 +107,11 @@ COPY support/iac-image/terraform.rc /etc/terraform.rc
 COPY ansible/files/known_hosts.d/homelab /root/.ssh/known_hosts
 RUN chmod 700 /root/.ssh && chmod 644 /root/.ssh/known_hosts
 
-# dev_overrides (see terraform.rc) loads the provider from this directory by
-# its bare `terraform-provider-homelab` name — no version in the path, no
-# filesystem-mirror layout. /root is the home of the user that runs terraform
-# here, matching the dev_overrides path and `scripts/install-local.sh` defaults.
-RUN INSTALL_DIR=/root/.local/lib/terraform-providers && \
-    install -d -m 0755 "$INSTALL_DIR" && \
-    install -m 0755 /tmp/terraform-provider-homelab "$INSTALL_DIR/terraform-provider-homelab" && \
-    rm /tmp/terraform-provider-homelab
+RUN VERSION=$(jq -r .version /tmp/terraform-provider-homelab-metadata.json) && \
+    INSTALL_DIR=/usr/local/share/terraform/plugins/registry.terraform.io/pvginkel/homelab/$VERSION/linux_amd64 && \
+    mkdir -p "$INSTALL_DIR" && \
+    mv /tmp/terraform-provider-homelab "$INSTALL_DIR/terraform-provider-homelab_v$VERSION" && \
+    chmod +x "$INSTALL_DIR/terraform-provider-homelab_v$VERSION" && \
+    rm /tmp/terraform-provider-homelab-metadata.json
 
 ENTRYPOINT ["tini", "--"]
