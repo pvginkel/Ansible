@@ -76,12 +76,19 @@
           has `terraform apply` run for srvvault1/2/3?
       loop: "{{ groups['openbao'] }}"
 
+    # The tasks in this play are controller-side scratch: they stage the
+    # pre-cert known_hosts and the backup token under tmp/ so the later
+    # plays can connect, and they rewrite those files on every run by
+    # design. They are never infrastructure state, so changed_when: false
+    # keeps the scheduled-drift check (which sums recap changed=N) from
+    # counting them as drift.
     - name: Ensure the transient known_hosts directory exists
       ansible.builtin.file:
         path: "{{ _transient_known_hosts | dirname }}"
         state: directory
         mode: "0755"
       check_mode: false
+      changed_when: false
 
     - name: Write the openbao hosts' pinned keys to the transient known_hosts
       ansible.builtin.copy:
@@ -92,6 +99,7 @@
           {% endfor %}
         mode: "0644"
       check_mode: false
+      changed_when: false
 
     # Card #12 — the backup pipeline's scope-bound upload token, minted
     # by homelab_backup_credential.openbao. A non-zero rc means the
@@ -122,12 +130,14 @@
         mode: "0600"
       when: _tf_backup_token.rc == 0
       no_log: true
+      changed_when: false
 
     - name: Drop a stale staged upload token when terraform has none
       ansible.builtin.file:
         path: "{{ _backup_token_file }}"
         state: absent
       when: _tf_backup_token.rc != 0
+      changed_when: false
 
 # Pre-certificate ssh_args override (used by both the bootstrap play
 # and the converge play below). Replaces ssh_args wholesale — for

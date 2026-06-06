@@ -336,6 +336,9 @@
     # secret_id is restaged only on rotation runs, when it was just
     # minted above. backup.yml reads both files back.
 
+    # Controller-side scratch staging for the backup handoff: restaged on
+    # every run by design, never infrastructure state. changed_when: false
+    # keeps the scheduled-drift check from counting them as drift.
     - name: Ensure the controller-side backup staging directory exists
       ansible.builtin.file:
         path: "{{ openbao_backup_staging_dir }}"
@@ -343,6 +346,7 @@
         mode: "0755"
       delegate_to: localhost
       become: false
+      changed_when: false
 
     - name: Stage the backup AppRole role_id for backup.yml
       ansible.builtin.copy:
@@ -355,6 +359,7 @@
       delegate_to: localhost
       become: false
       no_log: true
+      changed_when: false
 
     - name: Stage the backup AppRole secret_id for backup.yml (rotation runs only)
       ansible.builtin.copy:
