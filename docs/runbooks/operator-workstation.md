@@ -87,8 +87,10 @@ Terraform authenticates to the Proxmox API as `root@pam` with username + passwor
 
 ## Terraform `pvginkel/homelab` provider
 
-The `homelab` provider ships baked into the `modern-app-dev` container image. `TF_CLI_CONFIG_FILE=/etc/terraform.rc` in the image points Terraform at a filesystem mirror under `/usr/local/share/terraform/plugins`; `terraform init` resolves `pvginkel/homelab` from there with no per-workstation setup. See [`/work/AnsibleSpecs/slices/completed/embed-homelab-provider.md`](../../../AnsibleSpecs/slices/completed/embed-homelab-provider.md) for the mirror layout and how the binary lands in the image.
+The `homelab` provider ships baked into the `modern-app-dev` container image. `TF_CLI_CONFIG_FILE=/etc/terraform.rc` in the image points Terraform at a **dev override** for `pvginkel/homelab` (`/home/ubuntu/.local/lib/terraform-providers`). `dev_overrides` bypasses the registry, the version constraint, and `.terraform.lock.hcl` for that one provider, so a rebuilt binary is picked up with no `terraform init` and no lock refresh — `bpg/proxmox` and `hashicorp/tls` still install normally from the registry. See [`/work/AnsibleSpecs/slices/completed/embed-homelab-provider.md`](../../../AnsibleSpecs/slices/completed/embed-homelab-provider.md) for how the binary lands in the image.
 
-No `~/.terraformrc` is needed. If a stale dev-override block is still present from plan 02, it is harmless inside the container (the env var wins), but delete it so it doesn't fire elsewhere.
+No `~/.terraformrc` is needed inside the container. Terraform prints a "development overrides are in effect" warning on every command; that is expected. The `homelab` provider intentionally has no entry in `terraform/{prd,scratch}/.terraform.lock.hcl` — the override makes the lock irrelevant for it, and `terraform init` will not add one back.
+
+To rebuild the provider against a running container without waiting on Jenkins, run `scripts/install-local.sh` from the `HomelabTerraformProvider` checkout; it overwrites the baked binary in place and the next `terraform plan`/`apply` uses it immediately.
 
 The bearer token for the sidecar API goes in `terraform/{prd,scratch}/terraform.tfvars` next to the Proxmox password (`dns_reservation_token`).
