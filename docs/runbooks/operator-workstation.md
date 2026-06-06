@@ -89,7 +89,9 @@ Terraform authenticates to the Proxmox API as `root@pam` with username + passwor
 
 The `homelab` provider ships baked into the `modern-app-dev` container image. `TF_CLI_CONFIG_FILE=/etc/terraform.rc` in the image points Terraform at a **dev override** for `pvginkel/homelab` (`/home/ubuntu/.local/lib/terraform-providers`). `dev_overrides` bypasses the registry, the version constraint, and `.terraform.lock.hcl` for that one provider, so a rebuilt binary is picked up with no `terraform init` and no lock refresh — `bpg/proxmox` and `hashicorp/tls` still install normally from the registry. See [`/work/AnsibleSpecs/slices/completed/embed-homelab-provider.md`](../../../AnsibleSpecs/slices/completed/embed-homelab-provider.md) for how the binary lands in the image.
 
-No `~/.terraformrc` is needed inside the container. Terraform prints a "development overrides are in effect" warning on every command; that is expected. The `homelab` provider intentionally has no entry in `terraform/{prd,scratch}/.terraform.lock.hcl` — the override makes the lock irrelevant for it, and `terraform init` will not add one back.
+No `~/.terraformrc` is needed inside the container. Terraform prints a "development overrides are in effect" warning on every command; that is expected.
+
+`terraform/{prd,scratch}/.terraform.lock.hcl` keeps a `pvginkel/homelab` entry on purpose. The override bypasses the registry and does **not** verify the recorded hash, so a rebuilt binary still needs no lock refresh — but `terraform init` reconciles the providers recorded in **state**, and without a lock entry for `homelab` it falls back to "find latest version" and queries the public registry (unpublished → 404). The version/hash in that entry are inert under the override; leave them.
 
 To rebuild the provider against a running container without waiting on Jenkins, run `scripts/install-local.sh` from the `HomelabTerraformProvider` checkout; it overwrites the baked binary in place and the next `terraform plan`/`apply` uses it immediately.
 

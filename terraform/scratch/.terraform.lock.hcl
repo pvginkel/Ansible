@@ -43,3 +43,16 @@ provider "registry.terraform.io/hashicorp/tls" {
     "zh:f569b65999264a9416862bca5cd2a6177d94ccb0424f3a4ef424428912b9cb3c",
   ]
 }
+
+# pvginkel/homelab is loaded via a Terraform dev_override (see the iac /
+# modern-app-dev image terraform.rc). The override bypasses the registry and
+# does not verify this hash, so a rebuilt provider binary needs no lock
+# refresh. The entry must stay, though: `terraform init` reconciles providers
+# recorded in state and would otherwise query the public registry for
+# pvginkel/homelab (which is unpublished → 404). Version/hash here are inert.
+provider "registry.terraform.io/pvginkel/homelab" {
+  version = "0.1.1"
+  hashes = [
+    "h1:AAo+O8Q2dVFEWmVaeWQ0IUTVR1rRhMCsQyd851rLycU=",
+  ]
+}
