@@ -39,6 +39,15 @@
 # churn from clobbering the cert. Delivered guest-side via Ansible rather than
 # the cloud-init snippet because the snippet only reaches a VM on rebuild
 # (terraform pins lifecycle.ignore_changes = [initialization]).
+#
+# Gated on the drop-in dir existing: baseline also runs on the bare-metal
+# PVE hypervisors, which have no cloud-init (and no /etc/cloud), so the
+# drop-in is both meaningless and impossible there.
+- name: Detect whether cloud-init manages this host
+  ansible.builtin.stat:
+    path: /etc/cloud/cloud.cfg.d
+  register: _baseline_cloud_init_dir
+
 - name: Keep cloud-init from deleting host keys on re-provision
   ansible.builtin.copy:
     dest: /etc/cloud/cloud.cfg.d/99-homelab-ssh.cfg
@@ -50,6 +59,7 @@
     owner: root
     group: root
     mode: "0644"
+  when: _baseline_cloud_init_dir.stat.exists
 
 # Tagged `os_update` so the scheduled drift pipeline can skip them:
 # pending upstream packages are patch posture, not infrastructure drift.
