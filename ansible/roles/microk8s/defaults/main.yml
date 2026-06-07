@@ -1,7 +1,8 @@
 ---
 # microk8s release channel. Pinned per cluster in group_vars (k8s_prd.yml etc.).
-# 1.32/stable is the LTS-tracked default per /work/AnsibleSpecs/decisions.md "k8s version policy."
-microk8s_channel: 1.32/stable
+# 1.35/stable is the homelab k8s base version per /work/AnsibleSpecs/decisions.md
+# "k8s version policy" (dev runs a minor ahead). Clusters override in group_vars.
+microk8s_channel: 1.35/stable
 
 # Calico autodetection: which interface carries pod traffic. Defaults to
 # whatever NIC Ansible finds on the default-route path — `eth0` on

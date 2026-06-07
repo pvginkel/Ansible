@@ -20,7 +20,7 @@ If any step fails on a node, the playbook stops; nothing else moves. The cordone
 ## When to run
 
 - Routinely, to pick up Ubuntu security patches and microk8s patch versions.
-- After a microk8s LTS channel bump in inventory (e.g. `1.32/stable` → `1.34/stable`).
+- After a microk8s channel bump in inventory (e.g. `1.35/stable` → `1.36/stable`).
 
 ## Prerequisites
 
