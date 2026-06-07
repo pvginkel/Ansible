@@ -1,0 +1,92 @@
+---
+# recover-watch-freeze.yml — detect a frozen apiserver watch cache on this
+# node and, if present, restart k8s-dqlite to clear it.
+#
+# Driven by playbooks/recover-dqlite-watch.yml with serial: 1, so the
+# restart rolls one node at a time and never drops more than one dqlite
+# voter — quorum holds throughout. Restarting the *datastore* is what
+# clears the stall; restarting kubelite/the apiserver does not (the watch
+# client just reconnects to the same wedged watch server and re-freezes).
+# Upstream: k8s-dqlite#364 / microk8s#5386 (fix PR #365 unmerged).
+# See docs/runbooks/dqlite-watch-freeze.md.
+
+- name: Probe this node's apiserver watch cache for a freeze
+  ansible.builtin.script:
+    cmd: >-
+      dqlite-watch-probe.sh
+      {{ microk8s_watchfreeze_samples }}
+      {{ microk8s_watchfreeze_interval }}
+      {{ microk8s_watchfreeze_min_lag }}
+  register: _microk8s_watchfreeze_probe
+  changed_when: false
+  check_mode: false
+  # rc 0 = healthy, 3 = frozen, 2 = apiserver unreachable. Anything else
+  # is a real script/transport error and should fail the task.
+  failed_when: _microk8s_watchfreeze_probe.rc not in [0, 2, 3]
+
+- name: Show probe result
+  ansible.builtin.debug:
+    msg: "{{ _microk8s_watchfreeze_probe.stdout_lines + _microk8s_watchfreeze_probe.stderr_lines }}"
+
+# rc 2: the apiserver on this node isn't answering at all. That's a
+# different (larger) fault than a watch freeze — restarting dqlite blind
+# could make it worse — so surface it for a human rather than acting.
+- name: Fail when the node's apiserver is unreachable (not a watch freeze)
+  ansible.builtin.fail:
+    msg: >-
+      apiserver unreachable on {{ inventory_hostname }} — this is not the
+      watch-freeze signature. Investigate before restarting k8s-dqlite.
+  when: _microk8s_watchfreeze_probe.rc == 2
+
+- name: Clear a frozen watch cache by restarting k8s-dqlite
+  when: _microk8s_watchfreeze_probe.rc == 3
+  block:
+    - name: Confirm datastore quorum is healthy before restarting a voter
+      # Belt-and-suspenders on top of the playbook's serial: 1. Only pull
+      # this node's voter if every configured voter is currently up, so we
+      # never restart into an already-degraded cluster. A single-node
+      # cluster (HA=no, e.g. k8s_dev) has no quorum to protect — skip.
+      ansible.builtin.shell: |
+        set -o pipefail
+        status="$(microk8s status 2>/dev/null)"
+        if ! grep -q 'high-availability: yes' <<<"$status"; then
+          echo "single-node (HA=no) — no quorum gate"
+          exit 0
+        fi
+        voters="$(sed -n 's/.*datastore master nodes: //p' <<<"$status" | tr ' ' '\n' | grep -c ':19001')"
+        echo "voters_up=$voters required={{ microk8s_watchfreeze_required_voters }}"
+        [ "$voters" -ge "{{ microk8s_watchfreeze_required_voters }}" ]
+      register: _microk8s_watchfreeze_quorum
+      changed_when: false
+      check_mode: false
+
+    - name: Restart k8s-dqlite to clear the frozen watch cache
+      ansible.builtin.systemd:
+        name: snap.microk8s.daemon-k8s-dqlite
+        state: restarted
+
+    - name: Wait for the watch cache to recover
+      # The watch re-establishes a few seconds after dqlite restarts;
+      # re-probe until the freeze signature is gone. If it never clears,
+      # restarting dqlite did not fix it — fail loudly so a human looks
+      # (likely the upstream fix is required).
+      ansible.builtin.script:
+        cmd: >-
+          dqlite-watch-probe.sh
+          {{ microk8s_watchfreeze_samples }}
+          {{ microk8s_watchfreeze_interval }}
+          {{ microk8s_watchfreeze_min_lag }}
+      register: _microk8s_watchfreeze_recheck
+      until: _microk8s_watchfreeze_recheck.rc == 0
+      retries: "{{ microk8s_watchfreeze_recover_retries | int }}"
+      delay: "{{ microk8s_watchfreeze_recover_delay | int }}"
+      changed_when: true
+      check_mode: false
+      failed_when: _microk8s_watchfreeze_recheck.rc != 0
+
+    - name: Record that the watchdog acted (sentinel for Jenkins notify)
+      # Jenkinsfile.iac-dqlite-watchdog greps stdout for this exact prefix
+      # to push-notify that a node was recovered. Emitted only after the
+      # re-probe confirms the freeze actually cleared.
+      ansible.builtin.debug:
+        msg: "WATCHDOG_ACTION restarted k8s-dqlite on {{ inventory_hostname }} (watch cache was frozen, now recovered)"

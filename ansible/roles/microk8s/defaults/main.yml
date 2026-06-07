@@ -112,6 +112,23 @@ microk8s_coredns_home_forwarders: []
 # tasks/keepalived.yml and slices/internal-ha-vips.md.
 microk8s_manage_apiserver_vip: false
 
+# --- watch-cache freeze watchdog (k8s-dqlite#364 / microk8s#5386) ---
+# Tuning for playbooks/recover-dqlite-watch.yml + tasks/recover-watch-freeze.yml.
+# A node is judged "frozen" only if its apiserver watch-cache resourceVersion
+# stays pinned across every sample while quorum reads advance and the gap
+# exceeds _min_lag — the unambiguous freeze signature, not ordinary lag.
+microk8s_watchfreeze_samples: 4
+microk8s_watchfreeze_interval: 4
+microk8s_watchfreeze_min_lag: 500
+# Before restarting a dqlite voter, require at least this many voters up
+# (HA clusters only; a single-node cluster skips the gate). Belt-and-
+# suspenders on top of the playbook's serial: 1.
+microk8s_watchfreeze_required_voters: 3
+# After restarting dqlite, re-probe until the freeze clears: retries × delay
+# seconds is the budget for the watch to re-establish before giving up.
+microk8s_watchfreeze_recover_retries: 10
+microk8s_watchfreeze_recover_delay: 6
+
 # Homelab-CA TLS leaf for the kube-apiserver. The SANs the leaf carries;
 # empty skips it. The leaf is served *additively* via the apiserver's
 # --tls-sni-cert-key flag — a client whose SNI matches one of these

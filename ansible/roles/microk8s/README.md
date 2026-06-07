@@ -81,6 +81,10 @@ The role asserts that the four cluster-CIDR variables are set; per-cluster `grou
 - The kube-apiserver VIP delegates to the `keepalived` role: `keepalived.conf` renders to the same content every run, so a converged node reports `changed=0` and the restart handler doesn't fire. The VIP include runs last in `main.yml`, after join, so the node is already serving the API before it can win the VRRP election.
 - The kube-apiserver TLS leaf is threshold-gated by the `internal_tls` role (re-issues only inside the renewal window) and the `--tls-sni-cert-key` arg is a `lineinfile` upsert, so a converged node reports `changed=0` and the kubelite restart doesn't fire.
 
+## Watch-cache freeze recovery
+
+`tasks/recover-watch-freeze.yml` (run via `playbooks/recover-dqlite-watch.yml`, not from `main.yml`) detects and clears a frozen apiserver watch cache — the microk8s 1.34–1.35 `k8s-dqlite` watch-stall bug ([k8s-dqlite#364](https://github.com/canonical/k8s-dqlite/issues/364) / [microk8s#5386](https://github.com/canonical/microk8s/issues/5386)). It probes each node's own apiserver for the freeze signature (cache-served vs quorum `resourceVersion` divergence on the controller-manager lease) and restarts `snap.microk8s.daemon-k8s-dqlite` only on a frozen node. The playbook runs `serial: 1` so the restart rolls one voter at a time; it is a clean no-op on a healthy cluster. Driven unattended from srviac by the `iac-dqlite-watchdog` Jenkins job. Tuning lives in the `microk8s_watchfreeze_*` defaults. Full procedure and manual fallback: [`docs/runbooks/dqlite-watch-freeze.md`](../../../docs/runbooks/dqlite-watch-freeze.md).
+
 ## What this role doesn't do (yet)
 
 - **Removal of labels** outside `k8s_node_labels`. The strategic-merge patch only adds/updates the keys we list; legacy labels (e.g. `size=large` on prd) need a one-shot operator step or a follow-up task to delete. Tracked with the Phase 4a HelmCharts migration gate.
