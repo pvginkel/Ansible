@@ -365,6 +365,17 @@ systemSoftware:
     environment: prd
     cluster: ceph-prd
 
+  - id: ss:microceph-dev,b82bb4f6-27c6-4b0b-8554-e2d8a16cd253
+    label: microceph (dev)
+    summary: Single-node microceph co-located on srvk8sdev. Isolated dev storage with size-1 pools — block (RBD), file (CephFS), and object (RGW/S3) — so HelmCharts iteration stops churning the prod Ceph cluster. Channel squid/stable (Ceph 19), a release ahead of prd's reef.
+    introduced: 2026-06-09
+    lifecycle: active
+    logo: ceph
+    environment: dev
+    cluster: ceph-dev
+    stats:
+      channel: squid/stable
+
   - id: ss:openbao-prd,089cec90-db60-4478-b3d7-d2ffa2e6c399
     label: OpenBao (prd)
     summary: Production OpenBao Raft cluster across srvvault1/2/3. Listener on :8200, integrated storage, OIDC via Keycloak, AppRoles for iac-agent, jenkins, eso, backup. Daily snapshot to the cluster backup-server.
@@ -590,6 +601,15 @@ technologyServices:
     environment: prd
     cluster: ceph-prd
 
+  - id: svc:ceph-rgw-dev,bb4a95c3-c8f4-4069-9aef-0746420a4eb8
+    label: Ceph RGW/S3 (dev)
+    summary: RADOS Gateway S3 object-storage surface of the single-node dev microceph on srvk8sdev. Consumed by HelmCharts / homelab-provider iteration as isolated dev object storage.
+    introduced: 2026-06-09
+    lifecycle: active
+    logo: ceph
+    environment: dev
+    cluster: ceph-dev
+
   - id: svc:jenkins-inbound-agent-srviac,944c6a01-8b7a-4ab2-85f2-b37afd33dda9
     label: Jenkins inbound agent surface on srviac
     summary: TCP listener used by the Jenkins controller to schedule build work onto srviac.
@@ -673,6 +693,17 @@ technologyInterfaces:
     stats:
       vip: 10.1.0.38
       dns: ceph.home
+
+  - id: if:ceph-rgw-dev,2b24aab5-77a8-41d8-81ff-96ca0754d034
+    label: Ceph RGW/S3 endpoint (dev)
+    summary: RGW S3 endpoint on srvk8sdev, Ceph default HTTP port 80. Single-node, no VIP.
+    introduced: 2026-06-09
+    lifecycle: active
+    logo: ceph
+    environment: dev
+    cluster: ceph-dev
+    stats:
+      url: http://srvk8sdev.home:80/
 
   - id: if:jenkins-inbound-agent-srviac,8abc4a60-f9ed-4c4d-928e-42a31a4fba89
     label: Jenkins inbound agent endpoint on srviac
@@ -815,6 +846,10 @@ relations:
     type: Specialization
   - id: rel:microceph-prd-spec
     source: ss:microceph-prd
+    target: ss:microceph
+    type: Specialization
+  - id: rel:microceph-dev-spec
+    source: ss:microceph-dev
     target: ss:microceph
     type: Specialization
   - id: rel:openbao-prd-spec
@@ -1043,6 +1078,10 @@ relations:
     source: node:ceph-prd-cluster
     target: ss:microceph-prd
     type: Assignment
+  - id: rel:srvk8sdev-runs-microceph-dev
+    source: node:srvk8sdev
+    target: ss:microceph-dev
+    type: Assignment
   - id: rel:openbao-prd-cluster-runs-openbao-prd
     source: node:openbao-prd-cluster
     target: ss:openbao-prd
@@ -1149,6 +1188,10 @@ relations:
     source: ss:microceph-prd
     target: svc:ceph-vip-prd
     type: Realization
+  - id: rel:microceph-dev-exposes-rgw
+    source: ss:microceph-dev
+    target: svc:ceph-rgw-dev
+    type: Realization
   - id: rel:jenkins-agent-srviac-exposes-svc
     source: ss:jenkins-inbound-agent-srviac
     target: svc:jenkins-inbound-agent-srviac
@@ -1222,6 +1265,10 @@ relations:
   - id: rel:ceph-vip-prd-has-if
     source: if:ceph-vip-prd
     target: svc:ceph-vip-prd
+    type: Assignment
+  - id: rel:ceph-rgw-dev-has-if
+    source: if:ceph-rgw-dev
+    target: svc:ceph-rgw-dev
     type: Assignment
   - id: rel:jenkins-agent-srviac-svc-has-if
     source: if:jenkins-inbound-agent-srviac
@@ -1305,6 +1352,18 @@ relations:
     type: Realization
   - id: rel:microceph-prd-realizes-shared-fs
     source: ss:microceph-prd
+    target: cap:shared-filesystem
+    type: Realization
+  - id: rel:microceph-dev-realizes-block-storage
+    source: ss:microceph-dev
+    target: cap:block-storage
+    type: Realization
+  - id: rel:microceph-dev-realizes-object-storage
+    source: ss:microceph-dev
+    target: cap:object-storage
+    type: Realization
+  - id: rel:microceph-dev-realizes-shared-fs
+    source: ss:microceph-dev
     target: cap:shared-filesystem
     type: Realization
   - id: rel:keepalived-k8s-prd-realizes-ha
