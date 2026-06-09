@@ -77,10 +77,17 @@ locals {
 
       cpu_cores   = 4
       cpu_sockets = 1
-      memory_mb   = 6 * 1024
+      # 12 GiB: shares the box with the microk8s control plane + dev
+      # workloads AND a co-located single-node microceph (group_vars/
+      # ceph_dev.yml). Tuned tight — dev carries no persistent load.
+      memory_mb = 12 * 1024
 
       managed_disks = [
         { interface = "scsi0", size = 60 },
+        # Raw OSD disk for the co-located microceph. Deliberately absent
+        # from managed_filesystems_volumes so it stays unformatted for
+        # BlueStore; the microceph role resolves it by this scsi index.
+        { interface = "scsi1", size = 20 },
       ]
 
       # NICs: inventories/prd/host_vars/srvk8sdev.yml
