@@ -11,17 +11,22 @@
       osd_pool_default_min_size: "1"
       mon_allow_pool_size_one: "true"
   block:
-    - name: Read current global pool defaults
+    # Read + write on the `mon` section, not `global`: these are all
+    # mon-consumed options, and `ceph config get` rejects the `global`
+    # pseudo-section ("unrecognized entity 'global'") even though
+    # `config set global` accepts it. Keeping get/set symmetric on `mon`
+    # sidesteps that and makes the idempotency compare exact.
+    - name: Read current pool defaults (mon section)
       ansible.builtin.command:
-        argv: [microceph.ceph, config, get, global, "{{ item }}"]
+        argv: [microceph.ceph, config, get, mon, "{{ item }}"]
       loop: "{{ _defaults.keys() | list }}"
       register: _microceph_cfg_get
       changed_when: false
       check_mode: false
 
-    - name: Set global pool defaults that differ
+    - name: Set pool defaults that differ (mon section)
       ansible.builtin.command:
-        argv: [microceph.ceph, config, set, global, "{{ item.item }}", "{{ _defaults[item.item] }}"]
+        argv: [microceph.ceph, config, set, mon, "{{ item.item }}", "{{ _defaults[item.item] }}"]
       loop: "{{ _microceph_cfg_get.results }}"
       loop_control:
         label: "{{ item.item }} → {{ _defaults[item.item] }}"
