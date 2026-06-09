@@ -26,7 +26,7 @@ See `defaults/main.yml`. Per environment in `group_vars/ceph_<env>.yml`; today o
 | `microceph_single_node` | size-1 pools so one OSD reaches HEALTH_OK. |
 | `microceph_osd_scsi_index` | PVE scsi slot of the **raw** OSD disk (absent from `managed_filesystems_volumes`). |
 | `microceph_osd_wipe` | zap the disk before add (destructive; default off). |
-| `microceph_osd_memory_target{,_min}`, `microceph_mds_cache_memory_limit` | daemon memory caps; restart-on-change. |
+| `microceph_osd_memory_target`, `microceph_mds_cache_memory_limit` | daemon memory caps; restart-on-change. |
 | `microceph_enable_rgw`, `microceph_rgw_port` | RADOS Gateway (S3). |
 | `microceph_enable_cephfs`, `microceph_cephfs_*` | CephFS filesystem + its pools. |
 | `microceph_rbd_pools` | block pools to create + `rbd pool init`. |

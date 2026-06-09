@@ -63,26 +63,10 @@
       changed_when: true
 
 # --- Daemon memory caps -----------------------------------------------
-# min before target (a target below Ceph's 2 GiB floor is clamped back
-# up unless the floor is lowered first). Each change restarts its daemon
-# to actually reclaim RSS.
-- name: Reconcile osd_memory_target_min
-  when: microceph_osd_memory_target_min | string | length > 0
-  block:
-    - name: Read current osd_memory_target_min
-      ansible.builtin.command:
-        argv: [microceph.ceph, config, get, osd, osd_memory_target_min]
-      register: _microceph_osd_mt_min
-      changed_when: false
-      check_mode: false
-
-    - name: Set osd_memory_target_min
-      ansible.builtin.command:
-        argv: [microceph.ceph, config, set, osd, osd_memory_target_min, "{{ microceph_osd_memory_target_min | string }}"]
-      when: _microceph_osd_mt_min.stdout | trim != (microceph_osd_memory_target_min | string)
-      changed_when: true
-      notify: Restart microceph OSD daemon
-
+# osd_memory_target has a hard floor of osd_memory_base + osd_memory_cache_min
+# (~896 MiB); values at or above it stick as-is, so there is no separate
+# floor key to lower. Each change restarts its daemon to actually reclaim
+# RSS (the snap's glibc malloc doesn't return freed arenas).
 - name: Reconcile osd_memory_target
   when: microceph_osd_memory_target | string | length > 0
   block:

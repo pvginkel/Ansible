@@ -29,11 +29,10 @@ microceph_osd_wipe: false
 # the microceph/Ceph default untouched. Lowering a live value REQUIRES a
 # daemon restart to reclaim RSS — the snap's glibc malloc does not return
 # freed arenas — so the role restarts the affected daemon on change. See
-# decisions.md "Ceph daemon memory targets". osd_memory_target_min must
-# be lowered alongside osd_memory_target whenever the target drops below
-# Ceph's 2 GiB floor, or the daemon clamps back up to the floor.
+# decisions.md "Ceph daemon memory targets". osd_memory_target has a hard
+# floor of ~896 MiB (osd_memory_base + osd_memory_cache_min); set at or
+# above it.
 microceph_osd_memory_target: ""
-microceph_osd_memory_target_min: ""
 microceph_mds_cache_memory_limit: ""
 
 # RADOS Gateway (S3). Enabled on this node; Ceph's default HTTP port.
