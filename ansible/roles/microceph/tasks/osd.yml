@@ -31,25 +31,44 @@
       guest. qm config for this VM must declare scsi{{ microceph_osd_scsi_index }}
       as the raw OSD disk, and it must NOT appear in managed_filesystems_volumes.
 
-# A blank disk has no children; once microceph adds it, the BlueStore
-# partition shows up — so child-count is the idempotency signal.
-- name: "Inspect children on /dev/{{ _microceph_osd_disk }}"
-  ansible.builtin.command:
-    argv: [lsblk, -no, "NAME,TYPE", --json, "/dev/{{ _microceph_osd_disk }}"]
-  register: _microceph_osd_lsblk
+# Idempotency: ask microceph what it already backs. microceph writes
+# BlueStore straight onto the raw device (no partition table, no lsblk
+# children), so partition inspection can't tell a fresh disk from a live
+# OSD. `microceph disk list` records each OSD by its /dev/disk/by-id
+# path and has no JSON output, so parse the paths out and resolve each to
+# its kernel device to compare against the HCTL-resolved disk.
+- name: List microceph-configured disks
+  ansible.builtin.command: microceph disk list
+  register: _microceph_disk_list
   changed_when: false
   check_mode: false
 
-- name: Determine whether the OSD disk is still blank
-  vars:
-    _children: >-
-      {{ ((_microceph_osd_lsblk.stdout | from_json).blockdevices | first).children | default([]) }}
+- name: Extract configured disk paths
   ansible.builtin.set_fact:
-    _microceph_osd_disk_blank: "{{ _children | length == 0 }}"
+    _microceph_configured_paths: "{{ _microceph_disk_list.stdout | regex_findall('(/dev/\\S+)') }}"
+
+- name: Resolve configured disk paths to kernel devices
+  ansible.builtin.command:
+    argv: [readlink, -f, "{{ item }}"]
+  loop: "{{ _microceph_configured_paths }}"
+  register: _microceph_configured_real
+  changed_when: false
+  check_mode: false
+
+- name: Determine whether the OSD disk is already configured
+  ansible.builtin.set_fact:
+    _microceph_osd_already: >-
+      {{ ('/dev/' ~ _microceph_osd_disk)
+         in (_microceph_configured_real.results | map(attribute='stdout') | map('trim') | list) }}
 
 - name: "Add OSD on /dev/{{ _microceph_osd_disk }}"
   ansible.builtin.command:
     argv: "{{ ['microceph', 'disk', 'add', '/dev/' ~ _microceph_osd_disk] + (['--wipe'] if microceph_osd_wipe | bool else []) }}"
-  when: _microceph_osd_disk_blank | bool
+  when: not _microceph_osd_already | bool
   register: _microceph_disk_add
+  # Belt-and-suspenders: if the guard ever misses, microceph's own
+  # "already exists" refusal is treated as a no-op rather than a failure.
   changed_when: _microceph_disk_add.rc == 0
+  failed_when:
+    - _microceph_disk_add.rc != 0
+    - "'already exists' not in _microceph_disk_add.stderr"
