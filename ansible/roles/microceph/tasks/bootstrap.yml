@@ -1,0 +1,27 @@
+---
+# `microceph status` exits non-zero until the cluster is bootstrapped —
+# the cleanest "already done?" probe.
+- name: Probe cluster status
+  ansible.builtin.command: microceph status
+  register: _microceph_status
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Bootstrap the single-node cluster
+  ansible.builtin.command: microceph cluster bootstrap
+  when: _microceph_status.rc != 0
+  register: _microceph_bootstrap
+  changed_when: _microceph_bootstrap.rc == 0
+
+# Bootstrap returns before the mon/mgr are fully serving; block until
+# status reports cleanly so the OSD-add and config steps don't race it.
+- name: Wait for the cluster to report status
+  ansible.builtin.command: microceph status
+  register: _microceph_status_post
+  until: _microceph_status_post.rc == 0
+  retries: 30
+  delay: 2
+  changed_when: false
+  check_mode: false
+  when: _microceph_status.rc != 0

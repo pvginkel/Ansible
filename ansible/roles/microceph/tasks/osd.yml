@@ -1,0 +1,55 @@
+---
+# Resolve the OSD disk from its PVE scsi slot the same way
+# managed_filesystems does — virtio-scsi-single lands scsiN at HCTL
+# N:0:0:N, the older single-controller form at 0:0:N:0; match either.
+- name: List top-level disks with HCTL
+  ansible.builtin.command:
+    argv: [lsblk, -dno, "NAME,HCTL,TYPE", --json]
+  register: _microceph_lsblk_disks
+  changed_when: false
+  check_mode: false
+
+- name: "Resolve guest OSD disk via HCTL for scsi{{ microceph_osd_scsi_index }}"
+  vars:
+    _idx: "{{ microceph_osd_scsi_index | string }}"
+  ansible.builtin.set_fact:
+    _microceph_osd_disk: >-
+      {{
+        (_microceph_lsblk_disks.stdout | from_json).blockdevices
+        | selectattr('type', 'equalto', 'disk')
+        | selectattr('hctl', 'match', '^[0-9]+:[0-9]+:(' ~ _idx ~ ':0|0:' ~ _idx ~ ')$')
+        | map(attribute='name')
+        | list | first | default('')
+      }}
+
+- name: Assert the OSD disk resolved
+  ansible.builtin.assert:
+    that:
+      - _microceph_osd_disk | length > 0
+    fail_msg: >-
+      No SCSI disk with HCTL index {{ microceph_osd_scsi_index }} found on the
+      guest. qm config for this VM must declare scsi{{ microceph_osd_scsi_index }}
+      as the raw OSD disk, and it must NOT appear in managed_filesystems_volumes.
+
+# A blank disk has no children; once microceph adds it, the BlueStore
+# partition shows up — so child-count is the idempotency signal.
+- name: "Inspect children on /dev/{{ _microceph_osd_disk }}"
+  ansible.builtin.command:
+    argv: [lsblk, -no, "NAME,TYPE", --json, "/dev/{{ _microceph_osd_disk }}"]
+  register: _microceph_osd_lsblk
+  changed_when: false
+  check_mode: false
+
+- name: Determine whether the OSD disk is still blank
+  vars:
+    _children: >-
+      {{ ((_microceph_osd_lsblk.stdout | from_json).blockdevices | first).children | default([]) }}
+  ansible.builtin.set_fact:
+    _microceph_osd_disk_blank: "{{ _children | length == 0 }}"
+
+- name: "Add OSD on /dev/{{ _microceph_osd_disk }}"
+  ansible.builtin.command:
+    argv: "{{ ['microceph', 'disk', 'add', '/dev/' ~ _microceph_osd_disk] + (['--wipe'] if microceph_osd_wipe | bool else []) }}"
+  when: _microceph_osd_disk_blank | bool
+  register: _microceph_disk_add
+  changed_when: _microceph_disk_add.rc == 0

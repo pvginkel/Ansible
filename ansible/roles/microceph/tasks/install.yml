@@ -1,0 +1,15 @@
+---
+# `community.general.snap` parses `snap info microceph` for a `name:`
+# line that is missing until snapd's first-boot seed completes, raising
+# IndexError on a freshly-booted VM. Bound the warm-up; idempotent once
+# seeded. (Same guard as the microk8s role.)
+- name: Wait for snapd to finish seeding
+  ansible.builtin.command: snap wait system seed.loaded
+  changed_when: false
+
+# microceph is strictly confined — no `classic: true`, unlike microk8s.
+- name: Install microceph snap (channel = {{ microceph_channel }})
+  community.general.snap:
+    name: microceph
+    channel: "{{ microceph_channel }}"
+    state: present

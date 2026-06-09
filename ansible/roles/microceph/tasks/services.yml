@@ -1,0 +1,81 @@
+---
+- name: Probe enabled services
+  ansible.builtin.command: microceph status
+  register: _microceph_svc_status
+  changed_when: false
+  check_mode: false
+
+- name: List existing pools
+  ansible.builtin.command:
+    argv: [microceph.ceph, osd, pool, ls]
+  register: _microceph_pools_now
+  changed_when: false
+  check_mode: false
+
+# --- RGW (S3) ---------------------------------------------------------
+- name: Enable RGW
+  ansible.builtin.command:
+    argv: [microceph, enable, rgw, --port, "{{ microceph_rgw_port | string }}"]
+  when:
+    - microceph_enable_rgw | bool
+    - "'rgw' not in _microceph_svc_status.stdout"
+  register: _microceph_rgw_enable
+  changed_when: _microceph_rgw_enable.rc == 0
+
+# --- RBD (block) pools ------------------------------------------------
+- name: Create + initialise RBD pools
+  when: microceph_rbd_pools | length > 0
+  block:
+    - name: Create missing RBD pools
+      ansible.builtin.command:
+        argv: [microceph.ceph, osd, pool, create, "{{ item }}"]
+      loop: "{{ microceph_rbd_pools | difference(_microceph_pools_now.stdout_lines) }}"
+      changed_when: true
+
+    # `rbd pool init` tags the pool with the rbd application and is
+    # idempotent, so it runs for every configured pool each pass.
+    - name: Initialise RBD pools
+      ansible.builtin.command:
+        argv: [microceph.rbd, pool, init, "{{ item }}"]
+      loop: "{{ microceph_rbd_pools }}"
+      changed_when: false
+
+# --- CephFS (file) ----------------------------------------------------
+- name: Configure CephFS
+  when: microceph_enable_cephfs | bool
+  block:
+    - name: Enable MDS
+      ansible.builtin.command:
+        argv: [microceph, enable, mds]
+      when: "'mds' not in _microceph_svc_status.stdout"
+      changed_when: true
+
+    - name: List filesystems
+      ansible.builtin.command:
+        argv: [microceph.ceph, fs, ls, --format, json]
+      register: _microceph_fs_ls
+      changed_when: false
+      check_mode: false
+
+    - name: Create CephFS filesystem
+      when: microceph_cephfs_name not in (_microceph_fs_ls.stdout | from_json | map(attribute='name') | list)
+      block:
+        - name: Create CephFS metadata + data pools
+          ansible.builtin.command:
+            argv: [microceph.ceph, osd, pool, create, "{{ item }}"]
+          loop:
+            - "{{ microceph_cephfs_metadata_pool }}"
+            - "{{ microceph_cephfs_data_pool }}"
+          when: item not in _microceph_pools_now.stdout_lines
+          changed_when: true
+
+        - name: "Create CephFS filesystem {{ microceph_cephfs_name }}"
+          ansible.builtin.command:
+            argv:
+              - microceph.ceph
+              - fs
+              - new
+              - "{{ microceph_cephfs_name }}"
+              - "{{ microceph_cephfs_metadata_pool }}"
+              - "{{ microceph_cephfs_data_pool }}"
+          changed_when: true

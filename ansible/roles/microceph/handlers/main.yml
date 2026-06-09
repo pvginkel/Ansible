@@ -1,0 +1,14 @@
+---
+- name: Restart microceph OSD daemon
+  # Memory-target changes only shrink the daemon's internal caches; the
+  # snap's glibc malloc holds the freed RSS until the process restarts
+  # (decisions.md "Ceph daemon memory targets"). `snap restart` is the
+  # microceph-blessed restart path. Single-node dev: a brief OSD blip
+  # takes storage offline for a few seconds. The prd fleet (Phase 5)
+  # rolls this serial:1 with `osd set noout`.
+  ansible.builtin.command: snap restart microceph.osd
+  changed_when: true
+
+- name: Restart microceph MDS daemon
+  ansible.builtin.command: snap restart microceph.mds
+  changed_when: true

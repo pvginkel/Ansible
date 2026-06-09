@@ -1,0 +1,23 @@
+---
+# site-ceph.yml — converge microceph storage nodes against the role.
+#
+# Today this targets only `ceph_dev`: the single-node microceph
+# co-located on srvk8sdev. The prd Ceph fleet (srvceph1/2/3) is NOT yet
+# Ansible-managed — Phase 5 brings it under this playbook with serial: 1
+# + drain hooks, the same way site-k8s.yml handles the k8s clusters.
+# Widen `hosts:` to `ceph` (and add the serial/drain belt) at that point.
+#
+# srvk8sdev's baseline + microk8s converge through site-k8s.yml; this
+# playbook owns only its microceph storage layer. Run order on a fresh
+# rebuild:
+#   1. playbooks/rebuild-k8s.yml --limit srvk8sdev   (baseline + microk8s)
+#   2. playbooks/site-ceph.yml   --limit srvk8sdev   (this file)
+#
+#   ansible-playbook playbooks/site-ceph.yml --limit srvk8sdev
+
+- name: Converge microceph on dev storage nodes
+  hosts: ceph_dev
+  become: true
+  gather_facts: true
+  roles:
+    - role: microceph

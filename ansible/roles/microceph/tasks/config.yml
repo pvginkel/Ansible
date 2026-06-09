@@ -1,0 +1,113 @@
+---
+# --- Single-node pool sizing ------------------------------------------
+# Set size-1 defaults for pools created later, and reconcile any pools
+# already created at bootstrap (.mgr, device_health) down to size 1 so
+# a single OSD reaches HEALTH_OK instead of stuck-undersized.
+- name: Reconcile single-node pool sizing
+  when: microceph_single_node | bool
+  vars:
+    _defaults:
+      osd_pool_default_size: "1"
+      osd_pool_default_min_size: "1"
+      mon_allow_pool_size_one: "true"
+  block:
+    - name: Read current global pool defaults
+      ansible.builtin.command:
+        argv: [microceph.ceph, config, get, global, "{{ item }}"]
+      loop: "{{ _defaults.keys() | list }}"
+      register: _microceph_cfg_get
+      changed_when: false
+      check_mode: false
+
+    - name: Set global pool defaults that differ
+      ansible.builtin.command:
+        argv: [microceph.ceph, config, set, global, "{{ item.item }}", "{{ _defaults[item.item] }}"]
+      loop: "{{ _microceph_cfg_get.results }}"
+      loop_control:
+        label: "{{ item.item }} → {{ _defaults[item.item] }}"
+      when: item.stdout | trim != _defaults[item.item]
+      changed_when: true
+
+    - name: List existing pools
+      ansible.builtin.command:
+        argv: [microceph.ceph, osd, pool, ls]
+      register: _microceph_pool_ls
+      changed_when: false
+      check_mode: false
+
+    - name: Read size + min_size of each existing pool
+      ansible.builtin.command:
+        argv: [microceph.ceph, osd, pool, get, "{{ item.0 }}", "{{ item.1 }}"]
+      loop: "{{ _microceph_pool_ls.stdout_lines | product(['min_size', 'size']) | list }}"
+      loop_control:
+        label: "{{ item.0 }} {{ item.1 }}"
+      register: _microceph_pool_get
+      changed_when: false
+      check_mode: false
+
+    # min_size first, then size: Ceph rejects size < min_size, so the
+    # floor has to drop before the replica count can.
+    - name: Force min_size/size to 1 on oversized pools
+      ansible.builtin.command:
+        argv: [microceph.ceph, osd, pool, set, "{{ item.item.0 }}", "{{ item.item.1 }}", "1"]
+      loop: "{{ _microceph_pool_get.results | sort(attribute='item.1') }}"
+      loop_control:
+        label: "{{ item.item.0 }} {{ item.item.1 }}"
+      # `pool get` prints e.g. "size: 3"
+      when: (item.stdout | regex_search(item.item.1 ~ ':\\s*([0-9]+)', '\\1') | first | default('1')) != '1'
+      changed_when: true
+
+# --- Daemon memory caps -----------------------------------------------
+# min before target (a target below Ceph's 2 GiB floor is clamped back
+# up unless the floor is lowered first). Each change restarts its daemon
+# to actually reclaim RSS.
+- name: Reconcile osd_memory_target_min
+  when: microceph_osd_memory_target_min | string | length > 0
+  block:
+    - name: Read current osd_memory_target_min
+      ansible.builtin.command:
+        argv: [microceph.ceph, config, get, osd, osd_memory_target_min]
+      register: _microceph_osd_mt_min
+      changed_when: false
+      check_mode: false
+
+    - name: Set osd_memory_target_min
+      ansible.builtin.command:
+        argv: [microceph.ceph, config, set, osd, osd_memory_target_min, "{{ microceph_osd_memory_target_min | string }}"]
+      when: _microceph_osd_mt_min.stdout | trim != (microceph_osd_memory_target_min | string)
+      changed_when: true
+      notify: Restart microceph OSD daemon
+
+- name: Reconcile osd_memory_target
+  when: microceph_osd_memory_target | string | length > 0
+  block:
+    - name: Read current osd_memory_target
+      ansible.builtin.command:
+        argv: [microceph.ceph, config, get, osd, osd_memory_target]
+      register: _microceph_osd_mt
+      changed_when: false
+      check_mode: false
+
+    - name: Set osd_memory_target
+      ansible.builtin.command:
+        argv: [microceph.ceph, config, set, osd, osd_memory_target, "{{ microceph_osd_memory_target | string }}"]
+      when: _microceph_osd_mt.stdout | trim != (microceph_osd_memory_target | string)
+      changed_when: true
+      notify: Restart microceph OSD daemon
+
+- name: Reconcile mds_cache_memory_limit
+  when: microceph_mds_cache_memory_limit | string | length > 0
+  block:
+    - name: Read current mds_cache_memory_limit
+      ansible.builtin.command:
+        argv: [microceph.ceph, config, get, mds, mds_cache_memory_limit]
+      register: _microceph_mds_cache
+      changed_when: false
+      check_mode: false
+
+    - name: Set mds_cache_memory_limit
+      ansible.builtin.command:
+        argv: [microceph.ceph, config, set, mds, mds_cache_memory_limit, "{{ microceph_mds_cache_memory_limit | string }}"]
+      when: _microceph_mds_cache.stdout | trim != (microceph_mds_cache_memory_limit | string)
+      changed_when: true
+      notify: Restart microceph MDS daemon

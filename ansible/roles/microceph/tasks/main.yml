@@ -1,0 +1,38 @@
+---
+- name: Assert a channel is pinned
+  ansible.builtin.assert:
+    that:
+      - microceph_channel | length > 0
+    fail_msg: "Set microceph_channel in group_vars/ceph_<env>.yml (e.g. squid/stable). The empty default guards against tracking the floating `latest` alias."
+
+- name: Install the microceph snap
+  ansible.builtin.import_tasks: install.yml
+
+# Tasks past this point drive the microceph CLI installed above. Stat
+# the binary so a check-mode run on a fresh VM short-circuits cleanly
+# instead of failing partway through (mirrors the microk8s role).
+- name: Check whether microceph is installed
+  ansible.builtin.stat:
+    path: /snap/bin/microceph
+  register: _microceph_installed
+  check_mode: false
+
+- name: Bootstrap the single-node cluster
+  ansible.builtin.import_tasks: bootstrap.yml
+  when: _microceph_installed.stat.exists
+
+- name: Add the OSD backing disk
+  ansible.builtin.import_tasks: osd.yml
+  when:
+    - _microceph_installed.stat.exists
+    - microceph_osd_scsi_index | string | length > 0
+
+# Pool sizing + memory targets reconcile BEFORE services so the RGW /
+# CephFS pools created there inherit the single-node size-1 defaults.
+- name: Reconcile cluster config (pool sizing + memory targets)
+  ansible.builtin.import_tasks: config.yml
+  when: _microceph_installed.stat.exists
+
+- name: Enable services (RGW, CephFS) and create RBD pools
+  ansible.builtin.import_tasks: services.yml
+  when: _microceph_installed.stat.exists

@@ -1,0 +1,17 @@
+---
+galaxy_info:
+  role_name: microceph
+  author: pvginkel
+  description: Install and configure microceph on Ubuntu — snap channel, single-node bootstrap, raw-disk OSD, pool sizing, memory caps, RGW/CephFS/RBD.
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - noble
+        - resolute
+
+# Roles in this repo compose via play ordering, not meta dependencies —
+# baseline runs against the host through site-k8s.yml before microceph
+# converges its storage layer. See site-ceph.yml.
+dependencies: []

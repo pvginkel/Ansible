@@ -1,0 +1,52 @@
+---
+# microceph snap channel. Channels are named after Ceph RELEASES, not
+# Ubuntu releases: reef = Ceph 18, squid = Ceph 19, tentacle = Ceph 20.
+# Pin per environment in group_vars (ceph_dev.yml etc.). Empty here so a
+# missing pin fails loud rather than silently tracking `latest` — a
+# floating alias currently stuck on the old reef 18.2.4 build. See
+# /work/AnsibleSpecs/decisions.md "Ceph version policy".
+microceph_channel: ""
+
+# Single-node topology. true configures size-1 pools so PGs reach
+# active+clean on one OSD (osd_pool_default_size/min_size 1 +
+# mon_allow_pool_size_one) and reconciles existing pools down to size 1.
+# The 3-node prd fleet (Phase 5) leaves this false and keeps Ceph's
+# default 3x replication.
+microceph_single_node: false
+
+# OSD backing disk, addressed by its PVE scsiN slot — resolved to the
+# guest device via the same HCTL lookup managed_filesystems uses. The
+# disk MUST be raw: do NOT list it in managed_filesystems_volumes.
+# Empty = the role adds no OSD.
+microceph_osd_scsi_index: ""
+
+# Zap the OSD disk before adding it. Destructive; default off. Only
+# needed to re-add a disk carrying a stale signature — a from-scratch
+# rebuild presents a blank disk and needs no wipe.
+microceph_osd_wipe: false
+
+# Per-daemon memory caps written to the cluster config DB. Empty = leave
+# the microceph/Ceph default untouched. Lowering a live value REQUIRES a
+# daemon restart to reclaim RSS — the snap's glibc malloc does not return
+# freed arenas — so the role restarts the affected daemon on change. See
+# decisions.md "Ceph daemon memory targets". osd_memory_target_min must
+# be lowered alongside osd_memory_target whenever the target drops below
+# Ceph's 2 GiB floor, or the daemon clamps back up to the floor.
+microceph_osd_memory_target: ""
+microceph_osd_memory_target_min: ""
+microceph_mds_cache_memory_limit: ""
+
+# RADOS Gateway (S3). Enabled on this node; Ceph's default HTTP port.
+microceph_enable_rgw: false
+microceph_rgw_port: 80
+
+# CephFS. true enables an MDS and creates a filesystem backed by a
+# (metadata, data) pool pair.
+microceph_enable_cephfs: false
+microceph_cephfs_name: cephfs
+microceph_cephfs_metadata_pool: cephfs_metadata
+microceph_cephfs_data_pool: cephfs_data
+
+# RBD (block) pools to create + initialise. Each name becomes a
+# replicated pool tagged with the `rbd` application. Empty = none.
+microceph_rbd_pools: []

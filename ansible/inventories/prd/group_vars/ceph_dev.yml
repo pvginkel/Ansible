@@ -1,0 +1,35 @@
+---
+# Single-node microceph co-located on srvk8sdev. Isolated dev storage so
+# HelmCharts / TF-provider iteration stops churning RBD images and RGW
+# users on the prod Ceph cluster. Sized tight on purpose — this node
+# carries no persistent load (decisions.md "Environment mapping").
+
+# Channel = Ceph RELEASE codename, not an Ubuntu release. squid = Ceph
+# 19, a release ahead of prd's reef (Ceph 18), so dev soaks the next
+# Ceph before prd moves — mirrors the k8s dev-ahead policy.
+microceph_channel: squid/stable
+
+microceph_single_node: true
+
+# OSD on the dedicated raw disk at scsi1 (terraform/prd/vms.tf). scsi0
+# is the rootfs; the OSD disk is deliberately NOT in
+# managed_filesystems_volumes so it stays raw for BlueStore.
+microceph_osd_scsi_index: 1
+
+# Memory caps well below prd (2.5 GiB OSD / 1 GiB MDS on 10 GiB nodes).
+# srvk8sdev shares 12 GiB with the control plane + dev workloads and
+# sees almost no storage load, so cap hard. osd_memory_target is below
+# Ceph's 2 GiB floor, so osd_memory_target_min is lowered alongside it.
+microceph_osd_memory_target: 1073741824 # 1 GiB
+microceph_osd_memory_target_min: 939524096 # 896 MiB
+microceph_mds_cache_memory_limit: 268435456 # 256 MiB
+
+# Full parity with prd's storage surface for integration testing:
+# object (RGW/S3), file (CephFS), and block (RBD).
+microceph_enable_rgw: true
+microceph_rgw_port: 80
+
+microceph_enable_cephfs: true
+
+microceph_rbd_pools:
+  - rbd
