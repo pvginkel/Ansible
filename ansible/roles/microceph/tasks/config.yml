@@ -10,27 +10,37 @@
       osd_pool_default_size: "1"
       osd_pool_default_min_size: "1"
       mon_allow_pool_size_one: "true"
+      # Silence the expected POOL_NO_REDUNDANCY warning — size-1 pools on
+      # one OSD are intentional here, so HEALTH_OK is the correct steady
+      # state rather than a permanent WARN.
+      mon_warn_on_pool_no_redundancy: "false"
   block:
-    # Read + write on the `mon` section, not `global`: these are all
-    # mon-consumed options, and `ceph config get` rejects the `global`
-    # pseudo-section ("unrecognized entity 'global'") even though
-    # `config set global` accepts it. Keeping get/set symmetric on `mon`
-    # sidesteps that and makes the idempotency compare exact.
-    - name: Read current pool defaults (mon section)
+    # Set on the `global` section: these defaults must be visible to the
+    # mon's own health checks (TOO_FEW_OSDS reads osd_pool_default_size at
+    # global scope — a `mon`-section override satisfies pool creation but
+    # not the health check). Idempotency reads `config dump` rather than
+    # `config get`: `config get global` is rejected ("unrecognized entity
+    # 'global'"), and dump reflects exactly what is set at global scope.
+    - name: Dump current cluster config
       ansible.builtin.command:
-        argv: [microceph.ceph, config, get, mon, "{{ item }}"]
-      loop: "{{ _defaults.keys() | list }}"
-      register: _microceph_cfg_get
+        argv: [microceph.ceph, config, dump, --format, json]
+      register: _microceph_cfg_dump
       changed_when: false
       check_mode: false
 
-    - name: Set pool defaults that differ (mon section)
+    - name: Set single-node global defaults that differ
       ansible.builtin.command:
-        argv: [microceph.ceph, config, set, mon, "{{ item.item }}", "{{ _defaults[item.item] }}"]
-      loop: "{{ _microceph_cfg_get.results }}"
+        argv: [microceph.ceph, config, set, global, "{{ item.key }}", "{{ item.value }}"]
+      loop: "{{ _defaults | dict2items }}"
       loop_control:
-        label: "{{ item.item }} → {{ _defaults[item.item] }}"
-      when: item.stdout | trim != _defaults[item.item]
+        label: "{{ item.key }} → {{ item.value }}"
+      vars:
+        _current: >-
+          {{ _microceph_cfg_dump.stdout | from_json
+             | selectattr('section', 'equalto', 'global')
+             | selectattr('name', 'equalto', item.key)
+             | map(attribute='value') | list | first | default('') }}
+      when: _current != item.value
       changed_when: true
 
     - name: List existing pools
