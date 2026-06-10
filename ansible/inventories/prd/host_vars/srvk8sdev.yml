@@ -2,6 +2,10 @@
 vm_id: 919
 workload_class: background
 
+# Declares that srvk8sdev has a ZFS pool names zpool1.
+k8s_node_labels:
+  homelab.local/storage: zpool1
+
 # Empty ZFS pool on the scsi2 virtual disk (terraform/prd/vms.tf). The
 # zfs role creates it create-if-absent; ZFS auto-mounts the pool's root
 # dataset at /zpool1. No child datasets. The disk is local-lvm backed,
