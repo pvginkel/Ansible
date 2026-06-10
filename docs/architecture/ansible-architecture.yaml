@@ -88,7 +88,7 @@ nodes:
 
   - id: node:srvk8sdev,ed565690-df32-449a-b9ee-7e50a560a6d8
     label: srvk8sdev
-    summary: Single-node microk8s dev VM.
+    summary: Single-node microk8s dev VM. Carries zpool1, an empty ZFS pool on a local-lvm virtual disk (recreated on rebuild).
     introduced: 2026-05-28
     lifecycle: active
     logo: kubernetes
