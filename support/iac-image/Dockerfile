@@ -35,6 +35,8 @@ RUN apt-get update -yqq && \
         git \
         gnupg \
         jq \
+        librados2 \
+        librbd1 \
         openssh-client \
         python3 \
         tini \
