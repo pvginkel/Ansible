@@ -36,3 +36,9 @@
 - name: Enable services (RGW, CephFS) and create RBD pools
   ansible.builtin.import_tasks: services.yml
   when: _microceph_installed.stat.exists
+
+# After services: the RGW user create needs a running RGW, and cephx
+# caps reference pools created above.
+- name: Reconcile cephx + RGW users
+  ansible.builtin.import_tasks: users.yml
+  when: _microceph_installed.stat.exists

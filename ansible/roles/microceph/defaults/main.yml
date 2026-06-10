@@ -49,3 +49,25 @@ microceph_cephfs_data_pool: cephfs_data
 # RBD (block) pools to create + initialise. Each name becomes a
 # replicated pool tagged with the `rbd` application. Empty = none.
 microceph_rbd_pools: []
+
+# CephFS subvolume groups to create inside microceph_cephfs_name. The
+# HomelabTerraformProvider assumes its `ceph_pool` exists as BOTH an RBD
+# pool and a subvolume group of the same name, and never creates the
+# group itself — so any pool consumed by per-release TF must appear in
+# microceph_rbd_pools AND here. Empty = none.
+microceph_cephfs_subvolume_groups: []
+
+# cephx users to create + reconcile. Each entry: {name, caps} where
+# `name` omits the `client.` prefix and `caps` maps daemon → cap string
+# (mon/osd/mgr/mds). Keys are minted by Ceph on create and stay stable
+# across caps changes; read them with `ceph auth get-key client.<name>`
+# and paste into the consumer. Empty = none.
+microceph_cephx_users: []
+
+# RGW users created with admin caps for the Admin Ops API (e.g. the
+# tf-provider user the HomelabTerraformProvider's homelab_s3_storage
+# resource authenticates as). Each entry: {uid, display_name, caps}.
+# Caps are applied at create time only — changing caps on an existing
+# user is a manual `radosgw-admin caps add`. Access/secret keys are
+# minted by RGW; read them with `radosgw-admin user info --uid=<uid>`.
+microceph_rgw_admin_users: []

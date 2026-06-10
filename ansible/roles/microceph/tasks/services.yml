@@ -79,3 +79,21 @@
               - "{{ microceph_cephfs_metadata_pool }}"
               - "{{ microceph_cephfs_data_pool }}"
           changed_when: true
+
+    # Sits outside the create block: groups must also reconcile on a
+    # filesystem that already existed before this run.
+    - name: Reconcile subvolume groups
+      when: microceph_cephfs_subvolume_groups | length > 0
+      block:
+        - name: List subvolume groups
+          ansible.builtin.command:
+            argv: [microceph.ceph, fs, subvolumegroup, ls, "{{ microceph_cephfs_name }}", --format, json]
+          register: _microceph_svg_ls
+          changed_when: false
+          check_mode: false
+
+        - name: Create missing subvolume groups
+          ansible.builtin.command:
+            argv: [microceph.ceph, fs, subvolumegroup, create, "{{ microceph_cephfs_name }}", "{{ item }}"]
+          loop: "{{ microceph_cephfs_subvolume_groups | difference(_microceph_svg_ls.stdout | from_json | map(attribute='name') | list) }}"
+          changed_when: true

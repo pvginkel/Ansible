@@ -1,0 +1,87 @@
+---
+# --- cephx users --------------------------------------------------------
+# Create missing users and reconcile caps drift on existing ones. The key
+# is minted by Ceph at create time and survives caps changes, so consumers
+# never need re-keying when caps are tightened.
+- name: Reconcile cephx users
+  when: microceph_cephx_users | length > 0
+  block:
+    - name: Dump auth entries
+      ansible.builtin.command:
+        argv: [microceph.ceph, auth, ls, --format, json]
+      register: _microceph_auth_ls
+      changed_when: false
+      check_mode: false
+      no_log: true # auth ls prints every key
+
+    - name: Create missing cephx users
+      ansible.builtin.command:
+        # argv = [ceph, auth, get-or-create, client.<name>, mon, <cap>, osd, <cap>, ...]
+        argv: >-
+          {{ ['microceph.ceph', 'auth', 'get-or-create', 'client.' ~ item.name]
+             + (item.caps | dict2items | map(attribute='key')
+                | zip(item.caps | dict2items | map(attribute='value'))
+                | flatten | list) }}
+      loop: "{{ microceph_cephx_users }}"
+      loop_control:
+        label: "client.{{ item.name }}"
+      vars:
+        _entities: >-
+          {{ (_microceph_auth_ls.stdout | from_json).auth_dump
+             | map(attribute='entity') | list }}
+      when: ('client.' ~ item.name) not in _entities
+      changed_when: true
+
+    - name: Reconcile caps on existing cephx users
+      ansible.builtin.command:
+        argv: >-
+          {{ ['microceph.ceph', 'auth', 'caps', 'client.' ~ item.name]
+             + (item.caps | dict2items | map(attribute='key')
+                | zip(item.caps | dict2items | map(attribute='value'))
+                | flatten | list) }}
+      loop: "{{ microceph_cephx_users }}"
+      loop_control:
+        label: "client.{{ item.name }}"
+      vars:
+        _entities: >-
+          {{ (_microceph_auth_ls.stdout | from_json).auth_dump
+             | map(attribute='entity') | list }}
+        _current: >-
+          {{ (_microceph_auth_ls.stdout | from_json).auth_dump
+             | selectattr('entity', 'equalto', 'client.' ~ item.name)
+             | map(attribute='caps') | first | default({}) }}
+      when:
+        - ('client.' ~ item.name) in _entities
+        - _current != item.caps
+      changed_when: true
+
+# --- RGW admin users ----------------------------------------------------
+# Create-if-missing only; caps changes on an existing user are a manual
+# `radosgw-admin caps add` (see defaults/main.yml).
+- name: Reconcile RGW admin users
+  when:
+    - microceph_enable_rgw | bool
+    - microceph_rgw_admin_users | length > 0
+  block:
+    - name: List RGW users
+      ansible.builtin.command:
+        argv: [microceph.radosgw-admin, user, list]
+      register: _microceph_rgw_users
+      changed_when: false
+      check_mode: false
+
+    - name: Create missing RGW admin users
+      ansible.builtin.command:
+        argv:
+          - microceph.radosgw-admin
+          - user
+          - create
+          - "--uid={{ item.uid }}"
+          - "--display-name={{ item.display_name }}"
+          - "--caps={{ item.caps }}"
+      loop: "{{ microceph_rgw_admin_users }}"
+      loop_control:
+        label: "{{ item.uid }}"
+      when: item.uid not in (_microceph_rgw_users.stdout | from_json)
+      changed_when: true
+      no_log: true # user create prints the minted access/secret keys

@@ -30,5 +30,48 @@ microceph_rgw_port: 80
 
 microceph_enable_cephfs: true
 
+# The HomelabTerraformProvider's `ceph_pool` is one name serving as both
+# the RBD pool and the CephFS subvolume group, so `k8s` appears in both
+# lists (slices/helm-tf-deploy-harness.md "Provider configuration per
+# cluster"). Replaces the unused `rbd` pool from the initial bring-up.
 microceph_rbd_pools:
-  - rbd
+  - k8s
+
+microceph_cephfs_subvolume_groups:
+  - k8s
+
+# Identities for the dev k8s cluster's ceph-csi drivers and for the TF
+# provider's Ceph connection. Keys are minted by Ceph — read with
+# `ceph auth get-key client.<name>` and paste into the consumer
+# (HelmCharts dev values carry inline dev secrets by design; the dev
+# cluster is isolated and this storage is disposable).
+microceph_cephx_users:
+  # ceph-csi rbd: one user for provisioner + nodeplugin, same shape as
+  # the csi-rbd-dev user on prod Ceph that this microceph replaces.
+  - name: csi-rbd-dev
+    caps:
+      mon: profile rbd
+      mgr: allow rw
+      osd: profile rbd pool=k8s
+  # ceph-csi cephfs: provisioner + nodeplugin.
+  - name: csi-cephfs-dev
+    caps:
+      mon: allow r
+      mgr: allow rw
+      osd: allow rw tag cephfs metadata=cephfs, allow rw tag cephfs data=cephfs
+      mds: allow rw fsname=cephfs
+  # HomelabTerraformProvider Ceph connection (homelab_rbd_image +
+  # homelab_cephfs_subvolume). RBD needs mon/osd rbd profiles on the
+  # k8s pool; subvolume management runs through the mgr volumes module.
+  - name: tf-provider
+    caps:
+      mon: profile rbd
+      mgr: allow rw
+      osd: profile rbd pool=k8s
+
+# Admin Ops API user for homelab_s3_storage (per-release bucket + scoped
+# RGW user minting). Same uid exists on the prod RGW for the prd cluster.
+microceph_rgw_admin_users:
+  - uid: tf-provider
+    display_name: TF provider admin
+    caps: users=*;buckets=*
