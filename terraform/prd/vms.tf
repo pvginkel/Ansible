@@ -88,6 +88,12 @@ locals {
         # from managed_filesystems_volumes so it stays unformatted for
         # BlueStore; the microceph role resolves it by this scsi index.
         { interface = "scsi1", size = 20 },
+        # Backs the empty ZFS pool zpool1 (mounted /zpool1). Created by
+        # the zfs role from `zfs_pools` in host_vars, not by
+        # managed_filesystems. Virtual disk on local-lvm, so a dev VM
+        # rebuild reformats it and the role recreates the pool (no
+        # import) — contrast srvk8s1's passthrough zpool2.
+        { interface = "scsi2", size = 20 },
       ]
 
       # NICs: inventories/prd/host_vars/srvk8sdev.yml

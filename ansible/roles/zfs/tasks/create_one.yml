@@ -1,0 +1,77 @@
+---
+# One ZFS pool at a time. Create-if-absent only: an already-imported
+# pool of the declared name is left untouched — no property changes, no
+# child datasets, no reformat.
+
+- name: "Resolve the by-id path backing pool {{ zfs_pool.name }}"
+  # PVE/QEMU sets each SCSI disk's serial to `drive-scsiN`, so the slot
+  # maps to a stable /dev/disk/by-id symlink independent of /dev/sdX
+  # enumeration order. Creating the pool against by-id keeps the vdev
+  # label and `zpool status` stable across reboots and disk re-ordering.
+  ansible.builtin.set_fact:
+    zfs_pool_disk: "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi{{ zfs_pool.scsi_index }}"
+
+- name: "Stat the backing disk for pool {{ zfs_pool.name }}"
+  ansible.builtin.stat:
+    path: "{{ zfs_pool_disk }}"
+    follow: true
+  register: zfs_pool_disk_stat
+  check_mode: false
+
+- name: "Assert the backing disk exists for pool {{ zfs_pool.name }}"
+  ansible.builtin.assert:
+    that:
+      - zfs_pool_disk_stat.stat.exists
+      - zfs_pool_disk_stat.stat.isblk
+    fail_msg: >-
+      {{ zfs_pool_disk }} is not a block device on {{ inventory_hostname }}.
+      Has `terraform apply` added scsi{{ zfs_pool.scsi_index }} to this VM?
+
+- name: List currently-imported ZFS pools
+  ansible.builtin.command: zpool list -H -o name
+  register: zfs_pool_existing
+  changed_when: false
+  check_mode: false
+
+- name: "Create the pool when absent: {{ zfs_pool.name }}"
+  when: zfs_pool.name not in zfs_pool_existing.stdout_lines
+  block:
+    - name: "Probe the backing disk for an existing signature: {{ zfs_pool_disk }}"
+      # Refuse to clobber a disk that already carries a filesystem,
+      # partition table, or a not-yet-imported pool. A fresh TF disk is
+      # blank — blkid exits non-zero with no output; anything else is
+      # fail-loud rather than a silent reformat.
+      ansible.builtin.command:
+        argv: [blkid, -p, "{{ zfs_pool_disk }}"]
+      register: zfs_pool_blkid
+      changed_when: false
+      check_mode: false
+      failed_when: false
+
+    - name: "Assert the backing disk is blank before creating {{ zfs_pool.name }}"
+      ansible.builtin.assert:
+        that:
+          - zfs_pool_blkid.rc != 0
+          - zfs_pool_blkid.stdout | trim | length == 0
+        fail_msg: >-
+          {{ zfs_pool_disk }} already carries a signature
+          ({{ zfs_pool_blkid.stdout | trim }}). Refusing to create pool
+          {{ zfs_pool.name }} over it — wipe the disk by hand or fix the
+          inventory.
+
+    - name: "Create empty ZFS pool on {{ zfs_pool_disk }}"
+      # ashift=12 (4 KiB sectors) — the safe modern default, fixed at
+      # create time and unchangeable afterwards. The pool ships empty:
+      # its own root dataset mounts at the declared mountpoint and that
+      # is the whole pool. No child datasets are created.
+      ansible.builtin.command:
+        argv:
+          - zpool
+          - create
+          - -o
+          - ashift=12
+          - -m
+          - "{{ zfs_pool.mountpoint }}"
+          - "{{ zfs_pool.name }}"
+          - "{{ zfs_pool_disk }}"
+      changed_when: true

@@ -1,0 +1,10 @@
+---
+# zfsutils-linux is installed fleet-wide on k8s nodes via
+# playbooks/group_vars/k8s.yml (`baseline_extra_packages`); the role
+# assumes `zpool` is on PATH and does not install it itself.
+- name: Reconcile each declared ZFS pool
+  ansible.builtin.include_tasks: create_one.yml
+  loop: "{{ zfs_pools }}"
+  loop_control:
+    loop_var: zfs_pool
+    label: "{{ zfs_pool.name }} ← scsi{{ zfs_pool.scsi_index }}"

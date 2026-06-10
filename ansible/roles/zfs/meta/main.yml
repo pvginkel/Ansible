@@ -1,0 +1,17 @@
+---
+galaxy_info:
+  role_name: zfs
+  author: pvginkel
+  description: Create-if-absent ZFS pools on a managed VM from a per-host declaration.
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - noble
+        - resolute
+    - name: Debian
+      versions:
+        - bookworm
+
+dependencies: []

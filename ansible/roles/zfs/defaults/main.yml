@@ -1,0 +1,14 @@
+---
+# ZFS pools this role owns on a managed host. Each entry pins:
+#   name       — the zpool name (and its auto-mounted root dataset)
+#   scsi_index — the PVE `scsiN` slot whose disk backs the pool
+#   mountpoint — where the pool's root dataset mounts (`zpool create -m`)
+#
+# Create-if-absent only. A declared pool that already exists is left
+# exactly as-is — the role never changes pool properties, never adds
+# child datasets, and never reformats a disk that already carries a
+# signature. Pool import-on-rebuild for passthrough pools is a separate
+# concern (`zpools_to_import`, handled in rebuild-k8s.yml).
+#
+# Default empty — the role no-ops on hosts that declare nothing.
+zfs_pools: []

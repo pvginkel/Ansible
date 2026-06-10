@@ -130,6 +130,11 @@
     # /var/snap is shadowed once the data volume mounts on top, so the
     # mount has to land before the snap install populates the path.
     - role: managed_filesystems
+    # A rebuilt VM gets a fresh (reformatted) virtual disk, so any
+    # `zfs_pools` pool is recreated here on the blank disk. No-op on
+    # hosts that declare none. Passthrough pools take the import path
+    # in the cordon play below instead (`zpools_to_import`).
+    - role: zfs
     - role: microk8s
     # Last: ssh_host_cert needs the homelab CA root (baseline) and the
     # `ca.home` /etc/hosts pin (microk8s). See slices/ssh-host-ca.md.

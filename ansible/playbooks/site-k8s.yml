@@ -53,6 +53,9 @@
   roles:
     - role: baseline
     - role: managed_filesystems
+    # Ensures any declared ZFS pool exists (create-if-absent). No-op on
+    # hosts with no `zfs_pools` (every node but srvk8sdev today).
+    - role: zfs
     - role: microk8s
     # Last: ssh_host_cert needs the homelab CA root (baseline) and, on
     # prd k8s nodes, the `ca.home` /etc/hosts pin the microk8s role
