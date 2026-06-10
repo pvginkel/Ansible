@@ -80,14 +80,20 @@ openbao_jenkins_kv_paths:
 # secrets, so a per-chart whitelist grants the same working set as a glob
 # while adding a silent-failure footgun (forget a line → SecretSyncError
 # at deploy). Hence the per-cluster glob. The per-cluster split is the
-# real boundary — the dev workstation cluster is a separate trust domain
-# and gets its own eso/dev/* (likely its own AppRole) when its ESO ships.
+# real boundary — the dev cluster is a separate trust domain with its
+# own AppRole (eso-dev, below).
 openbao_eso_kv_paths:
   - shared/ceph-rgw/s3
   - shared/samba/users
   - shared/jenkins/admin-password
   - shared/wifi-iot
   - eso/prd/*
+
+# The dev cluster's ESO. Same glob rationale as eso above; no kv/shared
+# leaves because no dev-cluster chart consumes one today — enumerate
+# them here if that changes.
+openbao_eso_dev_kv_paths:
+  - eso/dev/*
 
 # iac-impl reads /etc/iac/secrets.yaml on srviac and resolves any
 # `!bao kv/iac/<leaf>#<key>` reference via this AppRole. Paths are

@@ -111,6 +111,7 @@
         - iac-agent
         - jenkins
         - eso
+        - eso-dev
         - backup
       no_log: true
       check_mode: false
@@ -169,6 +170,13 @@
       ansible.builtin.set_fact:
         _openbao_eso_policy_text: "{{ lookup('template', 'policy.hcl.j2') }}"
 
+    - name: Render the eso-dev policy
+      vars:
+        _policy_name: eso-dev
+        _policy_paths: "{{ openbao_eso_dev_kv_paths }}"
+      ansible.builtin.set_fact:
+        _openbao_eso_dev_policy_text: "{{ lookup('template', 'policy.hcl.j2') }}"
+
     - name: Render the backup policy
       ansible.builtin.set_fact:
         _openbao_backup_policy_text: "{{ lookup('template', 'backup-policy.hcl.j2') }}"
@@ -180,6 +188,7 @@
           iac-agent: "{{ _openbao_iac_agent_policy_text }}"
           jenkins: "{{ _openbao_jenkins_policy_text }}"
           eso: "{{ _openbao_eso_policy_text }}"
+          eso-dev: "{{ _openbao_eso_dev_policy_text }}"
           backup: "{{ _openbao_backup_policy_text }}"
 
     - name: Write consumer policies (only when text differs)
@@ -197,6 +206,7 @@
         - iac-agent
         - jenkins
         - eso
+        - eso-dev
         - backup
       when: _openbao_policy_texts[item] != _openbao_existing_policy_texts[item]
 
@@ -234,6 +244,10 @@
           policy: eso
           token_ttl: "{{ openbao_eso_token_ttl }}"
           token_max_ttl: "{{ openbao_eso_token_max_ttl }}"
+        - name: eso-dev
+          policy: eso-dev
+          token_ttl: "{{ openbao_eso_dev_token_ttl }}"
+          token_max_ttl: "{{ openbao_eso_dev_token_max_ttl }}"
         - name: backup
           policy: backup
           token_ttl: "{{ openbao_backup_token_ttl }}"
@@ -273,6 +287,10 @@
           policy: eso
           token_ttl: "{{ openbao_eso_token_ttl }}"
           token_max_ttl: "{{ openbao_eso_token_max_ttl }}"
+        - name: eso-dev
+          policy: eso-dev
+          token_ttl: "{{ openbao_eso_dev_token_ttl }}"
+          token_max_ttl: "{{ openbao_eso_dev_token_max_ttl }}"
         - name: backup
           policy: backup
           token_ttl: "{{ openbao_backup_token_ttl }}"
@@ -295,6 +313,7 @@
         - iac-agent
         - jenkins
         - eso
+        - eso-dev
         - backup
       no_log: true
       check_mode: false
@@ -322,6 +341,7 @@
         - iac-agent
         - jenkins
         - eso
+        - eso-dev
         - backup
       no_log: true
       when: openbao_rotate_secret_ids | bool
@@ -376,8 +396,8 @@
 
     # ----- operator-capture staging (rotation runs only) --------------
     #
-    # The four operator-facing AppRoles (openbao-admin, iac-agent,
-    # jenkins, eso) each land in their own role_id + secret_id file
+    # The five operator-facing AppRoles (openbao-admin, iac-agent,
+    # jenkins, eso, eso-dev) each land in their own role_id + secret_id file
     # under openbao_credential_staging_dir. The operator captures each
     # file into ansible-vault or the consumer's config, then `shred -u`s
     # the staging files. We never print secret_ids to stdout — the
@@ -410,6 +430,7 @@
             - iac-agent
             - jenkins
             - eso
+            - eso-dev
           loop_control:
             loop_var: approle
           no_log: true
@@ -427,6 +448,7 @@
             - iac-agent
             - jenkins
             - eso
+            - eso-dev
           loop_control:
             loop_var: approle
           no_log: true
@@ -444,6 +466,7 @@
                 iac-agent-role-id       iac-agent-secret-id
                 jenkins-role-id         jenkins-secret-id
                 eso-role-id             eso-secret-id
+                eso-dev-role-id         eso-dev-secret-id
 
               Capture targets:
 
@@ -453,7 +476,10 @@
                 iac-agent     → srviac:/etc/iac/secrets.yaml
                                 (OPENBAO_ROLE_ID / OPENBAO_SECRET_ID)
                 jenkins       → Jenkins controller Vault plugin config
-                eso           → in-cluster SecretStore CR
+                eso           → openbao-eso-approle Secret on the prd
+                                cluster (external-secrets namespace)
+                eso-dev       → openbao-eso-approle Secret on the dev
+                                cluster (external-secrets namespace)
 
               Then wipe the staging files:
 

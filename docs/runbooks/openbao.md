@@ -314,12 +314,14 @@ Escape hatches:
    then delete the ExternalSecret. Re-deploy the chart later to
    restore the ExternalSecret CR.
 
-Bootstrap-tier reminder: the `eso` AppRole's `secret_id` itself
-reaches ESO via the hand-staged `openbao-eso-approle` Secret in
-the `external-secrets` namespace — not via ESO. Losing that
-Secret (or rotating the eso AppRole's secret_id in OpenBao
-without re-staging) breaks ESO until you re-create it. The
-secret_id lives in Roboform under "OpenBao eso AppRole".
+Bootstrap-tier reminder: each cluster's ESO AppRole `secret_id`
+(`eso` on the prd cluster, `eso-dev` on the dev cluster) reaches
+ESO via the hand-staged `openbao-eso-approle` Secret in that
+cluster's `external-secrets` namespace — not via ESO. Losing that
+Secret (or rotating the AppRole's secret_id in OpenBao without
+re-staging) breaks that cluster's ESO until you re-create it. The
+secret_ids live in Roboform under "OpenBao eso AppRole" and
+"OpenBao eso-dev AppRole".
 
 ## Drill log
 

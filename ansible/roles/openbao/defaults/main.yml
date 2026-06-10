@@ -81,9 +81,9 @@ openbao_admin_token: ""
 openbao_retire_root_token: false
 
 # When true, the auth tasks mint a fresh secret-id for each AppRole
-# (admin, iac-agent, jenkins, eso) and print it. role_ids are always
-# printed when an AppRole is created or rotated. Default false so
-# steady-state drift cycles don't churn secret-ids.
+# (admin, iac-agent, jenkins, eso, eso-dev) and print it. role_ids are
+# always printed when an AppRole is created or rotated. Default false
+# so steady-state drift cycles don't churn secret-ids.
 openbao_rotate_secret_ids: false
 
 # AppRole token TTLs. Short enough that a leaked token expires before
@@ -97,6 +97,8 @@ openbao_jenkins_token_ttl: 1h
 openbao_jenkins_token_max_ttl: 1h
 openbao_eso_token_ttl: 1h
 openbao_eso_token_max_ttl: 1h
+openbao_eso_dev_token_ttl: 1h
+openbao_eso_dev_token_max_ttl: 1h
 # Backup AppRole runs once per srvvaultN per day, finishes in seconds;
 # 5m envelope covers a slow run + retries without lingering.
 openbao_backup_token_ttl: 5m
@@ -112,6 +114,7 @@ openbao_backup_token_max_ttl: 5m
 openbao_iac_agent_kv_paths: []
 openbao_jenkins_kv_paths: []
 openbao_eso_kv_paths: []
+openbao_eso_dev_kv_paths: []
 
 # KV-v2 mount name. The default `kv/` mount is enabled on first apply;
 # changing this after data exists is not safe.
@@ -142,11 +145,12 @@ openbao_ufw_enable: false
 # what ufw stores.
 openbao_ufw_ssh_source_hostname: "srviac.home"
 
-# 443/tcp consumers — k8s_prd nodes (ESO, in-cluster consumers) and
-# srviac (Jenkins pipelines, ad-hoc operator). Lists are inventory
-# groups; the ufw task resolves each member to its LAN IP.
+# 443/tcp consumers — k8s_prd and k8s_dev nodes (ESO, in-cluster
+# consumers) and srviac (Jenkins pipelines, ad-hoc operator). Lists are
+# inventory groups; the ufw task resolves each member to its LAN IP.
 openbao_ufw_https_source_groups:
   - k8s_prd
+  - k8s_dev
   - iac_agent
 
 # ----- OIDC (Keycloak-backed UI / CLI login) --------------------------
