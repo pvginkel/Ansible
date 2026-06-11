@@ -46,6 +46,18 @@ microceph_cephfs_subvolume_groups:
 # (HelmCharts dev values carry inline dev secrets by design; the dev
 # cluster is isolated and this storage is disposable).
 microceph_cephx_users:
+  # Single consolidated user backing the whole dev cluster's storage:
+  # enough caps to manage RBD images on the k8s pool *and* CephFS
+  # subvolumes on cephfs, so it serves both the HomelabTerraformProvider
+  # connection and the ceph-csi rbd/cephfs drivers at once. This is the
+  # only user wired up today; the scoped per-driver users below are
+  # declared for a later split.
+  - name: k8s
+    caps:
+      mon: profile rbd
+      mgr: allow rw
+      osd: profile rbd pool=k8s, allow rw tag cephfs data=cephfs
+      mds: allow rw
   # ceph-csi rbd: one user for provisioner + nodeplugin, same shape as
   # the csi-rbd-dev user on prod Ceph that this microceph replaces.
   - name: csi-rbd-dev
@@ -69,9 +81,11 @@ microceph_cephx_users:
       mgr: allow rw
       osd: profile rbd pool=k8s
 
-# Admin Ops API user for homelab_s3_storage (per-release bucket + scoped
-# RGW user minting). Same uid exists on the prod RGW for the prd cluster.
+# Admin Ops API user for homelab_s3_storage — the HomelabTerraformProvider
+# mints per-release buckets + scoped RGW users through this in the
+# HelmCharts pipeline. Same single `k8s` identity as the cephx user above,
+# keeping the dev cluster to one name across RBD/CephFS/RGW.
 microceph_rgw_admin_users:
-  - uid: tf-provider
-    display_name: TF provider admin
+  - uid: k8s
+    display_name: k8s storage admin
     caps: users=*;buckets=*
