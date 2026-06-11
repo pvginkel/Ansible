@@ -65,11 +65,17 @@ openbao_oidc_client_secret: !vault |
 # kv/shared/* paths are enumerated explicitly per consumer (not a
 # wildcard) — `kv/shared` carries cross-consumer values but each
 # consumer reads only the leaves it actually needs. Jenkins consumes
-# the RGW S3 user (artifact-upload pipelines) and the Wi-Fi password
-# (firmware-burn pipelines).
+# the per-cluster RGW S3 admin (artifact-upload pipelines and the
+# HelmCharts deploy pipeline's homelab TF provider), the per-cluster
+# cephx user (same provider), the iac-provisioner agent token (same
+# provider — the one eso leaf Jenkins reads, cross-consumer by the
+# deploy pipeline's nature), and the Wi-Fi password (firmware-burn
+# pipelines).
 openbao_jenkins_kv_paths:
   - jenkins/*
-  - shared/ceph-rgw/s3
+  - shared/prd/ceph-rgw/s3
+  - shared/prd/ceph-csi
+  - eso/prd/iac-provisioner/api/token
   - shared/wifi-iot
 
 # ESO is the cross-cluster k8s consumer. The four kv/shared leaves are
@@ -83,17 +89,19 @@ openbao_jenkins_kv_paths:
 # real boundary — the dev cluster is a separate trust domain with its
 # own AppRole (eso-dev, below).
 openbao_eso_kv_paths:
-  - shared/ceph-rgw/s3
+  - shared/prd/*
   - shared/samba/users
   - shared/jenkins/admin-password
   - shared/wifi-iot
   - eso/prd/*
 
-# The dev cluster's ESO. Same glob rationale as eso above; no kv/shared
-# leaves because no dev-cluster chart consumes one today — enumerate
-# them here if that changes.
+# The dev cluster's ESO. Same glob rationale as eso above. shared/dev/*
+# is the dev cluster's own per-cluster prefix (ceph-csi driver secrets,
+# RGW admin) — the per-cluster split, not per-leaf enumeration, is the
+# trust boundary here.
 openbao_eso_dev_kv_paths:
   - eso/dev/*
+  - shared/dev/*
 
 # iac-impl reads /etc/iac/secrets.yaml on srviac and resolves any
 # `!bao kv/iac/<leaf>#<key>` reference via this AppRole. Paths are
