@@ -314,7 +314,12 @@ def start_state_backend() -> None:
     if VERBOSE:
         cmd.append("--access-logs")
     step("starting terraform-backend-git on 127.0.0.1:6061")
-    subprocess.Popen(cmd)
+    # Quiet by default — the daemon's startup banner (incl. the
+    # localhost-only "HTTP basic auth is disabled" warning and the
+    # "listen on …" line) is noise on every iac run. -v lets it through,
+    # alongside --access-logs.
+    out = None if VERBOSE else subprocess.DEVNULL
+    subprocess.Popen(cmd, stdout=out, stderr=out)
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
@@ -323,7 +328,10 @@ def start_state_backend() -> None:
                 step("terraform-backend-git is listening")
                 return
         time.sleep(0.2)
-    fail("terraform-backend-git did not start listening on 127.0.0.1:6061")
+    fail(
+        "terraform-backend-git did not start listening on 127.0.0.1:6061 "
+        "(re-run with `iac -v` to see the daemon's output)"
+    )
 
 
 def clone_repos(token: str) -> None:
