@@ -96,6 +96,15 @@ RUN mkdir /work && \
 COPY artifacts/terraform-provider-homelab artifacts/terraform-provider-homelab-metadata.json /tmp/
 COPY support/iac-image/terraform.rc /etc/terraform.rc
 
+# terraform-backend-git — the Git-backed Terraform HTTP state backend.
+# iac-impl starts it on 127.0.0.1:6061 and terraform/{prd,scratch} reach
+# it via a backend "http" block; the daemon does the pull/push (and
+# sops+age encryption) against pvginkel/TerraformState itself, replacing
+# the old clone-and-sync dance. Pinned (not :latest) so a state-critical
+# component never moves underneath an image rebuild.
+COPY --from=ghcr.io/plumber-cd/terraform-backend-git:v0.1.11 \
+     /usr/bin/terraform-backend-git /usr/bin/terraform-backend-git
+
 # The bpg/proxmox provider opens an SSH client of its own (snippet
 # uploads to /var/lib/vz/snippets/ — the PVE API has no endpoint for
 # that), independent of the Ansible ssh_args wired through ansible.cfg.
