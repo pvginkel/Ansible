@@ -7,7 +7,7 @@ Host glue for `srviac`, the homelab's IaC orchestrator VM. See [`AnsibleSpecs/ph
 | Path | What it is |
 |---|---|
 | `bin/iac` | The host shim. Acquires `/var/lock/iac.lock` (`flock -w 60`) and runs `iac-impl` inside the `modern-app-dev` container; bind-mounts `iac-impl` and `/etc/iac/secrets.yaml` in. |
-| `bin/iac-impl` | The in-container entrypoint. Parses secrets, clones the Ansible + TerraformState repos, syncs state in, runs `poetry install`, executes the caller's command, then syncs state out and pushes any changes back to TerraformState. Bind-mounted in from `/usr/local/bin/iac-impl` on the host (so changes don't require a `modern-app-dev` rebuild). |
+| `bin/iac-impl` | The in-container entrypoint. Parses secrets, clones the Ansible repo, starts the `terraform-backend-git` daemon on `127.0.0.1:6061` (terraform reaches state through it via each config's `backend.tf` http block), runs `poetry install`, then executes the caller's command. Bind-mounted in from `/usr/local/bin/iac-impl` on the host (so changes don't require a `modern-app-dev` rebuild). |
 | `bin/jenkins-agent-launch.sh` | Wrapper invoked by the systemd unit; extracts `JENKINS_AGENT_SECRET` from `/etc/iac/secrets.yaml` and launches the Jenkins inbound-agent container. |
 | `bin/send_message.py` | Push-notification helper (Home Assistant companion app). Adapted from `DesignAssistant/scripts/send_message.py` — rewritten to stdlib `urllib` so it runs inside `modern-app-dev` without the `requests` package. |
 | `bin/check-protected-vms.sh` | Used by the on-push and drift Jenkins jobs. Fails when a `terraform plan` proposes destroy/replace on any of the named VMs. |
@@ -47,11 +47,10 @@ Inside the container `ansible-playbook` and friends are on `$PATH` directly — 
 Inside the container, `iac-impl` (bind-mounted in from this repo's `bin/iac-impl`):
 
 1. Parses `/etc/iac/secrets.yaml` — exports `env:` entries; writes `files:` entries at their declared mode.
-2. Clones `pvginkel/Ansible` and `pvginkel/TerraformState` into `/work/`.
-3. Symlinks `/work/Ansible/terraform/{prd,scratch}/terraform.tfstate` → `/work/TerraformState/{prd,scratch}/terraform.tfstate`.
+2. Clones `pvginkel/Ansible` into `/work/`.
+3. Starts the `terraform-backend-git` daemon on `127.0.0.1:6061`; terraform reaches state via the `backend.tf` http block in `terraform/{prd,scratch}/`. The daemon does the git pull/push against `pvginkel/TerraformState` itself and encrypts state at rest with sops + age.
 4. Runs `poetry install --no-root` in `/work/Ansible/ansible/` so `ansible-playbook` is on `$PATH`.
 5. Exec's `bash` (interactive) or `sh -c "$SCRIPT"` (the `-c` form).
-6. On exit, commits and pushes any state changes in `/work/TerraformState`.
 
 ## Operator workstation parity
 
