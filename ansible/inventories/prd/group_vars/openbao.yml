@@ -104,16 +104,12 @@ openbao_eso_dev_kv_paths:
   - shared/dev/*
 
 # iac-impl reads /etc/iac/secrets.yaml on srviac and resolves any
-# `!bao kv/iac/<leaf>#<key>` reference via this AppRole. Paths are
-# enumerated explicitly so the policy mirrors the manifest exactly.
-# Adding a new credential: bao kv put a new leaf, then add the path
-# here and converge.
+# `!bao kv/iac/<leaf>#<key>` reference via this AppRole. The whole `iac/`
+# prefix is the iac-agent's own namespace, so the prefix glob — not
+# per-leaf enumeration — is the trust boundary; a new credential is just
+# a `bao kv put` under iac/ with no policy change. Same rationale as the
+# eso globs above.
 openbao_iac_agent_kv_paths:
-  - iac/homeassistant
-  - iac/jenkins-agent
-  - iac/proxmox
-  - iac/dns-reservation
-  - iac/backup-server
-  - iac/ansible-ssh-key
+  - iac/*
 
 openbao_oidc_discovery_url: https://auth.ginbov.nl/realms/homelab
