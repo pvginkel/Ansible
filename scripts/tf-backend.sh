@@ -46,7 +46,7 @@ export GITHUB_TOKEN;                        GITHUB_TOKEN=$(need GITHUB_TOKEN git
 export TF_BACKEND_HTTP_SOPS_AGE_RECIPIENTS; TF_BACKEND_HTTP_SOPS_AGE_RECIPIENTS=$(need TF_BACKEND_HTTP_SOPS_AGE_RECIPIENTS age_public_key)
 export SOPS_AGE_KEY;                        SOPS_AGE_KEY=$(need SOPS_AGE_KEY age_secret_key)
 
-docker run --pull=always --network host --name "$name" \
+docker run -d --pull=always --network host --name "$name" \
   -e GIT_USERNAME -e GITHUB_TOKEN \
   -e TF_BACKEND_HTTP_ENCRYPTION_PROVIDER=sops \
   -e TF_BACKEND_HTTP_SOPS_AGE_RECIPIENTS -e SOPS_AGE_KEY \
