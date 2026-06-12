@@ -9,9 +9,9 @@ See [`/work/AnsibleSpecs/phases/iac-agent.md`](../../../AnsibleSpecs/phases/iac-
 | Where | What |
 |---|---|
 | `srviac` host | Docker, the `iac` shim, a daily `docker image prune -f` cron, a systemd unit running the Jenkins inbound-agent container, `/etc/iac/secrets.yaml` (operator-curated, `0600`), `/var/lock/iac.lock` (the IaC mutex). |
-| `modern-app-dev` image | Terraform, Ansible, kubectl, helm, python, poetry, plus `iac-impl` — the in-container entrypoint that parses `secrets.yaml`, clones the Ansible + TerraformState repos, runs `poetry install`, then exec's whatever you asked for. Built and pushed via the existing DockerImages pipeline. |
-| `pvginkel/Ansible` (this repo) | Roles, playbooks, inventory, the Terraform configs (`terraform/{prd,scratch}/`). |
-| `pvginkel/TerraformState` | File-based tfstate, cloned + committed per run. Private. Holds the same sensitivity as any secret-bearing repo (VM host private keys, API tokens, proxmox creds). |
+| `modern-app-dev` image | Terraform, Ansible, kubectl, helm, python, poetry, `terraform-backend-git`, plus `iac-impl` — the in-container entrypoint that parses `secrets.yaml`, clones Ansible, starts the terraform-backend-git daemon on `127.0.0.1:6061`, runs `poetry install`, then exec's whatever you asked for. Built and pushed via the existing DockerImages pipeline. |
+| `pvginkel/Ansible` (this repo) | Roles, playbooks, inventory, the Terraform configs (`terraform/{prd,scratch}/`, each with a `backend.tf` http block). |
+| `pvginkel/TerraformState` | tfstate served through the terraform-backend-git http backend, sops+age-encrypted at rest. Private. Holds the same sensitivity as any secret-bearing repo (VM host private keys, API tokens, proxmox creds). |
 | `pvginkel/IaCAgent` | Host glue (`bin/iac`, the systemd unit, `install.sh`, Jenkinsfiles, the `secrets.example.yaml` template). |
 | Jenkins controller (`jenkins.webathome.org`) | Three jobs: `iac-on-push`, `iac-scheduled-update`, `iac-scheduled-drift`. All run on the `iac-controller`-labelled agent. |
 
@@ -40,7 +40,7 @@ iac -c 'cd /work/Ansible/ansible && ansible-playbook playbooks/site.yml --limit 
 
 Both acquire `/var/lock/iac.lock` via `flock -w 60`. On contention, the call fails fast (within 60 s) with the holder PID surfaced — there is no waiting; rerun once the holder releases.
 
-Inside the container: `/work/Ansible` and `/work/TerraformState/{prd,scratch}` are fresh clones, `terraform.tfstate` symlinks point into the state repo, every env entry from `secrets.yaml` is exported, and every file entry has been written at its declared mode. **Edits inside an `iac` shell are lost on exit** unless committed and pushed before exiting — same constraint Jenkins jobs run under.
+Inside the container: `/work/Ansible` is a fresh clone, terraform state flows through the local terraform-backend-git daemon (the `backend.tf` http block in each config — no symlinks, no `/work/TerraformState` checkout in the container), every env entry from `secrets.yaml` is exported, and every file entry has been written at its declared mode. **Edits inside an `iac` shell are lost on exit** unless committed and pushed before exiting — same constraint Jenkins jobs run under.
 
 ### Break-glass / `srviac` mutation: from `wrkdev`
 
@@ -89,13 +89,15 @@ This is the sequence to stand `srviac` up the first time, after all the source c
 
    The agent container should reach the controller; `systemctl status jenkins-agent` on `srviac` shows it running.
 
-5. **Bootstrap `TerraformState`** from the workstation's current tfstate.
+5. **Bootstrap `TerraformState`** from the workstation's current tfstate. State now lives behind the terraform-backend-git http backend and is sops+age-encrypted at rest; the first apply through the backend writes it there. The one-time seed from the workstation's plaintext files:
 
    ```sh
    cp terraform/prd/terraform.tfstate /work/TerraformState/prd/
    cp terraform/scratch/terraform.tfstate /work/TerraformState/scratch/
    cd /work/TerraformState && git add prd scratch && git commit -m 'bootstrap from wrkdev' && git push
    ```
+
+   These seed files are plaintext; the backend re-encrypts each on its next write.
 
 6. **Smoke-test `iac` on `srviac`.**
 
@@ -109,7 +111,7 @@ This is the sequence to stand `srviac` up the first time, after all the source c
 
 7. **Wire the three Jenkins jobs** on the controller (pipeline scripts live in `IaCAgent`). Verify each runs against a no-op change (a comment-only push) before unleashing.
 
-8. **Cutover.** Stop running Terraform and Ansible from `wrkdev` as the routine path. Delete the workstation-local `terraform/{prd,scratch}/terraform.tfstate{,.backup,.<timestamp>.backup}` files — the state repo is authoritative from now on.
+8. **Cutover.** Stop running Terraform and Ansible from `wrkdev` as the routine path. Delete the workstation-local `terraform/{prd,scratch}/terraform.tfstate{,.backup,.<timestamp>.backup}` files — state is reached only through the backend (encrypted in `TerraformState`) from now on.
 
 ## Recovery
 
@@ -132,7 +134,7 @@ Cloud-init re-bakes; the role re-applies; the operator re-populates secrets. The
 
 ### Lost `wrkdev` (extreme case)
 
-Bootstrap any Ubuntu box: install Poetry + the standard SSH keys from the cloud-synced attachments, clone `pvginkel/Ansible`, clone `pvginkel/IaCAgent`, clone `pvginkel/TerraformState`. From there `wrkdev`'s workflows resume. The orchestrator-self-applicable guarantee stops here — there is no zero-touch recovery for the case where both the workstation and `srviac` are lost simultaneously.
+Bootstrap any Ubuntu box: install Poetry + the standard SSH keys from the cloud-synced attachments, clone `pvginkel/Ansible`, clone `pvginkel/IaCAgent`. For break-glass terraform, run `scripts/tf-backend.sh` (the same backend in a local `docker run --network host`) and have the age private key from OpenBao (`kv/iac/tf-backend#age_secret_key`) so the backend can decrypt state — `wrkdev` doesn't clone `TerraformState` for normal use. From there `wrkdev`'s workflows resume. The orchestrator-self-applicable guarantee stops here — there is no zero-touch recovery for the case where both the workstation and `srviac` are lost simultaneously.
 
 ## Secret rotation
 
@@ -142,7 +144,7 @@ Regenerate on the controller, paste into `/etc/iac/secrets.yaml`, `systemctl res
 
 ### `GIT_API_TOKEN` (GitHub PAT for `TerraformState`)
 
-Mint a new PAT (Trello card 20 has the scope), update `/etc/iac/secrets.yaml`. No restart needed; `iac-impl` reads the file at every invocation.
+Mint a new PAT (Trello card 20 has the scope), update `/etc/iac/secrets.yaml`. Now consumed by the terraform-backend-git daemon (as its `GITHUB_TOKEN`) to pull/push `TerraformState`. No restart needed; `iac-impl` reads the file at every invocation and starts the daemon fresh per run.
 
 ### `TF_VAR_proxmox_password`
 
