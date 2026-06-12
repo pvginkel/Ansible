@@ -40,8 +40,13 @@ docker_gid=$(stat -c %g /var/run/docker.sock)
 # /etc/iac/secrets.yaml is intentionally not mounted into this agent.
 # The agent never reads it; iac passes the host path to docker run and
 # the daemon (root) mounts it into the iac container directly.
+# --init runs tini as PID 1 so orphaned children get reaped. The agent
+# JVM would otherwise be PID 1, and a JVM only reaps processes it tracks;
+# the `git`/`sh` helpers the durable-task plugin double-forks reparent to
+# PID 1 and pile up as zombies (hundreds over the agent's uptime).
 exec docker run --rm \
     --name "$CONTAINER_NAME" \
+    --init \
     --network host \
     --group-add "$docker_gid" \
     -v /var/run/docker.sock:/var/run/docker.sock \
