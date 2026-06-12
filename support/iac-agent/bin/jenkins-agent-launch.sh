@@ -27,6 +27,19 @@ if [[ -z "$secret" || "$secret" == "null" ]]; then
     exit 1
 fi
 
+# This script runs on the host via systemd, outside iac-impl, so it has
+# no OpenBao resolver: JENKINS_AGENT_SECRET must be a literal 64-char hex
+# secret, never a `!bao …` reference. yq strips the !bao tag and yields
+# the bare "mount/path#key" string, which the controller silently rejects
+# as an incorrect secret. (A literal is also required so the agent comes
+# up at cold boot when OpenBao is down.) Fail loudly instead.
+if [[ ! "$secret" =~ ^[0-9a-fA-F]{64}$ ]]; then
+    echo "jenkins-agent-launch: JENKINS_AGENT_SECRET must be a literal 64-char hex secret," >&2
+    echo "  not '$secret'. Replace any '!bao …' reference with the literal from the" >&2
+    echo "  controller's 'IaC Agent' node page, then restart jenkins-agent." >&2
+    exit 1
+fi
+
 # --group-add grants the container's user access to the host docker
 # socket without running the container as root.
 docker_gid=$(stat -c %g /var/run/docker.sock)
