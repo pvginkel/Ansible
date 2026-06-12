@@ -105,6 +105,24 @@ pipeline {
             }
         }
 
+        stage('Ansible drift (ceph)') {
+            steps {
+                // site-ceph.yml converges the microceph storage layer
+                // (today only ceph_dev → srvk8sdev); site.yml and
+                // site-k8s.yml don't cover it, so a microceph role or
+                // ceph_dev group_vars change is invisible to drift
+                // without this stage. --check only; same --skip-tags
+                // os_update belt as the stages above.
+                sh '''
+                    iac -c '
+                        set -euo pipefail
+                        cd /work/Ansible/ansible
+                        check-ansible-drift.sh playbooks/site-ceph.yml --skip-tags os_update
+                    '
+                '''
+            }
+        }
+
         stage('Homelab CA root drift') {
             steps {
                 // The in-repo homelab-root.crt is the trust anchor

@@ -1,6 +1,6 @@
 // iac-on-push — fires on every push to main on pvginkel/Ansible.
 // Sequential, fail-fast: plan + destroy-check, apply, site (sans
-// iac_agent), site-openbao, site-k8s. Each stage wraps its work
+// iac_agent), site-openbao, site-k8s, site-ceph. Each stage wraps its work
 // in a single `iac -c '...'` so the IaC mutex is held across the
 // steps that must be atomic.
 //
@@ -106,6 +106,27 @@ pipeline {
                         set -euo pipefail
                         cd /work/Ansible/ansible
                         ansible-playbook --diff playbooks/site-k8s.yml --skip-tags os_update
+                    '
+                '''
+            }
+        }
+
+        stage('Ansible site-ceph') {
+            // site-ceph.yml converges the microceph storage layer
+            // (today only ceph_dev → srvk8sdev). site.yml excludes the
+            // ceph groups and site-k8s.yml does only the k8s
+            // baseline/microk8s, so without this stage a microceph role
+            // or ceph_dev group_vars change never lands on push.
+            // --skip-tags os_update holds the same patch-posture belt as
+            // the stages above; the microceph role carries no os_update
+            // tasks today, but the flag keeps the invariant for when
+            // baseline joins this play (Phase 5 prd fleet).
+            steps {
+                sh '''
+                    iac -c '
+                        set -euo pipefail
+                        cd /work/Ansible/ansible
+                        ansible-playbook --diff playbooks/site-ceph.yml --skip-tags os_update
                     '
                 '''
             }
