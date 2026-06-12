@@ -18,13 +18,19 @@ Host glue for `srviac`, the homelab's IaC orchestrator VM. See [`AnsibleSpecs/ph
 | `systemd/jenkins-agent.service` | Long-running container for the Jenkins inbound agent. |
 | `install.sh` | Idempotent installer. Run as root; the Ansible `iac_agent` role calls it via a handler. |
 
-`jenkins/` holds the three pipeline scripts:
+The Jenkins pipelines that drive `srviac` now live in the **Ansible** repo
+as `Jenkinsfile.*` (they were moved out of this repo); the controller jobs
+check them out from there and run on the `iac-controller`-labelled agent,
+holding the IaC mutex via `iac -c`. They lean on this repo's helpers —
+`check-protected-vms.sh`, `check-ansible-drift.sh`, `send_message.py` —
+which `iac` bind-mounts into the container. Current jobs:
 
-- **`jenkins/iac-on-push/Jenkinsfile`** — fires on push to `main` on `pvginkel/Ansible`. Sequential: plan + destroy-check, terraform apply, `site.yml --limit '!iac_agent'`, `update-k8s.yml`. Each stage holds the IaC mutex via `iac -c`.
-- **`jenkins/iac-scheduled-update/Jenkinsfile`** — weekly cron. Runs `update-k8s.yml`. Future stages cover `update-ceph` and the OpenBao reboot window.
-- **`jenkins/iac-scheduled-drift/Jenkinsfile`** — daily cron. `terraform plan -detailed-exitcode` against prd plus `check-ansible-drift.sh playbooks/site.yml`. Push-notifies on detected drift.
+- **`Jenkinsfile.iac-on-push`** — push to `main` on `pvginkel/Ansible`: terraform plan/destroy-check + apply, then Ansible convergence across the `site*.yml` playbooks.
+- **`Jenkinsfile.iac-scheduled-update`** — weekly cron: OS-update / patch posture (drain → upgrade → reboot).
+- **`Jenkinsfile.iac-scheduled-drift`** — daily cron: terraform + Ansible `--check` drift across the same playbooks, plus the homelab CA root.
+- **`Jenkinsfile.iac-dqlite-watchdog`**, **`Jenkinsfile.iac-image`**, **`Jenkinsfile.architecture`** — the k8s-dqlite watch-cache watchdog, the iac container-image build, and the architecture-model job.
 
-The Jenkins controller config for each job points at its `Jenkinsfile` here; all three run on the `iac-controller`-labelled agent.
+The Ansible repo holds the authoritative per-stage breakdown for each.
 
 ## Usage on srviac
 
