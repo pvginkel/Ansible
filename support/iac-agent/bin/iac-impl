@@ -17,22 +17,24 @@
 #      state-sync / user command if anything is missing or auth fails.
 #   4. Materialise resolved env: into os.environ; resolved files: at
 #      their declared mode (no default — `mode` is required).
-#   5. Clone pvginkel/Ansible and pvginkel/TerraformState into /work,
-#      sync state files in.
+#   5. Start terraform-backend-git on 127.0.0.1:6061 (the Git-backed
+#      HTTP state backend) and clone pvginkel/Ansible into /work. State
+#      for terraform/{prd,scratch} flows through the backend — which
+#      pulls/pushes and sops+age-encrypts pvginkel/TerraformState
+#      itself — not a clone-and-sync of the state repo.
 #   6. Warn (don't fail) when /work/Ansible/poetry.lock differs from
 #      the image's baked /app/poetry.lock.
 #   7. Exec interactive bash (no args) or `sh -c "$1"` (the -c form).
-#   8. Sync state files out; commit + push any changes.
 
 from __future__ import annotations
 
 import filecmp
 import os
-import shutil
+import socket
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -44,11 +46,7 @@ import yaml
 
 SECRETS_FILE = Path(os.environ.get("SECRETS_FILE", "/etc/iac/secrets.yaml"))
 WORK = Path(os.environ.get("WORK", "/work"))
-SCOPES = ("prd", "scratch")
 ANSIBLE_REPO_PATH = "github.com/pvginkel/Ansible.git"
-STATE_REPO_PATH = "github.com/pvginkel/TerraformState.git"
-GIT_USER_NAME = "iac-agent"
-GIT_USER_EMAIL = "iac-agent@srviac.home"
 BAKED_LOCK = Path("/app/poetry.lock")
 
 # Env names that MUST resolve to literals — !bao on any of these is a
@@ -298,6 +296,36 @@ def _run(*argv: str, cwd: Path | None = None) -> subprocess.CompletedProcess:
     )
 
 
+def start_state_backend() -> None:
+    """Start terraform-backend-git on 127.0.0.1:6061 for this container.
+
+    Replaces the old TerraformState clone + sync_state_in/out: terraform
+    in terraform/{prd,scratch} reaches this daemon through a
+    backend "http" block, and the daemon does the git pull/push and
+    sops+age encryption against pvginkel/TerraformState itself.
+
+    The daemon inherits os.environ — GIT_USERNAME, the encryption
+    provider and the SOPS_AGE_* keys come from secrets.yaml; GITHUB_TOKEN
+    is mapped from GIT_API_TOKEN here. Started in the background and
+    never stopped explicitly; the container teardown reaps it.
+    """
+    os.environ.setdefault("GITHUB_TOKEN", os.environ.get("GIT_API_TOKEN", ""))
+    cmd = ["terraform-backend-git"]
+    if VERBOSE:
+        cmd.append("--access-logs")
+    step("starting terraform-backend-git on 127.0.0.1:6061")
+    subprocess.Popen(cmd)
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(0.25)
+            if sock.connect_ex(("127.0.0.1", 6061)) == 0:
+                step("terraform-backend-git is listening")
+                return
+        time.sleep(0.2)
+    fail("terraform-backend-git did not start listening on 127.0.0.1:6061")
+
+
 def clone_repos(token: str) -> None:
     WORK.mkdir(parents=True, exist_ok=True)
     _run("git", "config", "--global", "init.defaultBranch", "main")
@@ -311,29 +339,6 @@ def clone_repos(token: str) -> None:
         f"https://{token}@{ANSIBLE_REPO_PATH}",
         str(WORK / "Ansible"),
     )
-    step("cloning pvginkel/TerraformState")
-    _run(
-        "git",
-        "clone",
-        "--quiet",
-        "--depth",
-        "1",
-        f"https://{token}@{STATE_REPO_PATH}",
-        str(WORK / "TerraformState"),
-    )
-    state_repo = WORK / "TerraformState"
-    _run("git", "-C", str(state_repo), "config", "user.name", GIT_USER_NAME)
-    _run("git", "-C", str(state_repo), "config", "user.email", GIT_USER_EMAIL)
-
-
-def sync_state_in() -> None:
-    step("syncing terraform state files in")
-    for scope in SCOPES:
-        src = WORK / "TerraformState" / scope / "terraform.tfstate"
-        dst = WORK / "Ansible" / "terraform" / scope / "terraform.tfstate"
-        if src.is_file():
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
 
 
 def check_baked_venv() -> None:
@@ -358,60 +363,6 @@ def check_baked_venv() -> None:
             "ansible may run with stale dependencies. Wait for the "
             "iac image rebuild to land, then re-pull."
         )
-
-
-def sync_state_out_and_push() -> int:
-    """Sync TF state out, commit, push. Returns 0 ok, 1 on push fail."""
-    for scope in SCOPES:
-        src = WORK / "Ansible" / "terraform" / scope / "terraform.tfstate"
-        dst = WORK / "TerraformState" / scope / "terraform.tfstate"
-        if src.is_file():
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
-
-    state_repo = WORK / "TerraformState"
-    status = subprocess.run(
-        ["git", "-C", str(state_repo), "status", "--porcelain"],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    if not status.stdout.strip():
-        return 0
-
-    msg = (
-        "iac-impl: state update "
-        + datetime.now(timezone.utc).isoformat(timespec="seconds")
-    )
-    job = os.environ.get("JOB_NAME")
-    build = os.environ.get("BUILD_NUMBER")
-    if job and build:
-        msg += f" ({job}#{build})"
-
-    _run("git", "-C", str(state_repo), "add", "-A")
-    _run("git", "-C", str(state_repo), "commit", "--quiet", "-m", msg)
-    push = subprocess.run(
-        ["git", "-C", str(state_repo), "push", "--quiet"],
-    )
-    if push.returncode != 0:
-        head = subprocess.run(
-            ["git", "-C", str(state_repo), "rev-parse", "HEAD"],
-            check=False,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
-        warn("TerraformState push failed.")
-        warn(
-            f"state is committed locally at {head} but the container is "
-            f"about to exit and the commit will be lost."
-        )
-        warn(
-            "investigate the remote and replay the state files from "
-            "/work/TerraformState/<scope>/terraform.tfstate before "
-            "this container terminates."
-        )
-        return 1
-    return 0
 
 
 # ----- main --------------------------------------------------------------
@@ -488,8 +439,8 @@ def main() -> int:
     if not git_token:
         fail(f"GIT_API_TOKEN missing from {SECRETS_FILE}")
 
+    start_state_backend()
     clone_repos(git_token)
-    sync_state_in()
     check_baked_venv()
 
     step("ready")
@@ -515,9 +466,7 @@ def main() -> int:
         )
         return 2
     exit_code = subprocess.call(cmd)
-
-    push_status = sync_state_out_and_push()
-    return exit_code or push_status
+    return exit_code
 
 
 if __name__ == "__main__":
