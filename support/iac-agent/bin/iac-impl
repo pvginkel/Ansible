@@ -18,10 +18,11 @@
 #   4. Materialise resolved env: into os.environ; resolved files: at
 #      their declared mode (no default — `mode` is required).
 #   5. Start terraform-backend-git on 127.0.0.1:6061 (the Git-backed
-#      HTTP state backend) and clone pvginkel/Ansible into /work. State
-#      for terraform/{prd,scratch} flows through the backend — which
-#      pulls/pushes and sops+age-encrypts pvginkel/TerraformState
-#      itself — not a clone-and-sync of the state repo.
+#      HTTP state backend) and clone the configured `repos:` (default
+#      Ansible) into /work/<name>. State for every consumer's terraform
+#      flows through the backend — which pulls/pushes and sops+age-
+#      encrypts pvginkel/TerraformState itself — not a clone-and-sync of
+#      the state repo.
 #   6. Warn (don't fail) when /work/Ansible/poetry.lock differs from
 #      the image's baked /app/poetry.lock.
 #   7. Exec interactive bash (no args) or `sh -c "$1"` (the -c form).
@@ -46,7 +47,12 @@ import yaml
 
 SECRETS_FILE = Path(os.environ.get("SECRETS_FILE", "/etc/iac/secrets.yaml"))
 WORK = Path(os.environ.get("WORK", "/work"))
-ANSIBLE_REPO_PATH = "github.com/pvginkel/Ansible.git"
+# Repos cloned into /work/<name>. Configurable via a top-level `repos:`
+# list in secrets.yaml; defaults to Ansible alone so a pre-existing
+# secrets.yaml (no `repos:` key) keeps cloning exactly Ansible. The
+# HelmCharts deploy harness clones HelmCharts alongside it.
+GIT_OWNER = "github.com/pvginkel"
+DEFAULT_REPOS = ("Ansible",)
 BAKED_LOCK = Path("/app/poetry.lock")
 
 # Env names that MUST resolve to literals — !bao on any of these is a
@@ -334,19 +340,40 @@ def start_state_backend() -> None:
     )
 
 
-def clone_repos(token: str) -> None:
+def parse_repos(parsed: dict[str, Any]) -> tuple[str, ...]:
+    """The repos to clone into /work/<name>.
+
+    Optional top-level `repos:` list of bare repo names under
+    pvginkel/. Absent ⇒ DEFAULT_REPOS (Ansible only), so a pre-existing
+    secrets.yaml is unchanged.
+    """
+    raw = parsed.get("repos")
+    if raw is None:
+        return DEFAULT_REPOS
+    if not isinstance(raw, list) or not raw:
+        fail(f"{SECRETS_FILE}: `repos` must be a non-empty list of repo names")
+    repos: list[str] = []
+    for name in raw:
+        if not isinstance(name, str) or not name or "/" in name:
+            fail(f"{SECRETS_FILE}: invalid repo name {name!r} (bare name under pvginkel/)")
+        repos.append(name)
+    return tuple(repos)
+
+
+def clone_repos(token: str, repos: tuple[str, ...]) -> None:
     WORK.mkdir(parents=True, exist_ok=True)
     _run("git", "config", "--global", "init.defaultBranch", "main")
-    step("cloning pvginkel/Ansible")
-    _run(
-        "git",
-        "clone",
-        "--quiet",
-        "--depth",
-        "1",
-        f"https://{token}@{ANSIBLE_REPO_PATH}",
-        str(WORK / "Ansible"),
-    )
+    for name in repos:
+        step(f"cloning pvginkel/{name}")
+        _run(
+            "git",
+            "clone",
+            "--quiet",
+            "--depth",
+            "1",
+            f"https://{token}@{GIT_OWNER}/{name}.git",
+            str(WORK / name),
+        )
 
 
 def check_baked_venv() -> None:
@@ -447,9 +474,12 @@ def main() -> int:
     if not git_token:
         fail(f"GIT_API_TOKEN missing from {SECRETS_FILE}")
 
+    repos = parse_repos(parsed)
+
     start_state_backend()
-    clone_repos(git_token)
-    check_baked_venv()
+    clone_repos(git_token, repos)
+    if "Ansible" in repos:
+        check_baked_venv()
 
     step("ready")
 
