@@ -54,6 +54,10 @@ WORK = Path(os.environ.get("WORK", "/work"))
 GIT_OWNER = "github.com/pvginkel"
 DEFAULT_REPOS = ("Ansible",)
 BAKED_LOCK = Path("/app/poetry.lock")
+# The state backend daemon's stdout/stderr are appended here so a run's
+# git pull/push + sops activity survives for inspection within the
+# container's lifetime. `iac -v` mirrors it to the console instead.
+BACKEND_LOG = Path("/var/log/terraform-backend-git.log")
 
 # Env names that MUST resolve to literals — !bao on any of these is a
 # hard error because they gate the path that fetches every other
@@ -316,16 +320,21 @@ def start_state_backend() -> None:
     never stopped explicitly; the container teardown reaps it.
     """
     os.environ.setdefault("GITHUB_TOKEN", os.environ.get("GIT_API_TOKEN", ""))
-    cmd = ["terraform-backend-git"]
-    if VERBOSE:
-        cmd.append("--access-logs")
+    cmd = ["terraform-backend-git", "--access-logs"]
     step("starting terraform-backend-git on 127.0.0.1:6061")
-    # Quiet by default — the daemon's startup banner (incl. the
-    # localhost-only "HTTP basic auth is disabled" warning and the
-    # "listen on …" line) is noise on every iac run. -v lets it through,
-    # alongside --access-logs.
-    out = None if VERBOSE else subprocess.DEVNULL
+    # Keep the daemon's chatter (startup banner incl. the localhost-only
+    # "HTTP basic auth is disabled" warning, plus the per-request access
+    # logs) off the default console — it's noise on every iac run. By
+    # default it's appended to BACKEND_LOG so a run stays inspectable;
+    # `iac -v` mirrors it to the console instead.
+    if VERBOSE:
+        out = None
+    else:
+        BACKEND_LOG.parent.mkdir(parents=True, exist_ok=True)
+        out = open(BACKEND_LOG, "a")
     subprocess.Popen(cmd, stdout=out, stderr=out)
+    if out is not None:
+        out.close()  # the daemon inherited its own fd; drop the parent's
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
