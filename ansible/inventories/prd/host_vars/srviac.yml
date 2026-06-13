@@ -3,9 +3,15 @@ vm_id: 920
 pve_node: pve
 workload_class: background
 
-# Per-VM NIC config — the single source of truth, read by
-# terraform/prd/vms.tf (via yamldecode). Single NIC on vmbr0, dynamic
-# (DHCP via dnsmasq reservation) — no static netplan.
+# Per-VM NIC config — the single source of truth, read by both
+# terraform/prd/vms.tf (via yamldecode) and the baseline netplan task.
+# srviac is hybrid: vmbr0 dynamic (DHCP via dnsmasq reservation),
+# vmbr1 hand-curated on the 10 Gb backplane.
 network_devices:
   - bridge: vmbr0
     mac_address: "02:A7:F3:03:98:00"
+  - bridge: vmbr1
+    mac_address: "02:A7:F3:03:98:01"
+    addresses:
+      - 192.168.188.20/24
+      - fdd0:6a51:35de::20/64
