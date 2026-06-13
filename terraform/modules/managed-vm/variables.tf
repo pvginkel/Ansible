@@ -91,11 +91,14 @@ variable "managed_disks" {
 }
 
 variable "passthrough_disks" {
-  description = "Block devices passed through from the PVE host (Ceph OSDs, ZFS volumes). Always backup=false. See decisions.md \"Disk passthrough on managed VMs\". `ssd` defaults true (all VM-backing storage here is SSD); it makes the guest report rotational=0, which BlueStore reads to pick its SSD I/O path."
+  description = "Block devices passed through from the PVE host (Ceph OSDs, ZFS volumes). Always backup=false. See decisions.md \"Disk passthrough on managed VMs\". `ssd` defaults true (all VM-backing storage here is SSD); it makes the guest report rotational=0, which BlueStore reads to pick its SSD I/O path. `cache` defaults to `none` — correct for a guest that owns caching/durability itself (ZFS ARC, BlueStore). Replicated Ceph OSDs opt into `writeback` per-disk to let host RAM absorb commits; ZFS vdevs must NOT (double-caching + no redundancy to cover the volatile window)."
   type = list(object({
     interface         = string
     path_in_datastore = string
     ssd               = optional(bool, true)
+    cache             = optional(string, "none")
+    iothread          = optional(bool, true)
+    discard           = optional(string, "on")
   }))
   default = []
 }

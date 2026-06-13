@@ -173,6 +173,11 @@ locals {
         {
           interface         = "scsi2"
           path_in_datastore = "/dev/disk/by-id/ata-Samsung_SSD_870_EVO_2TB_S754NS0X128906Y"
+          # writeback: host RAM absorbs BlueStore commits. The volatile
+          # window (host crash loses un-flushed writes) is covered by the
+          # size=3 replication across the three PVE hosts. Do NOT copy this
+          # to a single-disk ZFS vdev.
+          cache = "writeback"
         },
       ]
 
@@ -202,6 +207,7 @@ locals {
         {
           interface         = "scsi2"
           path_in_datastore = "/dev/disk/by-id/ata-Samsung_SSD_870_EVO_2TB_S754NS0X128908E"
+          cache             = "writeback" # see srvceph1
         },
       ]
 
@@ -231,6 +237,7 @@ locals {
         {
           interface         = "scsi2"
           path_in_datastore = "/dev/disk/by-id/ata-Samsung_SSD_870_EVO_2TB_S754NS0X128911L"
+          cache             = "writeback" # see srvceph1
         },
       ]
 

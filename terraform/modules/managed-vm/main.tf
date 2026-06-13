@@ -140,8 +140,11 @@ resource "proxmox_virtual_environment_vm" "this" {
       # Advertise the device as non-rotational so the guest reports
       # rotational=0; otherwise BlueStore detects bdev_type=hdd on these
       # SSD-backed OSDs and runs the spinning-disk I/O path.
-      ssd    = disk.value.ssd
-      backup = false
+      ssd      = disk.value.ssd
+      cache    = disk.value.cache
+      iothread = disk.value.iothread
+      discard  = disk.value.discard
+      backup   = false
     }
   }
 
