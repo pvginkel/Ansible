@@ -78,22 +78,24 @@ variable "memory_mb" {
 }
 
 variable "managed_disks" {
-  description = "Disks backed by a PVE storage pool (root, data). Backup flag is computed from `pve_node`'s host_vars."
+  description = "Disks backed by a PVE storage pool (root, data). Backup flag is computed from `pve_node`'s host_vars. `ssd` defaults true (all VM-backing storage here is SSD) so the guest reports rotational=0 — matters for guests that tune on it (e.g. a co-located BlueStore OSD)."
   type = list(object({
     interface    = string
     size         = number
     datastore_id = optional(string, "local-lvm")
     discard      = optional(string, "on")
     iothread     = optional(bool, true)
+    ssd          = optional(bool, true)
   }))
   default = []
 }
 
 variable "passthrough_disks" {
-  description = "Block devices passed through from the PVE host (Ceph OSDs, ZFS volumes). Always backup=false. See decisions.md \"Disk passthrough on managed VMs\"."
+  description = "Block devices passed through from the PVE host (Ceph OSDs, ZFS volumes). Always backup=false. See decisions.md \"Disk passthrough on managed VMs\". `ssd` defaults true (all VM-backing storage here is SSD); it makes the guest report rotational=0, which BlueStore reads to pick its SSD I/O path."
   type = list(object({
     interface         = string
     path_in_datastore = string
+    ssd               = optional(bool, true)
   }))
   default = []
 }

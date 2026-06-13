@@ -126,7 +126,7 @@ resource "proxmox_virtual_environment_vm" "this" {
       # Otherwise null = unset → bpg leaves state as-is (adopted disks
       # imported without a file_id stay that way).
       file_id = (var.cloud_init != null && disk.key == 0) ? var.cloud_init.image_file_id : null
-      ssd     = (var.cloud_init != null && disk.key == 0) ? true : null
+      ssd     = disk.value.ssd
       backup  = local.pve_node_has_backup && !var.exclude_from_backup
     }
   }
@@ -137,7 +137,11 @@ resource "proxmox_virtual_environment_vm" "this" {
       datastore_id      = ""
       path_in_datastore = disk.value.path_in_datastore
       interface         = disk.value.interface
-      backup            = false
+      # Advertise the device as non-rotational so the guest reports
+      # rotational=0; otherwise BlueStore detects bdev_type=hdd on these
+      # SSD-backed OSDs and runs the spinning-disk I/O path.
+      ssd    = disk.value.ssd
+      backup = false
     }
   }
 
