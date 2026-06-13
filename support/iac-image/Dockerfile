@@ -52,8 +52,16 @@ RUN apt-get update -yqq && \
 # poetry on PATH in the final stage. The HelmCharts deploy CLI is its
 # own poetry project (`cd /work/HelmCharts && poetry install`), so the
 # image needs poetry at runtime — the build stage's poetry never makes
-# it into the final image. Same install as the build stage.
+# it into the final image. Same install as the build stage. Kept for
+# manual/interactive operator use; the HelmCharts pipeline installs with
+# uv (below) because it spins up a fresh container per release.
 RUN pip3 install poetry --break-system-packages
+
+# uv — the fast installer the HelmCharts deploy pipeline uses. Each
+# release deploys in its own `iac -c` (separate Jenkins stage), so the
+# deploy project is re-installed per release; uv keeps that from being
+# slow as molasses where `poetry install` would dominate the run.
+RUN set -o pipefail && curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh
 
 # Trust the homelab step-ca root the same way managed hosts do via the
 # baseline role — tools in this image (curl, terraform providers,
