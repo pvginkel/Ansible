@@ -54,7 +54,10 @@ microceph_cephx_users:
   # declared for a later split.
   - name: k8s
     caps:
-      mon: profile rbd
+      # `profile rbd` covers the RBD mon access; CephFS needs a plain
+      # `allow r` on top to read the FSMap/MDSMap and drive subvolume
+      # ops, so a user serving both surfaces needs both.
+      mon: profile rbd, allow r
       mgr: allow rw
       osd: profile rbd pool=k8s, allow rw tag cephfs data=cephfs
       mds: allow rw
