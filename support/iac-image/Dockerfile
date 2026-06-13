@@ -39,6 +39,8 @@ RUN apt-get update -yqq && \
         librbd1 \
         openssh-client \
         python3 \
+        python3-pip \
+        python3-venv \
         tini \
         unzip \
         yq \
@@ -46,6 +48,12 @@ RUN apt-get update -yqq && \
     \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
+
+# poetry on PATH in the final stage. The HelmCharts deploy CLI is its
+# own poetry project (`cd /work/HelmCharts && poetry install`), so the
+# image needs poetry at runtime — the build stage's poetry never makes
+# it into the final image. Same install as the build stage.
+RUN pip3 install poetry --break-system-packages
 
 # Trust the homelab step-ca root the same way managed hosts do via the
 # baseline role — tools in this image (curl, terraform providers,

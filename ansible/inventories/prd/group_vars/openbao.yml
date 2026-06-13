@@ -108,8 +108,17 @@ openbao_eso_dev_kv_paths:
 # prefix is the iac-agent's own namespace, so the prefix glob — not
 # per-leaf enumeration — is the trust boundary; a new credential is just
 # a `bao kv put` under iac/ with no policy change. Same rationale as the
-# eso globs above.
+# eso globs above. (The HelmCharts prd kubeconfig lives under iac/, so
+# it needs no extra grant.)
+#
+# The three leaves below are the HelmCharts deploy's homelab storage
+# credentials — outside the iac/ namespace, so they are enumerated
+# explicitly (same leaves the jenkins policy already reads for the
+# old-world deploy).
 openbao_iac_agent_kv_paths:
   - iac/*
+  - shared/prd/ceph-csi
+  - shared/prd/ceph-rgw/s3
+  - eso/prd/iac-provisioner/api/token
 
 openbao_oidc_discovery_url: https://auth.ginbov.nl/realms/homelab
