@@ -102,23 +102,38 @@
   when: _cluster_peer_count | int > 1
   changed_when: true
 
-- name: Wait for each labeled Deployment to be Ready post-restart
-  # 5-minute timeout per rollout. Non-zero exit aborts the play before
-  # `kubectl drain` ever runs — never drain into an unhealthy surge
-  # target. If this fails, fix the workload, then re-run.
+- name: Wait for each labeled Deployment to be genuinely Ready post-restart
+  # `rollout status` returned 0 early under `rollout restart`: the old
+  # pod still counted Available before the new pod passed its readiness
+  # probe (also the brief replicas=0 window of a Recreate Deployment).
+  # Gate on explicit Deployment state instead — the controller has
+  # observed the new spec AND every replica is updated, ready, and
+  # available. ~5 min cap (30 × 10s); exhausted retries fail the play
+  # before `kubectl drain` runs, so we never drain into an unhealthy
+  # surge target. If it fails, fix the workload, then re-run.
   ansible.builtin.command:
     argv:
       - microk8s
       - kubectl
-      - rollout
-      - status
+      - get
       - "deploy/{{ item.name }}"
       - -n
       - "{{ item.namespace }}"
-      - --timeout=5m
+      - -o
+      - json
   delegate_to: "{{ pre_drain_primary | default(microk8s_primary_host) }}"
   loop: "{{ _pre_drain_deployments | default([]) }}"
   loop_control:
     label: "{{ item.namespace }}/{{ item.name }}"
+  register: _pre_drain_ready
+  vars:
+    _dep: "{{ _pre_drain_ready.stdout | default('{}') | from_json }}"
+  until:
+    - _dep.status.observedGeneration | default(-1) == _dep.metadata.generation
+    - _dep.status.updatedReplicas | default(0) == _dep.spec.replicas
+    - _dep.status.readyReplicas | default(0) == _dep.spec.replicas
+    - _dep.status.availableReplicas | default(0) == _dep.spec.replicas
+  retries: 30
+  delay: 10
   when: _cluster_peer_count | int > 1
   changed_when: false
