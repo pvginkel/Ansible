@@ -45,8 +45,8 @@ provider "registry.terraform.io/hashicorp/tls" {
 }
 
 provider "registry.terraform.io/pvginkel/homelab" {
-  version = "0.1.25"
+  version = "0.1.26"
   hashes = [
-    "h1:c1H8aGO1riwyet5jFrwWdHmuFBqGOXU2umBcXTIOzkQ=",
+    "h1:0Nk7V5IvRMC6yatW0q8vOjQHc7KdjGP9WI46nngvytY=",
   ]
 }
