@@ -44,6 +44,28 @@
 # starts — without that, the per-host peer-count and drain delegation
 # can't see other hosts' values.
 
+- name: Preflight — every targeted node answers SSH + sudo
+  # Ansible drops an unreachable host and rolls on by default; for a
+  # serial: 1 roll that means draining the survivors of an already-
+  # degraded cluster — the maxSurge-starved state the cordon precheck
+  # below frets about. any_errors_fatal turns the first unreachable
+  # member into a clean whole-run abort here, before play 3 cordons a
+  # node. The ping runs under become so a sudo failure (build #7) counts
+  # as unreachable too, not just a dead SSH transport. ansible_timeout is
+  # the whole budget — a healthy node answers in well under a second; a
+  # down one fails fast. Criticality is the caller's call: the
+  # scheduled-update Jenkinsfile --limits prod clusters into hard-fail
+  # stages and dev/scratch into catchError stages.
+  hosts: k8s
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Confirm SSH + sudo
+      ansible.builtin.ping:
+      vars:
+        ansible_timeout: 20
+
 - name: Elect microk8s primary per cluster
   hosts: k8s
   become: true
@@ -55,9 +77,10 @@
         tasks_from: elect-primary
 
 - name: Refuse to roll if a cordoned node sits outside this run's target
-  # A leftover cordon usually means a prior update-k8s.yml run failed
-  # between pre-drain-handoff (which cordons the target) and the
-  # post-roll uncordon. Two shapes to distinguish:
+  # The cycle's rescue uncordons on failure, so a leftover cordon is now
+  # the rare case where that rescue *also* failed (e.g. the primary was
+  # unreachable when it tried to uncordon) — a genuine "something is
+  # wrong" signal worth stopping for. Two shapes to distinguish:
   #
   #   - Cordoned node IS in this run's target set → resume case.
   #     The operator is re-running update-k8s.yml --limit <same target>
@@ -101,9 +124,9 @@
           Cordoned nodes detected via {{ microk8s_primary_host }} that
           are not part of this run:
           {{ (_precheck_cordoned.stdout_lines | difference(ansible_play_hosts_all)) | join(', ') }}.
-          A prior run likely failed between pre-drain-handoff and the
-          post-roll uncordon. Uncordon them (`microk8s kubectl uncordon
-          <node>` on the primary) and re-run.
+          A prior run failed and its rescue could not uncordon (likely the
+          primary was unreachable). Uncordon them (`microk8s kubectl
+          uncordon <node>` on the primary) and re-run.
 
     - name: Note already-cordoned targets (resume case)
       ansible.builtin.debug:
@@ -292,6 +315,7 @@
               - "{{ inventory_hostname }}"
               - --ignore-daemonsets
               - --delete-emptydir-data
+              - --force
               - --timeout=900s
           delegate_to: "{{ microk8s_primary_host }}"
           when: _cluster_peer_count | int > 1
@@ -381,9 +405,12 @@
               changed_when: true
 
             - name: Wait for SSH after cold-cycle of {{ inventory_hostname }}
+              # A full power-cycle (qm shutdown forceStop up to 300s, then
+              # cold boot) is strictly slower than the guest reboot above,
+              # so match its 1200s budget rather than the old 600s.
               ansible.builtin.wait_for_connection:
                 delay: 30
-                timeout: 600
+                timeout: 1200
 
             - name: Wait for microk8s Ready after cold-cycle of {{ inventory_hostname }}
               ansible.builtin.command: microk8s status --wait-ready --timeout 240
@@ -393,7 +420,10 @@
           ansible.builtin.reboot:
             msg: "update-k8s.yml: reboot triggered by /var/run/reboot-required"
             post_reboot_delay: 30
-            reboot_timeout: 600
+            # 600s aborted builds #3/#4 by ~30s — these nodes boot + bring
+            # microk8s/containerd back slower than a vanilla host. 1200s
+            # gives real headroom rather than racing the boot.
+            reboot_timeout: 1200
           when:
             - not _pve_pending
             - _reboot_required.stat.exists
@@ -415,3 +445,31 @@
           delegate_to: "{{ microk8s_primary_host }}"
           when: _cluster_peer_count | int > 1
           changed_when: true
+
+      rescue:
+        # Any failure inside the cycle aborts after pre-drain-handoff has
+        # already cordoned the node. Leaving it cordoned strands it out of
+        # rotation until someone notices — the recurring operational pain
+        # this playbook kept causing. Uncordon it here, then re-raise so
+        # the run still fails loudly (serial: 1 stops the roll; the
+        # Jenkins notifier fires). Best-effort: if the uncordon itself
+        # errors (e.g. primary unreachable) don't mask the original
+        # failure — the top-of-play precheck is the backstop for that.
+        - name: Uncordon {{ inventory_hostname }} after a failed cycle
+          ansible.builtin.command:
+            argv:
+              - microk8s
+              - kubectl
+              - uncordon
+              - "{{ inventory_hostname }}"
+          delegate_to: "{{ microk8s_primary_host }}"
+          when: _cluster_peer_count | int > 1
+          changed_when: true
+          ignore_errors: true
+
+        - name: Re-raise the cycle failure for {{ inventory_hostname }}
+          ansible.builtin.fail:
+            msg: >-
+              update-k8s cycle failed on {{ inventory_hostname }}
+              (failed task: {{ ansible_failed_task.name | default('unknown') }}).
+              Node uncordoned to keep it in rotation; see the error above.
