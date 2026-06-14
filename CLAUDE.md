@@ -8,12 +8,12 @@ Ansible + Terraform managing the homelab infrastructure: Proxmox hosts, k8s VMs 
 
 **Before proposing changes, read these in order:**
 1. [`/work/AnsibleSpecs/decisions.md`](../AnsibleSpecs/decisions.md) — homelab doctrine: tool split, secrets, networking, MAC scheme, OS update policy.
-2. [`/work/AnsibleSpecs/phases/README.md`](../AnsibleSpecs/phases/README.md) — current phase order and status.
-3. The current phase doc under `/work/AnsibleSpecs/phases/` — working context for the conversation.
+2. [`/work/AnsibleSpecs/slices/README.md`](../AnsibleSpecs/slices/README.md) — the work index: pending slices at top, closed work in `completed/`, `deferred/`, `cancelled/`.
+3. The relevant slice doc(s) under `/work/AnsibleSpecs/slices/` — working context for the conversation.
 
-Forward-looking design lives in [`/work/AnsibleSpecs/slices/`](../AnsibleSpecs/slices/) (pending slices at top, closed work in `completed/`, `deferred/`, `cancelled/`). Operational runbooks stay in [`docs/runbooks/`](docs/runbooks/).
+All work is tracked as slices. The phased build-out is complete and retired; its history is archived (read-only) under [`/work/AnsibleSpecs/phases/`](../AnsibleSpecs/phases/) and stays linked from slices for context. Operational runbooks stay in [`docs/runbooks/`](docs/runbooks/).
 
-When a slice is added, moved (pending ↔ completed / deferred / cancelled), or its dependencies shift, update [`/work/AnsibleSpecs/slices/README.md`](../AnsibleSpecs/slices/README.md) in the same change. The same rule applies to phases and [`/work/AnsibleSpecs/phases/README.md`](../AnsibleSpecs/phases/README.md): when a phase is added, its status changes (planned → in progress → done), or it moves to `completed/`, update the phases index in the same change. The indexes are the entry point — a stale row there sends future readers (including future-Claude) chasing work that no longer exists or missing work that does.
+When a slice is added, moved (pending ↔ completed / deferred / cancelled), or its dependencies shift, update [`/work/AnsibleSpecs/slices/README.md`](../AnsibleSpecs/slices/README.md) in the same change. The index is the entry point — a stale row there sends future readers (including future-Claude) chasing work that no longer exists or missing work that does.
 
 If a decision changes, update `/work/AnsibleSpecs/decisions.md` — don't leave stale notes elsewhere.
 
@@ -29,7 +29,7 @@ Files gain scaffolding while they're being built — TODO markers, inline justif
 
 Rule of thumb: if the comment exists because we were *building* the file together, delete it when we move on. If it would help a reader who opens the file in a year knowing nothing of its history, keep it.
 
-This applies to phase + slice documents in `/work/AnsibleSpecs/` too. Once a phase or slice is done, compress its document down to what remains operationally useful.
+This applies to slice documents in `/work/AnsibleSpecs/` too. Once a slice is done, compress its document down to what remains operationally useful.
 
 ## Tooling
 
