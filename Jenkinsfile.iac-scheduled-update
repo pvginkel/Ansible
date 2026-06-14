@@ -33,15 +33,36 @@ pipeline {
     }
 
     stages {
-        stage('Ansible update-k8s') {
+        // Critical clusters: an unreachable member fails the build. The
+        // playbook's preflight aborts before any cordon, so a hard fail
+        // here never leaves a half-drained prod cluster.
+        stage('k8s prd') {
             steps {
                 sh '''
                     iac -c '
                         set -euo pipefail
                         cd /work/Ansible/ansible
-                        ansible-playbook --diff playbooks/update-k8s.yml
+                        ansible-playbook --diff playbooks/update-k8s.yml --limit k8s_prd
                     '
                 '''
+            }
+        }
+
+        // Non-critical: a down dev node marks the build UNSTABLE rather
+        // than FAILURE, so it never reds the prod roll above. Still
+        // visible (yellow + the unstable post handler), just not paged
+        // as an outage.
+        stage('k8s dev') {
+            steps {
+                catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                    sh '''
+                        iac -c '
+                            set -euo pipefail
+                            cd /work/Ansible/ansible
+                            ansible-playbook --diff playbooks/update-k8s.yml --limit k8s_dev
+                        '
+                    '''
+                }
             }
         }
     }
@@ -49,6 +70,9 @@ pipeline {
     post {
         failure {
             sh '''iac -c 'send_message.py --title "iac-scheduled-update #'"$BUILD_NUMBER"' failed" "'"$BUILD_URL"'"' '''
+        }
+        unstable {
+            sh '''iac -c 'send_message.py --title "iac-scheduled-update #'"$BUILD_NUMBER"' unstable (non-critical cluster skipped)" "'"$BUILD_URL"'"' '''
         }
     }
 }
