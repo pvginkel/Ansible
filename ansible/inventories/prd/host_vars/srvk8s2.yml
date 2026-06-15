@@ -3,6 +3,21 @@ vm_id: 911
 pve_node: pve1
 workload_class: background
 
+# Carries ZFS pool zpool3 for the postgres-pas substrate. The label makes
+# the iac-provisioner DaemonSet (which runs the host `zfs` for the provider)
+# schedule here.
+k8s_node_labels:
+  homelab.local/storage: zpool3
+
+# Empty ZFS pool on the scsi2 virtual disk (terraform/prd/vms.tf). The zfs
+# role creates it create-if-absent; ZFS auto-mounts the pool's root dataset
+# at /zpool3. local-lvm backed, so a VM rebuild wipes it and the role
+# recreates the pool rather than importing it (no zpools_to_import).
+zfs_pools:
+  - name: zpool3
+    scsi_index: 2
+    mountpoint: /zpool3
+
 # Per-VM NIC config — the single source of truth, read by both
 # terraform/prd/vms.tf (via yamldecode) and the baseline netplan task.
 # NIC order is load-bearing: [0] is the vmbr0 primary.
