@@ -10,21 +10,24 @@ workload_class: interactive
 # host. See AnsibleSpecs slices/unattended-dev-controller.md.
 microk8s_worker_only: true
 
-# srvk8s4 is a DEDICATED high-performance node. The `performance: high`
-# label — moved here from srvk8s1, which kept only `storage: zpool2` —
-# marks it and lets opt-in pods target it; the matching NoSchedule taint
-# below repels everything that doesn't tolerate it, so normal pods land
-# on srvk8s1 instead. Pods that must run here (the KubeCoder controller
-# + env pods, plus the cluster DaemonSets srvk8s4 depends on — Ceph CSI,
-# node-exporter, MetalLB speaker) carry a matching toleration; those live
+# srvk8s4 is a DEDICATED high-performance node. `performance: high`
+# (moved here from srvk8s1) marks it and lets opt-in pods target it; the
+# matching NoSchedule taint below repels everything that doesn't tolerate
+# it, so normal pods land on srvk8s1 instead. `storage: zpool5` follows
+# the homelab's storage-node pattern (srvk8s1/2/3 carry zpool2/3/4) — it
+# makes the iac-provisioner DaemonSet schedule here to manage zpool5
+# datasets, including the controller chart's static-zfs-pv. Pods that must
+# run here (KubeCoder, and the DaemonSets srvk8s4 depends on — Ceph CSI,
+# iac-provisioner, node-exporter) carry a matching toleration; those live
 # with the workloads in HelmCharts.
 #
 # The label + taint are reconciled by the elected primary. The role only
 # adds/updates them, never deletes: clearing the stale `performance: high`
-# from srvk8s1's live Node is a one-shot
+# from srvk8s1's live Node was a one-shot
 # `kubectl label node srvk8s1 homelab.local/performance-`.
 k8s_node_labels:
   homelab.local/performance: high
+  homelab.local/storage: zpool5
 
 k8s_node_taints:
   - key: homelab.local/performance
