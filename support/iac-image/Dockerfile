@@ -109,7 +109,6 @@ RUN set -o pipefail && \
 RUN mkdir /work && \
     chown ubuntu:ubuntu /work
 
-COPY artifacts/terraform-provider-homelab artifacts/terraform-provider-homelab-metadata.json /tmp/
 COPY support/iac-image/terraform.rc /etc/terraform.rc
 
 # terraform-backend-git — the Git-backed Terraform HTTP state backend.
@@ -133,12 +132,5 @@ COPY --from=ghcr.io/plumber-cd/terraform-backend-git:v0.1.11 \
 # completed/ssh-host-ca.md.
 COPY ansible/files/known_hosts.d/homelab /root/.ssh/known_hosts
 RUN chmod 700 /root/.ssh && chmod 644 /root/.ssh/known_hosts
-
-RUN VERSION=$(jq -r .version /tmp/terraform-provider-homelab-metadata.json) && \
-    INSTALL_DIR=/usr/local/share/terraform/plugins/registry.terraform.io/pvginkel/homelab/$VERSION/linux_amd64 && \
-    mkdir -p "$INSTALL_DIR" && \
-    mv /tmp/terraform-provider-homelab "$INSTALL_DIR/terraform-provider-homelab_v$VERSION" && \
-    chmod +x "$INSTALL_DIR/terraform-provider-homelab_v$VERSION" && \
-    rm /tmp/terraform-provider-homelab-metadata.json
 
 ENTRYPOINT ["tini", "--"]
