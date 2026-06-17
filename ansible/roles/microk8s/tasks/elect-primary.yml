@@ -49,9 +49,16 @@
   ansible.builtin.set_fact:
     microk8s_primary_host: >-
       {%- set my_cluster = group_names | select('match', '^k8s_') | first -%}
-      {%- set peers = groups[my_cluster] | map('extract', hostvars)
-            | rejectattr('microk8s_worker_only', 'eq', true)
-            | map(attribute='inventory_hostname') | sort -%}
+      {#- worker-only hosts set the flag in host_vars; everyone else
+          leaves it at the role default, which is NOT visible through
+          hostvars[peer]. selectattr('defined') first so the eq test
+          only sees hosts that actually carry the key — a bare
+          rejectattr('...', 'eq', true) raises on the others. -#}
+      {%- set workers = groups[my_cluster] | map('extract', hostvars)
+            | selectattr('microk8s_worker_only', 'defined')
+            | selectattr('microk8s_worker_only', 'eq', true)
+            | map(attribute='inventory_hostname') | list -%}
+      {%- set peers = (groups[my_cluster] | difference(workers)) | sort -%}
       {%- set classified = peers | map('extract', hostvars)
             | selectattr('_microk8s_node_state', 'defined') | list -%}
       {%- set in_cluster = classified
