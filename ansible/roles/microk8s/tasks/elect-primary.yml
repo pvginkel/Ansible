@@ -35,14 +35,25 @@
   check_mode: false
 
 - name: Classify this node's microk8s state
+  # Worker nodes short-circuit to 'worker' (never a candidate, and their
+  # `microk8s status` is a plain message, not a mapping — parsing it as
+  # one raises). For control-plane nodes, guard `s is mapping` so any
+  # non-dict status (blank, transient, a stray message) falls to 'down'
+  # rather than crashing the set_fact.
   ansible.builtin.set_fact:
     _microk8s_node_state: >-
-      {%- set s = (_microk8s_status_for_election.stdout | default('') | from_yaml) or {} -%}
+      {%- if microk8s_worker_only | bool -%}worker
+      {%- else -%}
+      {%- set s = (_microk8s_status_for_election.stdout | default('') | from_yaml) -%}
+      {%- if s is not mapping -%}down
+      {%- else -%}
       {%- set running = s.get('microk8s', {}).get('running', false) -%}
       {%- set nodes = (s.get('high-availability', {}).get('nodes') or []) -%}
       {%- if running and (nodes | length > 1) -%}in-cluster
       {%- elif running -%}running-solo
       {%- else -%}down
+      {%- endif -%}
+      {%- endif -%}
       {%- endif -%}
 
 - name: Elect this cluster's primary
