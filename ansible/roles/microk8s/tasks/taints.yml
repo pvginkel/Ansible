@@ -1,0 +1,44 @@
+---
+# Reconcile node taints declared per-host in k8s_node_taints, from the
+# elected primary — same shape as labels.yml (the primary holds the
+# admin kubeconfig and serialises cluster-state writes).
+#
+# Additive on purpose: `kubectl taint --overwrite` sets the declared
+# taint by key and leaves every other taint in place, so Kubernetes'
+# own node-condition taints (not-ready, unreachable, …) and a cordon's
+# unschedulable flag survive. A spec.taints patch would replace the whole
+# list and strip those. Idempotent: kubectl prints "not changed" and
+# skips the API write when the taint already matches.
+#
+# A NoSchedule taint repels DaemonSets too, so any workload that must run
+# on a tainted node — the KubeCoder pods plus the cluster DaemonSets it
+# depends on (Ceph CSI, node-exporter, MetalLB speaker, …) — needs a
+# matching toleration. Those tolerations live with the workloads in
+# HelmCharts; see README "Node taints / dedicated nodes".
+- name: Reconcile node taints (primary only)
+  ansible.builtin.command:
+    argv:
+      - microk8s
+      - kubectl
+      - taint
+      - nodes
+      - "{{ item.0.inventory_hostname }}"
+      - "{{ item.1.key }}{{ ('=' ~ item.1.value) if (item.1.value | default('')) else '' }}:{{ item.1.effect }}"
+      - --overwrite
+  loop: "{{ _microk8s_taint_targets | subelements('k8s_node_taints') }}"
+  vars:
+    # Cluster members that share this primary and declare taints —
+    # mirrors the labels.yml peer filter; the defined-guard keeps a host
+    # with no k8s_node_taints (every node but srvk8s4 today) out of the
+    # subelements expansion instead of raising.
+    _microk8s_taint_targets: >-
+      {{ ansible_play_hosts_all
+         | map('extract', hostvars)
+         | selectattr('microk8s_primary_host', 'defined')
+         | selectattr('microk8s_primary_host', 'eq', microk8s_primary_host)
+         | selectattr('k8s_node_taints', 'defined')
+         | list }}
+  loop_control:
+    label: "{{ item.0.inventory_hostname }} ← {{ item.1.key }}={{ item.1.value | default('') }}:{{ item.1.effect }}"
+  register: _microk8s_taint_result
+  changed_when: "'not changed' not in (_microk8s_taint_result.stdout | default(''))"

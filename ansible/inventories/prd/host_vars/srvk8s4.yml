@@ -10,15 +10,26 @@ workload_class: interactive
 # host. See AnsibleSpecs slices/unattended-dev-controller.md.
 microk8s_worker_only: true
 
-# This node carries the homelab's `performance: high` role — moved here
-# from srvk8s1 (which kept only its `storage: zpool2` label). No
-# KubeCoder-only label or taint: KubeCoder pins purely via zpool5 through
-# the controller chart's static-zfs-pv node-affinity, not via a label.
-# The label is applied by the elected primary's strategic-merge patch;
-# removing the old one from srvk8s1's live Node is a one-shot operator
-# `kubectl label` (the role can add/update labels but not delete them).
+# srvk8s4 is a DEDICATED high-performance node. The `performance: high`
+# label — moved here from srvk8s1, which kept only `storage: zpool2` —
+# marks it and lets opt-in pods target it; the matching NoSchedule taint
+# below repels everything that doesn't tolerate it, so normal pods land
+# on srvk8s1 instead. Pods that must run here (the KubeCoder controller
+# + env pods, plus the cluster DaemonSets srvk8s4 depends on — Ceph CSI,
+# node-exporter, MetalLB speaker) carry a matching toleration; those live
+# with the workloads in HelmCharts.
+#
+# The label + taint are reconciled by the elected primary. The role only
+# adds/updates them, never deletes: clearing the stale `performance: high`
+# from srvk8s1's live Node is a one-shot
+# `kubectl label node srvk8s1 homelab.local/performance-`.
 k8s_node_labels:
   homelab.local/performance: high
+
+k8s_node_taints:
+  - key: homelab.local/performance
+    value: high
+    effect: NoSchedule
 
 # Empty ZFS pool on the scsi2 virtual disk (terraform/prd/vms.tf). The zfs
 # role creates it create-if-absent; ZFS auto-mounts the pool's root dataset

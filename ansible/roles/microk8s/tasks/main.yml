@@ -67,6 +67,12 @@
     - _microk8s_installed.stat.exists
     - inventory_hostname == microk8s_primary_host
 
+- name: Reconcile node taints (primary only)
+  ansible.builtin.import_tasks: taints.yml
+  when:
+    - _microk8s_installed.stat.exists
+    - inventory_hostname == microk8s_primary_host
+
 - name: Reconcile MetalLB IPAddressPool + L2Advertisement (primary only)
   ansible.builtin.import_tasks: metallb.yml
   when:

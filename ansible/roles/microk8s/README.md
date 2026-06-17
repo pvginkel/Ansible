@@ -56,6 +56,23 @@ The role adapts in four places:
 
 Everything else — kernel modules, Ceph client packages, the snap install, registry mirrors, the `microk8s` group membership / kubectl alias — runs on a worker exactly as on a control-plane node. Capability labels declared in the worker's `k8s_node_labels` are still applied (by the elected primary's reconcile), so a worker can carry `performance: high` and the like.
 
+## Node taints / dedicated nodes
+
+`k8s_node_taints` (per host, in `host_vars`) makes a node **dedicated** — `tasks/taints.yml` reconciles the listed taints from the elected primary, the same place labels are applied. Each entry is `{key, value (optional), effect}`:
+
+```yaml
+k8s_node_taints:
+  - key: homelab.local/performance
+    value: high
+    effect: NoSchedule
+```
+
+It's applied additively via `kubectl taint --overwrite`: the declared taint is set by key, and Kubernetes' own node-condition taints (`not-ready`, `unreachable`, …) plus a cordon's `unschedulable` flag are left intact. A `spec.taints` patch would replace the whole list and strip those, so the role deliberately doesn't do that. Idempotent — `kubectl taint` prints `not changed` and skips the API write when the taint already matches. Like labels, the role **adds/updates but never removes**: dropping a taint from inventory needs a one-shot `kubectl taint nodes <node> <key>-`.
+
+**A `NoSchedule` taint repels DaemonSets as well as regular pods.** `calico-node` and `kube-proxy` tolerate everything already, but any *other* workload that must run on the tainted node needs a matching toleration — and those tolerations live with the workloads (HelmCharts), not here. For `srvk8s4` (tainted `homelab.local/performance=high:NoSchedule` so only KubeCoder runs there) that means the KubeCoder pods **and** the cluster DaemonSets it depends on — Ceph CSI (mandatory: the controller mounts CephFS), node-exporter, the MetalLB speaker, SMB CSI — must tolerate the taint, or they won't schedule on the node. The label/affinity attracts the opt-in pods; the taint repels the rest.
+
+Note the reconcile runs on the primary, so a `rebuild-k8s.yml` run (whose converge play targets only the rebuilt node) does **not** apply the taint — it lands on the next full `site-k8s.yml`. There's a short window after a rebuild's uncordon where the node is schedulable but not yet tainted; for a born-tainted node, add `--register-with-taints` to the kubelet args instead (not done today).
+
 ## Inventory contract
 
 The role asserts that the four cluster-CIDR variables are set; per-cluster `group_vars/k8s_<cluster>.yml` is the right place. Each cluster (prd, dev, scratch) carries its own values — the defaults in `defaults/main.yml` are deliberately empty so a missing config fails loud rather than installing onto the wrong subnet.
@@ -73,6 +90,7 @@ The role asserts that the four cluster-CIDR variables are set; per-cluster `grou
 | `microk8s_users` | optional | `[]` | OS users added to the `microk8s` group. |
 | `microk8s_primary_host` | auto-elected | `""` | **Computed at runtime** by `tasks/elect-primary.yml` — do not set in inventory. |
 | `k8s_node_labels` (per host, in `host_vars`) | optional | unset → `{}` | Map of capability labels to apply to that node's `Node` object. Keys/values are passed through verbatim to a strategic-merge patch — only labels you list are reconciled; existing kubernetes-managed and hand-applied labels are untouched. |
+| `k8s_node_taints` (per host, in `host_vars`) | optional | unset → none | List of `{key, value?, effect}` taints to apply to that node, additively via `kubectl taint --overwrite`. See "Node taints / dedicated nodes" below. |
 | `microk8s_metallb_namespace` | optional | `metallb-system` | Namespace where the addon installs the controller and creates the pool / advertisement. |
 | `microk8s_metallb_pool_name` | optional | `default-addresspool` | Name of the `IPAddressPool` to upsert — matches the resource the `metallb` addon creates, so the reconcile lands on the addon's resource and overwrites its colon-arg range. |
 | `microk8s_metallb_advertisement_name` | optional | `default-advertise-all-pools` | Name of the `L2Advertisement` to upsert — same rationale, matches the addon's auto-created advertisement. |
