@@ -1,5 +1,16 @@
 ---
-- name: Read this node's microk8s status (for join idempotency)
+# Idempotency: "is this node already a cluster member?"
+#
+# Control-plane nodes read it off `high-availability.nodes` — the dqlite
+# member list, which is 1 (self at 127.0.0.1) on the post-install solo
+# cluster and >1 once joined.
+#
+# Worker nodes run no dqlite, so that field is not a reliable signal on
+# them. They instead count Nodes via `microk8s kubectl`: a solo pre-join
+# node sees only itself, a joined worker sees the whole cluster through
+# its apiserver proxy. install.yml has already waited for the node to
+# register and report Ready by the time this runs, so kubectl is usable.
+- name: Read this node's microk8s status (control-plane join idempotency)
   ansible.builtin.command: microk8s status --format yaml
   register: _microk8s_self_status
   changed_when: false
@@ -8,6 +19,15 @@
   # subsequent join chain tries to template against an empty register
   # and crashes with from_json: "Expecting value: line 1 column 1".
   check_mode: false
+  when: not (microk8s_worker_only | bool)
+
+- name: Count cluster Nodes visible from this worker (worker join idempotency)
+  ansible.builtin.command:
+    argv: [microk8s, kubectl, get, nodes, --output, name]
+  register: _microk8s_worker_nodes
+  changed_when: false
+  check_mode: false
+  when: microk8s_worker_only | bool
 
 - name: Decide whether this node has already joined the cluster
   # high-availability.nodes lists every cluster member. The secondary's
@@ -17,9 +37,13 @@
   # status doesn't poison the decision.
   ansible.builtin.set_fact:
     _microk8s_joined: >-
+      {%- if microk8s_worker_only | bool -%}
+      {{ (_microk8s_worker_nodes.stdout_lines | default([])) | length > 1 }}
+      {%- else -%}
       {{ ((((_microk8s_self_status.stdout | from_yaml) or {})
             .get('high-availability') or {})
             .get('nodes') or []) | length > 1 }}
+      {%- endif -%}
 
 - name: Request a single-use join token from the primary
   # add-node mints a token with a short TTL — long enough to use once,
@@ -33,11 +57,40 @@
   changed_when: false
 
 - name: Join the cluster
-  ansible.builtin.command: "microk8s join {{ ((_microk8s_add_node.stdout | from_json).urls | first) }}"
+  # `--worker` joins outside the dqlite quorum (no apiserver/datastore);
+  # the control-plane join takes the bare URL. The token URL is the same
+  # either way — add-node doesn't care what the joiner intends to be.
+  ansible.builtin.command: >-
+    microk8s join {{ (_microk8s_add_node.stdout | from_json).urls | first }}{{ ' --worker' if (microk8s_worker_only | bool) else '' }}
   when: not _microk8s_joined
   changed_when: true
 
-- name: Wait for microk8s to be Ready post-join
+- name: Wait for microk8s to be Ready post-join (control-plane)
   ansible.builtin.command: microk8s status --wait-ready --timeout 120
-  when: not _microk8s_joined
+  when:
+    - not _microk8s_joined
+    - not (microk8s_worker_only | bool)
+  changed_when: false
+
+- name: Wait for the worker to re-register and report Ready post-join
+  # `--worker` restarts the local services (kubelet is reconfigured and
+  # the apiserver proxy comes up), so kubectl is briefly unreachable.
+  # Poll the node's own Ready condition through the proxy — robust on a
+  # worker, where `microk8s status --wait-ready` behaviour is version-
+  # dependent — and let `until` ride out the restart gap.
+  ansible.builtin.command:
+    argv:
+      - microk8s
+      - kubectl
+      - wait
+      - --for=condition=Ready
+      - "node/{{ inventory_hostname }}"
+      - --timeout=120s
+  register: _microk8s_worker_ready
+  until: _microk8s_worker_ready.rc == 0
+  retries: 30
+  delay: 4
+  when:
+    - not _microk8s_joined
+    - microk8s_worker_only | bool
   changed_when: false

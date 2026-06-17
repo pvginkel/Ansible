@@ -43,6 +43,19 @@ For single-node clusters (`k8s_dev` today, `srvk8sdev` is the only host) electio
 
 Standalone playbooks that don't apply the role (`update-k8s.yml`, `evict-k8s.yml`, `refresh-k8s-addons.yml`) call `tasks_from: elect-primary` in a pre-flight play before any task that references `microk8s_primary_host`.
 
+## Worker-only nodes
+
+A host with `microk8s_worker_only: true` in its `host_vars` joins the cluster as a **worker** — `microk8s join <url> --worker` — staying outside the dqlite/HA control-plane quorum. It runs kubelet plus the apiserver proxy; it does *not* run the apiserver, controller-manager, scheduler, or datastore. (Today: `srvk8s4`, the KubeCoder high-performance node.)
+
+The role adapts in four places:
+
+- **Join path** (`tasks/join.yml`) — appends `--worker` to the join command. Idempotency can't use `high-availability.nodes` (no dqlite on a worker), so the worker path counts cluster Nodes via `microk8s kubectl get nodes` instead: 1 = still solo, >1 = joined. The post-join readiness gate likewise polls the node's Ready condition through the proxy rather than `microk8s status --wait-ready`, whose worker behaviour is version-dependent.
+- **Primary election** (`tasks/elect-primary.yml`) — worker-only hosts are dropped from the candidate set, so a worker can never be elected primary (it couldn't mint join tokens or reconcile cluster-scoped state).
+- **kube-apiserver concerns** (`tasks/main.yml`) — the Keepalived VIP and the SNI TLS leaf are skipped on workers; there is no local apiserver to front or to add a cert flag to. Both remain gated on their existing per-cluster opt-ins *and* `not microk8s_worker_only`.
+- **Calico cni.yaml patch** (`tasks/network.yml`) — skipped on workers. The autodetect method is a cluster-wide DaemonSet env var the control plane owns; a worker has no local `cni.yaml` to patch and its `calico-node` pod inherits the cluster setting.
+
+Everything else — kernel modules, Ceph client packages, the snap install, registry mirrors, the `microk8s` group membership / kubectl alias — runs on a worker exactly as on a control-plane node. Capability labels declared in the worker's `k8s_node_labels` are still applied (by the elected primary's reconcile), so a worker can carry `performance: high` and the like.
+
 ## Inventory contract
 
 The role asserts that the four cluster-CIDR variables are set; per-cluster `group_vars/k8s_<cluster>.yml` is the right place. Each cluster (prd, dev, scratch) carries its own values — the defaults in `defaults/main.yml` are deliberately empty so a missing config fails loud rather than installing onto the wrong subnet.
@@ -69,6 +82,7 @@ The role asserts that the four cluster-CIDR variables are set; per-cluster `grou
 | `microk8s_coredns_templates` | optional | `[]` | List of `{domain, answer_a, ttl}` entries; each renders a `template IN A <domain>` block answering any subdomain with `<answer_a>`. Reconciled on the primary. |
 | `microk8s_manage_apiserver_vip` | optional | `false` | `true` folds in a Keepalived VIP for the kube-apiserver. Set only on the 3-node prd cluster — `tasks/keepalived.yml` reads the VIP/VRID from `group_vars/all/vips.yml` and the `vrrp_auth_password` secret from there. The single-node dev cluster and the scratch fleet leave it `false`. |
 | `microk8s_apiserver_homelab_sans` | optional | `[]` | SANs for a homelab-CA TLS leaf served additively on the kube-apiserver via `--tls-sni-cert-key`. Set per cluster in `group_vars/k8s_*.yml`. Distinct from `microk8s_extra_sans`, which seeds microk8s's *own* cert at first boot — this leaf is separate and leaves the internal PKI untouched. Empty skips it. |
+| `microk8s_worker_only` (per host, in `host_vars`) | optional | `false` | `true` joins this node with `microk8s join --worker` — outside the dqlite/HA quorum, no apiserver/datastore. See "Worker-only nodes" below. |
 
 ## Idempotency notes
 

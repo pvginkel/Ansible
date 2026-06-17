@@ -36,7 +36,13 @@
 
 - name: Configure cluster network (Calico autodetect)
   ansible.builtin.import_tasks: network.yml
-  when: _microk8s_installed.stat.exists
+  when:
+    - _microk8s_installed.stat.exists
+    # Worker nodes don't own the cluster-wide Calico config: the
+    # autodetect method is a DaemonSet env var the control plane sets,
+    # and a worker has no local cni.yaml to patch. Their calico-node
+    # pod inherits the cluster setting.
+    - not (microk8s_worker_only | bool)
 
 # Non-primary nodes join the primary's cluster. The primary itself
 # bootstraps via install.yml's solo cluster — no join-of-self.
@@ -88,6 +94,8 @@
   when:
     - _microk8s_installed.stat.exists
     - microk8s_manage_apiserver_vip | bool
+    # No kube-apiserver on a worker → no VIP for it to serve.
+    - not (microk8s_worker_only | bool)
 
 # Homelab-CA TLS leaf for the kube-apiserver — an additive SNI cert, so
 # independent of the VIP block above. Per-node; gated on the
@@ -97,3 +105,5 @@
   when:
     - _microk8s_installed.stat.exists
     - microk8s_apiserver_homelab_sans | length > 0
+    # No kube-apiserver on a worker → no SNI leaf to install.
+    - not (microk8s_worker_only | bool)

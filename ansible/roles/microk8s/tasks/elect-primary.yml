@@ -13,6 +13,11 @@
 #   3. Else lowest hostname in the cluster group (greenfield
 #      bootstrap — no microk8s anywhere yet).
 #
+# Worker-only nodes (microk8s_worker_only) are dropped from the candidate
+# set before any of the three rules apply: they run no apiserver or
+# dqlite and so can neither mint join tokens nor reconcile cluster-scoped
+# state. The primary is always a control-plane member.
+#
 # Cluster boundary is "the k8s_<env> child group this host belongs
 # to." Under inventories/prd, `hosts: k8s` resolves to k8s_prd and
 # k8s_dev together; election runs independently per cluster so each
@@ -44,7 +49,9 @@
   ansible.builtin.set_fact:
     microk8s_primary_host: >-
       {%- set my_cluster = group_names | select('match', '^k8s_') | first -%}
-      {%- set peers = groups[my_cluster] | sort -%}
+      {%- set peers = groups[my_cluster] | map('extract', hostvars)
+            | rejectattr('microk8s_worker_only', 'eq', true)
+            | map(attribute='inventory_hostname') | sort -%}
       {%- set classified = peers | map('extract', hostvars)
             | selectattr('_microk8s_node_state', 'defined') | list -%}
       {%- set in_cluster = classified

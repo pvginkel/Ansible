@@ -42,6 +42,18 @@ microk8s_addons:
 # the snap alias without sudo. Empty = no users added.
 microk8s_users: []
 
+# Worker-only node. When true, this node joins the cluster with
+# `microk8s join --worker` and stays OUT of the dqlite/HA control-plane
+# quorum: no apiserver, controller-manager, scheduler, or datastore. The
+# role then (a) takes the worker join + idempotency path in join.yml,
+# (b) skips the kube-apiserver concerns it can't host — the Keepalived
+# VIP, the SNI TLS leaf, and the node-local Calico cni.yaml patch — and
+# (c) excludes the node from primary election (a worker can never mint
+# join tokens or reconcile cluster-scoped state). Default false: full
+# control-plane member, the only shape the prd cluster knew before
+# srvk8s4. See README "Worker-only nodes".
+microk8s_worker_only: false
+
 # Hostname of the cluster's primary node — the one from which addons,
 # capability labels, the MetalLB pool spec, and the CoreDNS Corefile
 # are reconciled, and the one the join token is requested from. Set
