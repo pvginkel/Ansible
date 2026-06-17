@@ -9,10 +9,12 @@
 # stop creating/scheduling pods, metrics flap, Headlamp slows. Quorum
 # reads stay correct, so `kubectl get` looks fine — which is why it hides.
 #
-# Safe to run anytime: every node is probed first and dqlite is restarted
-# ONLY on the unambiguous frozen signature, so a healthy cluster is a clean
-# no-op (changed=0). serial: 1 rolls the restart one node at a time, never
-# dropping more than one dqlite voter, so quorum holds throughout.
+# Safe to run anytime: every control-plane node is probed first and dqlite
+# is restarted ONLY on the unambiguous frozen signature, so a healthy
+# cluster is a clean no-op (changed=0). Worker-only nodes are skipped —
+# they host no apiserver/dqlite to probe (see the import's when:). serial: 1
+# rolls the restart one node at a time, never dropping more than one dqlite
+# voter, so quorum holds throughout.
 #
 # Runs unattended from srviac on a short Jenkins cron
 # (Jenkinsfile.iac-dqlite-watchdog). It has NO Kubernetes dependency beyond
@@ -33,3 +35,10 @@
       ansible.builtin.import_role:
         name: microk8s
         tasks_from: recover-watch-freeze
+      # Worker-only nodes host no local kube-apiserver and no k8s-dqlite,
+      # so the watch-freeze probe (own-apiserver cache vs quorum read) is
+      # meaningless on them and the recovery action (restart
+      # daemon-k8s-dqlite) targets a service that doesn't exist — the
+      # probe would fail the play with rc 2. Skip them, same exclusion the
+      # role applies to every other apiserver/dqlite concern in main.yml.
+      when: not (microk8s_worker_only | default(false) | bool)
