@@ -81,7 +81,9 @@ resource "proxmox_virtual_environment_vm" "this" {
 
   memory {
     dedicated = var.memory_mb
-    floating  = var.memory_mb
+    # floating == dedicated pins the balloon and disables ballooning;
+    # a lower memory_floating_mb enables it between the two (the min).
+    floating = coalesce(var.memory_floating_mb, var.memory_mb)
   }
 
   operating_system {

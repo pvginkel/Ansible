@@ -73,8 +73,14 @@ variable "cpu_affinity" {
 }
 
 variable "memory_mb" {
-  description = "Dedicated memory in MiB."
+  description = "Dedicated memory in MiB — the VM's maximum RAM."
   type        = number
+}
+
+variable "memory_floating_mb" {
+  description = "Balloon-minimum memory in MiB (PVE `balloon` / bpg `floating`): the floor the balloon driver may reclaim down to, with memory_mb as the ceiling. null pins floating to memory_mb, which disables ballooning — the default for every VM. Set below memory_mb to enable ballooning between the two."
+  type        = number
+  default     = null
 }
 
 variable "managed_disks" {

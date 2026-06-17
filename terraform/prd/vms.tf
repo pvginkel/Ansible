@@ -62,6 +62,34 @@ locals {
       # NICs: inventories/prd/host_vars/srvk8s3.yml
     }
 
+    srvk8s4 = {
+      vm_id    = 916
+      pve_node = "pve"
+      # P-cores (interactive pool 0-11): this is the homelab's
+      # high-performance node — it takes over the `performance: high`
+      # role from srvk8s1 and hosts the KubeCoder controller + env pods.
+      workload_class = "interactive"
+      from_scratch   = true
+      static_ip      = true
+      description    = "microk8s worker node — KubeCoder high-performance node, carries zpool5. Worker-only: outside the dqlite control-plane quorum. OS managed by Ansible (k8s_prd group)."
+      tags           = ["ansible-managed", "terraform", "k8s"]
+      bios           = "ovmf"
+      machine        = "q35"
+
+      cpu_cores   = 8
+      cpu_sockets = 1
+      memory_mb          = 24 * 1024
+      memory_floating_mb = 8 * 1024
+
+      managed_disks = [
+        { interface = "scsi0", size = 20 },
+        { interface = "scsi1", size = 80 },
+        { interface = "scsi2", size = 100 },
+      ]
+
+      # NICs: inventories/prd/host_vars/srvk8s4.yml
+    }
+
     srvk8sdev = {
       vm_id          = 919
       pve_node       = "pve"
@@ -135,7 +163,7 @@ locals {
 
       cpu_cores   = 8
       cpu_sockets = 1
-      memory_mb   = 18 * 1024
+      memory_mb = 10 * 1024
 
       managed_disks = [
         { interface = "scsi0", size = 20 },
