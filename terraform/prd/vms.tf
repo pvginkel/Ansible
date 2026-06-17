@@ -70,14 +70,17 @@ locals {
       # role from srvk8s1 and hosts the KubeCoder controller + env pods.
       workload_class = "interactive"
       from_scratch   = true
-      static_ip      = true
-      description    = "microk8s worker node — KubeCoder high-performance node, carries zpool5. Worker-only: outside the dqlite control-plane quorum. OS managed by Ansible (k8s_prd group)."
-      tags           = ["ansible-managed", "terraform", "k8s"]
-      bios           = "ovmf"
-      machine        = "q35"
+      # DHCP on the vmbr0 primary (no static_ip): auto-registers
+      # srvk8s4.home via the dnsmasq reservation. srvk8s4 hosts no
+      # bring-up-tier pods, so the cold-boot constraint that pins
+      # srvk8s1/2/3 static doesn't apply. Same shape as srvk8sdev.
+      description = "microk8s worker node — KubeCoder high-performance node, carries zpool5. Worker-only: outside the dqlite control-plane quorum. OS managed by Ansible (k8s_prd group)."
+      tags        = ["ansible-managed", "terraform", "k8s"]
+      bios        = "ovmf"
+      machine     = "q35"
 
-      cpu_cores   = 8
-      cpu_sockets = 1
+      cpu_cores          = 8
+      cpu_sockets        = 1
       memory_mb          = 24 * 1024
       memory_floating_mb = 8 * 1024
 
@@ -163,7 +166,7 @@ locals {
 
       cpu_cores   = 8
       cpu_sockets = 1
-      memory_mb = 10 * 1024
+      memory_mb   = 10 * 1024
 
       managed_disks = [
         { interface = "scsi0", size = 20 },

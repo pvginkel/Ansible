@@ -31,18 +31,13 @@ zfs_pools:
 
 # Per-VM NIC config — the single source of truth, read by both
 # terraform/prd/vms.tf (via yamldecode) and the baseline netplan task.
-# NIC order is load-bearing: [0] is the vmbr0 primary.
+# NIC order is load-bearing: [0] is the vmbr0 primary. Hybrid like
+# srvk8sdev: vmbr0 is DHCP via the dnsmasq reservation (auto-registers
+# srvk8s4.home); the vlan-2 services NIC and the vmbr1 backplane carry
+# hand-curated static addresses (no IPAM on those segments).
 network_devices:
   - bridge: vmbr0
     mac_address: "02:A7:F3:03:94:00"
-    addresses:
-      - 10.1.0.30/16
-      - 2a10:3781:16a9:1::30/64
-    gateway: 10.1.0.1
-    accept_ra: false
-    nameservers:
-      - 8.8.8.8
-      - 8.8.4.4
   - bridge: vmbr0
     mac_address: "02:A7:F3:03:94:01"
     vlan_id: 2
