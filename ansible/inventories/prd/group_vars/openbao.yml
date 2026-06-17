@@ -121,5 +121,6 @@ openbao_iac_agent_kv_paths:
   - shared/prd/ceph-rgw/s3
   - eso/prd/iac-provisioner/api/token
   - eso/prd/postgres-pas/terraform-admin
+  - eso/prd/storage/prd/backup-server
 
 openbao_oidc_discovery_url: https://auth.ginbov.nl/realms/homelab
