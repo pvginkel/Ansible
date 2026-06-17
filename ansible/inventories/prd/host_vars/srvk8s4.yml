@@ -1,0 +1,56 @@
+---
+vm_id: 916
+pve_node: pve
+workload_class: interactive
+
+# Worker-only microk8s node: joins the k8s_prd cluster with `--worker`,
+# staying outside the dqlite/HA control-plane quorum. The microk8s role
+# reads this to pick the worker join path and to skip the kube-apiserver
+# concerns (VIP, SNI leaf, Calico cni.yaml patch) it has no apiserver to
+# host. See AnsibleSpecs slices/unattended-dev-controller.md.
+microk8s_worker_only: true
+
+# This node carries the homelab's `performance: high` role — moved here
+# from srvk8s1 (which kept only its `storage: zpool2` label). No
+# KubeCoder-only label or taint: KubeCoder pins purely via zpool5 through
+# the controller chart's static-zfs-pv node-affinity, not via a label.
+# The label is applied by the elected primary's strategic-merge patch;
+# removing the old one from srvk8s1's live Node is a one-shot operator
+# `kubectl label` (the role can add/update labels but not delete them).
+k8s_node_labels:
+  homelab.local/performance: high
+
+# Empty ZFS pool on the scsi2 virtual disk (terraform/prd/vms.tf). The zfs
+# role creates it create-if-absent; ZFS auto-mounts the pool's root dataset
+# at /zpool5. local-lvm backed, so a VM rebuild wipes it and the role
+# recreates the pool rather than importing it (no zpools_to_import).
+zfs_pools:
+  - name: zpool5
+    scsi_index: 2
+    mountpoint: /zpool5
+
+# Per-VM NIC config — the single source of truth, read by both
+# terraform/prd/vms.tf (via yamldecode) and the baseline netplan task.
+# NIC order is load-bearing: [0] is the vmbr0 primary.
+network_devices:
+  - bridge: vmbr0
+    mac_address: "02:A7:F3:03:94:00"
+    addresses:
+      - 10.1.0.30/16
+      - 2a10:3781:16a9:1::30/64
+    gateway: 10.1.0.1
+    accept_ra: false
+    nameservers:
+      - 8.8.8.8
+      - 8.8.4.4
+  - bridge: vmbr0
+    mac_address: "02:A7:F3:03:94:01"
+    vlan_id: 2
+    addresses:
+      - 10.2.0.30/16
+      - 2a10:3781:16a9::30/64
+  - bridge: vmbr1
+    mac_address: "02:A7:F3:03:94:02"
+    addresses:
+      - 192.168.188.30/24
+      - fdd0:6a51:35de::30/64

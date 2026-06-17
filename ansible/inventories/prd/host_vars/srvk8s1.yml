@@ -4,11 +4,12 @@ pve_node: pve
 workload_class: background
 
 # Capability labels per decisions.md "k8s node capability labels".
-# srvk8s1 is the only prd k8s node carrying labels (8 cores vs. 3 on
-# the workers; ZFS passthrough as zpool2). The other two prd nodes
-# have no labels — empty intent skips the role's reconcile.
+# `performance: high` moved to srvk8s4 (the new high-performance node);
+# srvk8s1 keeps only `storage: zpool2` (its NVMe-passthrough ZFS pool,
+# which the iac-provisioner DaemonSet schedules against). The
+# strategic-merge patch can't delete the old label from the live Node —
+# that was a one-shot `kubectl label node srvk8s1 homelab.local/performance-`.
 k8s_node_labels:
-  homelab.local/performance: high
   homelab.local/storage: zpool2
 
 # zpool2 lives on the NVMe at scsi2 (passthrough declared in
