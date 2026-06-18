@@ -4,7 +4,7 @@ producer: ansible
 nodes:
   - id: node:pve,d8382d6f-8075-4e4f-8666-73dde53aba9c
     label: pve
-    summary: Proxmox VE host 1 of 3. Primary node; carries the cluster vzdump cron. Hosts srvk8s1, srvk8sdev, srviac, srvvault1, srvceph3.
+    summary: Proxmox VE host 1 of 3. Primary node; carries the cluster vzdump cron. Hosts srvk8s1, srvk8s4, srvk8sdev, srviac, srvvault1, srvceph3.
     introduced: 2026-05-28
     lifecycle: active
     logo: proxmox
@@ -74,9 +74,22 @@ nodes:
       vmid: "912"
       pve_host: pve2
 
+  - id: node:srvk8s4,7f4d4389-2777-46fd-a6d8-bdbc2ff3b405
+    label: srvk8s4
+    summary: microk8s prd worker-only VM (joins with --worker, outside the dqlite control-plane quorum). Dedicated high-performance node for KubeCoder; carries zpool5. DHCP-registered as srvk8s4.home.
+    introduced: 2026-06-18
+    lifecycle: active
+    logo: kubernetes
+    environment: prd
+    cluster: k8s-prd
+    stats:
+      vmid: "916"
+      pve_host: pve
+      role: worker
+
   - id: node:k8s-prd-cluster,139a5ddf-cead-4f6a-b439-de88c3bf0f8a
     label: Kubernetes prd cluster
-    summary: Three-node microk8s prd cluster (srvk8s1/2/3). API VIP at kubernetes-api.home:16443.
+    summary: Four-node microk8s prd cluster — three control-plane members (srvk8s1/2/3) plus the worker-only srvk8s4. API VIP at kubernetes-api.home:16443.
     introduced: 2026-05-28
     lifecycle: active
     logo: kubernetes
@@ -968,6 +981,10 @@ relations:
     source: node:k8s-prd-cluster
     target: node:srvk8s3
     type: Aggregation
+  - id: rel:k8s-prd-cluster-aggr-srvk8s4
+    source: node:k8s-prd-cluster
+    target: node:srvk8s4
+    type: Aggregation
   - id: rel:k8s-dev-cluster-aggr-srvk8sdev
     source: node:k8s-dev-cluster
     target: node:srvk8sdev
@@ -1001,6 +1018,10 @@ relations:
   - id: rel:pve-runs-srvk8s1
     source: node:pve
     target: node:srvk8s1
+    type: Assignment
+  - id: rel:pve-runs-srvk8s4
+    source: node:pve
+    target: node:srvk8s4
     type: Assignment
   - id: rel:pve-runs-srvk8sdev
     source: node:pve
