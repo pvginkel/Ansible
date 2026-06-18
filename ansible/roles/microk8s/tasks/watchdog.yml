@@ -38,3 +38,8 @@
     enabled: true
     state: started
     daemon_reload: true
+  # In check mode the template task above hasn't written the unit, so
+  # systemd can't find dqlite-watchdog.timer and the module errors out.
+  # Enabling is a real mutation anyway — skip it on a dry run; the file
+  # diffs above are the meaningful preview.
+  when: not ansible_check_mode
