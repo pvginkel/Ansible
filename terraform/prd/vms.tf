@@ -81,8 +81,7 @@ locals {
 
       cpu_cores          = 8
       cpu_sockets        = 1
-      memory_mb          = 24 * 1024
-      memory_floating_mb = 8 * 1024
+      memory_mb          = 20 * 1024
 
       managed_disks = [
         { interface = "scsi0", size = 20 },
