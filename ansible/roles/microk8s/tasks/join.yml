@@ -6,10 +6,11 @@
 # cluster and >1 once joined.
 #
 # Worker nodes run no dqlite, so that field is not a reliable signal on
-# them. They instead count Nodes via `microk8s kubectl`: a solo pre-join
-# node sees only itself, a joined worker sees the whole cluster through
-# its apiserver proxy. install.yml has already waited for the node to
-# register and report Ready by the time this runs, so kubectl is usable.
+# them — and microk8s disables local kubectl/status DATA on a worker, so
+# neither can be queried for cluster contents. Instead the advisory text
+# microk8s prints is itself the signal: a joined worker's `microk8s status`
+# says "acting as a node in a cluster", while a solo pre-join node prints a
+# normal full status with no such line.
 - name: Read this node's microk8s status (control-plane join idempotency)
   ansible.builtin.command: microk8s status --format yaml
   register: _microk8s_self_status
@@ -22,24 +23,27 @@
   check_mode: false
   when: not (microk8s_worker_only | bool)
 
-- name: Count cluster Nodes visible from this worker (worker join idempotency)
-  ansible.builtin.command:
-    argv: [microk8s, kubectl, get, nodes, --output, name]
-  register: _microk8s_worker_nodes
+- name: Read this worker's microk8s status (worker join idempotency)
+  # kubectl is disabled on workers, so counting `get nodes` here always
+  # saw one advisory line and reported every worker as unjoined. `microk8s
+  # status` prints the same advisory once joined — match that string.
+  ansible.builtin.command: microk8s status
+  register: _microk8s_worker_status
   changed_when: false
   check_mode: false
   when: microk8s_worker_only | bool
 
 - name: Decide whether this node has already joined the cluster
-  # high-availability.nodes lists every cluster member. The secondary's
-  # post-install solo cluster has one entry pinned to 127.0.0.1; once
-  # joined the list reports the cluster's real members. Count > 1 means
+  # Worker: a joined node's `microk8s status` carries the advisory line.
+  # Control-plane: high-availability.nodes lists every cluster member —
+  # the post-install solo cluster has one entry pinned to 127.0.0.1, once
+  # joined the list reports the cluster's real members, so count > 1 means
   # we're in. Defensive parse mirrors addons.yml — a transient blank
   # status doesn't poison the decision.
   ansible.builtin.set_fact:
     _microk8s_joined: >-
       {%- if microk8s_worker_only | bool -%}
-      {{ (_microk8s_worker_nodes.stdout_lines | default([])) | length > 1 }}
+      {{ 'acting as a node in a cluster' in (_microk8s_worker_status.stdout | default('')) }}
       {%- else -%}
       {{ ((((_microk8s_self_status.stdout | from_yaml) or {})
             .get('high-availability') or {})
