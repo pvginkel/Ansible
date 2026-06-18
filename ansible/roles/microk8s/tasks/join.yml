@@ -14,10 +14,11 @@
   ansible.builtin.command: microk8s status --format yaml
   register: _microk8s_self_status
   changed_when: false
-  # Read-only — run in check mode too. Otherwise the joined-already
-  # decision below sees empty stdout, evaluates to False, and the
-  # subsequent join chain tries to template against an empty register
-  # and crashes with from_json: "Expecting value: line 1 column 1".
+  # Read-only — run in check mode too, so the membership decision below
+  # reflects reality instead of reporting an already-joined node as
+  # unjoined off empty stdout. (The join chain is also guarded against
+  # check mode, so a wrong False no longer crashes — but it would still
+  # mis-report intent, and on a worker the probe is less reliable.)
   check_mode: false
   when: not (microk8s_worker_only | bool)
 
@@ -45,6 +46,21 @@
             .get('nodes') or []) | length > 1 }}
       {%- endif -%}
 
+# The join chain (token → join → readiness wait) is a real, irreversible
+# mutation and can't be dry-run: add-node mints a token, join is one-way.
+# Skip it in check mode and just report intent. This also makes the probe's
+# accuracy non-fatal: if it can't confirm membership (e.g. a worker whose
+# kubectl momentarily returns no nodes), check mode no longer crashes on the
+# skipped token register — it reports the would-be join instead.
+- name: Report that a real run would join this node (check mode)
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }} is not detected as a cluster member; a real
+      run would request a join token from {{ microk8s_primary_host }} and join.
+  when:
+    - not _microk8s_joined
+    - ansible_check_mode
+
 - name: Request a single-use join token from the primary
   # add-node mints a token with a short TTL — long enough to use once,
   # nowhere near long enough to leak via process lists or logs. The
@@ -53,7 +69,9 @@
   ansible.builtin.command: microk8s add-node --format json --token-ttl 60
   delegate_to: "{{ microk8s_primary_host }}"
   register: _microk8s_add_node
-  when: not _microk8s_joined
+  when:
+    - not _microk8s_joined
+    - not ansible_check_mode
   changed_when: false
 
 - name: Join the cluster
@@ -62,7 +80,9 @@
   # either way — add-node doesn't care what the joiner intends to be.
   ansible.builtin.command: >-
     microk8s join {{ (_microk8s_add_node.stdout | from_json).urls | first }}{{ ' --worker' if (microk8s_worker_only | bool) else '' }}
-  when: not _microk8s_joined
+  when:
+    - not _microk8s_joined
+    - not ansible_check_mode
   changed_when: true
 
 - name: Wait for microk8s to be Ready post-join (control-plane)
