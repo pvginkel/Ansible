@@ -1,0 +1,15 @@
+# Managed by the microk8s Ansible role. See docs/runbooks/dqlite-watch-freeze.md.
+[Unit]
+Description=Periodic k8s-dqlite watch-freeze probe
+
+[Timer]
+# First probe shortly after boot, then every interval. RandomizedDelaySec
+# jitters the nodes so they never probe — and so never restart dqlite — in
+# lockstep. That destagger is the only thing standing in for cross-node
+# coordination, which is deliberately absent: each node heals itself.
+OnBootSec={{ microk8s_watchdog_onboot }}
+OnUnitActiveSec={{ microk8s_watchdog_interval }}
+RandomizedDelaySec={{ microk8s_watchdog_randomized_delay }}
+
+[Install]
+WantedBy=timers.target

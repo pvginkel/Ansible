@@ -1,0 +1,8 @@
+# Managed by the microk8s Ansible role. See docs/runbooks/dqlite-watch-freeze.md.
+[Unit]
+Description=k8s-dqlite watch-freeze self-healer (probe this node, restart dqlite if frozen)
+After=snap.microk8s.daemon-k8s-dqlite.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/dqlite-watchdog

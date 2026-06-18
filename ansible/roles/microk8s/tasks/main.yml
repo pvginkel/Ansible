@@ -113,3 +113,13 @@
     - microk8s_apiserver_homelab_sans | length > 0
     # No kube-apiserver on a worker → no SNI leaf to install.
     - not (microk8s_worker_only | bool)
+
+# Per-node self-healer for the k8s-dqlite watch-freeze bug
+# (k8s-dqlite#364 / microk8s#5386): a systemd timer probes this node's own
+# apiserver watch cache and restarts k8s-dqlite on the freeze signature.
+# Apiserver nodes only — a worker has no local apiserver/dqlite to probe.
+- name: Install the k8s-dqlite watch-freeze watchdog
+  ansible.builtin.import_tasks: watchdog.yml
+  when:
+    - _microk8s_installed.stat.exists
+    - not (microk8s_worker_only | bool)

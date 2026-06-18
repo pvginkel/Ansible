@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# dqlite-watchdog — self-heal a frozen k8s-dqlite watch cache on THIS node.
+# Managed by the microk8s Ansible role; run from dqlite-watchdog.timer.
+# See docs/runbooks/dqlite-watch-freeze.md.
+#
+# It does exactly one thing: probe this node's OWN apiserver for the
+# unambiguous watch-freeze signature and, on that signature alone, restart
+# k8s-dqlite. No cross-node coordination and no quorum gate — every
+# apiserver node heals itself. Restarting the datastore resets the wedged
+# watch source. If a restart doesn't clear it, the next timer cycle probes
+# again and restarts again, so confirmation is implicit in the next run.
+set -uo pipefail
+
+# systemd's default PATH omits /snap/bin, where `microk8s` lives. Without
+# this the probe's `microk8s kubectl` calls fail and it misreports the
+# apiserver as unreachable (rc 2). Prepend it so the probe sees microk8s.
+export PATH="/snap/bin:${PATH}"
+
+PROBE='/usr/local/sbin/dqlite-watch-probe.sh'
+DQLITE='snap.microk8s.daemon-k8s-dqlite'
+HOST="$(hostname)"
+
+# stdout is captured by systemd-journald under dqlite-watchdog.service —
+# `journalctl -u dqlite-watchdog` is the operator's view of what it did.
+log() { echo "dqlite-watchdog: $*"; }
+
+# We match ONLY on the probe's exit code. dqlite-watch-probe.sh returns:
+#   0  healthy / inconclusive — cache tracking the datastore. Do nothing.
+#   3  FROZEN — cache resourceVersion pinned across all {{ microk8s_watchfreeze_samples }} samples while
+#      the datastore advanced, gap >= {{ microk8s_watchfreeze_min_lag }}. THIS is the only restart trigger.
+#   2  apiserver unreachable — a bigger fault, NOT the freeze signature;
+#      restarting dqlite blind could worsen it. Surface, don't act.
+#   *  probe transport/script error. Surface, don't act.
+"${PROBE}" {{ microk8s_watchfreeze_samples }} {{ microk8s_watchfreeze_interval }} {{ microk8s_watchfreeze_min_lag }}
+rc=$?
+
+case "${rc}" in
+  0)
+    log "healthy on ${HOST} (rc=0)"
+    exit 0
+    ;;
+  3)
+    log "FROZEN on ${HOST} (rc=3) — restarting ${DQLITE}"
+    if systemctl restart "${DQLITE}"; then
+      log "restarted ${DQLITE} on ${HOST}"
+      exit 0
+    fi
+    log "ERROR: failed to restart ${DQLITE} on ${HOST}"
+    exit 1
+    ;;
+  2)
+    log "apiserver unreachable on ${HOST} (rc=2) — not the freeze signature, NOT restarting; needs a human"
+    exit 1
+    ;;
+  *)
+    log "probe error on ${HOST} (rc=${rc}) — NOT restarting"
+    exit 1
+    ;;
+esac

@@ -56,25 +56,36 @@ does **not** durably help — the watch client reconnects to the same wedged
 watch server and re-freezes within ~1–2 min. Restarting `k8s-dqlite` resets
 the watch source.
 
-**Automated (preferred):** the `iac-dqlite-watchdog` Jenkins job runs
-`playbooks/recover-dqlite-watch.yml` from srviac every ~5 min — it probes
-every node and rolling-restarts `k8s-dqlite` only on a frozen node, one at a
-time. To run it on demand:
+**Automated (default):** a per-node systemd timer, `dqlite-watchdog.timer`,
+installed on every apiserver node by the `microk8s` role
+(`tasks/watchdog.yml`). Every ~5 min it probes the node's **own** apiserver
+for the freeze signature and, on that signature alone, restarts the node's
+`k8s-dqlite`. Each node heals itself — no orchestrator, no cross-node
+coordination; `RandomizedDelaySec` jitters the nodes so they don't restart
+in lockstep. It only ever acts on the unambiguous frozen signature, so a
+healthy node is a no-op. Watch it work:
 
 ```sh
-cd ~/source/Ansible/ansible && poetry run ansible-playbook playbooks/recover-dqlite-watch.yml
+ssh <node> 'systemctl list-timers dqlite-watchdog.timer; journalctl -u dqlite-watchdog -n 20 --no-pager'
 ```
 
-It is a clean no-op on a healthy cluster, so it is safe to run anytime.
+A `FROZEN … restarting` / `restarted …` line is a recovery; `rc=2`
+(apiserver unreachable) leaves the unit failed for a human to look at —
+that is a bigger fault than a watch freeze, not something to clear by
+restarting dqlite blind.
 
-**Manual**, if doing it by hand — roll one node at a time, leader last,
-waiting for quorum (`microk8s status` shows 3 datastore masters) between
-each so you never drop more than one voter:
+**Manual**, if you need to force it now — restarting the datastore on the
+frozen node is the whole fix:
 
 ```sh
 ssh <node> 'sudo systemctl restart snap.microk8s.daemon-k8s-dqlite'
-# wait ~30s; re-run the cache-vs-quorum check on <node> until lag→0; then next node
+# wait ~30s; re-run the cache-vs-quorum check on <node> until lag→0
 ```
+
+On an HA cluster, if more than one node is frozen, roll them one at a time
+and wait for quorum (`microk8s status` shows 3 datastore masters) between
+each so you never drop more than one voter. (The per-node timer trusts
+`RandomizedDelaySec` to space restarts instead of gating on quorum.)
 
 After recovery the stuck Deployment reconciles on its own; pods already
 scheduled keep running regardless. Note a freeze can take dependent

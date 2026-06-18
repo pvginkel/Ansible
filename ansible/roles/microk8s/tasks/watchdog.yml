@@ -1,0 +1,40 @@
+---
+# watchdog.yml — install the per-node k8s-dqlite watch-freeze self-healer:
+# a systemd timer that probes THIS node's own apiserver watch cache and
+# restarts k8s-dqlite on the freeze signature. Each apiserver node heals
+# itself — no orchestrator, no cross-node coordination. Replaces the retired
+# iac-dqlite-watchdog Jenkins job. See docs/runbooks/dqlite-watch-freeze.md.
+
+- name: Install the watch-freeze probe
+  ansible.builtin.copy:
+    src: dqlite-watch-probe.sh
+    dest: /usr/local/sbin/dqlite-watch-probe.sh
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the watchdog wrapper
+  ansible.builtin.template:
+    src: dqlite-watchdog.sh.j2
+    dest: /usr/local/sbin/dqlite-watchdog
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the watchdog systemd service + timer
+  ansible.builtin.template:
+    src: "dqlite-watchdog.{{ item }}.j2"
+    dest: "/etc/systemd/system/dqlite-watchdog.{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - service
+    - timer
+
+- name: Enable + start the watchdog timer
+  ansible.builtin.systemd:
+    name: dqlite-watchdog.timer
+    enabled: true
+    state: started
+    daemon_reload: true

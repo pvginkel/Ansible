@@ -126,21 +126,22 @@ microk8s_coredns_home_forwarders: []
 microk8s_manage_apiserver_vip: false
 
 # --- watch-cache freeze watchdog (k8s-dqlite#364 / microk8s#5386) ---
-# Tuning for playbooks/recover-dqlite-watch.yml + tasks/recover-watch-freeze.yml.
-# A node is judged "frozen" only if its apiserver watch-cache resourceVersion
-# stays pinned across every sample while quorum reads advance and the gap
-# exceeds _min_lag — the unambiguous freeze signature, not ordinary lag.
+# A per-node systemd timer (tasks/watchdog.yml) probes this node's own
+# apiserver watch cache and restarts k8s-dqlite on the freeze signature: the
+# cache resourceVersion stays pinned across every sample while quorum reads
+# advance and the gap exceeds _min_lag — the unambiguous freeze, not ordinary
+# lag. Each apiserver node heals itself; no cross-node coordination. See
+# docs/runbooks/dqlite-watch-freeze.md.
 microk8s_watchfreeze_samples: 4
 microk8s_watchfreeze_interval: 4
 microk8s_watchfreeze_min_lag: 500
-# Before restarting a dqlite voter, require at least this many voters up
-# (HA clusters only; a single-node cluster skips the gate). Belt-and-
-# suspenders on top of the playbook's serial: 1.
-microk8s_watchfreeze_required_voters: 3
-# After restarting dqlite, re-probe until the freeze clears: retries × delay
-# seconds is the budget for the watch to re-establish before giving up.
-microk8s_watchfreeze_recover_retries: 10
-microk8s_watchfreeze_recover_delay: 6
+# Timer cadence: first probe OnBootSec after boot, then every _interval.
+# _randomized_delay (seconds) jitters the nodes so they never probe — and
+# never restart dqlite — in lockstep; it is the only stand-in for the
+# cross-node coordination this design deliberately omits.
+microk8s_watchdog_onboot: 2min
+microk8s_watchdog_interval: 5min
+microk8s_watchdog_randomized_delay: 120
 
 # Homelab-CA TLS leaf for the kube-apiserver. The SANs the leaf carries;
 # empty skips it. The leaf is served *additively* via the apiserver's
