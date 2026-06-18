@@ -99,6 +99,7 @@ The agent definitions are installed in the operator's `~/.claude/agents/` — `i
 - **Idempotent tasks.** Every task must be safely re-runnable. Prefer modules over `command`/`shell`; if you must shell out, add `creates:` / `removes:` or a `changed_when:`.
 - **Roles own their concern end-to-end.** Role defaults in `defaults/main.yml`. Host-specific settings in `host_vars/`. Environment-level in `group_vars/`.
 - **Check-mode first.** For any change against real infrastructure, run with `--check --diff` before applying. The user wants to see diffs before things happen.
+- **Cluster upgrades — revisit the dqlite watch-freeze watchdog.** The per-node `dqlite-watchdog.timer` (microk8s role) works around an unreleased upstream bug. On every microk8s channel bump, re-check whether the cluster now carries the fix and the watchdog can be retired. Details and the removal checklist: [`docs/runbooks/k8s-upgrade.md`](docs/runbooks/k8s-upgrade.md) and [`docs/runbooks/dqlite-watch-freeze.md`](docs/runbooks/dqlite-watch-freeze.md).
 
 ## When in doubt
 

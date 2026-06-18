@@ -76,6 +76,20 @@ Per cluster, on the primary only:
 
 Brief unavailability per addon during the disable/enable cycle. Run during a maintenance window.
 
+## Re-evaluate the dqlite watch-freeze watchdog
+
+Every time you bump the microk8s channel, re-check whether the per-node
+`dqlite-watchdog.timer` is still needed. It works around the `k8s-dqlite`
+watch-stall bug ([k8s-dqlite#364](https://github.com/canonical/k8s-dqlite/issues/364)
+/ [microk8s#5386](https://github.com/canonical/microk8s/issues/5386)),
+introduced in 1.34 and unfixed in any release as of this writing — fix
+[PR #365](https://github.com/canonical/k8s-dqlite/pull/365) is unmerged.
+Once the cluster runs a microk8s version that carries the fix, the watchdog
+is dead weight: remove it (`tasks/watchdog.yml`, its templates, and the
+`microk8s_watchfreeze_*` / `microk8s_watchdog_*` defaults) or keep it only
+as a deliberate defense-in-depth net. See
+[`dqlite-watch-freeze.md`](dqlite-watch-freeze.md).
+
 ## Drain blocked by a PodDisruptionBudget
 
 Drain uses `kubectl drain --ignore-daemonsets --delete-emptydir-data --timeout=300s`, which honours PodDisruptionBudgets. A PDB that can't be satisfied (e.g. a single-replica Deployment with `minAvailable: 1`, where evicting the only pod would violate the budget) blocks drain indefinitely; after the 5-minute timeout the playbook fails and the node stays cordoned.
