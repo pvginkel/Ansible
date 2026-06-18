@@ -56,6 +56,10 @@
         voters="$(sed -n 's/.*datastore master nodes: //p' <<<"$status" | tr ' ' '\n' | grep -c ':19001')"
         echo "voters_up=$voters required={{ microk8s_watchfreeze_required_voters }}"
         [ "$voters" -ge "{{ microk8s_watchfreeze_required_voters }}" ]
+      args:
+        # set -o pipefail above needs bash; the default /bin/sh is dash on
+        # Ubuntu and errors with "Illegal option -o pipefail".
+        executable: /bin/bash
       register: _microk8s_watchfreeze_quorum
       changed_when: false
       check_mode: false
