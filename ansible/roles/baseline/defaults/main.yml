@@ -76,3 +76,14 @@ baseline_disabled_motd_scripts:
   - 85-fwupd
   - 90-updates-available
   - 97-overlayroot
+
+# Swap file. Opt-in: "0" (the default) manages no swap at all. Set a size
+# string accepted by community.general.filesize (e.g. "6GiB") in host_vars
+# to create, enable, and persist a swap file at baseline_swap_path. Only
+# srvk8sdev uses this today — a memory-pressure relief valve for the
+# single-node microceph + microk8s box; its kubelet already runs with
+# --fail-swap-on=false. The file lives on the root filesystem; do NOT
+# point baseline_swap_path at a ZFS dataset — swap on ZFS deadlocks under
+# the memory pressure it is meant to relieve.
+baseline_swap_size: "0"
+baseline_swap_path: /swapfile

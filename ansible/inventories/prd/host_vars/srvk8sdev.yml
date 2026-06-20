@@ -2,6 +2,13 @@
 vm_id: 919
 workload_class: background
 
+# 6 GiB swap as a memory-pressure relief valve. This single 11 GiB VM runs
+# a full single-node microceph (mon/mgr/osd/mds/rgw) alongside the microk8s
+# dev cluster with 0 swap; under pressure the dev-ceph OSD was starved off
+# its mon beacon and dropped out. Swapfile sits on the root ext4 — NOT
+# zpool1 (swap on ZFS deadlocks). kubelet here runs --fail-swap-on=false.
+baseline_swap_size: "6GiB"
+
 # Declares that srvk8sdev has a ZFS pool names zpool1.
 k8s_node_labels:
   homelab.local/storage: zpool1
