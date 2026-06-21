@@ -19,12 +19,6 @@ pipeline {
         buildDiscarder(logRotator(numToKeepStr: '50'))
     }
 
-    triggers {
-        // Daily, jittered around mid-morning so an operator can react
-        // on the same day.
-        cron('H 9 * * *')
-    }
-
     stages {
         stage('Terraform drift (prd)') {
             steps {

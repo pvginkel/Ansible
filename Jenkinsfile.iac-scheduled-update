@@ -26,12 +26,6 @@ pipeline {
         buildDiscarder(logRotator(numToKeepStr: '50'))
     }
 
-    triggers {
-        // Sunday morning, jittered. Avoids the standalone-class hosts'
-        // unattended-upgrades reboot window (default 03:00).
-        cron('H 6 * * 0')
-    }
-
     stages {
         // Critical clusters: an unreachable member fails the build. The
         // playbook's preflight aborts before any cordon, so a hard fail
