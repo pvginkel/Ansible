@@ -51,6 +51,14 @@ microk8s_apiserver_homelab_sans:
   - kubernetes-api
   - kubernetes-api.home
 
+# Enforce RBAC on the apiserver (off AlwaysAllow). dev has soaked this;
+# the in-cluster API clients that ran under unbound default SAs
+# (dnsmasq/nginx/infra-statistics config-generators) were given scoped
+# RBAC in HelmCharts and redeployed first. Applied per control-plane
+# node (tasks/rbac.yml), one at a time under site-k8s.yml's serial:1.
+# See decisions.md "k8s clusters enforce RBAC".
+microk8s_enable_rbac: true
+
 # core/registry excluded per decisions.md "Tool split": the operator
 # runs their own registry, so the live `registry` addon stays enabled
 # until disabled out-of-band (the role is additive — only enables
