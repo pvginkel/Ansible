@@ -125,6 +125,14 @@ microk8s_coredns_home_forwarders: []
 # tasks/keepalived.yml and slices/internal-ha-vips.md.
 microk8s_manage_apiserver_vip: false
 
+# Enforce RBAC on the kube-apiserver instead of microk8s's default
+# AlwaysAllow. false leaves the apiserver permissive (any authenticated
+# identity is fully authorized). Set true per cluster in
+# group_vars/k8s_*.yml. Applied per-node (tasks/rbac.yml), not via the
+# primary-only addon list, because --authorization-mode is a per-node
+# apiserver arg. See decisions.md "k8s clusters enforce RBAC".
+microk8s_enable_rbac: false
+
 # --- watch-cache freeze watchdog (k8s-dqlite#364 / microk8s#5386) ---
 # A per-node systemd timer (tasks/watchdog.yml) probes this node's own
 # apiserver watch cache and restarts k8s-dqlite on the freeze signature: the

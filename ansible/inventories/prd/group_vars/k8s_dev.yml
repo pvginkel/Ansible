@@ -21,6 +21,13 @@ microk8s_apiserver_homelab_sans:
   - kubernetes-api-dev
   - kubernetes-api-dev.home
 
+# Enforce RBAC on the apiserver (off AlwaysAllow). dev is the canary —
+# it runs the same HelmCharts as prd, so a chart whose ServiceAccount
+# relied on AlwaysAllow surfaces here first. prd follows once dev is
+# clean and the prd workload/SA audit is done. See decisions.md
+# "k8s clusters enforce RBAC".
+microk8s_enable_rbac: true
+
 # core/ingress excluded per decisions.md "Tool split": operator runs
 # their own ingress controller. ha-cluster auto-enabled by microk8s.
 # MetalLB excluded: installed via the HelmCharts metallb-system

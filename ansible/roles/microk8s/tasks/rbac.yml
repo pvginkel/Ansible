@@ -1,0 +1,24 @@
+---
+# Switch the kube-apiserver from AlwaysAllow to RBAC enforcement.
+#
+# Per-node, NOT primary-only: --authorization-mode lives in each node's
+# kube-apiserver args file, not in dqlite. Enabling it on the primary
+# alone would leave the other control-plane nodes permissive and make
+# enforcement depend on which apiserver the VIP routed a request to.
+#
+# RBAC,Node is exactly what `microk8s enable rbac` writes (the `rbac`
+# core addon): RBAC for workloads plus the Node authorizer for kubelets,
+# whose certs are in system:nodes — so node/pod status and volume mounts
+# keep working and the control plane itself never loses access.
+#
+# The arg is re-asserted every converge, so a snap refresh that reset the
+# file self-heals on the next run — fail-closed toward enforcement. The
+# change takes effect when the handler restarts kubelite at end of play;
+# under site-k8s.yml's serial:1 that's one node at a time, with the
+# apiserver VIP and the peer nodes covering each node's brief blip.
+- name: Enforce RBAC on the kube-apiserver
+  ansible.builtin.lineinfile:
+    path: /var/snap/microk8s/current/args/kube-apiserver
+    regexp: '^--authorization-mode='
+    line: '--authorization-mode=RBAC,Node'
+  notify: Restart microk8s kubelite

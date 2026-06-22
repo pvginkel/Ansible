@@ -114,6 +114,17 @@
     # No kube-apiserver on a worker → no SNI leaf to install.
     - not (microk8s_worker_only | bool)
 
+# Per-node apiserver-arg change: switch authorization-mode to RBAC,Node.
+# Gated on the per-cluster opt-in; skipped on workers (no apiserver to
+# enforce on). The kubelite restart it queues is batched with the SNI
+# leaf's above into one end-of-play restart per node.
+- name: Enforce RBAC on the kube-apiserver
+  ansible.builtin.import_tasks: rbac.yml
+  when:
+    - _microk8s_installed.stat.exists
+    - microk8s_enable_rbac | bool
+    - not (microk8s_worker_only | bool)
+
 # Per-node self-healer for the k8s-dqlite watch-freeze bug
 # (k8s-dqlite#364 / microk8s#5386): a systemd timer probes this node's own
 # apiserver watch cache and restarts k8s-dqlite on the freeze signature.
