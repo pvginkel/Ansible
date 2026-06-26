@@ -8,14 +8,55 @@ Ansible + Terraform managing the homelab infrastructure: Proxmox hosts, k8s VMs 
 
 **Before proposing changes, read these in order:**
 1. [`/work/AnsibleSpecs/decisions.md`](../AnsibleSpecs/decisions.md) — homelab doctrine: tool split, secrets, networking, MAC scheme, OS update policy.
-2. [`/work/AnsibleSpecs/slices/README.md`](../AnsibleSpecs/slices/README.md) — the work index: pending slices at top, closed work in `completed/`, `deferred/`, `cancelled/`.
+2. [`/work/AnsibleSpecs/slices/README.md`](../AnsibleSpecs/slices/README.md) — the slice catalogue: numbered `NNN_` slices, closed work in `completed/`/`deferred/`/`cancelled/`. **Live status is on the shared Kanban board** (see the AI-workflow section).
 3. The relevant slice doc(s) under `/work/AnsibleSpecs/slices/` — working context for the conversation.
 
-All work is tracked as slices. The phased build-out is complete and retired; its history is archived (read-only) under [`/work/AnsibleSpecs/phases/`](../AnsibleSpecs/phases/) and stays linked from slices for context. Operational runbooks stay in [`docs/runbooks/`](docs/runbooks/).
+All work is tracked as **slices**, numbered `NNN_<name>/` under `/work/AnsibleSpecs/slices/`. The phased build-out is complete and retired; its history is archived (read-only) under [`/work/AnsibleSpecs/phases/`](../AnsibleSpecs/phases/) and stays linked from slices for context. Operational runbooks stay in [`docs/runbooks/`](docs/runbooks/).
 
 When a slice is added, moved (pending ↔ completed / deferred / cancelled), or its dependencies shift, update [`/work/AnsibleSpecs/slices/README.md`](../AnsibleSpecs/slices/README.md) in the same change. The index is the entry point — a stale row there sends future readers (including future-Claude) chasing work that no longer exists or missing work that does.
 
 If a decision changes, update `/work/AnsibleSpecs/decisions.md` — don't leave stale notes elsewhere.
+
+## The AI workflow: your role, slices, and the boards
+
+This repo runs the shared [AIWorkflow](/work/AIWorkflow) slice model, but with one repo-specific twist that overrides the stock orchestrator posture: **here, you do the infrastructure work yourself.**
+
+### Your dual role
+
+In the app repos, the orchestrator only coordinates — it refuses to touch code directly and routes everything through the slice workflow. **This repo is different.** Most of the work here *is* orchestrator work: investigation, diagnostics, troubleshooting, reading live state, editing a runbook, fixing a role, preparing an operator command. Do that work directly and frictionlessly — you are a helpful infrastructure agent, not a gatekeeper.
+
+Before acting, make one determination:
+
+- **Is this a managed change to one of the infrastructure repos** (an Ansible role/playbook, a Terraform module, a HelmCharts chart, a DockerImages image) **substantial enough to warrant a tracked slice?** Then behave like the other repos' orchestrators: **push back on doing it ad hoc**, and route it through triage → write-slice → run-slice. A go-ahead to author a slice is not a go-ahead to run it; running dispatches code-writing dev agents and is always a separate, explicit operator step.
+- **Otherwise** — a quick fix, a diagnosis, an investigation, a one-off operator command, a doc/runbook touch — **just do it.** No slice, no ceremony. You still obey the standing rules below (the operator runs all `terraform`/`ansible` against real infra; you don't read secret values; etc.).
+
+When unsure which side a request falls on, say which way you're leaning and why, and ask — per "When in doubt" below.
+
+### The slice lifecycle and skills
+
+A slice is the tracking unit for a managed infra-repo change. Each step is a deliberate, operator-gated act:
+
+- **`/triage`** — group raw findings / requests / Triage-Inbox cards into change-request bundles under `/work/AnsibleSpecs/change_requests/`. Stops at the bundle; never auto-writes a slice.
+- **`/write-slice`** — author a numbered slice from a bundle (overview + acceptance criteria + briefs where a code change is dispatched). Allocates the number via `../AnsibleSpecs/scripts/allocate-next-slice.sh`. Authoring needs the operator's go-ahead.
+- **`/run-slice`** — dispatch the dev agents (plan-writer → plan-reviewer → code-writer → code-reviewer) **inline as Task subagents** to make the code change, then validate the acceptance criteria. Never start a run yourself. Verification of anything touching real infra is the operator running `terraform`/`ansible` and reporting back — there is no automated app test suite here.
+- **`/arch-design`** (sparingly), **`/update-docs`** — supporting skills.
+
+The dev agents write code in the area the slice touches (`ansible/`, `terraform/`, or a sibling repo for a coordinated change); they run lint, never `apply`. Most slices for this repo are small enough that you carry them yourself — reach for the dev agents when a change is genuinely sizeable.
+
+### Issue log — two shared boards
+
+Work is tracked on two boards shared across all the operator's projects; this repo's cards carry the **`Ansible`** owner tag.
+
+- **Triage** (https://trello.com/b/ETTRJ8iW/triage) — incoming/unstructured work. Lists **Inbox → Accepted → Later → Won't Do**.
+- **Kanban** (https://trello.com/b/QNGUAXri/kanban) — slices only, as `[NNN] <title>` cards. Lists **To Do → In Progress → Done**. This is the **live status** for slices (the specs-repo README is just the catalogue).
+
+When the operator asks to add something, drop a card in Triage **Inbox** tagged `Ansible`. When they ask about outstanding work, read the `Ansible` cards on the boards. The boards are shared — act only on `Ansible`-tagged cards, and don't silently adopt untagged or other-repo cards.
+
+**Owner tag = who leads/runs the slice, not where the code lands.** A coordinated cross-repo change, or a change whose context lives here in Ansible(Specs) (e.g. a DockerImages container change driven by the OpenBao plan), is **Ansible-led** — tag it `Ansible`, and the Ansible orchestrator runs it (dispatching dev agents into the sibling repo as needed). Tag a card for a sibling repo (`HelmCharts`, `DockerImages`, `IaCAgent`) only when the work is self-contained there and that repo's own agent should run it.
+
+### Push notifications
+
+Use `python3 tools/ai_workflow/send_message.py --title "<title>" "<message>"` to push to the operator's phone. Notify on completion of anything that took (or was expected to take) over ~10 minutes, and when blocked needing input. "Send me a message" / "let me know" means this.
 
 ## Commit early and often
 
