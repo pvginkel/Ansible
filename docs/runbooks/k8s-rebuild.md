@@ -1,4 +1,4 @@
-# Rebuilding k8s VMs (drain → shutdown → TF → Ansible)
+# Rebuilding k8s VMs (drain → destroy → TF → Ansible)
 
 End-to-end procedure for rebuilding `k8s_prd` and `k8s_dev` nodes from scratch. The phase-4 parity event that retired the adoption shape across the fleet closed in phase 4d (2026-05-07); the same flow applies to any future single-node rebuild (disk failure, hardware migration, etc.).
 
@@ -79,13 +79,13 @@ poetry run ansible -i inventories/prd <other-survivor> -m command \
 
 `evict-k8s.yml` runs the pre-drain hand-off (cordon + rollout restart of opt-in Deployments) and the drain; see "Pre-drain hand-off" above. `microk8s leave` (on the leaving node) plus `microk8s remove-node` (delegated to a survivor — runtime election picks one) is the canonical removal: clears both the node's local cluster state and the dqlite voter list. `kubectl delete node` only removes the kubelet Node object; it leaves dqlite stale.
 
-### 2. Shut down the old VM (don't destroy)
+### 2. Destroy the old VM
 
 ```sh
-ssh root@<pve-node> qm shutdown <vmid>
+ssh root@<pve-node> 'qm shutdown <vmid> ; sleep 5 ; qm destroy <vmid>'
 ```
 
-The shut-down VMID stays on PVE as an escape hatch. After `microk8s leave` its on-disk dqlite state is no longer trusted by the cluster — to reuse the old VM in an emergency, `qm start <vmid>` + `microk8s reset` + `microk8s join` it back as a fresh member.
+Destroy is the standard — the same shape `srvk8s1` and `srvk8sdev` use. Nothing OS-side is worth preserving (microk8s state lives in `/var/snap/microk8s` and is rejoined fresh), the VMID frees immediately for step 4 to reuse under the same pin, and there's no parked VM to clean up afterward. There's no parked-VM rollback either; recovery is forward (see "If a rebuild goes sideways"). The `sleep 5` lets the graceful shutdown finish before destroy.
 
 ### 3. (Static-hosts is hand-curated; no edit unless the IP changes)
 
@@ -95,16 +95,12 @@ The target's entry in HelmCharts `configs/prd/dnsmasq.yaml` is operator-curated 
 
 ```sh
 cd terraform/prd
-terraform apply \
-    -replace='proxmox_virtual_environment_file.cloud_init["<target>"]' \
-    -replace='module.vm["<target>"].proxmox_virtual_environment_vm.this' \
-    -target='module.vm["<target>"]' \
-    -target=proxmox_virtual_environment_file.cloud_init
+terraform apply -target='module.vm["<target>"]'
 ```
 
-The `-replace` on `proxmox_virtual_environment_file.cloud_init["<target>"]` forces a fresh snippet (deterministic content, but explicit re-render keeps cloud-init first-boot semantics intact). The `-replace` on the VM resource destroys + recreates it from the cloud image. Drop the `-replace` flags for a greenfield create where the resource doesn't exist in state yet.
+The VM was destroyed in step 2, so TF's refresh sees it gone and recreates it under the same pinned VMID from the current cloud image — no `-replace` needed (same shape `srvk8s1`/`srvk8sdev` use). A fresh-from-image create reads `disk[0].file_id` directly, so a promoted image channel is picked up here automatically — the `ignore_changes` on `disk[0].file_id` only suppresses diffs on *existing* VMs (see `managed-vm/main.tf`). The cloud-init snippet wasn't destroyed and is reused as-is; cloud-init still runs on first boot because the VM is new.
 
-Shared resources (`tls_private_key.host_ed25519`, `local_file.known_hosts_prd`, `proxmox_download_file.ubuntu_cloud_image`) already exist from the original phase-4 rebuilds and are reused; if you somehow have a fresh state without them, add `-target=tls_private_key.host_ed25519 -target=local_file.known_hosts_prd -target=proxmox_download_file.ubuntu_cloud_image`. `tls_private_key` runs for all from-scratch VMs at once — the `local_file` aggregates host keys from all of them; targeting only one leaves the file content unknown at plan time and TF errors.
+Shared resources (`tls_private_key.host_ed25519`, `local_file.known_hosts_prd`, `proxmox_download_file.ubuntu_cloud_image`) already exist and are reused; if you somehow have a fresh state without them, add `-target=tls_private_key.host_ed25519 -target=local_file.known_hosts_prd -target=proxmox_download_file.ubuntu_cloud_image`. `tls_private_key` runs for all from-scratch VMs at once — the `local_file` aggregates host keys from all of them; targeting only one leaves the file content unknown at plan time and TF errors.
 
 TF blocks until the new VM's qemu-guest-agent reports its IP back to PVE — typically 1–3 minutes including cloud-init.
 
@@ -133,7 +129,7 @@ poetry run ansible-playbook playbooks/site.yml --limit <target> --check
 
 ## Primary rebuild — `srvk8s1` (NVMe passthrough)
 
-Use this section when rebuilding the node that currently holds the cluster primary role. The old VM is destroyed (not just shut down) because the new VM needs the NVMe — qemu can't open a device claimed by another running VM.
+Use this section when rebuilding the node that currently holds the cluster primary role. Same destroy-and-recreate standard as the worker flow; here the destroy is doubly required because the new VM needs the NVMe — qemu can't open a device claimed by another running VM.
 
 | target    | VMID | MAC                  |
 |-----------|------|----------------------|
@@ -246,10 +242,10 @@ The role-wide cordon-safety pass is queued as a slice; only bites on partial-rer
 
 ## If a rebuild goes sideways
 
-There's no "uncordon to roll back" — by the time `terraform apply` runs the old VM is shut down (workers) or destroyed (`srvk8s1`). Recovery is forward.
+There's no "uncordon to roll back" — by the time `terraform apply` runs the old VM is already destroyed. Recovery is forward. The last safe abort point is *before* step 2: while the node is evicted and has `microk8s leave`'d but the VM still exists, you can `qm start <vmid>` + `microk8s reset` + `microk8s join` it back as a fresh member.
 
-- **TF errors at create:** fix the TF error, retry the targeted apply. For workers, the old shut-down VM is still on PVE; in a real emergency `qm start <old-vmid>` + `microk8s reset` + `microk8s join` it as a fresh worker. For `srvk8s1`, the old VM is gone — fix forward only.
-- **Cloud-init never finishes (TF times out waiting for IP):** `qm console <new-vmid>` on PVE to inspect; usually the snippet's `qemu-guest-agent` install failed. Fix and `terraform apply -replace='module.vm["<new-hostname>"].proxmox_virtual_environment_vm.this'`.
+- **TF errors at create:** fix the TF error, retry the targeted apply. The old VM is gone — fix forward only.
+- **Cloud-init never finishes (TF times out waiting for IP):** `qm console <new-vmid>` on PVE to inspect; usually the snippet's `qemu-guest-agent` install failed. Fix the snippet, then destroy and recreate exactly as in steps 2 → 4 (`qm destroy <new-vmid>`, then `terraform apply -target='module.vm["<target>"]'`).
 - **`rebuild-k8s.yml` fails on cluster-join:** the new VM exists but isn't in the cluster. `microk8s status` on the rebuild target tells you what's happening. Common cause: stale `/var/snap/microk8s/common/var/lib/dqlite` from a half-completed prior attempt. `microk8s reset` on the new node, re-run the playbook.
 - **`zpool import zpool2` fails on `srvk8s1`:** the role passes `-f` because rebuilds always cross hostids (the new VM has a different ZFS hostid than the destroyed one). The multi-mount risk that `-f` overrides cannot apply because the source VM is destroyed before the NVMe is reattached. If a future rebuild surfaces a different import failure, fix forward — `microk8s reset` on the new node and re-run the playbook is the reset hammer.
 
