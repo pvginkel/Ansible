@@ -42,11 +42,29 @@ pipeline {
             }
         }
 
-        // Non-critical: a down dev node marks the build UNSTABLE rather
-        // than FAILURE, so it never reds the prod roll above. Still
-        // visible (yellow + the unstable post handler), just not paged
-        // as an outage.
+        // Non-critical dev roll, two-tier handling:
+        //   - If srvk8sdev is unreachable (powered off / down), the
+        //     bounded probe in `when` skips the stage entirely. A down
+        //     dev box is expected churn, not a build signal — SUCCESS,
+        //     no page.
+        //   - If it's up but the roll fails, catchError downgrades to
+        //     UNSTABLE so a dev hiccup never reds the prod roll above.
         stage('k8s dev') {
+            when {
+                // Reachability gate: skip the stage when the dev node
+                // won't answer a quick SSH ping (-T 5 bounds the wait).
+                expression {
+                    return sh(
+                        returnStatus: true,
+                        script: '''
+                            iac -c '
+                                cd /work/Ansible/ansible
+                                ansible k8s_dev -m ping -o -T 5
+                            '
+                        '''
+                    ) == 0
+                }
+            }
             steps {
                 catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
                     sh '''
@@ -66,7 +84,7 @@ pipeline {
             sh '''iac -c 'send_message.py --title "iac-scheduled-update #'"$BUILD_NUMBER"' failed" "'"$BUILD_URL"'"' '''
         }
         unstable {
-            sh '''iac -c 'send_message.py --title "iac-scheduled-update #'"$BUILD_NUMBER"' unstable (non-critical cluster skipped)" "'"$BUILD_URL"'"' '''
+            sh '''iac -c 'send_message.py --title "iac-scheduled-update #'"$BUILD_NUMBER"' unstable (dev cluster roll failed)" "'"$BUILD_URL"'"' '''
         }
     }
 }
