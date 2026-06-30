@@ -570,7 +570,7 @@ systemSoftware:
 
 technologyServices:
   - id: svc:proxmox-api-prd,18a9fb9e-cfcb-49e2-a423-650d0c866774
-    label: Proxmox API (prd)
+    label: Proxmox (prd)
     summary: PVE cluster API surface, reached at the cluster-wide endpoint. Consumed by Terraform (bpg/proxmox provider) and the iac shim.
     introduced: 2026-05-28
     lifecycle: active
@@ -597,7 +597,7 @@ technologyServices:
     cluster: k8s-dev
 
   - id: svc:openbao-api-prd,6efb187c-9ae8-4d73-b267-56c826983cd8
-    label: OpenBao API (prd)
+    label: OpenBao (prd)
     summary: OpenBao HTTPS API on the openbao-prd cluster. TCP-passthrough via per-node HAProxy onto the local OpenBao listener; addressed via the Keepalived VIP at secrets.home.
     introduced: 2026-05-28
     lifecycle: active
@@ -641,7 +641,7 @@ technologyServices:
 
 technologyInterfaces:
   - id: if:proxmox-api-prd,6adcbe6e-12cd-4ab5-959c-f8953288d251
-    label: Proxmox API endpoint
+    label: Proxmox
     summary: Cluster-wide PVE API at https://pve.home:8006/. Cluster routes the request internally.
     introduced: 2026-05-28
     lifecycle: active
@@ -674,7 +674,7 @@ technologyInterfaces:
       url: https://kubernetes-api-dev.home:16443
 
   - id: if:openbao-vip-https-prd,1122aa35-b174-407a-a1c7-5a943af6adaf
-    label: OpenBao VIP (HTTPS 443)
+    label: OpenBao
     summary: Primary client entry at https://secrets.home/ — port 443 TCP-passthrough through HAProxy to OpenBao on 8200.
     introduced: 2026-05-28
     lifecycle: active
@@ -706,6 +706,7 @@ technologyInterfaces:
     stats:
       vip: 10.1.0.38
       dns: ceph.home
+      url: https://ceph.home
 
   - id: if:ceph-rgw-dev,2b24aab5-77a8-41d8-81ff-96ca0754d034
     label: Ceph RGW/S3 endpoint (dev)
@@ -1402,4 +1403,22 @@ relations:
   - id: rel:metallb-prd-realizes-ha
     source: ss:metallb-prd
     target: cap:high-availability
+    type: Realization
+
+  # ─── Realization: TechnologyInterface → cap:web-ui ─────────────────
+  # The browser-facing UIs a human opens (homeapps launcher tiles). Marked at
+  # the interface, not the service: OpenBao's service backs both the 443 UI and
+  # the 8200 admin-API interface, so only the 443 interface is a UI. The S3,
+  # 8200, :16443 and /metrics interfaces are machine endpoints — left unmarked.
+  - id: rel:proxmox-api-if-realizes-web-ui
+    source: if:proxmox-api-prd
+    target: cap:web-ui
+    type: Realization
+  - id: rel:openbao-vip-https-if-realizes-web-ui
+    source: if:openbao-vip-https-prd
+    target: cap:web-ui
+    type: Realization
+  - id: rel:ceph-vip-if-realizes-web-ui
+    source: if:ceph-vip-prd
+    target: cap:web-ui
     type: Realization
