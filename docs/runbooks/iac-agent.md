@@ -10,10 +10,10 @@ See [`/work/AnsibleSpecs/phases/iac-agent.md`](../../../AnsibleSpecs/phases/iac-
 |---|---|
 | `srviac` host | Docker, the `iac` shim, a daily `docker image prune -f` cron, a systemd unit running the Jenkins inbound-agent container, `/etc/iac/secrets.yaml` (operator-curated, `0600`), `/var/lock/iac.lock` (the IaC mutex). |
 | `modern-app-dev` image | Terraform, Ansible, kubectl, helm, python, poetry, `terraform-backend-git`, plus `iac-impl` — the in-container entrypoint that parses `secrets.yaml`, clones Ansible, starts the terraform-backend-git daemon on `127.0.0.1:6061`, runs `poetry install`, then exec's whatever you asked for. Built and pushed via the existing DockerImages pipeline. |
-| `pvginkel/Ansible` (this repo) | Roles, playbooks, inventory, the Terraform configs (`terraform/{prd,scratch}/`, each with a `backend.tf` http block). |
+| `pvginkel/Ansible` (this repo) | Roles, playbooks, inventory, the Terraform configs (`terraform/{prd,scratch}/`, each with a `backend.tf` http block), and the Jenkins pipeline scripts (`Jenkinsfile.iac-*`) the controller jobs check out. |
 | `pvginkel/TerraformState` | tfstate served through the terraform-backend-git http backend, sops+age-encrypted at rest. Private. Holds the same sensitivity as any secret-bearing repo (VM host private keys, API tokens, proxmox creds). |
-| `pvginkel/IaCAgent` | Host glue (`bin/iac`, the systemd unit, `install.sh`, Jenkinsfiles, the `secrets.example.yaml` template). |
-| Jenkins controller (`jenkins.webathome.org`) | Three jobs: `iac-on-push`, `iac-scheduled-update`, `iac-scheduled-drift`. All run on the `iac-controller`-labelled agent. |
+| `pvginkel/IaCAgent` | Host glue (`bin/iac`, the systemd unit, `install.sh`, the `secrets.example.yaml` template). |
+| Jenkins controller (`jenkins.webathome.org`) | Four jobs: `iac-on-push`, `iac-scheduled-update`, `iac-scheduled-drift`, `iac-scheduled-calico`. All run on the `iac-controller`-labelled agent. |
 
 ## Operator workflow
 
@@ -109,7 +109,7 @@ This is the sequence to stand `srviac` up the first time, after all the source c
 
    Both clean → green light.
 
-7. **Wire the three Jenkins jobs** on the controller (pipeline scripts live in `IaCAgent`). Verify each runs against a no-op change (a comment-only push) before unleashing.
+7. **Wire the four Jenkins jobs** on the controller — each is a pipeline job with SCM `pvginkel/Ansible` and Script Path `Jenkinsfile.iac-<name>` in the repo root. Verify each runs against a no-op change (a comment-only push) before unleashing.
 
 8. **Cutover.** Stop running Terraform and Ansible from `wrkdev` as the routine path. Delete the workstation-local `terraform/{prd,scratch}/terraform.tfstate{,.backup,.<timestamp>.backup}` files — state is reached only through the backend (encrypted in `TerraformState`) from now on.
 

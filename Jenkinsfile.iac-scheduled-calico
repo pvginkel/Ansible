@@ -1,0 +1,85 @@
+// iac-scheduled-calico — weekly rolling-restart of the calico-node
+// DaemonSet on the k8s clusters.
+//
+// Works around projectcalico/calico#8777: on long-uptime calico-node pods
+// (worker nodes especially) the token_watch.go loop silently stops
+// refreshing the CNI kubeconfig token; the bounded ServiceAccount token
+// then expires and new pod sandboxes on that node fail with "error getting
+// ClusterInformation: connection is unauthorized: Unauthorized". A weekly
+// restart caps every calico-node pod's uptime below the stall window.
+// Re-evaluate after each microk8s upgrade — see docs/runbooks/k8s-upgrade.md.
+//
+// Controller config:
+//   - SCM: pvginkel/Ansible, branch main
+//   - Script Path: Jenkinsfile.iac-scheduled-calico
+
+pipeline {
+    agent { label 'iac-controller' }
+
+    triggers {
+        // Weekly, mid-week and offset from the weekly OS-update roll so the
+        // two never contend for the iac.lock, and a calico-node restart
+        // lands between OS rolls. Cron lives here on purpose — the schedule
+        // is part of the job and shouldn't hide in the controller's config.
+        cron('H 4 * * 3')
+    }
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '50'))
+    }
+
+    stages {
+        // Critical cluster: a failed roll fails the build and pages.
+        stage('k8s prd') {
+            steps {
+                sh '''
+                    iac -c '
+                        set -euo pipefail
+                        cd /work/Ansible/ansible
+                        ansible-playbook --diff playbooks/refresh-calico-token.yml --limit k8s_prd
+                    '
+                '''
+            }
+        }
+
+        // Dev is single-node and often powered off: skip when unreachable
+        // (expected churn, no page), downgrade a real failure to UNSTABLE.
+        stage('k8s dev') {
+            when {
+                expression {
+                    return sh(
+                        returnStatus: true,
+                        script: '''
+                            iac -c '
+                                cd /work/Ansible/ansible
+                                ansible k8s_dev -m ping -o -T 5
+                            '
+                        '''
+                    ) == 0
+                }
+            }
+            steps {
+                catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                    sh '''
+                        iac -c '
+                            set -euo pipefail
+                            cd /work/Ansible/ansible
+                            ansible-playbook --diff playbooks/refresh-calico-token.yml --limit k8s_dev
+                        '
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        failure {
+            sh '''iac -c 'send_message.py --title "iac-scheduled-calico #'"$BUILD_NUMBER"' failed" "'"$BUILD_URL"'"' '''
+        }
+        unstable {
+            sh '''iac -c 'send_message.py --title "iac-scheduled-calico #'"$BUILD_NUMBER"' unstable (dev cluster roll failed)" "'"$BUILD_URL"'"' '''
+        }
+    }
+}

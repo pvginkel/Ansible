@@ -90,6 +90,29 @@ is dead weight: remove it (`tasks/watchdog.yml`, its templates, and the
 as a deliberate defense-in-depth net. See
 [`dqlite-watch-freeze.md`](dqlite-watch-freeze.md).
 
+## Re-evaluate the Calico CNI-token refresh job
+
+Every time you bump the microk8s channel, re-check whether the weekly
+`iac-scheduled-calico` job — a rolling-restart of the `calico-node`
+DaemonSet, [`playbooks/refresh-calico-token.yml`](../../ansible/playbooks/refresh-calico-token.yml)
+— is still needed. It works around
+[projectcalico/calico#8777](https://github.com/projectcalico/calico/issues/8777):
+on long-uptime `calico-node` pods (worker nodes especially) `token_watch.go`
+silently stops rewriting the CNI kubeconfig token, so the bounded
+ServiceAccount token expires and new pod sandboxes on that node fail with
+`error getting ClusterInformation: connection is unauthorized: Unauthorized`
+(existing pods keep networking; the node stays `Ready`). Restarting
+`calico-node` writes a fresh token; the weekly roll caps every pod's uptime
+below the expiry window. First hit `srvk8s4` (the cluster's only `--worker`
+node) on 2026-07-04.
+
+Once the cluster runs a Calico version that carries the fix, the job is
+dead weight: retire it (delete `Jenkinsfile.iac-scheduled-calico` and
+`playbooks/refresh-calico-token.yml`, unwire the job) or keep it only as a
+deliberate defense-in-depth net. Check the bundled Calico version with
+`microk8s kubectl -n kube-system get ds calico-node -o jsonpath='{.spec.template.spec.containers[0].image}'`
+and cross-reference the issue.
+
 ## Drain blocked by a PodDisruptionBudget
 
 Drain uses `kubectl drain --ignore-daemonsets --delete-emptydir-data --timeout=300s`, which honours PodDisruptionBudgets. A PDB that can't be satisfied (e.g. a single-replica Deployment with `minAvailable: 1`, where evicting the only pod would violate the budget) blocks drain indefinitely; after the 5-minute timeout the playbook fails and the node stays cordoned.
