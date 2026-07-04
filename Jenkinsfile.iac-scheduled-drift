@@ -7,8 +7,8 @@
 // failing trips the post-failure handler exactly once.
 //
 // Controller config:
-//   - SCM: pvginkel/IaCAgent, branch main
-//   - Script Path: jenkins/iac-scheduled-drift/Jenkinsfile
+//   - SCM: pvginkel/Ansible, branch main
+//   - Script Path: Jenkinsfile.iac-scheduled-drift
 
 pipeline {
     agent { label 'iac-controller' }
@@ -63,18 +63,49 @@ pipeline {
             }
         }
 
-        stage('Ansible drift (k8s config)') {
+        stage('Ansible drift (k8s prd)') {
             steps {
                 // site-k8s.yml converges the k8s clusters in place;
                 // site.yml excludes them (serial: 1 / drain concerns),
                 // so without this stage a k8s config change is invisible
-                // to CI. --check only; same --skip-tags os_update
-                // rationale as the stage above.
+                // to CI. Limited to k8s_prd; the dev node is gated below
+                // (offline most of the time). --check only; same
+                // --skip-tags os_update rationale as the stage above.
                 sh '''
                     iac -c '
                         set -euo pipefail
                         cd /work/Ansible/ansible
-                        check-ansible-drift.sh playbooks/site-k8s.yml --skip-tags os_update
+                        check-ansible-drift.sh playbooks/site-k8s.yml --limit k8s_prd --skip-tags os_update
+                    '
+                '''
+            }
+        }
+
+        stage('Ansible drift (k8s dev)') {
+            // srvk8sdev is offline most of the time. Gate on a bounded
+            // SSH ping: when the box is down the stage skips (no
+            // unreachable-host failure, no false "drift detected" page).
+            // When it is up, real dev drift still trips the failure
+            // handler. Same reachability idiom as iac-scheduled-update.
+            when {
+                expression {
+                    return sh(
+                        returnStatus: true,
+                        script: '''
+                            iac -c '
+                                cd /work/Ansible/ansible
+                                ansible k8s_dev -m ping -o -T 5
+                            '
+                        '''
+                    ) == 0
+                }
+            }
+            steps {
+                sh '''
+                    iac -c '
+                        set -euo pipefail
+                        cd /work/Ansible/ansible
+                        check-ansible-drift.sh playbooks/site-k8s.yml --limit k8s_dev --skip-tags os_update
                     '
                 '''
             }
@@ -99,7 +130,24 @@ pipeline {
             }
         }
 
-        stage('Ansible drift (ceph)') {
+        stage('Ansible drift (ceph dev)') {
+            // ceph_dev → srvk8sdev only, so this carries the same
+            // reachability gate as the k8s dev stage: skip when the box
+            // is offline (no false page), page on real drift when it is
+            // up.
+            when {
+                expression {
+                    return sh(
+                        returnStatus: true,
+                        script: '''
+                            iac -c '
+                                cd /work/Ansible/ansible
+                                ansible k8s_dev -m ping -o -T 5
+                            '
+                        '''
+                    ) == 0
+                }
+            }
             steps {
                 // site-ceph.yml converges the microceph storage layer
                 // (today only ceph_dev → srvk8sdev); site.yml and

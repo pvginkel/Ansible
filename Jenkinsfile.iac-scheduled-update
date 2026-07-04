@@ -14,8 +14,8 @@
 // unattended-upgrades windows, not by anything in this pipeline.
 //
 // Controller config:
-//   - SCM: pvginkel/IaCAgent, branch main
-//   - Script Path: jenkins/iac-scheduled-update/Jenkinsfile
+//   - SCM: pvginkel/Ansible, branch main
+//   - Script Path: Jenkinsfile.iac-scheduled-update
 
 pipeline {
     agent { label 'iac-controller' }

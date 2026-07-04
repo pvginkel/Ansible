@@ -1,8 +1,11 @@
 // iac-on-push — fires on every push to main on pvginkel/Ansible.
-// Sequential, fail-fast: plan + destroy-check, apply, site (sans
-// iac_agent), site-openbao, site-k8s, site-ceph. Each stage wraps its work
-// in a single `iac -c '...'` so the IaC mutex is held across the
-// steps that must be atomic.
+// Sequential, fail-fast on prd: plan + destroy-check, apply, site (sans
+// iac_agent), site-openbao, site-k8s (prd). A trailing dev stage
+// (srvk8sdev: site-k8s dev + site-ceph) is non-blocking on purpose —
+// srvk8sdev is offline most of the time, so that stage probes
+// reachability, fails fast, and reds its own stage without failing the
+// build. Each stage wraps its work in a single `iac -c '...'` so the
+// IaC mutex is held across the steps that must be atomic.
 //
 // All ansible stages run with `--skip-tags os_update`: apt cache
 // refresh + dist-upgrade are patch posture, owned by
@@ -12,8 +15,8 @@
 // iac-scheduled-drift.
 //
 // Controller config:
-//   - SCM: pvginkel/IaCAgent, branch main
-//   - Script Path: jenkins/iac-on-push/Jenkinsfile
+//   - SCM: pvginkel/Ansible, branch main
+//   - Script Path: Jenkinsfile.iac-on-push
 //   - Build trigger: GitHub hook on pvginkel/Ansible main
 
 pipeline {
@@ -91,44 +94,56 @@ pipeline {
             }
         }
 
-        stage('Ansible site-k8s') {
+        stage('Ansible site-k8s (prd)') {
             // Converges cluster config drift (baseline, microk8s,
-            // ssh_host_cert) on the running k8s clusters. site.yml
-            // excludes the k8s groups because cluster changes need
-            // serial: 1, so without this stage a microk8s role tweak
-            // wouldn't land on push. --skip-tags os_update keeps the
-            // apt cache refresh + dist-upgrade out — those belong to
-            // iac-scheduled-update / update-k8s.yml, which owns the
-            // drain → upgrade → reboot cycle.
+            // ssh_host_cert) on the prd k8s cluster. site.yml excludes
+            // the k8s groups because cluster changes need serial: 1, so
+            // without this stage a microk8s role tweak wouldn't land on
+            // push. Limited to k8s_prd — the dev node converges in the
+            // non-blocking dev stage below (splitting the play by
+            // cluster limit is safe: elect-primary elects per cluster).
+            // --skip-tags os_update keeps the apt cache refresh +
+            // dist-upgrade out — those belong to iac-scheduled-update /
+            // update-k8s.yml, which owns the drain → upgrade → reboot
+            // cycle.
             steps {
                 sh '''
                     iac -c '
                         set -euo pipefail
                         cd /work/Ansible/ansible
-                        ansible-playbook --diff playbooks/site-k8s.yml --skip-tags os_update
+                        ansible-playbook --diff playbooks/site-k8s.yml --limit k8s_prd --skip-tags os_update
                     '
                 '''
             }
         }
 
-        stage('Ansible site-ceph') {
-            // site-ceph.yml converges the microceph storage layer
-            // (today only ceph_dev → srvk8sdev). site.yml excludes the
-            // ceph groups and site-k8s.yml does only the k8s
-            // baseline/microk8s, so without this stage a microceph role
-            // or ceph_dev group_vars change never lands on push.
-            // --skip-tags os_update holds the same patch-posture belt as
-            // the stages above; the microceph role carries no os_update
-            // tasks today, but the flag keeps the invariant for when
-            // baseline joins this play (Phase 5 prd fleet).
+        // srvk8sdev converges here, split off from the prd stage above
+        // and made non-blocking on purpose: the dev box is powered off
+        // most of the time. A bounded `ansible ... -m ping -T 5` fails
+        // the stage in ~5s instead of letting the microk8s "wait for
+        // API" retry loop burn ~2h, and catchError reds THIS stage while
+        // keeping the build green — a red "(dev)" stage on a green build
+        // reads at a glance as "dev was offline," not a regression. No
+        // UNSTABLE, no page. timeout() bounds the rarer case where
+        // srvk8sdev answers SSH but its API never comes up. Both dev
+        // playbooks live here: site-k8s --limit k8s_dev (baseline +
+        // microk8s on srvk8sdev) and site-ceph (its microceph layer,
+        // ceph_dev → srvk8sdev only).
+        stage('Ansible dev (srvk8sdev)') {
             steps {
-                sh '''
-                    iac -c '
-                        set -euo pipefail
-                        cd /work/Ansible/ansible
-                        ansible-playbook --diff playbooks/site-ceph.yml --skip-tags os_update
-                    '
-                '''
+                catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+                    timeout(time: 15, unit: 'MINUTES') {
+                        sh '''
+                            iac -c '
+                                set -euo pipefail
+                                cd /work/Ansible/ansible
+                                ansible k8s_dev -m ping -o -T 5
+                                ansible-playbook --diff playbooks/site-k8s.yml --limit k8s_dev --skip-tags os_update
+                                ansible-playbook --diff playbooks/site-ceph.yml --skip-tags os_update
+                            '
+                        '''
+                    }
+                }
             }
         }
     }
