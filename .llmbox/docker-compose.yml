@@ -23,6 +23,7 @@ services:
       - ${HOME}/.cache:/home/ubuntu/.cache:rw
       - ${HOME}/.terraformrc:/home/ubuntu/.terraformrc:ro
       - ${HOME}/claude-kubeconfig.yaml:/home/ubuntu/claude-kubeconfig.yaml:ro
+      - ${HOME}/.kube:/home/ubuntu/.kube:ro
       - .:/work/Ansible:rw
       - ../AnsibleSpecs:/work/AnsibleSpecs:rw
       - ../HelmCharts:/work/HelmCharts:rw
@@ -34,3 +35,5 @@ services:
       - ../DesignAssistantSpecs:/work/DesignAssistantSpecs:ro
       - ../IaCAgent:/work/IaCAgent:rw
       - ../TerraformState:/work/TerraformState:rw
+      - ../AIWorkflow:/work/AIWorkflow:rw
+      - ../Architecture:/work/Architecture:rw
