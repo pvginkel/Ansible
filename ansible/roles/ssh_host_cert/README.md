@@ -41,9 +41,31 @@ It needs no per-inclusion vars: principals and paths are derived from
    notify a `reload` (not restart — the running SSH connection
    survives).
 
-Cadence comes from whatever runs the playbook — `iac-scheduled-drift`
-for the steady state. The renewal threshold makes the role idempotent
-under that cadence.
+## Renewal cadence — read this before assuming it is covered
+
+Certificates last 47 days and the role re-signs inside the last 14, so
+**something must apply the role for real at least every 33 days**, per
+host. Today nothing does that on a schedule:
+
+- `iac-scheduled-drift` runs `check-ansible-drift.sh`, i.e.
+  `ansible-playbook --check`. The signing task is a `command`, so
+  check-mode skips it. Drift **reports** an approaching expiry as
+  pending change; it can never renew one.
+- `iac-on-push` applies for real, but only when someone pushes to
+  `main` *and* every earlier stage passes. That is an accidental
+  cadence, not a guarantee.
+- `srviac` (`iac_agent`) is excluded from every pipeline
+  (`--limit '!iac_agent'`), so its certificate is renewed by nothing at
+  all.
+
+This is not theoretical: it is what took `srvk8s1`, `srvk8s2` and
+`srviac` off the network in July 2026. `iac-on-push` had been red since
+2026-06-30 and the drift job's cron had been lost from the controller,
+so no apply reached the fleet inside the renewal window.
+
+Until a scheduled apply exists, the certificates are only as fresh as
+the last green `iac-on-push`. Recovery for a host that has already
+lapsed is `playbooks/reissue-host-cert.yml`.
 
 ## Inputs
 

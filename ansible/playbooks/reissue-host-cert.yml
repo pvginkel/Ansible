@@ -2,20 +2,29 @@
 # reissue-host-cert.yml — re-issue a managed host's SSH host certificate
 # over the pre-certificate bootstrap channel.
 #
-# Recovery for the deadlock where a host has lost its step-ca host
-# certificate but its host key is otherwise intact: sshd falls back to
-# the bare ed25519 key, the committed `@cert-authority` line cannot
-# vouch for it, the host goes UNREACHABLE — and the very role that would
-# re-sign the cert (ssh_host_cert) can no longer connect to run.
+# Recovery for the deadlock where a host's step-ca host certificate is
+# unusable but its host key is otherwise intact: the committed
+# `@cert-authority` line cannot vouch for the host, it goes UNREACHABLE
+# — and the very role that would re-sign the cert (ssh_host_cert) can no
+# longer connect to run. Two ways in:
 #
-# The canonical trigger is cloud-init: on a new instance-id it deletes
-# and regenerates the host keys (taking `*-cert.pub` with them). The
-# Terraform-pinned key is rewritten to the same value, so the bare key
-# still matches `terraform output host_pubkeys` — exactly what Play 1
-# pins below — only the certificate is gone.
+#   - **Missing cert.** cloud-init, on a new instance-id, deletes and
+#     regenerates the host keys (taking `*-cert.pub` with them). The
+#     Terraform-pinned key is rewritten to the same value, so the bare
+#     key still matches `terraform output host_pubkeys` — exactly what
+#     Play 1 pins below — only the certificate is gone.
 #
-# Run per host:
+#   - **Expired cert.** Nothing re-signed it inside the 14-day renewal
+#     window, so sshd still serves a certificate and ssh still rejects
+#     it ("Certificate invalid: expired"). Both key and cert are on
+#     disk; only the validity window lapsed.
+#
+# The expired case is why Play 2 offers *only* `ssh-ed25519` below —
+# see the comment there.
+#
+# Run per host, or against several at once (comma-separated):
 #   ansible-playbook playbooks/reissue-host-cert.yml -e reissue_target=<hostname>
+#   ansible-playbook playbooks/reissue-host-cert.yml -e reissue_target=srvk8s1,srvk8s2
 #
 # This converges only ssh_host_cert. It assumes the host is otherwise a
 # fully-converged managed host (baseline's homelab CA root in the trust
@@ -27,13 +36,14 @@
 # Terraform generated and embedded via cloud-init, authoritative and no
 # TOFU — for the single pre-certificate connection. Mirrors Play 1 of
 # rebuild-k8s.yml. See AnsibleSpecs slices/ssh-host-ca.md.
-- name: Seed a transient known_hosts for the cert-less host
+- name: Seed a transient known_hosts for the cert-less hosts
   hosts: localhost
   gather_facts: false
   become: false
   vars:
     _tf_workspace: "{{ playbook_dir }}/../../terraform/prd"
     _transient_known_hosts: "{{ playbook_dir }}/../../tmp/reissue-known-hosts"
+    _reissue_targets: "{{ reissue_target | mandatory | split(',') | map('trim') | select | list }}"
   tasks:
     # `terraform output` opens the working directory and validates
     # against .terraform/providers, so a fresh checkout / container
@@ -62,13 +72,14 @@
       changed_when: false
       check_mode: false
 
-    - name: Require a host key for the reissue target
+    - name: Require a host key for every reissue target
       ansible.builtin.assert:
-        that: reissue_target in (_tf_host_pubkeys.stdout | from_json)
+        that: item in (_tf_host_pubkeys.stdout | from_json)
         fail_msg: >-
           terraform output host_pubkeys has no entry for
-          {{ reissue_target }} — this playbook only recovers from-scratch
+          {{ item }} — this playbook only recovers from-scratch
           VMs whose host key Terraform pins.
+      loop: "{{ _reissue_targets }}"
 
     - name: Ensure the transient known_hosts directory exists
       ansible.builtin.file:
@@ -77,10 +88,13 @@
         mode: "0755"
       check_mode: false
 
-    - name: Write the cert-less host's pinned key to the transient known_hosts
+    - name: Write the cert-less hosts' pinned keys to the transient known_hosts
       ansible.builtin.copy:
         dest: "{{ _transient_known_hosts }}"
-        content: "{{ reissue_target }},{{ reissue_target }}.home {{ (_tf_host_pubkeys.stdout | from_json)[reissue_target] }}\n"
+        content: |
+          {% for host in _reissue_targets %}
+          {{ host }},{{ host }}.home {{ (_tf_host_pubkeys.stdout | from_json)[host] }}
+          {% endfor %}
         mode: "0644"
       check_mode: false
 
@@ -89,20 +103,28 @@
   become: true
   gather_facts: true
   vars:
-    # The target presents a bare host key until ssh_host_cert signs it a
-    # certificate. Replace ssh_args wholesale — for repeated `-o` options
-    # OpenSSH takes the first value, so an appended common_args cannot
-    # override ansible.cfg's UserKnownHostsFile. The transient file
-    # (Play 1) carries the bare key; known_hosts.d/homelab carries the
-    # `@cert-authority` line OpenSSH falls through to once the cert is
-    # live. The rest mirrors ansible.cfg's ssh_args. Mirrors
-    # rebuild-k8s.yml's bootstrap_ssh_args.
+    # Replace ssh_args wholesale — for repeated `-o` options OpenSSH
+    # takes the first value, so an appended common_args cannot override
+    # ansible.cfg's UserKnownHostsFile. The transient file (Play 1)
+    # carries the Terraform-pinned bare key. The rest mirrors
+    # ansible.cfg's ssh_args.
+    #
+    # HostKeyAlgorithms is `ssh-ed25519` ALONE, deliberately — not
+    # ansible.cfg's cert-then-bare list. sshd serves the *first*
+    # algorithm the client offers that it can satisfy, and a host whose
+    # certificate merely expired still has one to serve. Offering the
+    # cert type first therefore hands us back the very cert we came to
+    # replace, ssh rejects it as expired, and there is no fallback — the
+    # client does not retry with the bare key. Offering only
+    # `ssh-ed25519` forces sshd onto the bare key the transient pin
+    # covers, which works for both entry points in the header: an absent
+    # cert and an expired one.
     ansible_ssh_args: >-
       -o ControlMaster=auto -o ControlPersist=60s
       -o PreferredAuthentications=publickey
-      -o "UserKnownHostsFile={{ playbook_dir }}/../../tmp/reissue-known-hosts {{ playbook_dir }}/../files/known_hosts.d/homelab"
+      -o "UserKnownHostsFile={{ playbook_dir }}/../../tmp/reissue-known-hosts"
       -o GlobalKnownHostsFile=/dev/null
-      -o HostKeyAlgorithms=ssh-ed25519-cert-v01@openssh.com,ssh-ed25519
+      -o HostKeyAlgorithms=ssh-ed25519
       -o IdentityFile=~/.ssh/id_ed25519_ansible -o IdentitiesOnly=yes
   roles:
     - role: ssh_host_cert
