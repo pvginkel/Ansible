@@ -106,6 +106,10 @@ The role asserts it resolves.
   non-deterministic rsa/ecdsa keys `sshd` auto-generates are no longer
   offered — consistent with `ansible.cfg`'s long-standing
   `HostKeyAlgorithms=ssh-ed25519` pin.
-- No cert-expiry metric is published (unlike `internal_tls`).
-  Observability is deferred — a failed renewal fails the drift run
-  loudly, which is the signal that matters.
+- No cert-expiry metric is published (unlike `internal_tls`). A failed
+  renewal reds `iac-scheduled-certs` and pages, which is the signal
+  that matters. Worth revisiting: that only fires once renewal is
+  already failing, and the July 2026 lapse happened with every job
+  green-or-absent rather than red.
+- Recovering a host whose certificate has already lapsed:
+  [`docs/runbooks/ssh-host-cert-expiry.md`](../../../docs/runbooks/ssh-host-cert-expiry.md).
