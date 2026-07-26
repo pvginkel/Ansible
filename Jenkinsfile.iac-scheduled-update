@@ -20,6 +20,15 @@
 pipeline {
     agent { label 'iac-controller' }
 
+    triggers {
+        // Weekly, early Sunday. Cron lives here, not in the controller's
+        // job config: the drift job's schedule was configured only in the
+        // UI, silently vanished in June 2026, and nobody noticed for five
+        // weeks — long enough for the fleet's SSH host certs to lapse.
+        // A schedule that isn't in git can disappear without a diff.
+        cron('H 4 * * 0')
+    }
+
     options {
         timestamps()
         disableConcurrentBuilds()

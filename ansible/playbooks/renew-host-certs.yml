@@ -1,0 +1,48 @@
+---
+# renew-host-certs.yml — keep every managed host's SSH host certificate
+# inside its validity window.
+#
+# This is the *only* thing that renews them on a schedule. The
+# arrangement it replaces was accidental and it failed in July 2026:
+#
+#   - iac-scheduled-drift runs `ansible-playbook --check`. The signing
+#     step is a `command`, so check-mode skips it. Drift can report an
+#     approaching expiry; it can never act on one.
+#   - iac-on-push applies for real, but only when someone pushes to main
+#     *and* every earlier stage is green. It had been red for three
+#     weeks when srvk8s1 and srvk8s2 lapsed.
+#   - srviac is excluded from both (`--limit '!iac_agent'`), so nothing
+#     renewed it at all. Its certificate expired 2026-07-06.
+#
+# Certificates last 47 days and ssh_host_cert re-signs inside the last
+# 14, so an apply must reach every host at least every 33 days. Weekly
+# gives two attempts inside the window before anything lapses.
+#
+# The role is a no-op outside that window, so a run against a healthy
+# fleet reports changed=0 and this playbook is safe to run at any time.
+#
+# Scope is `managed` minus ceph_prd — the prd Ceph nodes are listed in
+# `managed` but no site playbook converges them yet (site.yml excludes
+# them, site-ceph.yml covers ceph_dev only), so they carry no
+# certificate to renew. Widen to `managed` when site-ceph.yml widens to
+# `ceph`.
+#
+# Run:
+#   ansible-playbook playbooks/renew-host-certs.yml
+#   ansible-playbook playbooks/renew-host-certs.yml --limit k8s_prd
+#
+# Once a certificate has *already* expired this playbook cannot help —
+# it has no way to reach the host. That is what reissue-host-cert.yml is
+# for.
+
+- name: Renew SSH host certificates approaching expiry
+  hosts: managed:!ceph_prd
+  become: true
+  gather_facts: true
+  # No any_errors_fatal and no serial: renewal is per-host and
+  # independent, so one unreachable host must not stop the others from
+  # being renewed — the opposite of update-k8s.yml, where a partial roll
+  # leaves a cluster degraded. A host that fails here still fails the
+  # run, so the pipeline still pages.
+  roles:
+    - role: ssh_host_cert

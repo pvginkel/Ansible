@@ -1,0 +1,104 @@
+// iac-scheduled-certs — weekly SSH host certificate renewal.
+//
+// The homelab's whole host-key verification story rests on one
+// `@cert-authority` line, and step-ca host certs live 47 days. Before
+// this job existed nothing renewed them on a schedule: drift is
+// --check-only and so structurally incapable of signing, iac-on-push
+// applies only when someone pushes and every prior stage is green, and
+// srviac was excluded from both. In July 2026 that combination took
+// srvk8s1, srvk8s2 and srviac off the network — including the Ansible
+// controller's own host, which no pipeline had renewed since May.
+//
+// Weekly against a 14-day renewal window means two attempts before any
+// certificate lapses. The playbook is a no-op outside that window, so
+// most runs are a fast changed=0.
+//
+// Deliberately NOT folded into iac-scheduled-update: coupling renewal
+// to the drain/reboot roll would mean a wedged node blocks certificate
+// renewal fleet-wide, which is a variant of how this broke in the first
+// place. Certs get their own job and their own signal.
+//
+// Controller config:
+//   - SCM: pvginkel/Ansible, branch main
+//   - Script Path: Jenkinsfile.iac-scheduled-certs
+
+pipeline {
+    agent { label 'iac-controller' }
+
+    triggers {
+        // Friday morning: clear of the Sunday OS roll, the Wednesday
+        // calico rollout and the daily 11:00 drift check, so this never
+        // contends for the iac.lock. Cron lives here, in git, on
+        // purpose — see the comment in Jenkinsfile.iac-scheduled-drift
+        // for what happens when a schedule lives only in the UI.
+        cron('H 4 * * 5')
+    }
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '50'))
+    }
+
+    stages {
+        // Everything except the dev k8s node. An expired certificate
+        // makes a host unreachable to Ansible entirely, so a failure
+        // here is genuinely urgent — it fails the build and pages.
+        stage('Renew (excl. k8s dev)') {
+            steps {
+                sh '''
+                    iac -c '
+                        set -euo pipefail
+                        cd /work/Ansible/ansible
+                        ansible-playbook --diff playbooks/renew-host-certs.yml --limit "!k8s_dev"
+                    '
+                '''
+            }
+        }
+
+        // srvk8sdev is powered off most of the time. Same two-tier
+        // idiom as the other scheduled jobs: a bounded ping skips the
+        // stage when the box is down (expected churn, not a signal),
+        // catchError downgrades a real failure to UNSTABLE so a dev
+        // box never reds a build that renewed prod correctly.
+        //
+        // A dev node that stays off past its 14-day window will lapse
+        // and need reissue-host-cert.yml. That is the accepted cost of
+        // a box that is off more than it is on.
+        stage('Renew (k8s dev)') {
+            when {
+                expression {
+                    return sh(
+                        returnStatus: true,
+                        script: '''
+                            iac -c '
+                                cd /work/Ansible/ansible
+                                ansible k8s_dev -m ping -o -T 5
+                            '
+                        '''
+                    ) == 0
+                }
+            }
+            steps {
+                catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                    sh '''
+                        iac -c '
+                            set -euo pipefail
+                            cd /work/Ansible/ansible
+                            ansible-playbook --diff playbooks/renew-host-certs.yml --limit k8s_dev
+                        '
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        failure {
+            sh '''iac -c 'send_message.py --title "iac-scheduled-certs #'"$BUILD_NUMBER"' failed — host certs may lapse" "'"$BUILD_URL"'"' '''
+        }
+        unstable {
+            sh '''iac -c 'send_message.py --title "iac-scheduled-certs #'"$BUILD_NUMBER"' unstable (dev cert renewal failed)" "'"$BUILD_URL"'"' '''
+        }
+    }
+}

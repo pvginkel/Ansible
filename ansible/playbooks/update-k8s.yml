@@ -142,6 +142,14 @@
   become: true
   gather_facts: true
   serial: 1
+  vars:
+    # Seconds past a pod's own terminationGracePeriodSeconds before the
+    # pre-drain sweep treats it as wedged rather than merely slow. The
+    # slowest legitimate shutdown here is keycloak-db's 600s preStop, and
+    # that pod's grace period already covers it — this is headroom on top
+    # of whatever each pod declares, so a busy node in a normal roll is
+    # never swept. Wedged pods overshoot by days, not minutes.
+    update_k8s_stale_terminating_slack: 900
   tasks:
     - name: Read currently-installed microk8s version
       # Output (last line):
@@ -287,6 +295,79 @@
           # Cordons the node and rollout-restarts opt-in Deployments off
           # it before the drain below fires. See tasks/pre-drain-handoff.yml.
           ansible.builtin.import_tasks: tasks/pre-drain-handoff.yml
+
+        # A pod whose volume mount has wedged never finishes terminating,
+        # and `kubectl drain` waits on it for the full --timeout below —
+        # 3 retries later that is 45 minutes burned and a failed roll.
+        #
+        # The live case (build #13, and still on srvk8s1 14 days later):
+        # keycloak-dev's CephFS PV mount blocked, so containerd could not
+        # reap the sandbox and kubelet looped KillPodSandbox →
+        # DeadlineExceeded every 2.5 min. Only the reboot further down
+        # clears that — but the drain runs first, so the ordering
+        # guarantees the failure. Nothing about waiting longer helps.
+        #
+        # Such a pod is already dead as far as the API is concerned: its
+        # deletionTimestamp has passed, its controller has replaced it,
+        # and no Service still routes to it. Removing the object lets the
+        # drain finish; the reboot then clears the wedged mount for real.
+        - name: Read pods still terminating on {{ inventory_hostname }}
+          ansible.builtin.command:
+            argv:
+              - microk8s
+              - kubectl
+              - get
+              - pods
+              - --all-namespaces
+              - --field-selector
+              - "spec.nodeName={{ inventory_hostname }}"
+              - -o
+              - json
+          delegate_to: "{{ microk8s_primary_host }}"
+          when: _cluster_peer_count | int > 1
+          register: _terminating_probe
+          changed_when: false
+          check_mode: false
+
+        - name: Select the terminating pods that are past saving
+          ansible.builtin.set_fact:
+            _stale_terminating: >-
+              {{ _terminating_probe.stdout | from_json | json_query(_stale_query) }}
+          vars:
+            _stale_query: >-
+              items[?metadata.deletionTimestamp != null].{
+                ns: metadata.namespace, name: metadata.name,
+                deleted: metadata.deletionTimestamp,
+                grace: spec.terminationGracePeriodSeconds,
+                owners: metadata.ownerReferences[].kind }
+          when: _cluster_peer_count | int > 1
+
+        # StatefulSet pods are excluded deliberately. Their identity is
+        # tied to RWO storage, and force-deleting one while its container
+        # is still alive on a wedged node is the textbook way to get two
+        # writers on the same volume. Those stay the operator's call.
+        - name: Force-delete pods the API has already given up on
+          ansible.builtin.command:
+            argv:
+              - microk8s
+              - kubectl
+              - delete
+              - pod
+              - -n
+              - "{{ item.ns }}"
+              - "{{ item.name }}"
+              - --force
+              - --grace-period=0
+          delegate_to: "{{ microk8s_primary_host }}"
+          loop: "{{ _stale_terminating | default([]) }}"
+          loop_control:
+            label: "{{ item.ns }}/{{ item.name }}"
+          when:
+            - _cluster_peer_count | int > 1
+            - "'StatefulSet' not in (item.owners | default([], true))"
+            - (now(utc=true) - (item.deleted | to_datetime('%Y-%m-%dT%H:%M:%SZ'))).total_seconds()
+              > ((item.grace | default(30, true) | int) + update_k8s_stale_terminating_slack | int)
+          changed_when: true
 
         - name: Drain {{ inventory_hostname }}
           # 15-minute drain budget. srvk8s1 carries ~50 pods plus the

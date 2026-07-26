@@ -13,6 +13,15 @@
 pipeline {
     agent { label 'iac-controller' }
 
+    triggers {
+        // Daily, late morning. Cron lives here, not in the controller's
+        // job config: this job's schedule was UI-only, disappeared in
+        // June 2026 and went unnoticed for five weeks — which is how the
+        // fleet's SSH host certificates were allowed to lapse unseen.
+        // A schedule that isn't in git can disappear without a diff.
+        cron('H 11 * * *')
+    }
+
     options {
         timestamps()
         disableConcurrentBuilds()
