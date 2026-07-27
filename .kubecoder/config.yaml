@@ -40,12 +40,14 @@ homeOverlays:
   - .ansible
 
 tools:
+  # Catalog toolchains take the `use:` selector form. A bare string is valid for
+  # services: but not here, and the controller rejects the whole manifest for it.
   # poetry + ansible + terraform + kubectl + helm + bao + step-cli
-  - iac
+  - use: iac
   # HomelabTerraformProvider
-  - go
+  - use: go
   # DockerImages, and the iac image under support/iac-image/
-  - kaniko
+  - use: kaniko
 
 setup:
   - kc project setup
