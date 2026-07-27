@@ -17,9 +17,14 @@ projects:
     description: >-
       Roles, playbooks and inventories for every managed host. Applying these
       against real infrastructure is the operator's keystroke, never an agent's.
+    # Default cwd (ansible/) is deliberate: ansible-lint only picks up
+    # roles_path from ansible.cfg when it runs beside it, and without that
+    # every `roles:` reference fails syntax-check. yamllint needs the root
+    # .yamllint pointed at explicitly; ansible-lint finds both root configs
+    # itself, via the git root.
     lint:
-      - cexec iac poetry run yamllint ansible
-      - cexec iac poetry run ansible-lint ansible
+      - cexec iac poetry run yamllint -c ../.yamllint .
+      - cexec iac poetry run ansible-lint
 
   terraform:
     description: >-
@@ -32,4 +37,5 @@ projects:
     description: >-
       The federated Architecture-as-Code artifact this repo publishes. Validated
       against the same endpoint the AaC/Ansible pipeline uses.
+    cwd: .
     test: cexec iac ./scripts/arch-validate.py docs/architecture/ansible-architecture.yaml
