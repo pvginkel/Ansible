@@ -23,10 +23,21 @@ secrets:
   SSH_KEY_PVE: ssh-key-pve
 
 env:
-  # Ansible resolves the vault passphrase from this path. Kept out of the repo
-  # tree so a stray `git add -f` cannot reach it.
+  # Ansible resolves the vault passphrase from this path. Inside the .ansible
+  # overlay, not the repo tree and not the bare home — see homeOverlays below.
   - name: ANSIBLE_VAULT_PASSWORD_FILE
-    value: /home/ubuntu/.ansible-vault-pass
+    value: /home/ubuntu/.ansible/vault-pass
+
+# `/home/ubuntu` is one host directory shared by *every* environment — it holds
+# the Claude credential, shell history and dotfiles. Key material must not land
+# there, or every other environment would read it. An overlay is this
+# environment's own dataset mounted over the shared home, and regular tool
+# sidecars carry the home stack, so the `iac` container sees these too. (The
+# kaniko sidecar is an isolated build tool and gets none of it, which is fine —
+# it builds images and has no business with these keys.)
+homeOverlays:
+  - .ssh
+  - .ansible
 
 tools:
   # poetry + ansible + terraform + kubectl + helm + bao + step-cli
