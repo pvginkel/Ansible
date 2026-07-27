@@ -15,6 +15,19 @@ repos:
 capabilities:
   github: rw
 
+# Projected as environment variables; `kc project setup` writes them to the
+# paths ansible.cfg and ssh expect. See scripts/kubecoder-keys.sh.
+secrets:
+  ANSIBLE_VAULT_PASSWORD: ansible-vault-password
+  SSH_KEY_ANSIBLE: ssh-key-ansible
+  SSH_KEY_PVE: ssh-key-pve
+
+env:
+  # Ansible resolves the vault passphrase from this path. Kept out of the repo
+  # tree so a stray `git add -f` cannot reach it.
+  - name: ANSIBLE_VAULT_PASSWORD_FILE
+    value: /home/ubuntu/.ansible-vault-pass
+
 tools:
   # poetry + ansible + terraform + kubectl + helm + bao + step-cli
   - iac

@@ -7,6 +7,9 @@ projects:
       Kubernetes workloads in the HelmCharts repo.
     jenkins: IaC/Deploy
     setup:
+      # Not cexec-prefixed: the catalog secrets are projected into the dev
+      # container, and the home directory is shared with the sidecars.
+      - ./scripts/kubecoder-keys.sh
       - cexec iac poetry install --no-interaction
       - cexec iac poetry run ansible-galaxy collection install -r ansible/collections/requirements.yml
 
