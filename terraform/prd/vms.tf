@@ -107,6 +107,11 @@ locals {
       bios          = "ovmf"
       machine       = "q35"
 
+      # Off unless someone is actively iterating on it — a dev canary
+      # that is up all the time just burns pve capacity and drags every
+      # pipeline's dev stage along with it.
+      on_boot = false
+
       cpu_cores   = 4
       cpu_sockets = 1
       # 12 GiB: shares the box with the microk8s control plane + dev

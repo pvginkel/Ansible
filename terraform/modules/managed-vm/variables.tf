@@ -164,3 +164,9 @@ variable "exclude_from_backup" {
   type        = bool
   default     = false
 }
+
+variable "on_boot" {
+  description = "Start the VM when its PVE node boots. Set false for VMs that are meant to be off unless someone deliberately starts them — srvk8sdev, which is a dev canary that spends most of its life powered down."
+  type        = bool
+  default     = true
+}

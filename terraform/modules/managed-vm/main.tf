@@ -60,7 +60,7 @@ resource "proxmox_virtual_environment_vm" "this" {
 
   bios       = var.bios
   machine    = var.machine
-  on_boot    = true
+  on_boot    = var.on_boot
   boot_order = var.boot_order
 
   # Cluster-member-aware: TF writes config but does not reboot. Reboots are
@@ -230,6 +230,19 @@ resource "proxmox_virtual_environment_vm" "this" {
       # the static-IP fix that closes the early-DHCP race documented
       # on the ip_config block above.
       initialization[0].user_data_file_id,
+      # Power state is the operator's, not Terraform's. `started`
+      # defaults to true in bpg, so without this every apply powers a
+      # deliberately-stopped VM back on — which is what kept overriding
+      # a manual shutdown of srvk8sdev, since iac-on-push applies on
+      # every push to main. Terraform still starts a VM when it creates
+      # one; after that, `qm start`/`qm stop` stick.
+      #
+      # ignore_changes can't be parameterized, so this is module-wide:
+      # a stopped prd VM is no longer powered back on by an apply
+      # either. That's the intended trade — an unplanned prd VM being
+      # down is a fault to notice, not something an apply should
+      # quietly paper over.
+      started,
     ]
   }
 }
