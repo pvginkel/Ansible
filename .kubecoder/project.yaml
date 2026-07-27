@@ -30,12 +30,14 @@ projects:
     description: >-
       VM provisioning on Proxmox via bpg/proxmox — the prd stack and the
       disposable scratch fleet.
-    cwd: terraform
     lint: cexec iac terraform fmt -check -recursive
 
   architecture:
     description: >-
       The federated Architecture-as-Code artifact this repo publishes. Validated
       against the same endpoint the AaC/Ansible pipeline uses.
+    # Names a concern, not a folder — without this it would resolve to a
+    # ./architecture that does not exist. The other components are named after
+    # their directories, so they need no cwd at all.
     cwd: .
     test: cexec iac ./scripts/arch-validate.py docs/architecture/ansible-architecture.yaml
