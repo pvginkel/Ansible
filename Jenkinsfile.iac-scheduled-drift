@@ -10,6 +10,23 @@
 //   - SCM: pvginkel/Ansible, branch main
 //   - Script Path: Jenkinsfile.iac-scheduled-drift
 
+// srvk8sdev is powered off most of the time. Every dev stage in every
+// iac-* pipeline opens with this bounded SSH probe: `-T 5` caps the
+// connect, so a down box costs seconds rather than a playbook's worth
+// of connection retries. A false result means "skip the stage and mark
+// the build UNSTABLE" — never FAILURE, and never a page.
+def devUp() {
+    return sh(
+        returnStatus: true,
+        script: '''
+            iac -c '
+                cd /work/Ansible/ansible
+                ansible k8s_dev -m ping -o -T 5
+            '
+        '''
+    ) == 0
+}
+
 pipeline {
     agent { label 'iac-controller' }
 
@@ -90,33 +107,34 @@ pipeline {
             }
         }
 
+        // srvk8sdev is offline most of the time, so this stage skips on
+        // an unreachable box and only ever marks the build UNSTABLE —
+        // never FAILURE. Dev drift is worth seeing but is not worth
+        // reddening a build whose whole prd surface came back clean, and
+        // the daily cadence means a dev box left off would otherwise
+        // page every single day.
         stage('Ansible drift (k8s dev)') {
-            // srvk8sdev is offline most of the time. Gate on a bounded
-            // SSH ping: when the box is down the stage skips (no
-            // unreachable-host failure, no false "drift detected" page).
-            // When it is up, real dev drift still trips the failure
-            // handler. Same reachability idiom as iac-scheduled-update.
-            when {
-                expression {
-                    return sh(
+            steps {
+                script {
+                    if (!devUp()) {
+                        unstable('srvk8sdev is unreachable — dev k8s drift check skipped')
+                        return
+                    }
+                    def rc = sh(
                         returnStatus: true,
                         script: '''
                             iac -c '
+                                set -euo pipefail
                                 cd /work/Ansible/ansible
-                                ansible k8s_dev -m ping -o -T 5
+                                timeout --kill-after=1m 15m check-ansible-drift.sh playbooks/site-k8s.yml --limit k8s_dev --skip-tags os_update
                             '
                         '''
-                    ) == 0
+                    )
+                    if (rc != 0) {
+                        env.DEV_STAGE_FAILED = 'true'
+                        unstable("dev k8s drift check reported changes or failed (exit ${rc})")
+                    }
                 }
-            }
-            steps {
-                sh '''
-                    iac -c '
-                        set -euo pipefail
-                        cd /work/Ansible/ansible
-                        check-ansible-drift.sh playbooks/site-k8s.yml --limit k8s_dev --skip-tags os_update
-                    '
-                '''
             }
         }
 
@@ -139,38 +157,35 @@ pipeline {
             }
         }
 
+        // site-ceph.yml converges the microceph storage layer (today
+        // only ceph_dev → srvk8sdev); site.yml and site-k8s.yml don't
+        // cover it, so a microceph role or ceph_dev group_vars change is
+        // invisible to drift without this stage. --check only; same
+        // --skip-tags os_update belt as the stages above. Being
+        // srvk8sdev-only it carries the same handling as the k8s dev
+        // stage: skip when offline, UNSTABLE either way, never FAILURE.
         stage('Ansible drift (ceph dev)') {
-            // ceph_dev → srvk8sdev only, so this carries the same
-            // reachability gate as the k8s dev stage: skip when the box
-            // is offline (no false page), page on real drift when it is
-            // up.
-            when {
-                expression {
-                    return sh(
+            steps {
+                script {
+                    if (!devUp()) {
+                        unstable('srvk8sdev is unreachable — dev ceph drift check skipped')
+                        return
+                    }
+                    def rc = sh(
                         returnStatus: true,
                         script: '''
                             iac -c '
+                                set -euo pipefail
                                 cd /work/Ansible/ansible
-                                ansible k8s_dev -m ping -o -T 5
+                                timeout --kill-after=1m 15m check-ansible-drift.sh playbooks/site-ceph.yml --skip-tags os_update
                             '
                         '''
-                    ) == 0
+                    )
+                    if (rc != 0) {
+                        env.DEV_STAGE_FAILED = 'true'
+                        unstable("dev ceph drift check reported changes or failed (exit ${rc})")
+                    }
                 }
-            }
-            steps {
-                // site-ceph.yml converges the microceph storage layer
-                // (today only ceph_dev → srvk8sdev); site.yml and
-                // site-k8s.yml don't cover it, so a microceph role or
-                // ceph_dev group_vars change is invisible to drift
-                // without this stage. --check only; same --skip-tags
-                // os_update belt as the stages above.
-                sh '''
-                    iac -c '
-                        set -euo pipefail
-                        cd /work/Ansible/ansible
-                        check-ansible-drift.sh playbooks/site-ceph.yml --skip-tags os_update
-                    '
-                '''
             }
         }
 
@@ -214,6 +229,16 @@ pipeline {
     post {
         failure {
             sh '''iac -c 'send_message.py --title "iac-scheduled-drift #'"$BUILD_NUMBER"' detected drift" "'"$BUILD_URL"'"' '''
+        }
+        unstable {
+            // Only the dev stages can make this build unstable. Page on
+            // real dev drift; stay silent when srvk8sdev was simply off,
+            // which on a daily job would otherwise be a daily false page.
+            script {
+                if (env.DEV_STAGE_FAILED == 'true') {
+                    sh '''iac -c 'send_message.py --title "iac-scheduled-drift #'"$BUILD_NUMBER"' detected drift on srvk8sdev" "'"$BUILD_URL"'"' '''
+                }
+            }
         }
     }
 }

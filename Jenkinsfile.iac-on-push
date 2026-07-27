@@ -1,11 +1,10 @@
 // iac-on-push — fires on every push to main on pvginkel/Ansible.
 // Sequential, fail-fast on prd: plan + destroy-check, apply, site (sans
 // iac_agent), site-openbao, site-k8s (prd). A trailing dev stage
-// (srvk8sdev: site-k8s dev + site-ceph) is non-blocking on purpose —
-// srvk8sdev is offline most of the time, so that stage probes
-// reachability, fails fast, and reds its own stage without failing the
-// build. Each stage wraps its work in a single `iac -c '...'` so the
-// IaC mutex is held across the steps that must be atomic.
+// (srvk8sdev: site-k8s dev + site-ceph) can only ever downgrade the
+// build to UNSTABLE — see devUp() below. Each stage wraps its work in a
+// single `iac -c '...'` so the IaC mutex is held across the steps that
+// must be atomic.
 //
 // All ansible stages run with `--skip-tags os_update`: apt cache
 // refresh + dist-upgrade are patch posture, owned by
@@ -18,6 +17,24 @@
 //   - SCM: pvginkel/Ansible, branch main
 //   - Script Path: Jenkinsfile.iac-on-push
 //   - Build trigger: GitHub hook on pvginkel/Ansible main
+
+// srvk8sdev is powered off most of the time. Every dev stage in every
+// iac-* pipeline opens with this bounded SSH probe: `-T 5` caps the
+// connect, so a down box costs seconds rather than a playbook's worth
+// of connection retries (or, worse, microk8s' "wait for API" loop).
+// A false result means "skip the stage and mark the build UNSTABLE" —
+// never FAILURE, and never a page.
+def devUp() {
+    return sh(
+        returnStatus: true,
+        script: '''
+            iac -c '
+                cd /work/Ansible/ansible
+                ansible k8s_dev -m ping -o -T 5
+            '
+        '''
+    ) == 0
+}
 
 pipeline {
     agent { label 'iac-controller' }
@@ -118,30 +135,38 @@ pipeline {
         }
 
         // srvk8sdev converges here, split off from the prd stage above
-        // and made non-blocking on purpose: the dev box is powered off
-        // most of the time. A bounded `ansible ... -m ping -T 5` fails
-        // the stage in ~5s instead of letting the microk8s "wait for
-        // API" retry loop burn ~2h, and catchError reds THIS stage while
-        // keeping the build green — a red "(dev)" stage on a green build
-        // reads at a glance as "dev was offline," not a regression. No
-        // UNSTABLE, no page. timeout() bounds the rarer case where
-        // srvk8sdev answers SSH but its API never comes up. Both dev
-        // playbooks live here: site-k8s --limit k8s_dev (baseline +
-        // microk8s on srvk8sdev) and site-ceph (its microceph layer,
-        // ceph_dev → srvk8sdev only).
+        // so a dev box that is powered off — the normal case — can never
+        // block a prd deploy. Both dev playbooks live here: site-k8s
+        // --limit k8s_dev (baseline + microk8s on srvk8sdev) and
+        // site-ceph (its microceph layer, ceph_dev → srvk8sdev only).
+        //
+        // The bound lives in the shell, not in a Jenkins timeout()
+        // step, on purpose: a timeout() firing inside catchError sets
+        // the build to ABORTED whatever buildResult says, which is how
+        // #113 aborted with every prd stage green (srvk8sdev answered
+        // SSH, then hung on `snap install microk8s`). A shell timeout
+        // exits 124 — an ordinary rc this stage can downgrade itself.
         stage('Ansible dev (srvk8sdev)') {
             steps {
-                catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
-                    timeout(time: 15, unit: 'MINUTES') {
-                        sh '''
+                script {
+                    if (!devUp()) {
+                        unstable('srvk8sdev is unreachable — dev convergence skipped')
+                        return
+                    }
+                    def rc = sh(
+                        returnStatus: true,
+                        script: '''
                             iac -c '
                                 set -euo pipefail
                                 cd /work/Ansible/ansible
-                                ansible k8s_dev -m ping -o -T 5
-                                ansible-playbook --diff playbooks/site-k8s.yml --limit k8s_dev --skip-tags os_update
-                                ansible-playbook --diff playbooks/site-ceph.yml --skip-tags os_update
+                                timeout --kill-after=1m 10m ansible-playbook --diff playbooks/site-k8s.yml --limit k8s_dev --skip-tags os_update
+                                timeout --kill-after=1m 10m ansible-playbook --diff playbooks/site-ceph.yml --skip-tags os_update
                             '
                         '''
+                    )
+                    if (rc != 0) {
+                        env.DEV_STAGE_FAILED = 'true'
+                        unstable("dev convergence failed on srvk8sdev (exit ${rc})")
                     }
                 }
             }
@@ -151,6 +176,17 @@ pipeline {
     post {
         failure {
             sh '''iac -c 'send_message.py --title "iac-on-push #'"$BUILD_NUMBER"' failed" "'"$BUILD_URL"'"' '''
+        }
+        unstable {
+            // Page only when srvk8sdev was up and the run genuinely
+            // failed. An unreachable dev box yellows the build so it's
+            // visible in Jenkins, but it must not push a notification
+            // on every single push to main.
+            script {
+                if (env.DEV_STAGE_FAILED == 'true') {
+                    sh '''iac -c 'send_message.py --title "iac-on-push #'"$BUILD_NUMBER"' unstable (dev convergence failed)" "'"$BUILD_URL"'"' '''
+                }
+            }
         }
     }
 }
