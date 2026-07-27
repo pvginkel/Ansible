@@ -571,7 +571,7 @@
         # connection-refused, and left srvk8s4 cordoned — the one
         # scenario it exists to prevent. Five minutes of patience here
         # costs nothing on a run that has already failed.
-        - name: Uncordon {{ inventory_hostname }} after a failed cycle
+        - name: Uncordon after a failed cycle on {{ inventory_hostname }}
           ansible.builtin.command:
             argv:
               - microk8s
