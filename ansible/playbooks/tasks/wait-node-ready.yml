@@ -1,0 +1,85 @@
+---
+# wait-node-ready.yml — block until a node is genuinely back in the
+# cluster after something restarted its kubelet (snap refresh, guest
+# reboot, PVE cold cycle).
+#
+# Inputs, from the importing play's facts:
+#   inventory_hostname     — the node being waited on
+#   microk8s_primary_host  — where the delegated kubectl calls run
+#   _cluster_peer_count    — 1 selects the local-only check
+#
+# Why not `microk8s status --wait-ready` on the target for everything:
+# on a worker-only node that command is a no-op. It prints "This
+# MicroK8s deployment is acting as a node in a cluster. Please use the
+# control plane node." and exits 0 in ~0.1s. srvk8s4's post-reboot gate
+# therefore passed in 0.471s and the uncordon fired ~2s behind a reboot
+# that had barely finished (build #15). It stays as the check for
+# single-node clusters, where the target *is* the control plane.
+#
+# Why not the node's Ready condition on its own: kubelet only rewrites
+# `.status.conditions[].lastHeartbeatTime` every
+# nodeStatusReportFrequency (5m) while nothing else changes, and the
+# node controller needs ~40s to flip an absent node to NotReady — so
+# straight after a reboot the API still serves a stale Ready=True.
+# (Observed live: a healthy srvk8s4 reporting a heartbeat 3.5 minutes
+# old.) The kube-node-lease Lease is the real heartbeat, renewed every
+# ~10s, so a recent renewTime is what proves this kubelet is alive and
+# talking to the apiserver *now*. Ready is then checked on top, because
+# a heartbeating kubelet can still be NotReady while CNI comes up.
+
+- name: Wait for microk8s Ready (single-node cluster) on {{ inventory_hostname }}
+  ansible.builtin.command: microk8s status --wait-ready --timeout 240
+  changed_when: false
+  when: _cluster_peer_count | int == 1
+
+- name: Wait for the kubelet heartbeat to resume on {{ inventory_hostname }}
+  ansible.builtin.command:
+    argv:
+      - microk8s
+      - kubectl
+      - get
+      - lease
+      - -n
+      - kube-node-lease
+      - "{{ inventory_hostname }}"
+      - -o
+      - jsonpath={.spec.renewTime}
+  delegate_to: "{{ microk8s_primary_host }}"
+  register: _node_lease
+  # renewTime is a MicroTime ("2026-07-27T11:14:52.127005Z"); drop the
+  # fractional seconds so to_datetime's format matches. default(_, true)
+  # substitutes the epoch for an empty stdout, which keeps the age
+  # arithmetic total when the call failed rather than raising.
+  until:
+    - _node_lease is succeeded
+    - >-
+      (now(utc=true)
+       - (_node_lease.stdout | default('1970-01-01T00:00:00Z', true)
+          | regex_replace('\.[0-9]+Z$', 'Z')
+          | to_datetime('%Y-%m-%dT%H:%M:%SZ'))).total_seconds() < 60
+  retries: "{{ update_k8s_api_retries | default(12) }}"
+  delay: "{{ update_k8s_api_delay | default(10) }}"
+  changed_when: false
+  check_mode: false
+  when: _cluster_peer_count | int > 1
+
+- name: Wait for a Ready condition via the primary for {{ inventory_hostname }}
+  ansible.builtin.command:
+    argv:
+      - microk8s
+      - kubectl
+      - get
+      - node
+      - "{{ inventory_hostname }}"
+      - -o
+      - jsonpath={.status.conditions[?(@.type=="Ready")].status}
+  delegate_to: "{{ microk8s_primary_host }}"
+  register: _node_ready
+  until:
+    - _node_ready is succeeded
+    - _node_ready.stdout == 'True'
+  retries: "{{ update_k8s_api_retries | default(12) }}"
+  delay: "{{ update_k8s_api_delay | default(10) }}"
+  changed_when: false
+  check_mode: false
+  when: _cluster_peer_count | int > 1

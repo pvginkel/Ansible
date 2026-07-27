@@ -24,6 +24,13 @@
 # DaemonSets and StatefulSets must NOT carry the label — the Pod →
 # ReplicaSet → Deployment walk silently ignores them and labeling
 # them is dormant config.
+#
+# Every kubectl here is delegated to the primary and so is exposed to
+# the same mid-roll apiserver blip that update-k8s.yml's vars: block
+# documents (microk8s restarts all of kubelite when its bundled
+# controller-manager loses its lease). Retry budgets come from the
+# caller; the defaults match update-k8s.yml so evict-k8s.yml, which
+# sets neither, still gets sane behaviour.
 
 - name: Cordon {{ pre_drain_node | default(inventory_hostname) }}
   ansible.builtin.command:
@@ -34,6 +41,10 @@
       - "{{ pre_drain_node | default(inventory_hostname) }}"
   delegate_to: "{{ pre_drain_primary | default(microk8s_primary_host) }}"
   when: _cluster_peer_count | int > 1
+  register: _pre_drain_cordon
+  until: _pre_drain_cordon is succeeded
+  retries: "{{ update_k8s_api_retries | default(12) }}"
+  delay: "{{ update_k8s_api_delay | default(10) }}"
   changed_when: true
 
 - name: Enumerate labeled Deployments with running pods on the target
@@ -75,6 +86,9 @@
   register: _pre_drain_handoff_lookup
   delegate_to: "{{ pre_drain_primary | default(microk8s_primary_host) }}"
   when: _cluster_peer_count | int > 1
+  until: _pre_drain_handoff_lookup is succeeded
+  retries: "{{ update_k8s_api_retries | default(12) }}"
+  delay: "{{ update_k8s_api_delay | default(10) }}"
   changed_when: false
   # Read-only kubectl — run in check mode too, so the rollout loops
   # below see a defined fact when the operator previews with --check.
@@ -100,6 +114,10 @@
   loop_control:
     label: "{{ item.namespace }}/{{ item.name }}"
   when: _cluster_peer_count | int > 1
+  register: _pre_drain_restart
+  until: _pre_drain_restart is succeeded
+  retries: "{{ update_k8s_api_retries | default(12) }}"
+  delay: "{{ update_k8s_api_delay | default(10) }}"
   changed_when: true
 
 - name: Wait for each labeled Deployment to be genuinely Ready post-restart
