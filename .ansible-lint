@@ -7,5 +7,15 @@ exclude_paths:
 
 skip_list: []
 
+# Operator-run playbooks name their target as `hosts: "{{ x | mandatory }}"`, so
+# the operator cannot forget the --extra-vars. syntax-check evaluates `hosts:`
+# with no extra vars and `mandatory` does what it says, failing the lint rather
+# than the run. These stand in for that flag at lint time only; the guard still
+# fires for real. Any inventory-shaped string works — nothing resolves them.
+extra_vars:
+  evict_target: lint-placeholder
+  rebuild_target: lint-placeholder
+  reissue_target: lint-placeholder
+
 # Fail hard on warnings once roles stabilize; for now, warnings stay warnings.
 strict: false

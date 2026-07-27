@@ -26,6 +26,9 @@
   # against the same snap with rc=10. Retry until snap has settled.
   ansible.builtin.command: snap alias microk8s.kubectl kubectl
   when: not microk8s_kubectl_alias.stat.exists
+  # The stat guard above is the idempotency check: reaching the command at all
+  # means the alias was absent, so a run is always a change.
+  changed_when: true
   register: _microk8s_snap_alias
   retries: 10
   delay: 3

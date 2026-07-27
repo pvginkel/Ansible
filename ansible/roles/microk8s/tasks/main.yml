@@ -6,7 +6,10 @@
       - microk8s_service_cidr_v4 | length > 0
       - microk8s_cluster_cidr_v6 | length > 0
       - microk8s_service_cidr_v6 | length > 0
-    fail_msg: "Set microk8s_cluster_cidr_v4/v6 and microk8s_service_cidr_v4/v6 in group_vars/k8s_<cluster>.yml. Defaults are empty so a missing cluster config fails loud rather than installing on the wrong network."
+    fail_msg: >-
+      Set microk8s_cluster_cidr_v4/v6 and microk8s_service_cidr_v4/v6 in
+      group_vars/k8s_<cluster>.yml. Defaults are empty so a missing cluster
+      config fails loud rather than installing on the wrong network.
 
 # Primary is elected at runtime, not declared in inventory: rebuilding
 # the labeled primary would otherwise strand the surviving cluster

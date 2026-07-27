@@ -145,7 +145,7 @@
   become: true
   gather_facts: false
   tasks:
-    - name: "Cordon {{ rebuild_target }} so workloads don't race ahead of DaemonSets"
+    - name: Cordon the node so workloads don't race ahead of DaemonSets
       # Race window of ~1-2 seconds between microk8s join (end of the
       # previous play) and this task is acceptable: a Pending pod that
       # lands on the new node before the cordon will block on the still-
@@ -190,7 +190,7 @@
       when: item not in (_zpool_list.stdout_lines | default([]))
       changed_when: true
 
-    - name: "Wait for {{ rebuild_target }} to report Ready"
+    - name: Wait for the node to report Ready
       # `microk8s status --wait-ready` substring-matches " Ready " (with
       # surrounding spaces) in `kubectl get nodes` output via its
       # is_cluster_ready() helper. A cordoned node prints
@@ -231,7 +231,7 @@
       delay: 2
       changed_when: false
 
-    - name: "Wait for every pod on {{ rebuild_target }} to reach Ready"
+    - name: Wait for every pod on the node to reach Ready
       # Includes every DaemonSet pod the controllers placed here (Ceph
       # CSI is the slow one at ~3 minutes), plus any racy regular pod
       # that snuck in before the cordon. A pod that can't reach Ready
@@ -251,7 +251,7 @@
           - --timeout=600s
       changed_when: false
 
-    - name: "Uncordon {{ rebuild_target }} now that scheduled DaemonSets are Ready"
+    - name: Uncordon the node now that scheduled DaemonSets are Ready
       ansible.builtin.command:
         argv: [microk8s, kubectl, uncordon, "{{ rebuild_target }}"]
       changed_when: true
