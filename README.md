@@ -24,9 +24,12 @@ See [`/work/AnsibleSpecs/decisions.md`](../AnsibleSpecs/decisions.md) for the fu
 │   └── files/
 ├── terraform/               # VM provisioning (bpg/proxmox)
 ├── docs/runbooks/           # operational procedures (perpetual; design + plans live in /work/AnsibleSpecs)
+├── support/iac-image/       # Dockerfile for the `iac` image the Jenkins pipelines run in
 ├── pyproject.toml           # Poetry-managed Python deps
-└── .pre-commit-config.yaml  # yamllint + ansible-lint on commit
+└── .kubecoder/              # KubeCoder environment shape + curated build/lint entry points
 ```
+
+Linting is manual — there is no pre-commit hook. Run `kc project lint` before committing.
 
 ## Prerequisites
 
@@ -34,14 +37,18 @@ One-time setup of the workstation that runs Terraform and Ansible is documented 
 
 ## Quickstart
 
-```sh
-poetry install
-poetry run ansible-galaxy collection install -r ansible/collections/requirements.yml
+In a KubeCoder environment, the toolchain lives in the `iac` sidecar and setup is a single curated command:
 
-cd ansible
-poetry run ansible all -m ping      # once inventory is populated
+```sh
+kc project setup                    # poetry install + ansible-galaxy collections
+kc project lint                     # yamllint + ansible-lint + terraform fmt
 ```
 
-Poetry creates an in-project `.venv/` (configured via `poetry.toml`). Prefix commands with `poetry run` or activate the venv explicitly (`source .venv/bin/activate`).
+Ad-hoc commands reach the sidecar with `cexec`:
 
-All Ansible commands run from the `ansible/` directory (where `ansible.cfg` lives).
+```sh
+cd ansible
+cexec iac poetry run ansible all -m ping    # once inventory is populated
+```
+
+All Ansible commands run from the `ansible/` directory (where `ansible.cfg` lives). On a workstation without KubeCoder, drop the `cexec iac` prefix and run `poetry install` yourself — see [`docs/runbooks/operator-workstation.md`](docs/runbooks/operator-workstation.md).

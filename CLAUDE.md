@@ -56,7 +56,9 @@ When the operator asks to add something, drop a card in Triage **Inbox** tagged 
 
 ### Push notifications
 
-Use `python3 tools/ai_workflow/send_message.py --title "<title>" "<message>"` to push to the operator's phone. Notify on completion of anything that took (or was expected to take) over ~10 minutes, and when blocked needing input. "Send me a message" / "let me know" means this.
+Pushing to the operator's phone is built into the environment — ask for a notification in plain words, no script needed. Notify on completion of anything that took (or was expected to take) over ~10 minutes, and when blocked needing input. "Send me a message" / "let me know" means this.
+
+`tools/ai_workflow/send_message.py` stays in the repo, but it is **CI's**, not yours: the `IaC/*` pipelines invoke it as `iac -c 'send_message.py …'` from their post stages. Don't call it by hand and don't delete it.
 
 ## Commit early and often
 
@@ -74,10 +76,11 @@ This applies to slice documents in `/work/AnsibleSpecs/` too. Once a slice is do
 
 ## Tooling
 
-- **Poetry** for Python deps. `poetry install` once; `poetry run <cmd>` or activate `.venv/` for ad-hoc commands.
+- **The toolchain lives in the `iac` sidecar**, not in this container: `cexec iac <cmd>` for anything needing poetry, ansible, terraform, kubectl, helm, `bao` or `step`. Curated entry points are `kc project setup|lint|test` — `kc project info` lists them.
+- **Poetry** for Python deps, via the sidecar: `cexec iac poetry install` once, then `cexec iac poetry run <cmd>` for ad-hoc commands.
 - **Ansible** runs from the `ansible/` directory (where `ansible.cfg` lives). Default inventory is `inventories/prd` (every production-grade host). The `inventories/scratch` inventory holds the disposable scratch fleet (today: two Phase 4 microk8s scratch nodes); pass `-i inventories/scratch` for scratch-VM runs.
 - **Terraform** runs from the `terraform/` directory. Provider is `bpg/proxmox`.
-- **Linting is manual.** No pre-commit hook — it was removed because it was breaking commits. Run lint yourself before proposing a commit: `poetry run yamllint <paths>` and `poetry run ansible-lint <paths>` for Ansible/YAML changes; `terraform fmt -check` and `terraform validate` for Terraform changes.
+- **Linting is manual.** No pre-commit hook — it was removed because it was breaking commits. Run `kc project lint` yourself before proposing a commit; it covers yamllint + ansible-lint over `ansible/` and `terraform fmt -check` over `terraform/`. For a single path, reach past it: `cexec iac poetry run ansible-lint <path>`.
 
 ## Operator runs Terraform and Ansible — not Claude
 
@@ -85,7 +88,7 @@ The user runs all `terraform apply`, `terraform destroy`, and `ansible-playbook`
 
 Claude prepares the change (edits the role / module / inventory), proposes the exact command to run, and waits for the user to run it and report the result. Hand back full output for parsing, not "looks good."
 
-Claude **may** use the SSH keys in `/work/Obsidian/Attachments/` to read state for investigation — `qm config <vmid>`, `lsblk`, file inspection, anything strictly read-only. Anything that would cause `changed=N>0` or a `terraform` state mutation is the operator's keystroke.
+Read-only state inspection on managed hosts (`qm config <vmid>`, `lsblk`, file reads) needs an SSH identity. That identity used to come from `/work/Obsidian/Attachments/`, which this environment no longer clones — so **for now there is no in-pod SSH access to managed hosts**, and those investigations go to the operator. Moving the keys into the secret catalog is tracked on the Triage board. Regardless of how the key arrives, anything that would cause `changed=N>0` or a `terraform` state mutation stays the operator's keystroke.
 
 Read-only Ansible is fine when it's clearly read-only: `ansible -m setup`, `ansible-playbook --check --diff` against a host where the role itself has no side effects (e.g. fact gathering). When in doubt, hand the command to the operator.
 
@@ -124,9 +127,13 @@ When handing a command to the operator to run, use this exact shape:
 
 Paths below are Claude's mount (`/work/...`); the operator sees the same repos under `~/source/...`. Use the operator's form in commands handed to them (see "Paths the operator sees" above).
 
+- `/work/AnsibleSpecs` — decisions, slices, change requests. Shared clone.
 - `/work/HelmCharts` — Helm charts + per-environment configs. Jenkins-driven deploys.
 - `/work/DockerImages` — Jenkins-built container images.
-- `/work/Obsidian` — the user's procedural runbook (Proxmox, Kubernetes, Ceph, Linux, network, Keycloak). Primary source material when building roles.
+- `/work/IaCAgent` — the `iac` runner on `srviac` that the Jenkins IaC pipelines drive.
+- `/work/HomelabTerraformProvider` — the `pvginkel/homelab` Terraform provider (Go).
+
+The set is declared in `.kubecoder/config.yaml`; adding one is an edit there plus a `kc env sync`. Older docs also mention `/work/Obsidian` (the procedural runbook that several roles were ported from) — it is **not** cloned here any more, so treat those citations as historical provenance, not as files you can open.
 
 ## Federated architecture model
 

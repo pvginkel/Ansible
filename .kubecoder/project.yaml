@@ -1,0 +1,32 @@
+projects:
+  root:
+    description: >-
+      Ansible + Terraform managing the homelab infrastructure: Proxmox hosts,
+      the microk8s and microceph VMs on top, and the Linux dev box baseline.
+      Jenkins runs the deploys through the IaC/* pipelines; Helm owns the
+      Kubernetes workloads in the HelmCharts repo.
+    jenkins: IaC/Deploy
+    setup:
+      - cexec iac poetry install --no-interaction
+      - cexec iac poetry run ansible-galaxy collection install -r ansible/collections/requirements.yml
+
+  ansible:
+    description: >-
+      Roles, playbooks and inventories for every managed host. Applying these
+      against real infrastructure is the operator's keystroke, never an agent's.
+    lint:
+      - cexec iac poetry run yamllint ansible
+      - cexec iac poetry run ansible-lint ansible
+
+  terraform:
+    description: >-
+      VM provisioning on Proxmox via bpg/proxmox — the prd stack and the
+      disposable scratch fleet.
+    cwd: terraform
+    lint: cexec iac terraform fmt -check -recursive
+
+  architecture:
+    description: >-
+      The federated Architecture-as-Code artifact this repo publishes. Validated
+      against the same endpoint the AaC/Ansible pipeline uses.
+    test: cexec iac ./scripts/arch-validate.py docs/architecture/ansible-architecture.yaml
