@@ -88,9 +88,26 @@ The user runs all `terraform apply`, `terraform destroy`, and `ansible-playbook`
 
 Claude prepares the change (edits the role / module / inventory), proposes the exact command to run, and waits for the user to run it and report the result. Hand back full output for parsing, not "looks good."
 
-Read-only state inspection on managed hosts (`qm config <vmid>`, `lsblk`, file reads) needs an SSH identity. That identity used to come from `/work/Obsidian/Attachments/`, which this environment no longer clones — so **for now there is no in-pod SSH access to managed hosts**, and those investigations go to the operator. Moving the keys into the secret catalog is tracked on the Triage board. Regardless of how the key arrives, anything that would cause `changed=N>0` or a `terraform` state mutation stays the operator's keystroke.
+Read-only state inspection on managed hosts (`qm config <vmid>`, `lsblk`, file reads) needs an SSH identity. Those keys now come from the KubeCoder secret catalog: `scripts/kubecoder-keys.sh`, driven by `kc project setup`, lands them at `~/.ssh/id_ed25519_ansible` and `~/.ssh/id_ed25519_pve`, so in-pod SSH to managed hosts works. Regardless, anything that would cause `changed=N>0` or a `terraform` state mutation stays the operator's keystroke.
 
 Read-only Ansible is fine when it's clearly read-only: `ansible -m setup`, `ansible-playbook --check --diff` against a host where the role itself has no side effects (e.g. fact gathering). When in doubt, hand the command to the operator.
+
+## Node-level cluster control goes over SSH, not the kubeconfig
+
+The mounted kubeconfigs have no rights on the cluster-scoped `nodes` resource — `kubectl auth can-i patch nodes` is `no` on `~/.kube/config` and on both elevated write configs. So `kubectl cordon` / `uncordon` / `drain` and anything else that writes a Node object cannot be done with them.
+
+The way through is SSH. Each k8s host runs microk8s, and `sudo microk8s kubectl` on the node is cluster-admin:
+
+```
+cd ansible && ssh -o UserKnownHostsFile=files/known_hosts.d/homelab -o GlobalKnownHostsFile=/dev/null \
+  -o HostKeyAlgorithms=ssh-ed25519-cert-v01@openssh.com,ssh-ed25519 \
+  -o IdentityFile=~/.ssh/id_ed25519_ansible -o IdentitiesOnly=yes \
+  ansible@srvk8s1 'sudo microk8s kubectl cordon srvk8s2'
+```
+
+The option pile mirrors `ansible.cfg`'s `ssh_args`: hosts present an SSH CA certificate rather than a plain host key, and the CA lives in `ansible/files/known_hosts.d/homelab` — hence running from `ansible/` (or spelling that path absolutely). Only the `srvk8s*` prd nodes are reachable from this pod; `srvk8sdev` answers on neither 22 nor 16443.
+
+This is a live mutation of a production cluster, so it carries the same weight as any other write: say what you're about to cordon and why before doing it, and don't leave a node cordoned at the end of a task.
 
 ## What Claude doesn't read on its own
 
