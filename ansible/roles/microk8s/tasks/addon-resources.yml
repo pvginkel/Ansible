@@ -1,0 +1,44 @@
+---
+# Memory requests on the workloads microk8s' own addons own (and on the
+# bundled Calico CNI). Nothing else declares them, so the scheduler counts
+# ~650 MiB per node as free — the accounting hole that let srvk8s1 be
+# packed into starvation on 2026-08-02.
+#
+# These objects are not ours: a strategic-merge patch keyed on the container
+# name touches `resources.requests` and leaves image, args and probes to the
+# addon. Requests only — a limit on a component we don't own is a way to OOM
+# it on an upgrade that changes its footprint.
+#
+# Not durable on its own. Re-enabling an addon, or a snap refresh that
+# reinstalls its manifests, reverts the patch; the role re-asserts on the
+# next site-k8s.yml converge, which is the same guarantee it gives for the
+# CoreDNS Corefile and the MetalLB pool.
+#
+# `validate_certs: false` for the reason given at the top of metallb.yml.
+
+- name: Reconcile memory requests on addon-owned workloads
+  kubernetes.core.k8s:
+    state: patched
+    kubeconfig: /var/snap/microk8s/current/credentials/client.config
+    validate_certs: false
+    api_version: apps/v1
+    kind: "{{ item.kind }}"
+    name: "{{ item.name }}"
+    namespace: "{{ item.namespace }}"
+    merge_type: strategic-merge
+    definition:
+      spec:
+        template:
+          spec:
+            containers:
+              - name: "{{ item.container }}"
+                resources:
+                  requests:
+                    memory: "{{ item.memory }}"
+  loop: "{{ microk8s_addon_resource_requests }}"
+  loop_control:
+    label: "{{ item.namespace }}/{{ item.name }}/{{ item.container }} = {{ item.memory }}"
+  # An entry naming an addon applies only where that addon is what installed
+  # the workload. On dev, metallb comes from a Helm release instead and
+  # dashboard is not deployed at all — patching there would fight the owner.
+  when: item.addon is not defined or item.addon in microk8s_enabled_addons

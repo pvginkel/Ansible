@@ -75,6 +75,49 @@ microk8s_metallb_pool_name: default-addresspool
 microk8s_metallb_advertisement_name: default-advertise-all-pools
 microk8s_metallb_pool_addresses: []
 
+# Memory requests for the addon-owned workloads (tasks/addon-resources.yml).
+# Values come from the same derivation HelmCharts' recommend-resources uses —
+# p90 of the container's max working set over Prometheus history, rounded up
+# to the next quarter-power-of-two. Re-derive them when a channel bump moves
+# a component's footprint. An `addon:` key restricts an entry to clusters
+# where that addon installed the workload; entries without one are the
+# bundled CNI, present everywhere.
+microk8s_addon_resource_requests:
+  - kind: DaemonSet
+    namespace: kube-system
+    name: calico-node
+    container: calico-node
+    memory: 192Mi
+  - kind: Deployment
+    namespace: kube-system
+    name: calico-kube-controllers
+    container: calico-kube-controllers
+    memory: 48Mi
+  - kind: Deployment
+    namespace: kube-system
+    name: kubernetes-dashboard
+    container: kubernetes-dashboard
+    memory: 24Mi
+    addon: dashboard
+  - kind: Deployment
+    namespace: kube-system
+    name: dashboard-metrics-scraper
+    container: dashboard-metrics-scraper
+    memory: 20Mi
+    addon: dashboard
+  - kind: Deployment
+    namespace: metallb-system
+    name: controller
+    container: controller
+    memory: 56Mi
+    addon: metallb
+  - kind: DaemonSet
+    namespace: metallb-system
+    name: speaker
+    container: speaker
+    memory: 80Mi
+    addon: metallb
+
 # Kernel modules required by microk8s and the Ceph CSI clients. Loaded via
 # /etc/modules-load.d/ so they survive reboots.
 microk8s_kernel_modules:

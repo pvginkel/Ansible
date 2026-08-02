@@ -82,6 +82,14 @@
     - _microk8s_installed.stat.exists
     - inventory_hostname == microk8s_primary_host
 
+# Runs after addons.yml, which is what computes microk8s_enabled_addons and
+# creates the workloads being patched.
+- name: Reconcile memory requests on addon-owned workloads (primary only)
+  ansible.builtin.import_tasks: addon-resources.yml
+  when:
+    - _microk8s_installed.stat.exists
+    - inventory_hostname == microk8s_primary_host
+
 # CoreDNS reconciliation runs on the primary after `addons.yml` has
 # enabled the `dns` addon (which is what creates the coredns
 # ConfigMap in the first place).
