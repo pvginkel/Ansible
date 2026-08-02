@@ -181,6 +181,17 @@ microk8s_enable_rbac: false
 # shrinks allocatable by the reservation, so re-run the N-1 drain-feasibility
 # check for the cluster before flipping it — the roll has to keep fitting the
 # busiest node's pods onto the survivors.
+#
+# On prd the two constraints do not currently meet. Draining one control-plane
+# node onto the other two is feasible while
+#     reserved <= allocatable - (total control-plane requests - DaemonSets)/2
+# and the algebra cancels the drained node's own load, so the answer does not
+# depend on how skewed the placement is. At 16 GiB nodes and the projected
+# post-request-coverage load that ceiling is ~1.2 GiB, while the value below
+# is what the measurement asks for. A reservation under the real overhead
+# still leaves the node able to overcommit itself, so the gap is a decision
+# about which risk to carry, not an arithmetic detail — settle it before
+# enabling this on prd.
 microk8s_manage_kubelet_resources: false
 
 # Sized from p99 of the cgroup-method overhead (root cgroup working set minus
