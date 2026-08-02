@@ -53,7 +53,7 @@ sub-agents, so this runs in the **main conversation**, where it can fan out.
 
 5. **Validate.** Every claim grounded in code or spec. No invented or aspirational conventions. Links resolve. The slice index matches the slices on disk.
 
-6. **Commit.** Per the repo's commit-as-you-go rule, in the repo each file lives in: runbooks in `/work/Ansible` (operator: `~/source/Ansible`), `decisions.md` and the slice index in `../AnsibleSpecs`. Stage only the files you touched.
+6. **Commit.** Per the repo's commit-as-you-go rule, in the repo each file lives in: runbooks in `/work/Ansible`, `decisions.md` and the slice index in `/work/AnsibleSpecs`. Stage only the files you touched.
 
 ## Constraints
 

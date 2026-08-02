@@ -79,7 +79,7 @@ This applies to slice documents in `/work/AnsibleSpecs/` too. Once a slice is do
 - **The toolchain lives in the `iac` sidecar**, not in this container: `cexec iac <cmd>` for anything needing poetry, ansible, terraform, kubectl, helm, `bao` or `step`. Curated entry points are `kc project setup|lint|test` — `kc project info` lists them.
 - **Poetry** for Python deps, via the sidecar: `cexec iac poetry install` once, then `cexec iac poetry run <cmd>` for ad-hoc commands.
 - **Ansible** runs from the `ansible/` directory (where `ansible.cfg` lives). Default inventory is `inventories/prd` (every production-grade host). The `inventories/scratch` inventory holds the disposable scratch fleet (today: two Phase 4 microk8s scratch nodes); pass `-i inventories/scratch` for scratch-VM runs.
-- **Terraform** runs from the `terraform/` directory. Provider is `bpg/proxmox`.
+- **Terraform lives in `terraform/`, but does not run from this pod.** Provider is `bpg/proxmox`; `terraform/{prd,scratch}/backend.tf` points at an http backend on `127.0.0.1:6061`, which is the `terraform-backend-git` daemon that `iac-impl` starts inside the **srviac** iac container. This pod's `iac` sidecar is the *catalog* toolchain, not `support/iac-image/` — it has the `terraform` binary but no `terraform-backend-git` and nothing serving `:6061`, so `init`/`plan`/`apply` against prd or scratch fail here. `terraform fmt`, which needs no state, is fine (`kc project lint` runs it). Real terraform runs happen in the `IaC/*` Jenkins pipelines, or by hand on srviac via `iac -c '…'`.
 - **Linting is manual.** No pre-commit hook — it was removed because it was breaking commits. Run `kc project lint` yourself before proposing a commit; it covers yamllint + ansible-lint over `ansible/` and `terraform fmt -check` over `terraform/`. For a single path, reach past it: `cexec iac poetry run ansible-lint <path>`.
 
 ## Operator runs Terraform and Ansible — not Claude
@@ -87,6 +87,8 @@ This applies to slice documents in `/work/AnsibleSpecs/` too. Once a slice is do
 The user runs all `terraform apply`, `terraform destroy`, and `ansible-playbook` invocations against the real environment themselves. This includes anything targeting the scratch fleet — it lives on the production PVE cluster, even though the VMs are disposable.
 
 Claude prepares the change (edits the role / module / inventory), proposes the exact command to run, and waits for the user to run it and report the result. Hand back full output for parsing, not "looks good."
+
+**The operator works in this same pod.** They see the same `/work/<repo>` paths Claude does and reach the toolchain the same way, through `cexec iac`. So a command handed over is a command Claude could technically have run — the split is a rule about authority, not about access. It holds regardless: `changed=N>0` and terraform state mutations are the operator's keystroke.
 
 Read-only state inspection on managed hosts (`qm config <vmid>`, `lsblk`, file reads) needs an SSH identity. Those keys now come from the KubeCoder secret catalog: `scripts/kubecoder-keys.sh`, driven by `kc project setup`, lands them at `~/.ssh/id_ed25519_ansible` and `~/.ssh/id_ed25519_pve`, so in-pod SSH to managed hosts works. Regardless, anything that would cause `changed=N>0` or a `terraform` state mutation stays the operator's keystroke.
 
@@ -135,14 +137,15 @@ Same logic applies to `bao kv metadata put -custom-metadata=...` for non-sensiti
 
 When handing a command to the operator to run, use this exact shape:
 
-- **Paths the operator sees.** Claude's `/work` is the operator's `~/source` — they have no `/work`. In any command you hand the operator, use repo-relative paths, or the `~/source/<repo>` form for cross-repo hops — never a `/work/...` absolute path. (Claude still reads its own files under `/work`; this rule is only about what goes into operator-run commands.)
+- **Paths are shared.** The operator is in this pod too, so `/work/<repo>` means the same thing to both of you — no path translation. Prefer repo-relative paths anyway, with `/work/<repo>/…` for cross-repo hops.
 - **One line, `cd <dir> && <command>`.** Single copy-paste runs cleanly; if the `cd` fails, the second half doesn't fire.
-- **Terraform**: `cd terraform/prd && terraform apply` — no `poetry run` (terraform doesn't need the venv). Don't propose `terraform plan` as a separate step; `apply` already shows the plan and waits for confirmation.
-- **Ansible**: `cd ansible && poetry run ansible-playbook playbooks/<play>.yml --limit <host>`. Inventory defaults to `inventories/prd` per `ansible.cfg`; pass `-i inventories/scratch` only for scratch-fleet runs. Don't pass `--diff` — `ansible.cfg` sets `diff_always = True`. For the check-mode preflight from "Check-mode first" above, append `--check` to the **very end** of the apply command (e.g. `… --limit <host> --check`) so the operator converts it to an apply by deleting the trailing flag — never put `--check` mid-command. Never include `--ask-vault-pass`: the operator's shell has `ANSIBLE_VAULT_PASSWORD_FILE` set, so the vault unlocks automatically.
+- **Prefix with `cexec iac`.** Ansible, poetry, `bao` and `step` live in the sidecar, not this container. `cexec` mirrors the cwd and carries the environment over, so `cd <dir> && cexec iac <cmd>` behaves as if the tool were local.
+- **Ansible**: `cd ansible && cexec iac poetry run ansible-playbook playbooks/<play>.yml --limit <host>`. Inventory defaults to `inventories/prd` per `ansible.cfg`; pass `-i inventories/scratch` only for scratch-fleet runs. Don't pass `--diff` — `ansible.cfg` sets `diff_always = True`. For the check-mode preflight from "Check-mode first" above, append `--check` to the **very end** of the apply command (e.g. `… --limit <host> --check`) so the operator converts it to an apply by deleting the trailing flag — never put `--check` mid-command. Never include `--ask-vault-pass`: `ANSIBLE_VAULT_PASSWORD_FILE` is projected by `.kubecoder/config.yaml` and survives into the sidecar, so the vault unlocks automatically.
+- **Terraform**: don't hand over a `terraform apply` for prd or scratch — the state backend is unreachable from here (see Tooling). Route it through a push to `main`, which CI turns into an apply, and say so explicitly rather than proposing a command that will fail. If it genuinely must be manual, the shape is `iac -c 'cd terraform/prd && terraform apply'` **on srviac** — and note that iac-impl clones `main` inside the container, so that applies pushed state, not the working tree.
 
 ## Related repos on this machine
 
-Paths below are Claude's mount (`/work/...`); the operator sees the same repos under `~/source/...`. Use the operator's form in commands handed to them (see "Paths the operator sees" above).
+All checked out side by side under `/work`, the same paths for Claude and the operator.
 
 - `/work/AnsibleSpecs` — decisions, slices, change requests. Shared clone.
 - `/work/HelmCharts` — Helm charts + per-environment configs. Jenkins-driven deploys.
