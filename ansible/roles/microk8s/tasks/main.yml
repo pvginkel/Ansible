@@ -140,6 +140,17 @@
 # (k8s-dqlite#364 / microk8s#5386): a systemd timer probes this node's own
 # apiserver watch cache and restarts k8s-dqlite on the freeze signature.
 # Apiserver nodes only — a worker has no local apiserver/dqlite to probe.
+# Per-node kubelet-arg change: system reservation + soft memory eviction.
+# Both flags land in one file edit so they share the single end-of-play
+# kubelite restart. Gated on the per-cluster opt-in because the reservation
+# comes off allocatable and has to be checked against that cluster's drain
+# arithmetic first.
+- name: Reserve memory for the system and set the soft eviction threshold
+  ansible.builtin.import_tasks: kubelet-args.yml
+  when:
+    - _microk8s_installed.stat.exists
+    - microk8s_manage_kubelet_resources | bool
+
 - name: Install the k8s-dqlite watch-freeze watchdog
   ansible.builtin.import_tasks: watchdog.yml
   when:

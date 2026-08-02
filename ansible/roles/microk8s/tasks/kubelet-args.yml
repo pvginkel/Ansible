@@ -1,0 +1,71 @@
+---
+# kubelet resource accounting: a system reservation and a soft eviction
+# threshold. Per-node, not primary-only — args/kubelet is a file on each node.
+#
+# Reservation. `allocatable = capacity - 100Mi` out of the box, and that
+# 100Mi is only the default hard-eviction threshold: nothing is set aside for
+# the OS, kubelet, containerd, or — on a control-plane node — for kubelite
+# itself. apiserver, dqlite, controller-manager and scheduler are snap
+# services, not pods, so they are invisible to both the scheduler and
+# `kubectl top pod`. With --enforce-node-allocatable=pods (the default),
+# kubelet also caps the kubepods cgroup at capacity - reserved, which is what
+# ring-fences the control plane from workload memory pressure. Given the
+# dqlite watch-freeze history (docs/runbooks/dqlite-watch-freeze.md) that is
+# the strongest argument for it.
+#
+# One flag, not two: with enforce-node-allocatable=pods the kube-reserved /
+# system-reserved split is cosmetic — only the sum matters. Do NOT add either
+# to --enforce-node-allocatable; that needs pre-created reserved cgroups and
+# would put a hard cap on kubelite.
+#
+# Soft eviction. On 2026-08-02 srvk8s1 spent hours in direct reclaim and lost
+# 46 pods to liveness-probe timeouts while sitting at 1.27 GiB on kubelet's
+# signal — 13x above the 100Mi hard threshold, so eviction never fired. A soft
+# threshold with a grace period is the mechanism that would have acted: it
+# tolerates spikes, responds to sustained pressure, and evicts gracefully.
+#
+# --eviction-hard is deliberately left alone. Soft thresholds do not subtract
+# from allocatable and hard ones do, so leaving it untouched costs nothing in
+# capacity and keeps the drain arithmetic where it is. It also sidesteps the
+# trap that --eviction-hard *replaces* the shipped map rather than merging
+# with it — setting only the memory signal would silently drop microk8s'
+# nodefs/imagefs thresholds.
+#
+# Known limit: kubelet's signal is `capacity - working_set(root cgroup)`,
+# which understates pain from active page-cache thrash. This is a
+# probabilistic backstop; the memory-PSI alert in the prometheus chart is the
+# complementary detection layer.
+
+- name: Reserve memory for the system and control plane
+  ansible.builtin.lineinfile:
+    path: /var/snap/microk8s/current/args/kubelet
+    regexp: '^--kube-reserved='
+    line: >-
+      --kube-reserved=memory={{ microk8s_kube_reserved_memory_worker
+                                if microk8s_worker_only | bool
+                                else microk8s_kube_reserved_memory }}
+  notify: Restart microk8s kubelite
+
+- name: Set the soft memory-eviction threshold
+  ansible.builtin.lineinfile:
+    path: /var/snap/microk8s/current/args/kubelet
+    regexp: '^--eviction-soft='
+    line: "--eviction-soft=memory.available<{{ microk8s_eviction_soft_memory }}"
+  notify: Restart microk8s kubelite
+
+- name: Set the soft-eviction grace period
+  ansible.builtin.lineinfile:
+    path: /var/snap/microk8s/current/args/kubelet
+    regexp: '^--eviction-soft-grace-period='
+    line: "--eviction-soft-grace-period=memory.available={{ microk8s_eviction_soft_grace_period }}"
+  notify: Restart microk8s kubelite
+
+- name: Bound the grace period a soft-evicted pod gets
+  # Without this, a soft eviction honours the pod's own
+  # terminationGracePeriodSeconds — keycloak-db's is 600s, which is far too
+  # long to wait while a node is thrashing.
+  ansible.builtin.lineinfile:
+    path: /var/snap/microk8s/current/args/kubelet
+    regexp: '^--eviction-max-pod-grace-period='
+    line: "--eviction-max-pod-grace-period={{ microk8s_eviction_max_pod_grace_period }}"
+  notify: Restart microk8s kubelite

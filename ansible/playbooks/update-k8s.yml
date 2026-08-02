@@ -468,6 +468,18 @@
           register: _snap_refresh
           changed_when: '"has no updates available" not in (_snap_refresh.stdout + _snap_refresh.stderr)'
 
+        - name: Re-assert the kubelet resource args after the refresh
+          # A snap refresh can rewrite args/kubelet, and this playbook is the
+          # only thing that refreshes the snap — it does not re-run the role.
+          # Without this, a channel bump silently strips the reservation and
+          # the soft eviction threshold, and nothing notices until the next
+          # site-k8s.yml converge. The reservation-vanished alert in the
+          # prometheus chart is the other half of that safety net.
+          ansible.builtin.import_role:
+            name: microk8s
+            tasks_from: kubelet-args
+          when: microk8s_manage_kubelet_resources | bool
+
         - name: Wait for a post-snap-refresh rejoin by {{ inventory_hostname }}
           ansible.builtin.import_tasks: tasks/wait-node-ready.yml
 

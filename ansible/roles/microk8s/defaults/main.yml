@@ -176,6 +176,30 @@ microk8s_manage_apiserver_vip: false
 # apiserver arg. See decisions.md "k8s clusters enforce RBAC".
 microk8s_enable_rbac: false
 
+# --- kubelet resource accounting (tasks/kubelet-args.yml) ---
+# Off by default; set true per cluster in group_vars/k8s_*.yml. Enabling it
+# shrinks allocatable by the reservation, so re-run the N-1 drain-feasibility
+# check for the cluster before flipping it — the roll has to keep fitting the
+# busiest node's pods onto the survivors.
+microk8s_manage_kubelet_resources: false
+
+# Sized from p99 of the cgroup-method overhead (root cgroup working set minus
+# kubepods working set), which is what kubelet actually acts on — not from
+# capacity - MemAvailable - sum(kubectl top), which double-counts reclaimable
+# page cache. Measured 2026-08-02: 1.63-2.26 GiB p99 on the control-plane
+# trio, 1.16 on the worker. Re-derive on a channel bump; the overhead tracks
+# the software, not the node size.
+microk8s_kube_reserved_memory: 2560Mi
+microk8s_kube_reserved_memory_worker: 1536Mi
+
+# Soft threshold on kubelet's memory.available signal. 1536Mi sits ~270 MiB
+# above the 1.27 GiB floor srvk8s1 reached on 2026-08-02 while thrashing, so
+# it bites on that shape of failure and not on ordinary spikes. Costs no
+# allocatable — only hard thresholds do.
+microk8s_eviction_soft_memory: 1536Mi
+microk8s_eviction_soft_grace_period: 2m
+microk8s_eviction_max_pod_grace_period: 60
+
 # --- watch-cache freeze watchdog (k8s-dqlite#364 / microk8s#5386) ---
 # A per-node systemd timer (tasks/watchdog.yml) probes this node's own
 # apiserver watch cache and restarts k8s-dqlite on the freeze signature: the
