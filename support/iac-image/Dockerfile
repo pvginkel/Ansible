@@ -84,6 +84,15 @@ ENV REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
 
 COPY support/iac-image/smallstep.sources /etc/apt/sources.list.d/smallstep.sources
 
+# The HashiCorp suite below is pinned to `noble` — deliberately NOT this image's own Ubuntu
+# codename. HashiCorp only keeps the LTS suites of apt.releases.hashicorp.com populated: on
+# 2026-08-04 they deleted `questing` (25.10) outright — an S3 delete marker, hours after a
+# build had still installed terraform 1.15.8-1 from it — and `plucky` (25.04) / `oracular`
+# (24.10) survive only as empty 20-byte indices. Deriving the codename from /etc/os-release
+# therefore breaks this image's build on every interim Ubuntu release, at `apt-get update`
+# (exit 100 on the missing Release file), not merely at the terraform install. The debs are
+# static Go binaries whose only dependency is `git`, so the noble package IS what the
+# questing one was — same 1.15.8-1 — and the pin survives the next base-image bump too.
 RUN set -o pipefail && \
     \
     curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-4 | bash && \
@@ -92,7 +101,7 @@ RUN set -o pipefail && \
     echo "deb [signed-by=/etc/apt/keyrings/kubernetes.gpg] https://pkgs.k8s.io/core:/stable:/$KUBE_VERSION/deb/ /" > /etc/apt/sources.list.d/kubernetes.list && \
     \
     curl -fsSL https://apt.releases.hashicorp.com/gpg | gpg --dearmor -o /etc/apt/keyrings/hashicorp.gpg && \
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/hashicorp.gpg] https://apt.releases.hashicorp.com $(grep -oP '(?<=UBUNTU_CODENAME=).*' /etc/os-release || lsb_release -cs) main" > /etc/apt/sources.list.d/hashicorp.list && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/hashicorp.gpg] https://apt.releases.hashicorp.com noble main" > /etc/apt/sources.list.d/hashicorp.list && \
     \
     curl -fsSL https://packages.smallstep.com/keys/apt/repo-signing-key.gpg -o /etc/apt/keyrings/smallstep.asc && \
     \
