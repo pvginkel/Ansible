@@ -59,6 +59,15 @@ microk8s_apiserver_homelab_sans:
 # See decisions.md "k8s clusters enforce RBAC".
 microk8s_enable_rbac: true
 
+# kubelet reservation + soft eviction. Enabled after the 2026-08-02 srvk8s1
+# starvation incident and the 2026-08-04 re-baseline that followed it: nothing
+# was set aside for kubelite, so the scheduler could pack a node until the
+# control plane starved. The role default (2432Mi) is the prd-measured value —
+# see roles/microk8s/defaults/main.yml for the two bounds it sits between.
+# Applying it drops allocatable to ~13438Mi, leaving the trio at 66/62/78%
+# committed, so it evicts nothing on the way in.
+microk8s_manage_kubelet_resources: true
+
 # core/registry excluded per decisions.md "Tool split": the operator
 # runs their own registry, so the live `registry` addon stays enabled
 # until disabled out-of-band (the role is additive — only enables

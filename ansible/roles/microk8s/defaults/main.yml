@@ -180,27 +180,26 @@ microk8s_enable_rbac: false
 # Off by default; set true per cluster in group_vars/k8s_*.yml. Enabling it
 # shrinks allocatable by the reservation, so re-run the N-1 drain-feasibility
 # check for the cluster before flipping it — the roll has to keep fitting the
-# busiest node's pods onto the survivors.
-#
-# On prd the two constraints do not currently meet. Draining one control-plane
-# node onto the other two is feasible while
+# busiest node's pods onto the survivors. Draining one control-plane node onto
+# the other two is feasible while
 #     reserved <= allocatable - (total control-plane requests - DaemonSets)/2
 # and the algebra cancels the drained node's own load, so the answer does not
-# depend on how skewed the placement is. At 16 GiB nodes and the projected
-# post-request-coverage load that ceiling is ~1.2 GiB, while the value below
-# is what the measurement asks for. A reservation under the real overhead
-# still leaves the node able to overcommit itself, so the gap is a decision
-# about which risk to carry, not an arithmetic detail — settle it before
-# enabling this on prd.
+# depend on how skewed the placement is.
 microk8s_manage_kubelet_resources: false
 
 # Sized from p99 of the cgroup-method overhead (root cgroup working set minus
 # kubepods working set), which is what kubelet actually acts on — not from
 # capacity - MemAvailable - sum(kubectl top), which double-counts reclaimable
-# page cache. Measured 2026-08-02: 1.63-2.26 GiB p99 on the control-plane
-# trio, 1.16 on the worker. Re-derive on a channel bump; the overhead tracks
-# the software, not the node size.
-microk8s_kube_reserved_memory: 2560Mi
+# page cache. Re-derive on a channel bump; the overhead tracks the software,
+# not the node size.
+#
+# 2432Mi is bounded on both sides on prd, measured 2026-08-04 over 44h: it must
+# clear the 2387Mi p99 overhead on the worst trio node, and stay under the
+# 2544Mi drain ceiling from the formula above. The window is only 157Mi wide.
+# Measure a reservation only on a *healthy* node — the pre-resize figure was
+# 1.63 GiB on srvk8s1 and it was wrong, because a starved node cannot hold the
+# cache and slab that make up the overhead being measured.
+microk8s_kube_reserved_memory: 2432Mi
 microk8s_kube_reserved_memory_worker: 1536Mi
 
 # Soft threshold on kubelet's memory.available signal. 1536Mi sits ~270 MiB
