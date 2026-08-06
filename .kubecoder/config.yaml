@@ -17,6 +17,12 @@ capabilities:
   kubeDevWrite: true
   kubePrdWrite: true
 
+# The Terraform HTTP state backend that terraform/{prd,scratch}/backend.tf point
+# at on 127.0.0.1:6061. Not exposed: terraform reaches it over localhost from
+# inside the pod, and nothing outside the environment should talk to it.
+services:
+  - terraform-backend-git
+
 # Projected as environment variables; `kc project setup` writes them to the
 # paths ansible.cfg and ssh expect. See scripts/kubecoder-keys.sh.
 secrets:
