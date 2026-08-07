@@ -56,7 +56,7 @@ poetry run ansible-playbook playbooks/update-k8s.yml \
     -i inventories/prd --limit k8s_prd
 ```
 
-Three-node cluster, real drain/uncordon cycle. Roll takes a few minutes per node × 3 nodes (assuming reboots).
+Four-node cluster, real drain/uncordon cycle. Roll takes a few minutes per node × 4 nodes (assuming reboots).
 
 ## Refreshing addons after a microk8s upgrade
 
@@ -75,6 +75,8 @@ Per cluster, on the primary only:
 4. Re-applies the role's `metallb.yml` task — the re-enable resets `default-addresspool` to a sentinel range; this restores it to your real `microk8s_metallb_pool_addresses`.
 
 Brief unavailability per addon during the disable/enable cycle. Run during a maintenance window.
+
+`dns` is the one to plan around: the disable step deletes the CoreDNS Deployment outright, so for that window nothing in the cluster resolves anything — a different order of severity from the dashboard being briefly gone. Anything that reconnects by hostname during the gap (and anything whose liveness probe depends on resolution) can take collateral restarts. The re-enable also resets the Deployment to the addon's stock spec, so any local scaling is lost the same way `default-addresspool` is at step 4 — the role's `coredns.yml` re-asserts the Corefile on the next `site-k8s.yml` converge, but nothing re-asserts the replica count.
 
 ## Re-evaluate the dqlite watch-freeze watchdog
 
@@ -135,6 +137,32 @@ poetry run ansible-playbook playbooks/update-k8s.yml \
 The force-delete bypasses the PDB by skipping the eviction API entirely. The Deployment recreates the pod on a still-schedulable node.
 
 Long-term fix: audit `HelmCharts` for charts whose PDB blocks drain. For single-replica services, drop the PDB or switch from `minAvailable: 1` to `maxUnavailable: 1` (allows the one pod to be unavailable during a drain — same effect as no PDB during scheduled maintenance, but still protects against accidental concurrent disruption).
+
+## Drain that succeeds and takes a service down anyway
+
+The inverse of the section above, and the more dangerous one: a single-replica Deployment with **no** PDB is evicted immediately and silently. Drain reports success, the roll continues, and the service is down until the pod reschedules elsewhere and passes its readiness probe. There is no error in the run output and nothing to grep for — the roll looks clean.
+
+Rolling-update settings do not help here. `maxSurge` / `maxUnavailable` govern rolling *updates*; an eviction is a delete, so the replacement pod starts only after the old one is gone.
+
+**In-cluster DNS is the live instance of this.** `kube-system/coredns` runs one replica with no PDB, no anti-affinity, and no `topologySpreadConstraints` — whatever the microk8s `dns` addon ships. While it is being rescheduled, nothing in the cluster resolves anything. Note this is *not* the same concern as the workstation-DNS section below: that one is about the operator's own resolution path through dnsmasq; this one is about pod-to-pod resolution inside the cluster.
+
+Check where it is sitting before a roll:
+
+```sh
+microk8s kubectl -n kube-system get pod -l k8s-app=kube-dns -o wide
+```
+
+CoreDNS tolerates only `CriticalAddonsOnly`, and `srvk8s4` carries a `homelab.local/performance=high:NoSchedule` taint, so it can only land on `srvk8s1`/`2`/`3` — one of the three nodes the roll will drain. The gap is short (the image is already present and the readiness probe polls every 10s) but it is a real, unannounced outage of cluster DNS on every roll.
+
+Mitigation for a single run: scale up before starting and back down after.
+
+```sh
+microk8s kubectl -n kube-system scale deployment/coredns --replicas=2
+```
+
+This is undeclared drift — `refresh-k8s-addons.yml` deletes and recreates the Deployment, which resets it to one replica. The durable fix is to declare the replica count, anti-affinity, and a PDB in the `microk8s` role; that is tracked as its own change and not yet done.
+
+When auditing for others in this class, note that the "audit `HelmCharts`" pointer above is not enough on its own — CoreDNS is a kube-system addon, not a chart, and the same is true of anything else the addons install.
 
 ## Workstation DNS during a roll
 
