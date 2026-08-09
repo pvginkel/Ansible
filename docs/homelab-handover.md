@@ -102,6 +102,59 @@ so a rebuilt PVE node needs its bridges configured by hand.
   | ceph | `ceph.home` | 10.1.0.38 | 52 |
   | openbao | `secrets.home` | 10.1.0.39 | 53 |
 
+### The edge: UDM Pro
+
+The router is a **UniFi Dream Machine Pro**, firmware 5.1.26, ARM64, 4 GB RAM, at
+`router.home` / 10.1.0.1. It is *not* managed by this estate — no Ansible role, no Terraform,
+no config export in git — but it is reachable over SSH as `root` with the
+`id_ed25519_pve` key, and everything below was read from it live.
+
+**WAN.** Two configured, one in use:
+
+| | Type | Interface | Detail |
+|---|---|---|---|
+| Internet 1 | PPPoE over **VLAN 6** | `eth8` (1 Gb RJ45) | active; public address 45.81.170.227, peer 185.93.175.232, upstream DNS 8.8.8.8 / 8.8.4.4 |
+| Internet 2 | DHCP | `eth9` | configured failover-only; **link is down, nothing plugged in** |
+
+**Networks defined on the router** — note the DHCP column, which is the important one:
+
+| Name | VLAN | Subnet | Gateway | DHCP server on UDM |
+|---|---|---|---|---|
+| Intranet | untagged (1) | 10.1.0.0/16 | 10.1.0.1 | **disabled** |
+| Kubernetes | 2 | 10.2.0.0/16 | 10.2.0.1 | **disabled** |
+| IoT | 3 | 10.3.0.0/16 | 10.3.0.1 | **disabled** |
+| Guest | 4 | 10.4.0.0/16 | 10.4.0.1 | **disabled** |
+| One-Click VPN | — | 192.168.12.0/24 | 192.168.12.1 (`wgsrv1`) | WireGuard remote access |
+
+The router's stored (inactive) DHCP settings for Intranet and IoT name resolvers
+**10.2.1.2 and 10.2.1.3** — the two dnsmasq replicas' MetalLB addresses, inside the
+`10.2.1.1-10.2.1.199` pool on the Kubernetes VLAN. That confirms the intended design from
+the router's side, and see §6 for why the disabled DHCP server matters.
+
+**Physical topology.** The UDM Pro is the only switch in the estate that this documentation
+can see, plus one downstream switch it cannot:
+
+- `eth0`–`eth7` — the UDM's internal 8-port 1 GbE switch. **All eight links are up.** `eth0`
+  is the operator desktop (`PC-PIETER`, by LLDP). The three PVE hosts attach here — `pve` and
+  `pve2` confirmed by MAC on the untagged VLAN; `pve1` had aged out of the table when this
+  was read.
+- **VLAN 2 exists only on this internal switch.** The forwarding table carries exactly four
+  MACs on VLAN 2 — `02:a7:f3:03:8e:01`, `8f:01`, `90:01`, `94:01`, i.e. the second NIC of
+  `srvk8s1` through `srvk8s4` and nothing else. The Kubernetes workload network never leaves
+  the router chassis.
+- `eth10` — the SFP+ LAN port, **negotiated at 1 Gb**, trunked with VLANs 2/3/4. LLDP reports
+  its neighbour as chassis `f4:e2:c6:b4:65:3a` port `0/9` — a **Ubiquiti EdgeSwitch**, which
+  carries 33 learned MACs (the rest of the house) but sees only VLAN 1 in practice.
+
+**Adopted UniFi devices**: the UDM Pro and four access points — three U6 Pro
+(`10.1.1.50`, `10.1.1.158`, `10.1.1.72`) and one U6 Mesh (`10.1.1.13`), all on 6.8.2. No
+custom switch port profiles are defined.
+
+> **The EdgeSwitch on `eth10` is not adopted into the UniFi controller** and has no
+> configuration record anywhere. `decisions.md` lists "UDM Pro + managed switch" as deferred;
+> in practice the managed switch never arrived, the UDM's own eight ports are the managed
+> fabric, and the EdgeSwitch is a standalone device configured through its own web UI.
+
 ## 4. What runs on the hardware
 
 Terraform manages 12 production VMs (`terraform/prd`) plus 2 disposable scratch nodes
@@ -166,6 +219,11 @@ no performance/efficiency split to exploit.
 - **Terraform** state reads work from the dev pod; `plan`/`apply` do not, because the Proxmox
   credentials are not in the secret catalog. Applies run through the `IaC/*` Jenkins
   pipelines or by hand on `srviac`.
+- **The UDM Pro** accepts the `id_ed25519_pve` key as `root` at `router.home`. Its UniFi
+  controller configuration lives in a local MongoDB on port 27117 (database `ace`), which is
+  where the network, device and port definitions in §3 were read from. Treat this access as
+  read-only: nothing in this estate reconciles the router, so any change made there is
+  invisible to every other tool and survives only in the device itself.
 
 ## 6. Failure characteristics — read this before planning capacity
 
@@ -207,6 +265,18 @@ HDD on `pve`. It is a single disk with no redundancy, and it is the reason `prox
 tunes `vm.dirty_bytes`/`vm.dirty_background_bytes` down — dumping to a slow target was
 pushing the host into swap.
 
+**The whole house's DHCP and DNS live inside the Kubernetes cluster, with no fallback on the
+router.** Every LAN network on the UDM Pro has its DHCP server **disabled** (§3) — the
+dnsmasq pods are the only DHCP authority on the wire, and they reach clients as MetalLB
+addresses `10.2.1.2` / `10.2.1.3`. The repo already treats this as a hazard for
+*bootstrap-critical hosts*, which is why the Ceph, k8s and OpenBao nodes carry static netplan
+and external resolvers. What that mitigation does **not** cover is everything else: with the
+cluster down, no laptop, phone, AP or IoT device can obtain or renew a lease. Existing leases
+carry the estate for their remaining lifetime, so the failure is delayed rather than
+immediate — which makes it easy to miss during a short outage and hard to diagnose during a
+long one. Re-enabling a minimal DHCP scope on the UDM as a cold-start floor is the obvious
+mitigation and is not currently in place.
+
 ### Current headroom warnings
 
 - `pve` `local-lvm` is at **89.7%** (743 of 829 GB). LVM-thin pools behave badly at 100%;
@@ -226,16 +296,23 @@ pushing the host into swap.
 - `ansible/inventories/prd/hosts.yml` says the `pve_vms` group is "read by the `proxmox_host`
   role … for affinity reconciliation". It is not — affinity is written by Terraform via the
   `bpg/proxmox` provider. The group's real consumer is `terraform/prd/vms.tf`.
+- `decisions.md` lists "UDM Pro + managed switch" under **Deferred**, which reads as "neither
+  exists yet". In fact the UDM Pro has been the estate's managed fabric all along — VLAN 2
+  lives on its internal 8-port switch and nowhere else — and the separate managed switch never
+  arrived; a standalone Ubiquiti EdgeSwitch carries the rest of the house instead. The
+  deferred item is really "adopt the EdgeSwitch (or replace it) and bring the edge under
+  management", not "buy a router".
 
 ## 8. Out of scope / no visibility
 
-- **The UDM Pro (`router.home`, 10.1.0.1) and the managed switch are not managed by this
-  estate** and there is no automated visibility into them. `AnsibleSpecs/decisions.md` lists
-  "UDM Pro + managed switch" as explicitly *deferred*. The router responds on 22/80/443/8443
-  and its SSH offers `publickey,keyboard-interactive`, but no credential for it exists in this
-  environment. Nothing in either repo records its configuration, firmware, VLAN definitions,
-  or port layout — including the VLAN 2 trunking that the Kubernetes workload network depends
-  on. **A new operator must obtain UniFi access separately.**
+- **The network edge is documented but not managed.** §3 records the UDM Pro's WAN, VLANs,
+  port topology and adopted devices, read live from the device. None of it is reconciled by
+  Ansible or Terraform, and no UniFi config export exists in git — so that section is a
+  snapshot that drifts the moment someone touches the UniFi UI. Re-read it rather than trust
+  it if the network behaves unexpectedly.
+- **The EdgeSwitch behind `eth10` is not visible to anything.** It is not adopted into the
+  UniFi controller, has no config record, and is reachable only through its own web UI.
+  Thirty-three devices sit behind it.
 - Home Assistant, Windows VMs, end-user devices and IoT are out of scope per
   `decisions.md` "Scope".
 - Ceph cluster health and capacity utilisation are **not captured here** — the Ceph VMs were
