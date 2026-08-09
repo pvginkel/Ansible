@@ -9,6 +9,8 @@ Ansible + Terraform managing the Proxmox cluster, the microk8s + microceph VMs o
 
 See [`/work/AnsibleSpecs/decisions.md`](../AnsibleSpecs/decisions.md) for the full decision record — tooling, secrets, workflow. Plan + progress: [`/work/AnsibleSpecs/`](../AnsibleSpecs/) (separate repo) tracks phases (sequenced build-out) and slices (forward-looking design).
 
+For the physical layer — what the hardware actually is, how it is wired, and what the estate can and cannot survive — see [`docs/homelab-handover.md`](docs/homelab-handover.md). It is the only written record of the hardware; nothing regenerates it.
+
 ## Layout
 
 ```
@@ -23,6 +25,7 @@ See [`/work/AnsibleSpecs/decisions.md`](../AnsibleSpecs/decisions.md) for the fu
 │   ├── roles/
 │   └── files/
 ├── terraform/               # VM provisioning (bpg/proxmox)
+├── docs/homelab-handover.md # physical hardware + platform description, and the estate's failure characteristics
 ├── docs/runbooks/           # operational procedures (perpetual; design + plans live in /work/AnsibleSpecs)
 ├── support/iac-image/       # Dockerfile for the `iac` image the Jenkins pipelines run in
 ├── pyproject.toml           # Poetry-managed Python deps
