@@ -34,6 +34,11 @@ in the `IaC/*` Jenkins pipelines, or by hand on srviac via `iac -c '…'`.
 commits. Run `kc project lint` before proposing a commit. For a single path, reach past it:
 `cexec iac poetry run ansible-lint <path>`.
 
+**`tools/ai_workflow/send_message.py` is CI's, not yours.** The `IaC/*` pipelines invoke it as
+`iac -c 'send_message.py …'` from their post stages. Don't call it by hand — ask for a
+notification in plain words instead — and don't delete it as dead code, because nothing in this
+repo calls it directly. The same goes for `track_build.py`.
+
 ## What is safe to run without asking
 
 Read-only state inspection on managed hosts (`qm config <vmid>`, `lsblk`, file reads) needs an SSH

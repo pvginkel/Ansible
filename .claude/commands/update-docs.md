@@ -9,7 +9,8 @@ infrastructure actually works and why. This repo's living docs are:
 
 - **`../AnsibleSpecs/decisions.md`** — homelab doctrine (tool split, secrets, networking, MAC scheme, OS update policy, standing conventions).
 - **`docs/runbooks/`** — perpetual operational runbooks (Proxmox, Kubernetes, Ceph, Linux, network, upgrades).
-- **`../AnsibleSpecs/slices/README.md`** — the lean slice catalogue.
+- **`../AnsibleSpecs/README.md`** — the lean slice catalogue (`## Pending` / `## Completed` /
+  `## Deferred / Cancelled`).
 
 There are **no modes** — you reconcile whatever has drifted. An optional **hint** narrows the
 focus: an area (`the microk8s role`), a runbook (`the k8s-upgrade runbook`), or a decision to
@@ -49,7 +50,7 @@ sub-agents, so this runs in the **main conversation**, where it can fan out.
    - Fix drift: where the code and a doc disagree, the code wins — correct the doc and say so.
    - **Doctrine** goes in `decisions.md`, stated as the standing decision (not a dated log entry), in the voice of the surrounding entries. Keep it the thin doctrine record it already is.
    - **Operational how-to** goes in the owning runbook under `docs/runbooks/` — the actual procedure, current.
-   - Keep the slice index (`slices/README.md`) honest: each entry one line, in the right Pending/Completed/Deferred section.
+   - Keep the slice index (`../AnsibleSpecs/README.md`) honest: each entry one line, in the right Pending/Completed/Deferred section.
 
 5. **Validate.** Every claim grounded in code or spec. No invented or aspirational conventions. Links resolve. The slice index matches the slices on disk.
 
