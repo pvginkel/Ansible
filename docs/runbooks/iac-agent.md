@@ -13,20 +13,37 @@ See [`/work/AnsibleSpecs/phases/iac-agent.md`](../../../AnsibleSpecs/phases/iac-
 | `pvginkel/Ansible` (this repo) | Roles, playbooks, inventory, the Terraform configs (`terraform/{prd,scratch}/`, each with a `backend.tf` http block), and the Jenkins pipeline scripts (`Jenkinsfile.iac-*`) the controller jobs check out. |
 | `pvginkel/TerraformState` | tfstate served through the terraform-backend-git http backend, sops+age-encrypted at rest. Private. Holds the same sensitivity as any secret-bearing repo (VM host private keys, API tokens, proxmox creds). |
 | `pvginkel/IaCAgent` | Host glue (`bin/iac`, the systemd unit, `install.sh`, the `secrets.example.yaml` template). |
-| Jenkins controller (`jenkins.webathome.org`) | Four jobs: `iac-on-push`, `iac-scheduled-update`, `iac-scheduled-drift`, `iac-scheduled-calico`. All run on the `iac-controller`-labelled agent. |
+| Jenkins controller (`jenkins.webathome.org`) | Six jobs: `iac-on-push`, `iac-apply`, `iac-scheduled-update`, `iac-scheduled-drift`, `iac-scheduled-calico`, `iac-scheduled-certs`. All run on the `iac-controller`-labelled agent. |
 
 ## Operator workflow
 
-### Routine: push to `main`
+### Routine: push to `main`, then apply
 
-A merge to `main` on `pvginkel/Ansible` triggers `iac-on-push`. The job, inside one `iac -c '…'` per stage:
+**Pushing and applying are two acts.** A merge to `main` on `pvginkel/Ansible` triggers
+`iac-on-push`, which is read-only: it plan-checks `terraform/prd` and fails fast if the plan
+proposes `replace`/`destroy` on `srviac` (or any other VM name in `check-protected-vms.sh`'s
+argument list). Nothing converges. A red build means the commit would not apply cleanly; the estate
+is untouched either way.
 
-1. Plan-checks `terraform/prd` — fails fast if the plan proposes `replace`/`destroy` on `srviac` (and any other VM names added to `check-protected-vms.sh`'s argument list once Phase 3 picks the OpenBao deployment shape).
+Convergence is `iac-apply`, started by hand once the validation is green. The job, inside one
+`iac -c '…'` per stage:
+
+1. Repeats the plan + destroy check — the guard has to run against the commit being applied, not a
+   different build.
 2. Applies `terraform/prd`.
 3. Runs `site.yml --limit '!iac_agent'`.
-4. Runs `update-k8s.yml` (idempotent no-op when no upgrades are pending).
+4. Runs `site-openbao.yml`.
+5. Runs `site-k8s.yml --limit k8s_prd`.
+6. Converges `srvk8sdev` last, in a stage that can only ever downgrade the build to UNSTABLE.
+
+All ansible stages pass `--skip-tags os_update`: patch posture belongs to `iac-scheduled-update`.
 
 On failure, the post-stage notifies via `send_message.py` with the job name + URL.
+
+> The split exists so that pushing a commit is not the same act as applying it to production — an
+> unattended agent pushing a branch must not be able to roll the prd fleet. The cost is that **prd
+> no longer converges on its own after a push**: if you push and do not start `iac-apply`, the
+> change sits unapplied until a scheduled job or a later apply picks it up.
 
 ### Routine: manual run from `srviac`
 

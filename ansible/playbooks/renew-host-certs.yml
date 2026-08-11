@@ -8,9 +8,10 @@
 #   - iac-scheduled-drift runs `ansible-playbook --check`. The signing
 #     step is a `command`, so check-mode skips it. Drift can report an
 #     approaching expiry; it can never act on one.
-#   - iac-on-push applies for real, but only when someone pushes to main
-#     *and* every earlier stage is green. It had been red for three
-#     weeks when srvk8s1 and srvk8s2 lapsed.
+#   - The applying pipeline (iac-apply today; these stages fired on
+#     every push to main at the time) applies for real, but only when
+#     someone starts it *and* every earlier stage is green. It had been
+#     red for three weeks when srvk8s1 and srvk8s2 lapsed.
 #   - srviac is excluded from both (`--limit '!iac_agent'`), so nothing
 #     renewed it at all. Its certificate expired 2026-07-06.
 #

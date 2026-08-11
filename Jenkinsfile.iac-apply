@@ -1,0 +1,197 @@
+// iac-apply — the converging half of the old iac-on-push pipeline.
+// Manually triggered: there is no `triggers` block, on purpose. A push
+// to main validates (Jenkinsfile.iac-on-push); converging prd is a
+// deliberate act someone starts.
+//
+// Sequential, fail-fast on prd: plan + destroy-check, apply, site (sans
+// iac_agent), site-openbao, site-k8s (prd). A trailing dev stage
+// (srvk8sdev: site-k8s dev + site-ceph) can only ever downgrade the
+// build to UNSTABLE — see devUp() below. Each stage wraps its work in a
+// single `iac -c '...'` so the IaC mutex is held across the steps that
+// must be atomic.
+//
+// The plan + destroy check is repeated here rather than trusted from
+// the validate run: check-protected-vms.sh is the guard that stops an
+// apply destroying srviac, and a guard that runs in a different build
+// against a different commit is not a guard.
+//
+// All ansible stages run with `--skip-tags os_update`: apt cache
+// refresh + dist-upgrade are patch posture, owned by
+// iac-scheduled-update (today: update-k8s.yml; future: update-ceph).
+// This pipeline converges config drift only; it never drains, upgrades,
+// or reboots a cluster node. Same skip-tags pattern as
+// iac-scheduled-drift.
+//
+// Controller config:
+//   - SCM: pvginkel/Ansible, branch main
+//   - Script Path: Jenkinsfile.iac-apply
+//   - Build trigger: none — started by hand
+
+// srvk8sdev is powered off most of the time. Every dev stage in every
+// iac-* pipeline opens with this bounded SSH probe: `-T 5` caps the
+// connect, so a down box costs seconds rather than a playbook's worth
+// of connection retries (or, worse, microk8s' "wait for API" loop).
+// A false result means "skip the stage and mark the build UNSTABLE" —
+// never FAILURE, and never a page.
+def devUp() {
+    return sh(
+        returnStatus: true,
+        script: '''
+            iac -c '
+                cd /work/Ansible/ansible
+                ansible k8s_dev -m ping -o -T 5
+            '
+        '''
+    ) == 0
+}
+
+pipeline {
+    agent { label 'iac-controller' }
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '50'))
+    }
+
+    stages {
+        stage('Plan + destroy check') {
+            steps {
+                sh '''
+                    iac -c '
+                        set -euo pipefail
+                        cd /work/Ansible/terraform/prd
+                        terraform init -input=false -no-color
+                        rc=0
+                        terraform plan -out=/tmp/plan.tfplan -no-color -detailed-exitcode || rc=$?
+                        if [[ $rc -ne 0 && $rc -ne 2 ]]; then exit $rc; fi
+                        terraform show -json /tmp/plan.tfplan > /tmp/plan.json
+                        check-protected-vms.sh /tmp/plan.json srviac
+                    '
+                '''
+            }
+        }
+
+        stage('Terraform apply (prd)') {
+            steps {
+                sh '''
+                    iac -c '
+                        set -euo pipefail
+                        cd /work/Ansible/terraform/prd
+                        terraform init -input=false -no-color
+                        terraform apply -auto-approve -no-color
+                    '
+                '''
+            }
+        }
+
+        stage('Ansible site (excl. iac_agent)') {
+            steps {
+                sh '''
+                    iac -c '
+                        set -euo pipefail
+                        cd /work/Ansible/ansible
+                        ansible-playbook --diff playbooks/site.yml --limit "!iac_agent" --skip-tags os_update
+                    '
+                '''
+            }
+        }
+
+        stage('Ansible site-openbao') {
+            // site-openbao.yml converges the OpenBao service VMs;
+            // site.yml excludes them because the Play 0 transient
+            // known_hosts handoff (pre-cert SSH for srvvaultN) lives
+            // here, not in site.yml. Play 0 reads `terraform output
+            // host_pubkeys` and writes tmp/known_hosts.openbao at
+            // run time, so this works from CI without operator
+            // priming.
+            steps {
+                sh '''
+                    iac -c '
+                        set -euo pipefail
+                        cd /work/Ansible/ansible
+                        ansible-playbook --diff playbooks/site-openbao.yml --skip-tags os_update
+                    '
+                '''
+            }
+        }
+
+        stage('Ansible site-k8s (prd)') {
+            // Converges cluster config drift (baseline, microk8s,
+            // ssh_host_cert) on the prd k8s cluster. site.yml excludes
+            // the k8s groups because cluster changes need serial: 1, so
+            // without this stage a microk8s role tweak wouldn't land.
+            // Limited to k8s_prd — the dev node converges in the
+            // non-blocking dev stage below (splitting the play by
+            // cluster limit is safe: elect-primary elects per cluster).
+            // --skip-tags os_update keeps the apt cache refresh +
+            // dist-upgrade out — those belong to iac-scheduled-update /
+            // update-k8s.yml, which owns the drain → upgrade → reboot
+            // cycle.
+            steps {
+                sh '''
+                    iac -c '
+                        set -euo pipefail
+                        cd /work/Ansible/ansible
+                        ansible-playbook --diff playbooks/site-k8s.yml --limit k8s_prd --skip-tags os_update
+                    '
+                '''
+            }
+        }
+
+        // srvk8sdev converges here, split off from the prd stage above
+        // so a dev box that is powered off — the normal case — can never
+        // block a prd deploy. Both dev playbooks live here: site-k8s
+        // --limit k8s_dev (baseline + microk8s on srvk8sdev) and
+        // site-ceph (its microceph layer, ceph_dev → srvk8sdev only).
+        //
+        // The bound lives in the shell, not in a Jenkins timeout()
+        // step, on purpose: a timeout() firing inside catchError sets
+        // the build to ABORTED whatever buildResult says, which is how
+        // #113 aborted with every prd stage green (srvk8sdev answered
+        // SSH, then hung on `snap install microk8s`). A shell timeout
+        // exits 124 — an ordinary rc this stage can downgrade itself.
+        stage('Ansible dev (srvk8sdev)') {
+            steps {
+                script {
+                    if (!devUp()) {
+                        unstable('srvk8sdev is unreachable — dev convergence skipped')
+                        return
+                    }
+                    def rc = sh(
+                        returnStatus: true,
+                        script: '''
+                            iac -c '
+                                set -euo pipefail
+                                cd /work/Ansible/ansible
+                                timeout --kill-after=1m 10m ansible-playbook --diff playbooks/site-k8s.yml --limit k8s_dev --skip-tags os_update
+                                timeout --kill-after=1m 10m ansible-playbook --diff playbooks/site-ceph.yml --skip-tags os_update
+                            '
+                        '''
+                    )
+                    if (rc != 0) {
+                        env.DEV_STAGE_FAILED = 'true'
+                        unstable("dev convergence failed on srvk8sdev (exit ${rc})")
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        failure {
+            sh '''iac -c 'send_message.py --title "iac-apply #'"$BUILD_NUMBER"' failed" "'"$BUILD_URL"'"' '''
+        }
+        unstable {
+            // Page only when srvk8sdev was up and the run genuinely
+            // failed. An unreachable dev box yellows the build so it's
+            // visible in Jenkins, but it must not push a notification
+            // on every apply.
+            script {
+                if (env.DEV_STAGE_FAILED == 'true') {
+                    sh '''iac -c 'send_message.py --title "iac-apply #'"$BUILD_NUMBER"' unstable (dev convergence failed)" "'"$BUILD_URL"'"' '''
+                }
+            }
+        }
+    }
+}

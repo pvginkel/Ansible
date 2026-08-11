@@ -3,9 +3,10 @@
 // The homelab's whole host-key verification story rests on one
 // `@cert-authority` line, and step-ca host certs live 47 days. Before
 // this job existed nothing renewed them on a schedule: drift is
-// --check-only and so structurally incapable of signing, iac-on-push
-// applies only when someone pushes and every prior stage is green, and
-// srviac was excluded from both. In July 2026 that combination took
+// --check-only and so structurally incapable of signing, the applying
+// pipeline runs only when someone starts it and every prior stage is
+// green (it fired on push to main back then; it is iac-apply, by hand,
+// now), and srviac was excluded from both. In July 2026 that took
 // srvk8s1, srvk8s2 and srviac off the network — including the Ansible
 // controller's own host, which no pipeline had renewed since May.
 //

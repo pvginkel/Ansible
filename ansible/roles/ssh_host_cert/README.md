@@ -45,27 +45,31 @@ It needs no per-inclusion vars: principals and paths are derived from
 
 Certificates last 47 days and the role re-signs inside the last 14, so
 **something must apply the role for real at least every 33 days**, per
-host. Today nothing does that on a schedule:
+host. **`iac-scheduled-certs` is what does that** — weekly, running
+`playbooks/renew-host-certs.yml`, which reaches `srviac` too. Two
+attempts inside every 14-day renewal window.
+
+Nothing else can be relied on for it:
 
 - `iac-scheduled-drift` runs `check-ansible-drift.sh`, i.e.
   `ansible-playbook --check`. The signing task is a `command`, so
   check-mode skips it. Drift **reports** an approaching expiry as
   pending change; it can never renew one.
-- `iac-on-push` applies for real, but only when someone pushes to
-  `main` *and* every earlier stage passes. That is an accidental
-  cadence, not a guarantee.
-- `srviac` (`iac_agent`) is excluded from every pipeline
-  (`--limit '!iac_agent'`), so its certificate is renewed by nothing at
-  all.
+- `iac-apply` applies for real, but only when someone starts it *and*
+  every earlier stage passes. That is an accidental cadence, not a
+  guarantee — and since the apply stages were split out of the on-push
+  pipeline it is not even tied to a push any more.
+- `srviac` (`iac_agent`) is excluded from the convergence pipelines
+  (`--limit '!iac_agent'`), so only the certs job reaches it.
 
-This is not theoretical: it is what took `srvk8s1`, `srvk8s2` and
-`srviac` off the network in July 2026. `iac-on-push` had been red since
-2026-06-30 and the drift job's cron had been lost from the controller,
-so no apply reached the fleet inside the renewal window.
+This is not theoretical: before the certs job existed it is what took
+`srvk8s1`, `srvk8s2` and `srviac` off the network in July 2026. The
+applying pipeline had been red since 2026-06-30 and the drift job's cron
+had been lost from the controller, so no apply reached the fleet inside
+the renewal window.
 
-Until a scheduled apply exists, the certificates are only as fresh as
-the last green `iac-on-push`. Recovery for a host that has already
-lapsed is `playbooks/reissue-host-cert.yml`.
+Recovery for a host that has already lapsed is
+`playbooks/reissue-host-cert.yml`.
 
 ## Inputs
 

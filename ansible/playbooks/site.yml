@@ -31,7 +31,7 @@
 
 - name: Apply iac_agent role to srviac
   # Self-mutation safety lives at the call site, not here — the
-  # iac-on-push Jenkins job passes --limit '!iac_agent' so the
+  # iac-apply Jenkins job passes --limit '!iac_agent' so the
   # orchestrator never re-applies itself. Operator workstation runs
   # `site.yml --limit srviac` for agent-VM mutation.
   hosts: iac_agent

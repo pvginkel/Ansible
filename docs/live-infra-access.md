@@ -1,0 +1,117 @@
+# Reaching live infrastructure
+
+The mechanics behind `CLAUDE.md`'s standing rule that the operator runs every `terraform apply`,
+`terraform destroy` and `ansible-playbook` against real infrastructure. The rule is about
+**authority, not access** — the operator works in this same pod and sees the same `/work/<repo>`
+paths, so a command handed over is one Claude could technically have run. It holds regardless:
+`changed=N>0` and terraform state mutations are the operator's keystroke.
+
+## The toolchain
+
+The toolchain lives in the `iac` sidecar, not the dev container: `cexec iac <cmd>` for anything
+needing poetry, ansible, terraform, kubectl, helm, `bao` or `step`. Curated entry points are
+`kc project setup|lint|test` (`kc project info` lists them).
+
+**Ansible** runs from the `ansible/` directory, where `ansible.cfg` lives. Default inventory is
+`inventories/prd` (every production-grade host); `inventories/scratch` holds the disposable scratch
+fleet, reached with `-i inventories/scratch`.
+
+**Terraform** lives in `terraform/`. **State reads work from this pod; `plan`/`apply` do not.**
+Provider is `bpg/proxmox`; `terraform/{prd,scratch}/backend.tf` points at an http backend on
+`127.0.0.1:6061`, served here by the `terraform-backend-git` catalog service that
+`.kubecoder/config.yaml` runs as a sidecar. So `terraform init` and state reads (`state list`,
+`show`) succeed via `cexec iac`. The backend URL names the git store (`pvginkel/TerraformState`,
+ref `main`), so this daemon and the one `iac-impl` starts on **srviac** resolve to the same state —
+reads here are the real thing, not a private copy. `terraform fmt` needs no state at all.
+
+What does not work is anything that contacts Proxmox: `terraform/prd` takes its credentials as
+variables (`proxmox_endpoint`, `proxmox_username`, `proxmox_password`, `dns_reservation_token`,
+`backup_server_token`), only `terraform.tfvars.example` is checked in, and the KubeCoder secret
+catalog carries none of them — so `plan`/`apply` fail here on missing variables. Those runs happen
+in the `IaC/*` Jenkins pipelines, or by hand on srviac via `iac -c '…'`.
+
+**Linting is manual.** There is no pre-commit hook — it was removed because it was breaking
+commits. Run `kc project lint` before proposing a commit. For a single path, reach past it:
+`cexec iac poetry run ansible-lint <path>`.
+
+## What is safe to run without asking
+
+Read-only state inspection on managed hosts (`qm config <vmid>`, `lsblk`, file reads) needs an SSH
+identity. Those keys come from the KubeCoder secret catalog: `scripts/kubecoder-keys.sh`, driven by
+`kc project setup`, lands them at `~/.ssh/id_ed25519_ansible` and `~/.ssh/id_ed25519_pve`.
+
+Read-only Ansible is fine when it is clearly read-only: `ansible -m setup`, or
+`ansible-playbook --check --diff` against a host where the role itself has no side effects. When in
+doubt, hand the command to the operator.
+
+## Canonical command shape
+
+When handing a command to the operator, use this exact shape:
+
+- **Paths are shared.** `/work/<repo>` means the same thing to both of you — no path translation.
+  Prefer repo-relative paths, with `/work/<repo>/…` for cross-repo hops.
+- **One line, `cd <dir> && <command>`.** A single copy-paste runs cleanly; if the `cd` fails, the
+  second half doesn't fire.
+- **Prefix with `cexec iac`.** It mirrors the cwd and carries the environment over, so
+  `cd <dir> && cexec iac <cmd>` behaves as if the tool were local.
+- **Ansible:** `cd ansible && cexec iac poetry run ansible-playbook playbooks/<play>.yml --limit
+  <host>`. Inventory defaults to `inventories/prd` per `ansible.cfg`; pass `-i inventories/scratch`
+  only for scratch-fleet runs. Don't pass `--diff` — `ansible.cfg` sets `diff_always = True`. For
+  the check-mode preflight, append `--check` to the **very end** of the apply command so the
+  operator converts it to an apply by deleting the trailing flag — never put `--check`
+  mid-command. Never include `--ask-vault-pass`: `ANSIBLE_VAULT_PASSWORD_FILE` is projected by
+  `.kubecoder/config.yaml` and survives into the sidecar, so the vault unlocks automatically.
+- **Terraform:** don't hand over a `terraform apply` for prd or scratch — the Proxmox credentials
+  are not reachable here, so the command fails on missing variables. Route it through a push to
+  `main`, which CI turns into an apply, and say so explicitly rather than proposing a command that
+  will fail. If it genuinely must be manual, the shape is
+  `iac -c 'cd terraform/prd && terraform apply'` **on srviac** — and note that `iac-impl` clones
+  `main` inside the container, so that applies pushed state, not the working tree.
+
+## Node-level cluster control goes over SSH, not the kubeconfig
+
+The mounted kubeconfigs have no rights on the cluster-scoped `nodes` resource —
+`kubectl auth can-i patch nodes` is `no` on `~/.kube/config` and on both elevated write configs. So
+`kubectl cordon` / `uncordon` / `drain` and anything else that writes a Node object cannot be done
+with them.
+
+The way through is SSH. Each k8s host runs microk8s, and `sudo microk8s kubectl` on the node is
+cluster-admin:
+
+```
+cd ansible && ssh -o UserKnownHostsFile=files/known_hosts.d/homelab -o GlobalKnownHostsFile=/dev/null \
+  -o HostKeyAlgorithms=ssh-ed25519-cert-v01@openssh.com,ssh-ed25519 \
+  -o IdentityFile=~/.ssh/id_ed25519_ansible -o IdentitiesOnly=yes \
+  ansible@srvk8s1 'sudo microk8s kubectl cordon srvk8s2'
+```
+
+The option pile mirrors `ansible.cfg`'s `ssh_args`: hosts present an SSH CA certificate rather than
+a plain host key, and the CA lives in `ansible/files/known_hosts.d/homelab` — hence running from
+`ansible/` (or spelling that path absolutely). Only the `srvk8s*` prd nodes are reachable from this
+pod; `srvk8sdev` answers on neither 22 nor 16443.
+
+This is a live mutation of a production cluster, so it carries the same weight as any other write:
+say what you're about to cordon and why before doing it, and don't leave a node cordoned at the end
+of a task.
+
+## Writing OpenBao secrets via `bao kv put`
+
+`bao kv put` accepts a value from stdin when the key's RHS is `-`. Prefer this over inline
+`key=value` whenever the value is sensitive: positional args land in the controller's terminal
+scrollback and shell history (`~/.bash_history`); stdin doesn't.
+
+```
+# single-key leaf — pipe the value, don't quote it on the command line
+printf %s "$VALUE" | bao kv put -mount=kv iac/foo bar=-
+
+# multi-key leaf — assemble a JSON dict and use the @file form
+jq -n --arg a "$AKEY" --arg s "$SKEY" '{access_key_id:$a, secret_access_key:$s}' \
+  > /tmp/kv.json
+bao kv put -mount=kv shared/ceph-rgw/s3 @/tmp/kv.json
+shred -u /tmp/kv.json
+```
+
+The same logic applies to `bao kv metadata put -custom-metadata=...` for non-sensitive
+annotations: those are fine inline, since they are not secret material.
+
+Reading values is a different matter — see `CLAUDE.md`'s "What Claude doesn't read on its own".
