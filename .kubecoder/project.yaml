@@ -24,15 +24,20 @@ projects:
     # every `roles:` reference fails syntax-check. yamllint needs the root
     # .yamllint pointed at explicitly; ansible-lint finds both root configs
     # itself, via the git root.
-    lint:
+    # test mirrors lint deliberately: there is no runnable suite here, and the
+    # run loop gates on `test`, not `lint`. The anchor keeps the two from
+    # drifting apart. Live verification stays the operator's keystroke.
+    lint: &ansible_gates
       - cexec iac poetry run yamllint -c ../.yamllint .
       - cexec iac poetry run ansible-lint
+    test: *ansible_gates
 
   terraform:
     description: >-
       VM provisioning on Proxmox via bpg/proxmox — the prd stack and the
       disposable scratch fleet.
-    lint: cexec iac terraform fmt -check -recursive
+    lint: &terraform_gates cexec iac terraform fmt -check -recursive
+    test: *terraform_gates
 
   architecture:
     description: >-
