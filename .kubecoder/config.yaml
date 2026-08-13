@@ -8,9 +8,13 @@ repos:
   - url: https://github.com/pvginkel/AnsibleSpecs
     shared: true
   - url: https://github.com/pvginkel/HelmCharts
+  - url: https://github.com/pvginkel/JenkinsPipelineUtils
   - url: https://github.com/pvginkel/DockerImages
   - url: https://github.com/pvginkel/IaCAgent
   - url: https://github.com/pvginkel/HomelabTerraformProvider
+  - url: https://github.com/pvginkel/ArgoCDDeploy
+  - url: https://github.com/pvginkel/ArgoCDTools
+  - url: https://github.com/pvginkel/Charts
 
 capabilities:
   github: rw

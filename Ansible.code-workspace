@@ -10,6 +10,9 @@
 			"path": "../HelmCharts"
 		},
 		{
+			"path": "../JenkinsPipelineUtils"
+		},
+		{
 			"path": "../DockerImages"
 		},
 		{
@@ -17,6 +20,15 @@
 		},
 		{
 			"path": "../HomelabTerraformProvider"
+		},
+		{
+			"path": "../ArgoCDDeploy"
+		},
+		{
+			"path": "../ArgoCDTools"
+		},
+		{
+			"path": "../Charts"
 		}
 	],
 	"settings": {}
