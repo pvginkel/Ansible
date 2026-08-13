@@ -76,12 +76,12 @@ All under `/work`, same paths for Claude and operator: `AnsibleSpecs` (decisions
 separate git repo, commit there too), `HelmCharts`, `DockerImages`, `HomelabTerraformProvider`,
 `Charts` (the `homelab-shared` Helm library chart and the `https://charts.home` chart repository —
 see its README), `ArgoCDTools` (the Argo CD Terraform PreSync hook and its `argocd-hook` image —
-see its README), `JenkinsPipelineUtils` (the shared library every Jenkinsfile in the estate
-loads), and `IaCAgent` — superseded: the `iac` runner's tree lives here at `support/iac-agent/`,
-which is the copy to edit and the one the `iac_agent` role installs; the clone stays until the
-operator archives the repo. The set is declared in `.kubecoder/config.yaml`; adding one is an edit
-there plus `kc env sync`. Older docs mention `/work/Obsidian` — not cloned here any more, so treat
-those citations as historical provenance.
+see its README) and `JenkinsPipelineUtils` (the shared library every Jenkinsfile in the estate
+loads). The set is declared in `.kubecoder/config.yaml`; adding one is an edit there plus
+`kc env sync`. The `iac` runner's tree lives in this repo at `support/iac-agent/` — that is the
+copy to edit and the one the `iac_agent` role installs. Older docs mention `/work/Obsidian` and
+`/work/IaCAgent` — neither is cloned here any more, so treat those citations as historical
+provenance.
 
 ## Federated architecture model
 
