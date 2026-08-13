@@ -335,7 +335,7 @@ systemSoftware:
     introduced: 2026-05-28
     lifecycle: active
     stereotype: SoftwareProduct
-    sourceRepository: git:pvginkel/IaCAgent
+    sourceRepository: git:pvginkel/Ansible
 
   # ─── Instances (composite) ──────────────────────────────────────────
   - id: ss:proxmox-ve-prd,c387dc26-d523-4139-9976-cb31b419ee05

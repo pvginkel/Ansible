@@ -16,9 +16,6 @@
 			"path": "../DockerImages"
 		},
 		{
-			"path": "../IaCAgent"
-		},
-		{
 			"path": "../HomelabTerraformProvider"
 		},
 		{

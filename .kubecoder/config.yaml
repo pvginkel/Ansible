@@ -1,7 +1,7 @@
 cwd: Ansible
 
 # This environment is the operator's whole infrastructure workspace, not just
-# the Ansible repo: HelmCharts, DockerImages, IaCAgent and the Terraform
+# the Ansible repo: HelmCharts, DockerImages and the Terraform
 # provider are all worked on from here, so `tools:` below is the union of what
 # those repos need. Each sibling keeps its own .kubecoder/project.yaml.
 repos:
@@ -10,7 +10,6 @@ repos:
   - url: https://github.com/pvginkel/HelmCharts
   - url: https://github.com/pvginkel/JenkinsPipelineUtils
   - url: https://github.com/pvginkel/DockerImages
-  - url: https://github.com/pvginkel/IaCAgent
   - url: https://github.com/pvginkel/HomelabTerraformProvider
   - url: https://github.com/pvginkel/ArgoCDDeploy
   - url: https://github.com/pvginkel/ArgoCDTools
