@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # `iac` — host shim. Acquire the IaC mutex, then run the configured
 # iac-impl entrypoint inside the iac container. See
-# /work/AnsibleSpecs/phases/iac-agent.md.
+# /work/AnsibleSpecs/phases/completed/iac-agent.md.
 #
 # Two forms:
 #   iac                  interactive bash inside the container
@@ -24,7 +24,7 @@ IAC_IMPL="/usr/local/bin/iac-impl"
 # path does not exist" if it's missing.
 
 if [[ ! -x "$IAC_IMPL" ]]; then
-    echo "iac: $IAC_IMPL missing — run /opt/IaCAgent/install.sh" >&2
+    echo "iac: $IAC_IMPL missing — run install.sh from the iac-agent tree" >&2
     exit 1
 fi
 
