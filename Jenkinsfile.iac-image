@@ -1,18 +1,42 @@
+import org.jenkinsci.plugins.pipeline.modeldefinition.Utils
+
 library identifier: 'JenkinsPipelineUtils', changelog: false
 
 podTemplate(inheritFrom: 'jenkins-agent kaniko') {
     node(POD_LABEL) {
         stage('Cloning repo') {
+            // checkout scm populates currentBuild.changeSets, which is what
+            // imageInputChanged() reads.
             checkout scm
         }
 
         stage('Building iac image') {
-            container('kaniko') {
-                helmCharts.kaniko('support/iac-image/Dockerfile', '.', [
-                    "registry:5000/iac:${currentBuild.number}",
-                    "registry:5000/iac:latest"
-                ])
+            if (imageInputChanged()) {
+                container('kaniko') {
+                    helmCharts.kaniko('support/iac-image/Dockerfile', '.', [
+                        "registry:5000/iac:${currentBuild.number}",
+                        "registry:5000/iac:latest"
+                    ])
+                }
+            } else {
+                Utils.markStageSkippedForConditional('Building iac image')
             }
         }
     }
+}
+
+// Everything support/iac-image/Dockerfile builds from: the build context under
+// support/iac-image/, the root poetry project baked in at :11, and the two
+// files copied out of ansible/ at :72 and :142. Every other COPY comes from the
+// build stage or a pinned external image. utils.hasChanges tests a changed
+// file's whole repo-relative path with Groovy's ==~, so each pattern is a
+// full-match regex and a directory prefix carries a trailing /.*.
+def imageInputChanged() {
+    return (
+        utils.hasChanges('support/iac-image/.*') ||
+        utils.hasChanges('pyproject\\.toml') ||
+        utils.hasChanges('poetry\\.lock') ||
+        utils.hasChanges('ansible/roles/baseline/files/homelab-root\\.crt') ||
+        utils.hasChanges('ansible/files/known_hosts\\.d/homelab')
+    )
 }
