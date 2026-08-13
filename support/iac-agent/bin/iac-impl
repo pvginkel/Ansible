@@ -3,8 +3,8 @@
 # /usr/local/bin/iac-impl on the host (which is itself materialized
 # from this file by install.sh).
 #
-# Per /work/AnsibleSpecs/phases/completed/openbao.md §Secrets resolver
-# and slices/completed/iac-secrets-resolver.md:
+# Per /work/AnsibleSpecs/phases/completed/openbao.md and
+# slices/completed/iac-secrets-resolver.md:
 #
 #   1. Parse /etc/iac/secrets.yaml. `!bao mount/path#key` references
 #      become BaoRef sentinels at YAML-parse time so a typo can't

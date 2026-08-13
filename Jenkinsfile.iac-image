@@ -26,10 +26,12 @@ podTemplate(inheritFrom: 'jenkins-agent kaniko') {
 }
 
 def imageBuildRequired() {
-    // A build whose changeset holds no file at all was not started by a push: it is
-    // the version poller's weekly rebuild, which triggers this job with no commits
-    // and no parameters (the positional helmCharts.kaniko cannot stamp the poller's
-    // params label). Only a push of the image advances its
+    // A build whose changeset holds no file at all was not started by a push. In
+    // practice that is the version poller's weekly rebuild, which triggers this job
+    // with no commits and no parameters (the positional helmCharts.kaniko cannot
+    // stamp the poller's params label); a hand-started build with no new commits
+    // since the last one lands here too, and rebuilding is the wanted answer for
+    // both. Only a push of the image advances its
     // org.webathome.poller.rebuild-at label, and the poller neither re-fires while
     // that value is unchanged nor triggers at all once it goes stale — so a rebuild
     // skipped here is never retried, and the image's floating ubuntu/apt/helm layers
