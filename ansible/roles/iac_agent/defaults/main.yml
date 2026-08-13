@@ -1,10 +1,10 @@
 ---
-# Local checkout of the IaCAgent repo on the Ansible controller. The
-# role syncs this tree onto the target host and runs its install.sh.
-# Path is relative to the playbook (ansible/playbooks/), so the operator
-# layout `/work/{Ansible,IaCAgent}` and the in-container layout
-# `/work/{Ansible,IaCAgent}` both resolve correctly.
-iac_agent_local_checkout: "{{ playbook_dir }}/../../../IaCAgent"
+# The IaCAgent tree, in this repo. The role syncs it onto the target host
+# and runs its install.sh. Path is relative to the playbook
+# (ansible/playbooks/), so it resolves against whichever checkout is being
+# applied from — the operator's /work/Ansible and the clone iac-impl makes
+# inside the iac container alike. No sibling checkout is consulted.
+iac_agent_local_checkout: "{{ playbook_dir }}/../../support/iac-agent"
 
 # Where IaCAgent lives on the target host. install.sh reads from here.
 iac_agent_install_dir: /opt/IaCAgent
