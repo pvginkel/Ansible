@@ -19,7 +19,7 @@ if [ -z "$_bao_repo" ] || [ ! -d "$_bao_repo/ansible" ]; then
 fi
 
 echo "bao-login: reading openbao-admin AppRole creds from the vault..." >&2
-_bao_creds=$(cd "$_bao_repo/ansible" && poetry run ansible srvvault1 -m debug \
+_bao_creds=$(cd "$_bao_repo/ansible" && cexec iac poetry run ansible srvvault1 -m debug \
     -a 'msg="role_id={{ openbao_admin_role_id }} secret_id={{ openbao_admin_secret_id }}"' 2>/dev/null)
 if [ $? -ne 0 ] || [ -z "$_bao_creds" ]; then
     echo "bao-login: ansible debug call failed" >&2
@@ -36,7 +36,7 @@ if [ -z "$_bao_role_id" ] || [ -z "$_bao_secret_id" ]; then
 fi
 
 : "${BAO_ADDR:=https://secrets}"
-_bao_token=$(BAO_ADDR="$BAO_ADDR" bao write -field=token auth/approle/login \
+_bao_token=$(BAO_ADDR="$BAO_ADDR" cexec iac bao write -field=token auth/approle/login \
     role_id="$_bao_role_id" secret_id="$_bao_secret_id")
 if [ -z "$_bao_token" ]; then
     echo "bao-login: approle login failed" >&2
