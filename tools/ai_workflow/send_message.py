@@ -3,7 +3,7 @@
 Send an Android/iOS push notification through Home Assistant's
 companion-app notifier: notify.mobile_app_pieter_telefoon.
 
-Copied from /work/IaCAgent/bin/send_message.py — stdlib only, no extra
+Copied from support/iac-agent/bin/send_message.py — stdlib only, no extra
 package dependency. Used by the AI-workflow skills (run-slice, triage) and
 for ad-hoc "let me know" notifications.
 

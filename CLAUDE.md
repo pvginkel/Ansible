@@ -73,10 +73,12 @@ proposing a commit. Terraform state reads work here; `plan`/`apply` do not. Deta
 ## Related repos on this machine
 
 All under `/work`, same paths for Claude and operator: `AnsibleSpecs` (decisions, slices — a
-separate git repo, commit there too), `HelmCharts`, `DockerImages`, `IaCAgent` (the `iac` runner on
-srviac), `HomelabTerraformProvider`. The set is declared in `.kubecoder/config.yaml`; adding one is
-an edit there plus `kc env sync`. Older docs mention `/work/Obsidian` — not cloned here any more,
-so treat those citations as historical provenance.
+separate git repo, commit there too), `HelmCharts`, `DockerImages`, `HomelabTerraformProvider`, and
+`IaCAgent` — superseded: the `iac` runner's tree lives here at `support/iac-agent/`, which is the
+copy to edit and the one the `iac_agent` role installs; the clone stays until the operator archives
+the repo. The set is declared in `.kubecoder/config.yaml`; adding one is an edit there plus
+`kc env sync`. Older docs mention `/work/Obsidian` — not cloned here any more, so treat those
+citations as historical provenance.
 
 ## Federated architecture model
 

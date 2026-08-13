@@ -2,18 +2,17 @@
 
 The dedicated VM that runs Terraform and Ansible against the homelab in production. After Phase 1 (iac-agent), routine TF + Ansible flows through `srviac`; the operator workstation is reserved for break-glass and for mutating `srviac` itself.
 
-See [`/work/AnsibleSpecs/phases/iac-agent.md`](../../../AnsibleSpecs/phases/iac-agent.md) for the design rationale.
+See [`/work/AnsibleSpecs/phases/completed/iac-agent.md`](../../../AnsibleSpecs/phases/completed/iac-agent.md) for the design rationale.
 
 ## What lives where
 
 | Where | What |
 |---|---|
 | `srviac` host | Docker, the `iac` shim, a daily `docker image prune -f` cron, a systemd unit running the Jenkins inbound-agent container, `/etc/iac/secrets.yaml` (operator-curated, `0600`), `/var/lock/iac.lock` (the IaC mutex). |
-| `modern-app-dev` image | Terraform, Ansible, kubectl, helm, python, poetry, `terraform-backend-git`, plus `iac-impl` — the in-container entrypoint that parses `secrets.yaml`, clones Ansible, starts the terraform-backend-git daemon on `127.0.0.1:6061`, runs `poetry install`, then exec's whatever you asked for. Built and pushed via the existing DockerImages pipeline. |
-| `pvginkel/Ansible` (this repo) | Roles, playbooks, inventory, the Terraform configs (`terraform/{prd,scratch}/`, each with a `backend.tf` http block), and the Jenkins pipeline scripts (`Jenkinsfile.iac-*`) the controller jobs check out. |
+| `registry:5000/iac` image | Terraform, Ansible, kubectl, helm, python, poetry, `terraform-backend-git`, plus `iac-impl` — the in-container entrypoint that parses `secrets.yaml`, clones the repos `secrets.yaml` names (Ansible alone by default), starts the terraform-backend-git daemon on `127.0.0.1:6061`, then exec's whatever you asked for. The Python venv is baked in at image build from this repo's `pyproject.toml`/`poetry.lock`; `iac-impl` installs nothing at runtime and instead warns when the cloned `poetry.lock` differs from the baked one. Built from `support/iac-image/Dockerfile` by this repo's `iac-image` job. |
+| `pvginkel/Ansible` (this repo) | Roles, playbooks, inventory, the Terraform configs (`terraform/{prd,scratch}/`, each with a `backend.tf` http block), the Jenkins pipeline scripts (`Jenkinsfile.*`) every job checks out, the iac image's build context (`support/iac-image/`), and the srviac host glue (`support/iac-agent/` — `bin/iac`, `install.sh`, the systemd unit, the `secrets.example.yaml` template). |
 | `pvginkel/TerraformState` | tfstate served through the terraform-backend-git http backend, sops+age-encrypted at rest. Private. Holds the same sensitivity as any secret-bearing repo (VM host private keys, API tokens, proxmox creds). |
-| `pvginkel/IaCAgent` | Host glue (`bin/iac`, the systemd unit, `install.sh`, the `secrets.example.yaml` template). |
-| Jenkins controller (`jenkins.webathome.org`) | Six jobs: `iac-on-push`, `iac-apply`, `iac-scheduled-update`, `iac-scheduled-drift`, `iac-scheduled-calico`, `iac-scheduled-certs`. All run on the `iac-controller`-labelled agent. |
+| Jenkins controller (`jenkins.webathome.org`) | Six jobs on the `iac-controller`-labelled agent: `iac-on-push`, `iac-apply`, `iac-scheduled-update`, `iac-scheduled-drift`, `iac-scheduled-calico`, `iac-scheduled-certs`. `iac-image` and `architecture` also build from this repo, but on Kubernetes pod agents — they hold no IaC mutex and use none of the host glue. |
 
 ## Operator workflow
 
@@ -44,6 +43,28 @@ On failure, the post-stage notifies via `send_message.py` with the job name + UR
 > unattended agent pushing a branch must not be able to roll the prd fleet. The cost is that **prd
 > no longer converges on its own after a push**: if you push and do not start `iac-apply`, the
 > change sits unapplied until a scheduled job or a later apply picks it up.
+
+### Routine: the `iac` image rebuild
+
+A push still starts `iac-image`, but the job decides for itself whether to build. It rebuilds only
+when the push's changeset touched something the image is built from — `support/iac-image/`, the
+root `pyproject.toml` or `poetry.lock` whose venv is baked in,
+`ansible/roles/baseline/files/homelab-root.crt`, `ansible/files/known_hosts.d/homelab`, or
+`Jenkinsfile.iac-image` itself, which carries the Dockerfile path, the context and both tags. Any
+other push reports the `Building iac image` stage as *skipped for conditional* and pushes no tag;
+`registry:5000/iac:latest` stays where it was.
+
+The gate reads the build's own changeset (`utils.hasChanges`), which has two consequences worth
+knowing:
+
+- A build that **fails** on an image-input push is not retried by the next unrelated push — the
+  input no longer appears in that build's changeset. Restart the failed build, or push again.
+- A build whose changeset is **empty** always builds. That is deliberate: it is how a rebuild
+  started with no new commits — by hand, or automatically to refresh the image's floating base
+  layers — still gets through.
+
+So: to force a rebuild, push a trivial change under `support/iac-image/`, or start the job by hand
+when there are no new commits since its last build. There is no force parameter.
 
 ### Routine: manual run from `srviac`
 
@@ -126,7 +147,7 @@ This is the sequence to stand `srviac` up the first time, after all the source c
 
    Both clean → green light.
 
-7. **Wire the four Jenkins jobs** on the controller — each is a pipeline job with SCM `pvginkel/Ansible` and Script Path `Jenkinsfile.iac-<name>` in the repo root. Verify each runs against a no-op change (a comment-only push) before unleashing.
+7. **Wire the six `iac-controller` jobs** on the controller — each is a pipeline job with SCM `pvginkel/Ansible` and Script Path `Jenkinsfile.iac-<name>` in the repo root. Verify each runs against a no-op change (a comment-only push) before unleashing.
 
 8. **Cutover.** Stop running Terraform and Ansible from `wrkdev` as the routine path. Delete the workstation-local `terraform/{prd,scratch}/terraform.tfstate{,.backup,.<timestamp>.backup}` files — state is reached only through the backend (encrypted in `TerraformState`) from now on.
 
@@ -151,7 +172,7 @@ Cloud-init re-bakes; the role re-applies; the operator re-populates secrets. The
 
 ### Lost `wrkdev` (extreme case)
 
-Bootstrap any Ubuntu box: install Poetry + the standard SSH keys from the cloud-synced attachments, clone `pvginkel/Ansible`, clone `pvginkel/IaCAgent`. For break-glass terraform, run `scripts/tf-backend.sh` (the same backend in a local `docker run --network host`) and have the age private key from OpenBao (`kv/iac/tf-backend#age_secret_key`) so the backend can decrypt state — `wrkdev` doesn't clone `TerraformState` for normal use. From there `wrkdev`'s workflows resume. The orchestrator-self-applicable guarantee stops here — there is no zero-touch recovery for the case where both the workstation and `srviac` are lost simultaneously.
+Bootstrap any Ubuntu box: install Poetry + the standard SSH keys from the cloud-synced attachments, clone `pvginkel/Ansible` — which carries the host glue at `support/iac-agent/`, so that one clone is the whole controller side. For break-glass terraform, run `scripts/tf-backend.sh` (the same backend in a local `docker run --network host`) and have the age private key from OpenBao (`kv/iac/tf-backend#age_secret_key`) so the backend can decrypt state — `wrkdev` doesn't clone `TerraformState` for normal use. From there `wrkdev`'s workflows resume. The orchestrator-self-applicable guarantee stops here — there is no zero-touch recovery for the case where both the workstation and `srviac` are lost simultaneously.
 
 ## Secret rotation
 

@@ -87,8 +87,8 @@ Terraform authenticates to the Proxmox API as `root@pam` with username + passwor
 
 ## Terraform `pvginkel/homelab` provider
 
-The `homelab` provider ships baked into the `modern-app-dev` container image. `TF_CLI_CONFIG_FILE=/etc/terraform.rc` in the image points Terraform at a filesystem mirror under `/usr/local/share/terraform/plugins`; `terraform init` resolves `pvginkel/homelab` from there with no per-workstation setup. See [`/work/AnsibleSpecs/slices/completed/embed-homelab-provider.md`](../../../AnsibleSpecs/slices/completed/embed-homelab-provider.md) for the mirror layout and how the binary lands in the image.
+The `homelab` provider is served from the private network mirror at `https://tfmirror.home/`. Both the `modern-app-dev` dev container and the `iac` image set `TF_CLI_CONFIG_FILE=/etc/terraform.rc`, and that file's `provider_installation` block routes `registry.terraform.io/pvginkel/*` to the mirror and excludes it from `direct` — so `terraform init` installs `pvginkel/homelab` from there, with a real lockfile hash and no per-workstation setup. No binary is baked into either image. See [`/work/AnsibleSpecs/slices/completed/tf-provider-registry.md`](../../../AnsibleSpecs/slices/completed/tf-provider-registry.md) for the mirror and how each provider version is published to it.
 
-No `~/.terraformrc` is needed. If a stale dev-override block is still present from plan 02, it is harmless inside the container (the env var wins), but delete it so it doesn't fire elsewhere.
+Inside those containers no `~/.terraformrc` is needed; a Terraform run outside them needs the same `network_mirror` block in `~/.terraformrc`. If a stale dev-override block is still present from plan 02, delete it — it is harmless inside the container (the env var wins), but it fires elsewhere.
 
 The bearer token for the sidecar API goes in `terraform/{prd,scratch}/terraform.tfvars` next to the Proxmox password (`dns_reservation_token`).

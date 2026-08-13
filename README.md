@@ -27,6 +27,7 @@ For the physical layer — what the hardware actually is, how it is wired, and w
 ├── terraform/               # VM provisioning (bpg/proxmox)
 ├── docs/homelab-handover.md # physical hardware + platform description, and the estate's failure characteristics
 ├── docs/runbooks/           # operational procedures (perpetual; design + plans live in /work/AnsibleSpecs)
+├── support/iac-agent/       # srviac host glue (the `iac` shim, iac-impl, installer, systemd unit)
 ├── support/iac-image/       # Dockerfile for the `iac` image the Jenkins pipelines run in
 ├── pyproject.toml           # Poetry-managed Python deps
 └── .kubecoder/              # KubeCoder environment shape + curated build/lint entry points
