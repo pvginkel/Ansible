@@ -194,3 +194,25 @@ poetry run ansible -i inventories/prd k8s_prd -m shell \
 ```
 
 All nodes should report `Ready` and the same kernel version.
+
+### One-time: confirm the pre-drain hand-off gate (owed)
+
+Still owed on the next multi-node `k8s_prd` roll. The hand-off task
+`Wait for each labeled Deployment to be genuinely Ready post-restart`
+(`playbooks/tasks/pre-drain-handoff.yml`) used to report `ok` while the
+Deployment was still not-Ready — `microk8s kubectl rollout status` returned 0
+early, because the old pod counted Available before the new pod passed its
+readiness probe, and a `Recreate` Deployment's brief `replicas=0` window
+satisfied it too. Fixed 2026-06-14 by polling explicit Deployment state
+(`observedGeneration` caught up, and `updatedReplicas == readyReplicas ==
+availableReplicas == spec.replicas`), 30 × 10s ≈ the same 5-minute cap.
+
+The fix has not yet run against a real multi-node hand-off. On the next roll,
+watch that task against both opt-in workloads — `keycloak`
+(`RollingUpdate maxSurge:1/maxUnavailable:0`) and `keycloak-db` (`Recreate`),
+the only two today — and confirm it blocks until each is genuinely Ready
+rather than returning immediately. Once seen, delete this subsection.
+
+Defense-in-depth, not a hard blocker: `kubectl drain` already refuses
+PDB-violating evictions and the cordon holds, so an unhealthy target blocks the
+drain regardless. This just stops us relying on that fallback.
