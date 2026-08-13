@@ -1,0 +1,15 @@
+[Unit]
+Description=Jenkins inbound agent (containerized) for srviac
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStartPre=-/usr/bin/docker rm -f jenkins-agent
+ExecStart=/usr/local/bin/jenkins-agent-launch.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

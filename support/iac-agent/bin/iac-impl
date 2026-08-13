@@ -1,0 +1,520 @@
+#!/usr/bin/env python3
+# iac-impl — runs inside the iac container. Bind-mounted in from
+# /usr/local/bin/iac-impl on the host (which is itself materialized
+# from this file by install.sh).
+#
+# Per /work/AnsibleSpecs/phases/openbao.md §Secrets resolver and
+# slices/iac-secrets-resolver.md:
+#
+#   1. Parse /etc/iac/secrets.yaml. `!bao mount/path#key` references
+#      become BaoRef sentinels at YAML-parse time so a typo can't
+#      silently fall through as a literal string.
+#   2. First-pass: materialise the irreducible-literal env entries
+#      (OPENBAO_URL, OPENBAO_ROLE_ID, OPENBAO_SECRET_ID, GIT_API_TOKEN)
+#      so we can authenticate to OpenBao.
+#   3. If any BaoRef exists in the tree, AppRole-login and resolve
+#      every sentinel against OpenBao. Hard-fail before any clone /
+#      state-sync / user command if anything is missing or auth fails.
+#   4. Materialise resolved env: into os.environ; resolved files: at
+#      their declared mode (no default — `mode` is required).
+#   5. Start terraform-backend-git on 127.0.0.1:6061 (the Git-backed
+#      HTTP state backend) and clone the configured `repos:` (default
+#      Ansible) into /work/<name>. State for every consumer's terraform
+#      flows through the backend — which pulls/pushes and sops+age-
+#      encrypts pvginkel/TerraformState itself — not a clone-and-sync of
+#      the state repo.
+#   6. Warn (don't fail) when /work/Ansible/poetry.lock differs from
+#      the image's baked /app/poetry.lock.
+#   7. Exec interactive bash (no args) or `sh -c "$1"` (the -c form).
+
+from __future__ import annotations
+
+import filecmp
+import os
+import socket
+import subprocess
+import sys
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import hvac  # type: ignore[import-untyped]
+import yaml
+
+
+# ----- configuration ------------------------------------------------------
+
+SECRETS_FILE = Path(os.environ.get("SECRETS_FILE", "/etc/iac/secrets.yaml"))
+WORK = Path(os.environ.get("WORK", "/work"))
+# Repos cloned into /work/<name>. Configurable via a top-level `repos:`
+# list in secrets.yaml; defaults to Ansible alone so a pre-existing
+# secrets.yaml (no `repos:` key) keeps cloning exactly Ansible. The
+# HelmCharts deploy harness clones HelmCharts alongside it.
+GIT_OWNER = "github.com/pvginkel"
+DEFAULT_REPOS = ("Ansible",)
+BAKED_LOCK = Path("/app/poetry.lock")
+# The state backend daemon's stdout/stderr are appended here so a run's
+# git pull/push + sops activity survives for inspection within the
+# container's lifetime. `iac -v` mirrors it to the console instead.
+BACKEND_LOG = Path("/var/log/terraform-backend-git.log")
+
+# Env names that MUST resolve to literals — !bao on any of these is a
+# hard error because they gate the path that fetches every other
+# secret. The cold-boot runbook is the escape hatch when OpenBao is
+# unreachable.
+IRREDUCIBLE_LITERAL_ENVS = (
+    "OPENBAO_URL",
+    "OPENBAO_ROLE_ID",
+    "OPENBAO_SECRET_ID",
+    "GIT_API_TOKEN",
+)
+
+# Of those, only GIT_API_TOKEN is *unconditionally* required — clones
+# happen on every iac invocation. The OPENBAO_* set is only required
+# when at least one !bao ref exists in the parsed tree; a literal-only
+# secrets.yaml (the pre-migration state) keeps working without them.
+ALWAYS_REQUIRED_ENVS = ("GIT_API_TOKEN",)
+OPENBAO_AUTH_ENVS = (
+    "OPENBAO_URL",
+    "OPENBAO_ROLE_ID",
+    "OPENBAO_SECRET_ID",
+)
+
+
+# ----- error + logging ----------------------------------------------------
+
+VERBOSE = False
+
+
+def fail(msg: str) -> None:
+    print(f"iac-impl: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+def step(msg: str) -> None:
+    if VERBOSE:
+        print(f"iac-impl: {msg}", file=sys.stderr)
+
+
+def warn(msg: str) -> None:
+    print(f"iac-impl: WARNING — {msg}", file=sys.stderr)
+
+
+# ----- YAML !bao constructor ---------------------------------------------
+
+
+@dataclass(frozen=True)
+class BaoRef:
+    """A `!bao mount/path#key` reference parsed from secrets.yaml."""
+
+    mount: str
+    path: str
+    key: str
+    source: str  # original tag value, for diagnostics
+
+    @classmethod
+    def parse(cls, raw: str) -> "BaoRef":
+        # Schema: "<mount>/<path>#<key>". Mount and key are mandatory;
+        # path is everything between the first '/' and the '#'.
+        if "#" not in raw:
+            raise ValueError(
+                f"!bao ref {raw!r} is missing the '#key' suffix"
+            )
+        head, key = raw.rsplit("#", 1)
+        if "/" not in head:
+            raise ValueError(
+                f"!bao ref {raw!r} must be 'mount/path#key' (no mount/)"
+            )
+        mount, path = head.split("/", 1)
+        if not (mount and path and key):
+            raise ValueError(
+                f"!bao ref {raw!r} has an empty mount, path, or key"
+            )
+        return cls(mount=mount, path=path, key=key, source=raw)
+
+
+def _bao_constructor(loader: yaml.Loader, node: yaml.Node) -> BaoRef:
+    return BaoRef.parse(loader.construct_scalar(node))
+
+
+class IacLoader(yaml.SafeLoader):
+    """SafeLoader with the !bao constructor registered."""
+
+
+IacLoader.add_constructor("!bao", _bao_constructor)
+
+
+# ----- OpenBao resolver --------------------------------------------------
+
+
+class Resolver:
+    """Walks the parsed YAML tree and replaces BaoRef sentinels.
+
+    Hard-fails on any miss — unresolvable refs, auth failure, network
+    error. The container is short-lived; running with stale or missing
+    values is unsafe.
+    """
+
+    def __init__(self, url: str, role_id: str, secret_id: str) -> None:
+        self._client = hvac.Client(url=url)
+        try:
+            self._client.auth.approle.login(
+                role_id=role_id,
+                secret_id=secret_id,
+                use_token=True,
+            )
+        except Exception as exc:
+            fail(f"OpenBao AppRole login failed: {exc}")
+        if not self._client.is_authenticated():
+            fail("OpenBao AppRole login returned no token")
+        step(f"openbao authenticated ({url})")
+
+    def resolve(self, ref: BaoRef) -> str:
+        try:
+            response = self._client.secrets.kv.v2.read_secret_version(
+                mount_point=ref.mount,
+                path=ref.path,
+                raise_on_deleted_version=True,
+            )
+        except hvac.exceptions.InvalidPath:
+            fail(
+                f"!bao {ref.source}: path {ref.mount}/{ref.path} does "
+                f"not exist (or the iac-agent policy does not grant "
+                f"read on it)"
+            )
+        except Exception as exc:
+            fail(f"!bao {ref.source}: read failed: {exc}")
+        data = response["data"]["data"]
+        if ref.key not in data:
+            fail(
+                f"!bao {ref.source}: key {ref.key!r} not present at "
+                f"{ref.mount}/{ref.path}"
+            )
+        value = data[ref.key]
+        if not isinstance(value, str):
+            fail(
+                f"!bao {ref.source}: key {ref.key!r} is not a string "
+                f"(got {type(value).__name__})"
+            )
+        return value
+
+
+def _walk_resolve(node: Any, resolver: Resolver) -> Any:
+    """Replace every BaoRef in a parsed YAML tree with its value."""
+    if isinstance(node, BaoRef):
+        return resolver.resolve(node)
+    if isinstance(node, list):
+        return [_walk_resolve(item, resolver) for item in node]
+    if isinstance(node, dict):
+        return {k: _walk_resolve(v, resolver) for k, v in node.items()}
+    return node
+
+
+def _has_bao_ref(node: Any) -> bool:
+    if isinstance(node, BaoRef):
+        return True
+    if isinstance(node, list):
+        return any(_has_bao_ref(item) for item in node)
+    if isinstance(node, dict):
+        return any(_has_bao_ref(v) for v in node.values())
+    return False
+
+
+# ----- secrets.yaml parse + materialise ----------------------------------
+
+
+def parse_secrets() -> dict[str, Any]:
+    if not SECRETS_FILE.is_file():
+        fail(f"{SECRETS_FILE} missing or unreadable")
+    try:
+        with SECRETS_FILE.open("r", encoding="utf-8") as fp:
+            data = yaml.load(fp, Loader=IacLoader)
+    except yaml.YAMLError as exc:
+        fail(f"{SECRETS_FILE} parse error: {exc}")
+    except ValueError as exc:
+        # raised by BaoRef.parse via the !bao constructor
+        fail(f"{SECRETS_FILE} parse error: {exc}")
+    if not isinstance(data, dict):
+        fail(f"{SECRETS_FILE} must be a YAML mapping at the top level")
+    return data
+
+
+def materialise_env(env_entries: list[dict[str, Any]]) -> None:
+    """Export each env: entry into os.environ.
+
+    Entries are dicts of `{name: str, value: str}`. Sentinels MUST be
+    resolved before this runs; if a value is still a BaoRef it's a
+    bug in the resolve pass — assert loudly.
+    """
+    for entry in env_entries:
+        name = entry.get("name")
+        value = entry.get("value")
+        if not isinstance(name, str) or not name:
+            fail(f"env entry missing string `name`: {entry!r}")
+        if isinstance(value, BaoRef):
+            fail(
+                f"env {name}: unresolved !bao ref — resolver bug "
+                f"({value.source})"
+            )
+        if value is None:
+            fail(f"env {name}: value is null in {SECRETS_FILE}")
+        if not isinstance(value, str):
+            value = str(value)
+        os.environ[name] = value
+
+
+def materialise_files(file_entries: list[dict[str, Any]]) -> None:
+    """Write each files: entry to disk at its declared mode.
+
+    `mode` is required — no default. Parent dirs are created. Mode is
+    applied after the write so a write through a pre-existing 0600
+    file goes through under root.
+    """
+    for entry in file_entries:
+        path = entry.get("path")
+        mode = entry.get("mode")
+        content = entry.get("content")
+        if not isinstance(path, str) or not path:
+            fail(f"files entry missing string `path`: {entry!r}")
+        if not isinstance(mode, str) or not mode:
+            fail(f"files entry {path} is missing required 'mode'")
+        if isinstance(content, BaoRef):
+            fail(
+                f"files {path}: unresolved !bao ref — resolver bug "
+                f"({content.source})"
+            )
+        if content is None:
+            fail(f"files {path}: content is null in {SECRETS_FILE}")
+        if not isinstance(content, str):
+            fail(f"files {path}: content must be a string")
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        target.chmod(int(mode, 8))
+
+
+# ----- repo clone + state sync -------------------------------------------
+
+
+def _run(*argv: str, cwd: Path | None = None) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        argv,
+        cwd=str(cwd) if cwd else None,
+        check=True,
+        text=True,
+    )
+
+
+def start_state_backend() -> None:
+    """Start terraform-backend-git on 127.0.0.1:6061 for this container.
+
+    Replaces the old TerraformState clone + sync_state_in/out: terraform
+    in terraform/{prd,scratch} reaches this daemon through a
+    backend "http" block, and the daemon does the git pull/push and
+    sops+age encryption against pvginkel/TerraformState itself.
+
+    The daemon inherits os.environ — GIT_USERNAME, the encryption
+    provider and the SOPS_AGE_* keys come from secrets.yaml; GITHUB_TOKEN
+    is mapped from GIT_API_TOKEN here. Started in the background and
+    never stopped explicitly; the container teardown reaps it.
+    """
+    os.environ.setdefault("GITHUB_TOKEN", os.environ.get("GIT_API_TOKEN", ""))
+    cmd = ["terraform-backend-git", "--access-logs"]
+    step("starting terraform-backend-git on 127.0.0.1:6061")
+    # Keep the daemon's chatter (startup banner incl. the localhost-only
+    # "HTTP basic auth is disabled" warning, plus the per-request access
+    # logs) off the default console — it's noise on every iac run. By
+    # default it's appended to BACKEND_LOG so a run stays inspectable;
+    # `iac -v` mirrors it to the console instead.
+    if VERBOSE:
+        out = None
+    else:
+        BACKEND_LOG.parent.mkdir(parents=True, exist_ok=True)
+        out = open(BACKEND_LOG, "a")
+    subprocess.Popen(cmd, stdout=out, stderr=out)
+    if out is not None:
+        out.close()  # the daemon inherited its own fd; drop the parent's
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(0.25)
+            if sock.connect_ex(("127.0.0.1", 6061)) == 0:
+                step("terraform-backend-git is listening")
+                return
+        time.sleep(0.2)
+    fail(
+        "terraform-backend-git did not start listening on 127.0.0.1:6061 "
+        "(re-run with `iac -v` to see the daemon's output)"
+    )
+
+
+def parse_repos(parsed: dict[str, Any]) -> tuple[str, ...]:
+    """The repos to clone into /work/<name>.
+
+    Optional top-level `repos:` list of bare repo names under
+    pvginkel/. Absent ⇒ DEFAULT_REPOS (Ansible only), so a pre-existing
+    secrets.yaml is unchanged.
+    """
+    raw = parsed.get("repos")
+    if raw is None:
+        return DEFAULT_REPOS
+    if not isinstance(raw, list) or not raw:
+        fail(f"{SECRETS_FILE}: `repos` must be a non-empty list of repo names")
+    repos: list[str] = []
+    for name in raw:
+        if not isinstance(name, str) or not name or "/" in name:
+            fail(f"{SECRETS_FILE}: invalid repo name {name!r} (bare name under pvginkel/)")
+        repos.append(name)
+    return tuple(repos)
+
+
+def clone_repos(token: str, repos: tuple[str, ...]) -> None:
+    WORK.mkdir(parents=True, exist_ok=True)
+    _run("git", "config", "--global", "init.defaultBranch", "main")
+    for name in repos:
+        step(f"cloning pvginkel/{name}")
+        _run(
+            "git",
+            "clone",
+            "--quiet",
+            "--depth",
+            "1",
+            f"https://{token}@{GIT_OWNER}/{name}.git",
+            str(WORK / name),
+        )
+
+
+def check_baked_venv() -> None:
+    """Warn loudly when the cloned lockfile is ahead of the image's bake.
+
+    Same logic as the bash version: not a hard fail because most iac
+    calls don't touch new deps and run fine against the old venv.
+    """
+    cloned_lock = WORK / "Ansible" / "poetry.lock"
+    if not BAKED_LOCK.is_file():
+        warn(
+            f"no {BAKED_LOCK} found; this image is not the expected "
+            f"iac image. ansible-playbook may not be on PATH."
+        )
+        return
+    if not cloned_lock.is_file():
+        warn(f"no {cloned_lock} found; lockfile-drift check skipped.")
+        return
+    if not filecmp.cmp(BAKED_LOCK, cloned_lock, shallow=False):
+        warn(f"{cloned_lock} differs from the image's baked {BAKED_LOCK}.")
+        warn(
+            "ansible may run with stale dependencies. Wait for the "
+            "iac image rebuild to land, then re-pull."
+        )
+
+
+# ----- main --------------------------------------------------------------
+
+
+def parse_argv() -> tuple[bool, list[str]]:
+    """Strip leading -v/--verbose; return (verbose, remaining_args)."""
+    argv = sys.argv[1:]
+    verbose = False
+    while argv and argv[0] in ("-v", "--verbose"):
+        verbose = True
+        argv = argv[1:]
+    return verbose, argv
+
+
+def main() -> int:
+    global VERBOSE
+    VERBOSE, argv = parse_argv()
+
+    step(f"parsing {SECRETS_FILE}")
+    parsed = parse_secrets()
+
+    env_entries = parsed.get("env") or []
+    file_entries = parsed.get("files") or []
+    if not isinstance(env_entries, list) or not isinstance(file_entries, list):
+        fail(f"{SECRETS_FILE}: env and files must be lists")
+
+    # First pass — pluck the irreducible literals so we can log in to
+    # OpenBao. Any of them showing up as a BaoRef is a hard error; the
+    # cold-boot runbook is the escape hatch when OpenBao is unreachable.
+    irreducible: dict[str, str] = {}
+    for entry in env_entries:
+        name = entry.get("name") if isinstance(entry, dict) else None
+        value = entry.get("value") if isinstance(entry, dict) else None
+        if name in IRREDUCIBLE_LITERAL_ENVS:
+            if isinstance(value, BaoRef):
+                fail(
+                    f"env {name} cannot be a !bao ref — it is part of "
+                    f"the irreducible-literal set that gates OpenBao "
+                    f"itself. See docs/runbooks/iac-cold-boot.md."
+                )
+            if not isinstance(value, str) or not value:
+                fail(f"env {name}: empty or non-string value in {SECRETS_FILE}")
+            irreducible[name] = value
+
+    for name in ALWAYS_REQUIRED_ENVS:
+        if name not in irreducible:
+            fail(f"env {name}: missing from {SECRETS_FILE}")
+
+    # Second pass — resolve every BaoRef anywhere in the tree. The
+    # OpenBao creds are only required if there's something to resolve;
+    # a literal-only secrets.yaml (pre-migration) keeps working.
+    if _has_bao_ref(parsed):
+        for name in OPENBAO_AUTH_ENVS:
+            if name not in irreducible:
+                fail(
+                    f"env {name}: missing from {SECRETS_FILE}, but "
+                    f"secrets.yaml contains !bao refs that need it"
+                )
+        step("resolving !bao references against OpenBao")
+        resolver = Resolver(
+            url=irreducible["OPENBAO_URL"],
+            role_id=irreducible["OPENBAO_ROLE_ID"],
+            secret_id=irreducible["OPENBAO_SECRET_ID"],
+        )
+        parsed = _walk_resolve(parsed, resolver)
+        env_entries = parsed.get("env") or []
+        file_entries = parsed.get("files") or []
+
+    materialise_env(env_entries)
+    materialise_files(file_entries)
+
+    git_token = os.environ.get("GIT_API_TOKEN", "")
+    if not git_token:
+        fail(f"GIT_API_TOKEN missing from {SECRETS_FILE}")
+
+    repos = parse_repos(parsed)
+
+    start_state_backend()
+    clone_repos(git_token, repos)
+    if "Ansible" in repos:
+        check_baked_venv()
+
+    step("ready")
+
+    # Run the user command — interactive bash (no args) or `sh -c <script>`.
+    os.chdir(WORK)
+    if not argv:
+        cmd = ["bash"]
+    elif argv[0] == "-c" and len(argv) == 2:
+        cmd = ["sh", "-c", argv[1]]
+    else:
+        print(
+            "iac-impl: unrecognised arguments: " + " ".join(argv),
+            file=sys.stderr,
+        )
+        print(
+            "Usage: iac-impl [-v]              (interactive bash)",
+            file=sys.stderr,
+        )
+        print(
+            "       iac-impl [-v] -c <script>  (single-arg shell script)",
+            file=sys.stderr,
+        )
+        return 2
+    exit_code = subprocess.call(cmd)
+    return exit_code
+
+
+if __name__ == "__main__":
+    sys.exit(main())
