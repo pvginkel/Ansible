@@ -24,7 +24,7 @@ IAC_IMPL="/usr/local/bin/iac-impl"
 # path does not exist" if it's missing.
 
 if [[ ! -x "$IAC_IMPL" ]]; then
-    echo "iac: $IAC_IMPL missing — run IaCAgent's install.sh" >&2
+    echo "iac: $IAC_IMPL missing — run /opt/IaCAgent/install.sh" >&2
     exit 1
 fi
 

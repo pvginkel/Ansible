@@ -5,7 +5,7 @@ companion-app notifier: notify.mobile_app_pieter_telefoon.
 
 Adapted from /work/DesignAssistant/scripts/send_message.py — rewritten
 to use only the Python standard library so it can run inside the
-modern-app-dev container without an extra package dependency.
+iac container without an extra package dependency.
 
 Usage:
     send_message.py --title "title" --channel "channel" "message"

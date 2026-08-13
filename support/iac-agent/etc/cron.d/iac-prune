@@ -1,8 +1,9 @@
 # Daily prune of dangling Docker images. `prune -f` is dangling-only:
 # it leaves the tagged inbound-agent image and the tagged
-# modern-app-dev image alone, even when they're not currently backing
-# a container. Single-tag pulls (`docker pull modern-app-dev:latest`)
-# untag the previous layer; this cron reclaims that disk.
+# registry:5000/iac image alone, even when they're not currently backing
+# a container. Single-tag pulls (`docker pull registry:5000/iac:latest`,
+# which `iac` does on every call) untag the previous layer; this cron
+# reclaims that disk.
 
 SHELL=/bin/sh
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
