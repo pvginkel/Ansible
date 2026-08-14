@@ -88,12 +88,23 @@ openbao_jenkins_kv_paths:
 # at deploy). Hence the per-cluster glob. The per-cluster split is the
 # real boundary — the dev cluster is a separate trust domain with its
 # own AppRole (eso-dev, below).
+#
+# kv/iac/tf-backend is the one grant outside ESO's own subtrees, and it
+# is a single leaf rather than the iac/* prefix the iac-agent holds: it
+# carries the age keypair terraform-backend-git encrypts Terraform state
+# with. The Argo CD PreSync hook — whose credentials ESO materialises
+# into the argocd-hooks namespace — writes into the same
+# pvginkel/TerraformState repository iac does, so both sides must hold
+# the same key. Copying it to an eso/prd/ leaf instead would put one
+# keypair in two places, where a rotation reaching only one leaves
+# state the other side cannot decrypt.
 openbao_eso_kv_paths:
   - shared/prd/*
   - shared/samba/users
   - shared/jenkins/admin-password
   - shared/wifi-iot
   - eso/prd/*
+  - iac/tf-backend
 
 # The dev cluster's ESO. Same glob rationale as eso above. shared/dev/*
 # is the dev cluster's own per-cluster prefix (ceph-csi driver secrets,
