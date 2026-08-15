@@ -188,6 +188,26 @@ Mint a new PAT (Trello card 20 has the scope), update `/etc/iac/secrets.yaml`. N
 
 Same flow as Phase 0's proxmox-credentials runbook — change on the PVE cluster, update Roboform, then update `/etc/iac/secrets.yaml` on `srviac` and `terraform/prd/terraform.tfvars` on `wrkdev`.
 
+### State encryption keypair (SOPS/age)
+
+`TF_BACKEND_HTTP_SOPS_AGE_RECIPIENTS` (the public half, a literal in `/etc/iac/secrets.yaml`) and `SOPS_AGE_KEY` (the private half, `!bao kv/iac/tf-backend#age_secret_key`) are one keypair. D32 makes that an estate invariant rather than a detail: `iac` and the Argo CD PreSync hook both write `pvginkel/TerraformState`, so a second keypair would leave state one side cannot decrypt.
+
+**Reading the recipient** is the usual need — every new consumer takes it as a plaintext literal, and it is a public key, not a secret:
+
+```
+ssh srviac 'sudo grep -A1 TF_BACKEND_HTTP_SOPS_AGE_RECIPIENTS /etc/iac/secrets.yaml'
+```
+
+Deriving it from the private half with `age-keygen -y` is the documented alternative and the worse one: **`age`, `age-keygen` and `sops` are installed on none of `srviac`, the KubeCoder `iac` sidecar, or the dev container** — terraform-backend-git carries them inside its own image — so it means fetching a binary *and* handling the private key to recover a string already sitting in plaintext. Reserve it for proving the two halves match, on a box where `age` exists:
+
+```
+bao kv get -field=age_secret_key -mount=kv iac/tf-backend | age-keygen -y
+```
+
+Pipe it, never `bao kv get` first and paste — that puts the private key in scrollback and history. Compare the `age1…` it prints against the literal above; a mismatch means state written by one side is undecryptable by the other, which is D32's failure mode.
+
+**Rotation is not a paste.** Every tfstate already in `TerraformState` is encrypted to the current recipient, so swapping both halves at once orphans all existing state. The shape to use instead is a transition: encrypt to old *and* new (the variable is `RECIPIENTS`, plural — sops takes a comma-separated age list, and `SOPS_AGE_KEY` takes multiple identities), let every state get rewritten by a normal apply, then drop the old. Dry-run it against one throwaway state before touching prd — this path has not been exercised.
+
 ### Ansible SSH key (`id_ed25519_ansible`)
 
 Rotation is in the bootstrap role's "SSH key rotation" section. After rotating, update `secrets.yaml` on `srviac` with the new private key body and `git push` the new public key with the `site.yml` apply.
