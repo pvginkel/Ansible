@@ -26,10 +26,12 @@ COPY --from=build /app /app
 
 ENV PATH="/home/ubuntu/.npm-global/bin:/home/ubuntu/.local/bin:/app/.venv/bin:${PATH}" \
     KUBE_VERSION=v1.32 \
+    SOPS_VERSION=3.13.3 \
     TF_CLI_CONFIG_FILE=/etc/terraform.rc
 
 RUN apt-get update -yqq && \
     apt-get install -y --no-install-recommends \
+        age \
         ca-certificates \
         curl \
         git \
@@ -119,6 +121,27 @@ RUN mkdir /work && \
     chown ubuntu:ubuntu /work
 
 COPY support/iac-image/terraform.rc /etc/terraform.rc
+
+# sops — the manual decrypt path for Terraform state, alongside `age`
+# (apt, above; it also carries age-keygen). Nothing in a normal run
+# touches either: terraform-backend-git below bundles both and
+# encrypts/decrypts transparently, which is why the CLIs were absent from
+# every host in the estate. What needs them is recovery — TerraformState's
+# README documents `sops -d` against a state file under "Decrypting state
+# by hand", and that procedure was unrunnable anywhere. age-keygen covers
+# the other half: deriving the public recipient from the private key to
+# prove the two are one pair, which is D32's invariant.
+#
+# Not in the Ubuntu archive, so it comes from the GitHub release, and it
+# is pinned for the same reason terraform-backend-git is — it is the
+# decrypt path for state, and a state-critical component must not move
+# underneath an image rebuild. The deb is a static Go binary with no
+# dependencies, so dpkg -i needs no apt lists (the block above cleaned
+# them).
+RUN curl -fsSL -o /tmp/sops.deb \
+        "https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops_${SOPS_VERSION}_$(dpkg --print-architecture).deb" && \
+    dpkg -i /tmp/sops.deb && \
+    rm /tmp/sops.deb
 
 # terraform-backend-git — the Git-backed Terraform HTTP state backend.
 # iac-impl starts it on 127.0.0.1:6061 and terraform/{prd,scratch} reach
