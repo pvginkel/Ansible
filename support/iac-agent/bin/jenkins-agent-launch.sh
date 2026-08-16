@@ -67,7 +67,6 @@ exec docker run --rm \
     -v /var/lock:/var/lock \
     -v /usr/local/bin/iac:/usr/local/bin/iac:ro \
     -v /usr/local/bin/iac-impl:/usr/local/bin/iac-impl:ro \
-    -v /usr/local/bin/send_message.py:/usr/local/bin/send_message.py:ro \
     "$AGENT_IMAGE" \
     -url "$CONTROLLER_URL" \
     -name "$AGENT_NAME" \

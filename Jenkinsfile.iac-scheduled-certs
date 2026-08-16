@@ -23,6 +23,8 @@
 //   - SCM: pvginkel/Ansible, branch main
 //   - Script Path: Jenkinsfile.iac-scheduled-certs
 
+library identifier: 'JenkinsPipelineUtils', changelog: false
+
 // srvk8sdev is powered off most of the time. Every dev stage in every
 // iac-* pipeline opens with this bounded SSH probe: `-T 5` caps the
 // connect, so a down box costs seconds rather than a playbook's worth
@@ -109,8 +111,16 @@ pipeline {
     }
 
     post {
+        // jenkins-telegram-bot watches every build and reports FAILURE loudly
+        // by itself, job name and build link included — so all a failure has
+        // to add here is what a red build of *this* job costs, which the bot
+        // appends to that message from the description. UNSTABLE it
+        // deliberately stays quiet about — an accepted warning is exactly what
+        // unstable means — so the dev stage says so itself.
         failure {
-            sh '''iac -c 'send_message.py --title "iac-scheduled-certs #'"$BUILD_NUMBER"' failed — host certs may lapse" "'"$BUILD_URL"'"' '''
+            script {
+                currentBuild.description = 'host certs may lapse'
+            }
         }
         unstable {
             // Page only when srvk8sdev was up and renewal genuinely
@@ -119,7 +129,7 @@ pipeline {
             // known, accepted consequence (see above).
             script {
                 if (env.DEV_STAGE_FAILED == 'true') {
-                    sh '''iac -c 'send_message.py --title "iac-scheduled-certs #'"$BUILD_NUMBER"' unstable (dev cert renewal failed)" "'"$BUILD_URL"'"' '''
+                    notify.warning('dev cert renewal failed on srvk8sdev')
                 }
             }
         }

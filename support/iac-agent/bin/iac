@@ -57,13 +57,11 @@ fi
 # Record our PID for the next contender.
 echo "$$" > "$LOCKFILE" 2>/dev/null || true
 
-# send_message.py is bind-mounted so post-stage failure notifications
-# from Jenkins (`iac -c 'send_message.py ...'`) work without baking
-# the script into iac.
+# The check-* scripts are bind-mounted so the Jenkins jobs that call them
+# work without baking them into iac.
 docker run "${docker_flags[@]}" \
     --mount "type=bind,source=$SECRETS_FILE,target=$SECRETS_FILE,readonly" \
     -v "$IAC_IMPL:/usr/local/bin/iac-impl:ro" \
-    -v /usr/local/bin/send_message.py:/usr/local/bin/send_message.py:ro \
     -v /usr/local/bin/check-protected-vms.sh:/usr/local/bin/check-protected-vms.sh:ro \
     -v /usr/local/bin/check-ansible-drift.sh:/usr/local/bin/check-ansible-drift.sh:ro \
     "$IMAGE" \

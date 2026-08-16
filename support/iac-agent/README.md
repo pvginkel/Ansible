@@ -6,10 +6,9 @@ Host glue for `srviac`, the homelab's IaC orchestrator VM. Part of the Ansible r
 
 | Path | What it is |
 |---|---|
-| `bin/iac` | The host shim. Acquires `/var/lock/iac.lock` (`flock -w 60`) and runs `iac-impl` inside the `iac` container (`registry:5000/iac:latest`, built from this repo's `support/iac-image/`); bind-mounts five paths in — `iac-impl`, `/etc/iac/secrets.yaml`, `send_message.py`, `check-protected-vms.sh` and `check-ansible-drift.sh`. |
+| `bin/iac` | The host shim. Acquires `/var/lock/iac.lock` (`flock -w 60`) and runs `iac-impl` inside the `iac` container (`registry:5000/iac:latest`, built from this repo's `support/iac-image/`); bind-mounts four paths in — `iac-impl`, `/etc/iac/secrets.yaml`, `check-protected-vms.sh` and `check-ansible-drift.sh`. |
 | `bin/iac-impl` | The in-container entrypoint. Parses secrets, clones the Ansible repo, starts the `terraform-backend-git` daemon on `127.0.0.1:6061` (terraform reaches state through it via each config's `backend.tf` http block), runs `poetry install`, then executes the caller's command. Bind-mounted in from `/usr/local/bin/iac-impl` on the host (so changes don't require an `iac` image rebuild). |
 | `bin/jenkins-agent-launch.sh` | Wrapper invoked by the systemd unit; extracts `JENKINS_AGENT_SECRET` from `/etc/iac/secrets.yaml` and launches the Jenkins inbound-agent container. |
-| `bin/send_message.py` | Push-notification helper (Home Assistant companion app). Adapted from `DesignAssistant/scripts/send_message.py` — rewritten to stdlib `urllib` so it runs inside the `iac` container without the `requests` package. |
 | `bin/check-protected-vms.sh` | Used by the on-push, apply and drift Jenkins jobs. Fails when a `terraform plan` proposes destroy/replace on any of the named VMs. |
 | `bin/check-ansible-drift.sh` | Used by the drift job. Wraps `ansible-playbook --check --diff` and fails when the recap reports any pending changes. |
 | `etc/iac/secrets.example.yaml` | Placeholder for `/etc/iac/secrets.yaml`. The Ansible role places this on a fresh srviac and fails loudly until the operator copies it to `secrets.yaml` and fills in real values. |
@@ -21,9 +20,11 @@ Host glue for `srviac`, the homelab's IaC orchestrator VM. Part of the Ansible r
 The Jenkins pipelines that drive `srviac` live at the root of this repo as
 `Jenkinsfile.*`; the controller jobs check them out from there and run on
 the `iac-controller`-labelled agent, holding the IaC mutex via `iac -c`.
-They lean on this tree's helpers — `check-protected-vms.sh`,
-`check-ansible-drift.sh`, `send_message.py` — which `iac` bind-mounts into
-the container. Current jobs:
+They lean on this tree's helpers — `check-protected-vms.sh` and
+`check-ansible-drift.sh` — which `iac` bind-mounts into the container.
+Reporting is not one of them: jenkins-telegram-bot watches every build and
+reports FAILURE by itself, and where a job needs to say something the build
+result does not, it calls JenkinsPipelineUtils' `notify` var. Current jobs:
 
 - **`Jenkinsfile.iac-on-push`** — push to `main` on `pvginkel/Ansible`: read-only validation, `terraform plan` plus the protected-VM destroy check. It converges nothing.
 - **`Jenkinsfile.iac-apply`** — the converging half, started by hand: plan + destroy-check, apply, then Ansible convergence across the `site*.yml` playbooks.

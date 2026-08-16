@@ -3,12 +3,15 @@
 // terraform apply, no ansible run without --check.
 //
 // Stages run sequentially so a failure in one doesn't mask findings
-// in the others. All stages are inside the same Jenkins build; any
-// failing trips the post-failure handler exactly once.
+// in the others. All stages are inside the same Jenkins build, so
+// however many of them fail, the build goes red once and is reported
+// once.
 //
 // Controller config:
 //   - SCM: pvginkel/Ansible, branch main
 //   - Script Path: Jenkinsfile.iac-scheduled-drift
+
+library identifier: 'JenkinsPipelineUtils', changelog: false
 
 // srvk8sdev is powered off most of the time. Every dev stage in every
 // iac-* pipeline opens with this bounded SSH probe: `-T 5` caps the
@@ -227,16 +230,19 @@ pipeline {
     }
 
     post {
-        failure {
-            sh '''iac -c 'send_message.py --title "iac-scheduled-drift #'"$BUILD_NUMBER"' detected drift" "'"$BUILD_URL"'"' '''
-        }
+        // No failure handler: jenkins-telegram-bot watches every build and
+        // reports FAILURE loudly by itself, job name and build link included.
+        // The old handler claimed "detected drift" on any red build, which
+        // this job's own name says better and its failure modes contradict —
+        // a host it could not reach fails it just as readily. UNSTABLE the bot
+        // deliberately stays quiet about, so the dev stage says so itself.
         unstable {
             // Only the dev stages can make this build unstable. Page on
             // real dev drift; stay silent when srvk8sdev was simply off,
             // which on a daily job would otherwise be a daily false page.
             script {
                 if (env.DEV_STAGE_FAILED == 'true') {
-                    sh '''iac -c 'send_message.py --title "iac-scheduled-drift #'"$BUILD_NUMBER"' detected drift on srvk8sdev" "'"$BUILD_URL"'"' '''
+                    notify.warning('detected drift on srvk8sdev')
                 }
             }
         }

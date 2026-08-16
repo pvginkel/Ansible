@@ -5,7 +5,6 @@
 # Layout this script materializes on the target host:
 #   /usr/local/bin/iac
 #   /usr/local/bin/iac-impl
-#   /usr/local/bin/send_message.py
 #   /usr/local/bin/jenkins-agent-launch.sh
 #   /usr/local/bin/check-protected-vms.sh
 #   /usr/local/bin/check-ansible-drift.sh
@@ -46,12 +45,23 @@ fi
 
 install_file 0755 "$REPO_DIR/bin/iac"                          /usr/local/bin/iac
 install_file 0755 "$REPO_DIR/bin/iac-impl"                     /usr/local/bin/iac-impl
-install_file 0755 "$REPO_DIR/bin/send_message.py"              /usr/local/bin/send_message.py
 install_file 0755 "$REPO_DIR/bin/jenkins-agent-launch.sh"      /usr/local/bin/jenkins-agent-launch.sh
 install_file 0755 "$REPO_DIR/bin/check-protected-vms.sh"       /usr/local/bin/check-protected-vms.sh
 install_file 0755 "$REPO_DIR/bin/check-ansible-drift.sh"       /usr/local/bin/check-ansible-drift.sh
 install_file 0644 "$REPO_DIR/etc/docker/daemon.json"           /etc/docker/daemon.json
 install_file 0644 "$REPO_DIR/etc/cron.d/iac-prune"             /etc/cron.d/iac-prune
+
+# send_message.py used to be installed here for the IaC pipelines' post
+# stages. They now raise alerts through JenkinsPipelineUtils' notify var,
+# which writes a marker into the build log for jenkins-telegram-bot to
+# read, so nothing calls the script and nothing bind-mounts it any more.
+# Sweep the copy this installer left on hosts it has already run on; drop
+# this once srviac has been through it.
+if [[ -e /usr/local/bin/send_message.py ]]; then
+    rm -f /usr/local/bin/send_message.py
+    echo "removed /usr/local/bin/send_message.py"
+    changed=1
+fi
 
 # Track whether the systemd unit changed so we know if a reload is
 # warranted.

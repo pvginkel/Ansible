@@ -37,7 +37,11 @@ Convergence is `iac-apply`, started by hand once the validation is green. The jo
 
 All ansible stages pass `--skip-tags os_update`: patch posture belongs to `iac-scheduled-update`.
 
-On failure, the post-stage notifies via `send_message.py` with the job name + URL.
+On failure, jenkins-telegram-bot reports the build — job name, build link, and whatever the job
+put in the build description. It is subscribed to every build, so no `iac-*` pipeline carries a
+failure handler of its own. What the bot deliberately stays quiet about is UNSTABLE, which is why
+the dev stage raises its own warning through JenkinsPipelineUtils' `notify` var when srvk8sdev was
+up and the run genuinely failed.
 
 > The split exists so that pushing a commit is not the same act as applying it to production — an
 > unattended agent pushing a branch must not be able to roll the prd fleet. The cost is that **prd

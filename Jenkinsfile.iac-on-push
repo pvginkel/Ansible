@@ -49,9 +49,7 @@ pipeline {
         }
     }
 
-    post {
-        failure {
-            sh '''iac -c 'send_message.py --title "iac-on-push #'"$BUILD_NUMBER"' failed" "'"$BUILD_URL"'"' '''
-        }
-    }
+    // No post block: this pipeline has no dev stage, so it is only ever green
+    // or red, and jenkins-telegram-bot watches every build and reports FAILURE
+    // loudly by itself, job name and build link included.
 }

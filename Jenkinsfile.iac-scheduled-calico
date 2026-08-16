@@ -13,6 +13,8 @@
 //   - SCM: pvginkel/Ansible, branch main
 //   - Script Path: Jenkinsfile.iac-scheduled-calico
 
+library identifier: 'JenkinsPipelineUtils', changelog: false
+
 // srvk8sdev is powered off most of the time. Every dev stage in every
 // iac-* pipeline opens with this bounded SSH probe: `-T 5` caps the
 // connect, so a down box costs seconds rather than a playbook's worth
@@ -91,16 +93,18 @@ pipeline {
     }
 
     post {
-        failure {
-            sh '''iac -c 'send_message.py --title "iac-scheduled-calico #'"$BUILD_NUMBER"' failed" "'"$BUILD_URL"'"' '''
-        }
+        // No failure handler: jenkins-telegram-bot watches every build and
+        // reports FAILURE loudly by itself, job name and build link included.
+        // UNSTABLE it deliberately stays quiet about — an accepted warning is
+        // exactly what unstable means — so a dev stage that genuinely broke
+        // has to say so itself.
         unstable {
             // Page only when srvk8sdev was up and the roll genuinely
             // failed. An unreachable dev box yellows the build so it's
             // visible in Jenkins, but it isn't news.
             script {
                 if (env.DEV_STAGE_FAILED == 'true') {
-                    sh '''iac -c 'send_message.py --title "iac-scheduled-calico #'"$BUILD_NUMBER"' unstable (dev cluster roll failed)" "'"$BUILD_URL"'"' '''
+                    notify.warning('dev cluster roll failed on srvk8sdev')
                 }
             }
         }
