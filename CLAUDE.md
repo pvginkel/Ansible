@@ -76,9 +76,13 @@ All under `/work`, same paths for Claude and operator: `AnsibleSpecs` (decisions
 separate git repo, commit there too), `HelmCharts`, `DockerImages`, `HomelabTerraformProvider`,
 `Charts` (the `homelab-shared` Helm library chart and the `https://charts.home` chart repository —
 see its README), `ArgoCDTools` (the Argo CD Terraform PreSync hook and its `argocd-hook` image —
-see its README) and `JenkinsPipelineUtils` (the shared library every Jenkinsfile in the estate
-loads). The set is declared in `.kubecoder/config.yaml`; adding one is an edit there plus
-`kc env sync`. The `iac` runner's tree lives in this repo at `support/iac-agent/` — that is the
+see its README), `ArgoCDDeploy` (Argo CD's own deploy repo — the wrapper chart, both
+ApplicationSets, the `releases` AppProject and the `argocd-hooks` namespace) and
+`JenkinsPipelineUtils` (the shared library every Jenkinsfile in the estate loads). `ProofDeploy`
+is disposable: the throwaway app slice 009's Argo CD proof drill runs against, and it goes —
+repo, registry entry and `config.yaml` line together — once that drill is done. The set is
+declared in `.kubecoder/config.yaml`; adding one is an edit there plus `kc env sync`. The `iac`
+runner's tree lives in this repo at `support/iac-agent/` — that is the
 copy to edit and the one the `iac_agent` role installs. Older docs mention `/work/Obsidian` and
 `/work/IaCAgent` — neither is cloned here any more, so treat those citations as historical
 provenance.
