@@ -87,7 +87,14 @@ Terraform authenticates to the Proxmox API as `root@pam` with username + passwor
 
 ## Terraform `pvginkel/homelab` provider
 
-The `homelab` provider is served from the private network mirror at `https://tfmirror.home/`. Both the `modern-app-dev` dev container and the `iac` image set `TF_CLI_CONFIG_FILE=/etc/terraform.rc`, and that file's `provider_installation` block routes `registry.terraform.io/pvginkel/*` to the mirror and excludes it from `direct` — so `terraform init` installs `pvginkel/homelab` from there, with a real lockfile hash and no per-workstation setup. No binary is baked into either image. See [`/work/AnsibleSpecs/slices/completed/tf-provider-registry.md`](../../../AnsibleSpecs/slices/completed/tf-provider-registry.md) for the mirror and how each provider version is published to it.
+The `homelab` provider is served from the private network mirror at `https://tfmirror.home/`. Four images set `TF_CLI_CONFIG_FILE=/etc/terraform.rc` and carry a byte-identical copy of that file, and that file's `provider_installation` block routes `registry.terraform.io/pvginkel/*` to the mirror and excludes it from `direct` — so `terraform init` installs `pvginkel/homelab` from there, with a real lockfile hash and no per-workstation setup. No binary is baked into any of them. Readdressing `tfmirror.home` means editing all four copies:
+
+- [`support/iac-image/terraform.rc`](../../support/iac-image/terraform.rc) — the `iac` image
+- `/work/DockerImages/modern-app-dev/terraform.rc` — the dev container
+- `/work/DockerImages/kube-coder-dev-base/terraform.rc` — the KubeCoder dev base image
+- `/work/ArgoCDTools/image/terraform.rc` — the Argo CD Terraform PreSync hook image
+
+See [`/work/AnsibleSpecs/slices/completed/tf-provider-registry.md`](../../../AnsibleSpecs/slices/completed/tf-provider-registry.md) for the mirror and how each provider version is published to it.
 
 Inside those containers no `~/.terraformrc` is needed; a Terraform run outside them needs the same `network_mirror` block in `~/.terraformrc`. If a stale dev-override block is still present from plan 02, delete it — it is harmless inside the container (the env var wins), but it fires elsewhere.
 

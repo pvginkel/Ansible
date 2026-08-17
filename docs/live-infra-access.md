@@ -77,12 +77,16 @@ When handing a command to the operator, use this exact shape:
   `iac -c 'cd terraform/prd && terraform apply'` **on srviac** — and note that `iac-impl` clones
   `main` inside the container, so that applies pushed state, not the working tree.
 
-## Node-level cluster control goes over SSH, not the kubeconfig
+## Cluster-scoped work goes over SSH, not the kubeconfig
 
-The mounted kubeconfigs have no rights on the cluster-scoped `nodes` resource —
-`kubectl auth can-i patch nodes` is `no` on `~/.kube/config` and on both elevated write configs. So
-`kubectl cordon` / `uncordon` / `drain` and anything else that writes a Node object cannot be done
-with them.
+The mounted kubeconfigs carry **no cluster-scoped verb at all**. `~/.kube/config-prd-write` is the
+`kubecoder-rw` identity — namespaced edit and nothing above it: it cannot get, list or patch
+PersistentVolumes, it cannot create namespaces, and it cannot write a Node. `nodes` is the instance
+you hit most often (`kubectl auth can-i patch nodes` is `no` on `~/.kube/config` and on both
+elevated write configs, so `kubectl cordon` / `uncordon` / `drain` are out), not a special case.
+Plan against the general rule: **anything cluster-scoped needs the SSH path.** Slice 007 planned a
+PV reattach proof around the write kubeconfig, found it could not create the fixture's
+cluster-scoped objects, and had to build them over SSH instead.
 
 The way through is SSH. Each k8s host runs microk8s, and `sudo microk8s kubectl` on the node is
 cluster-admin:

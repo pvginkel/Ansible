@@ -11,7 +11,9 @@ cannot or should not be automated:
 - [Windows trust install](#windows-trust-install) — one-shot per Windows
   machine the operator uses.
 - [Intermediate rotation](#intermediate-rotation) — when the intermediate
-  is compromised or routinely rotated.
+  is compromised or routinely rotated. Rotating the **root** is a
+  different scope and cadence:
+  [`step-ca-root-rotation.md`](step-ca-root-rotation.md).
 - [JWK provisioner password rotation](#jwk-provisioner-password-rotation)
   — when the fleet-wide JWK password is rotated.
 - [Monitoring smoke test](#monitoring-smoke-test) — verify cert-expiry
