@@ -14,6 +14,9 @@ repos:
   - url: https://github.com/pvginkel/ArgoCDDeploy
   - url: https://github.com/pvginkel/ArgoCDTools
   - url: https://github.com/pvginkel/Charts
+  # Disposable: slice 009's Phase A proof app. Repo and this entry both go once
+  # the A.5 drill is done.
+  - url: https://github.com/pvginkel/ProofDeploy
 
 capabilities:
   github: rw
