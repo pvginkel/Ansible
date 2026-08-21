@@ -74,6 +74,10 @@ edits need no nudge.
 - **Slice documents themselves.** `plan.md` and `verification.json` are the pipeline's records;
   the run loop stamps them. Compressing a finished slice's documents down to what stays
   operationally useful is close-out work, not the doc phase's.
+- **Doc tasks the slice's requirements name.** An edit a requirement asks for in so many words —
+  close a decision, record a design fact, correct a page — is a phase of the plan targeting the
+  repo that holds it, shipped and reviewed before this pass runs. The doc phase reconciles what
+  shipped; it owes no such task, and finds the edit already landed.
 - **Inventing structure.** No `docs/index.md`, no per-decision id scheme, no topic docs the repo
   does not already have — unless the slice created the thing being documented.
 - **Aspirational claims.** Every statement traces to code, inventory or a spec in the diff. If the
