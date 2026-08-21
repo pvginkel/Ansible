@@ -39,7 +39,7 @@ procedure's shape depends on how they land.
   the bundle carries two roots the two sides' ordering is no longer pinned and
   the stage fires on every run. It needs the fingerprint-set comparison
   `decisions.md` specifies first.
-- **The deduplication decision is open.** Five out-of-repo copies of the root
+- **The deduplication decision is open.** Six out-of-repo copies of the root
   are maintained by hand (below). Whether they collapse to one source or stay
   copies changes what a rotation's change window contains.
 
@@ -61,8 +61,10 @@ It is public, PEM-armored, and committed. `baseline` distributes it to every
 managed host, and the step-ca bootstrap ceremony exports it here (step 6 of
 [`step-ca-bootstrap.md`](step-ca-bootstrap.md)).
 
-**Five out-of-repo copies exist**, all byte-identical to it. A rotation updates
-all five:
+**Six out-of-repo copies are on this inventory**, all byte-identical to it, and
+a rotation updates all six. The last — the KubeCoder controller's — is listed
+ahead of the file itself: it lands with that repo's SSH transport work, and
+until it does there is nothing at that path to edit.
 
 | Path | What consumes it |
 |---|---|
@@ -70,6 +72,7 @@ all five:
 | `/work/HelmCharts/charts/nginx/files/ca/homelab-root.crt` | Mounted by the nginx manager Deployment and its renewal CronJob; the `certbot` image's `args.sh` bind-mounts this same file at run time. |
 | `/work/ArgoCDTools/image/homelab-root.crt` | Baked into the `argocd-hook` image's trust store — the Argo CD Terraform PreSync hook. |
 | `/work/DockerImages/kube-coder-dev-base/homelab-root.crt` | Baked into the KubeCoder dev base image's trust store, and pointed at by `NODE_EXTRA_CA_CERTS`. |
+| `/work/KubeCoder/controller/homelab-root.crt` | Baked into the KubeCoder controller image's trust store — how the controller validates `https://ca.home` when it asks step-ca to sign an environment pod's SSH host certificate. **Not on disk yet** — see above. |
 | `/work/ArgoCDDeploy/chart/files/homelab-root.crt` | Rendered into a ConfigMap and mounted into Argo CD's repo-server at `/etc/ssl/certs/homelab-root.crt`, which is how `helm dependency build` comes to trust `https://charts.home`. Not an image copy: it lands on Argo's next sync of its own chart, which is manual (D3). |
 
 **Two images consume the cert without holding their own copy** — they need no
@@ -83,11 +86,12 @@ edit, but they do need a rebuild:
   the copy above covers them.
 
 Editing a file in an image's build context is not the same as the change
-landing: the `argocd-hook`, `iac` and `kube-coder-dev-base` copies only take
-effect once their image is rebuilt **and** the workloads pulling it are
-restarted onto the new tag. The `ArgoCDDeploy` copy needs no rebuild, but it
-does need a sync — and Argo CD syncs itself only when the operator says so, so
-it is the one copy a rotation can leave behind without any pipeline noticing.
+landing: the `argocd-hook`, `iac`, `kube-coder-dev-base` and KubeCoder
+controller copies only take effect once their image is rebuilt **and** the
+workloads pulling it are restarted onto the new tag. The `ArgoCDDeploy` copy
+needs no rebuild, but it does need a sync — and Argo CD syncs itself only when
+the operator says so, so it is the one copy a rotation can leave behind without
+any pipeline noticing.
 
 ## What a rotation breaks besides TLS: the provider mirror
 
@@ -128,9 +132,9 @@ from the repos and hosts after that.
 
 ## Verifying the inventory is still whole
 
-The six paths are duplicates by convention, not by mechanism, so drift between
-them is silent. Check them against each other before and after any change
-window:
+The seven paths are duplicates by convention, not by mechanism, so drift
+between them is silent. Check them against each other before and after any
+change window:
 
 ```sh
 md5sum /work/Ansible/ansible/roles/baseline/files/homelab-root.crt \
@@ -138,10 +142,15 @@ md5sum /work/Ansible/ansible/roles/baseline/files/homelab-root.crt \
        /work/HelmCharts/charts/nginx/files/ca/homelab-root.crt \
        /work/ArgoCDTools/image/homelab-root.crt \
        /work/DockerImages/kube-coder-dev-base/homelab-root.crt \
+       /work/KubeCoder/controller/homelab-root.crt \
        /work/ArgoCDDeploy/chart/files/homelab-root.crt
 ```
 
-All six hashes must match. The same check for the provider mirror config:
+All seven hashes must match. Until the KubeCoder controller copy lands, drop
+its line — `md5sum` exits non-zero on a path that is not there, which is a
+missing file rather than drift.
+
+The same check for the provider mirror config:
 
 ```sh
 md5sum /work/Ansible/support/iac-image/terraform.rc \
