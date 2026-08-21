@@ -1,0 +1,16 @@
+# What the dev pipeline reads about this project. Schema:
+# <AIWorkflow>/plugins/dev/docs/project-contract.md
+#
+# Replaces the four machine-read CLAUDE.md lines as of dev plugin 0.9.0.
+# Same values, so the loop behaves exactly as before: both phases run, the
+# driver pushes, and no devlock is taken (AnsibleSpecs has no scripts/ tree,
+# which is what the old code inferred the lease from).
+
+spec_repo = "/work/AnsibleSpecs"
+design_philosophy = "docs/design-philosophy.md"
+
+[test_phase]
+strategy = "docs/slice-testing-strategy.md"
+
+[doc_phase]
+plan = "docs/slice-doc-plan.md"

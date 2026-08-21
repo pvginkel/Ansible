@@ -5,11 +5,6 @@ clusters on top, and the Linux dev box baseline. Helm owns the Kubernetes worklo
 `/work/HelmCharts`); Jenkins runs the deploys. Components are `ansible/`, `terraform/` and the
 architecture artifact — `kc project list` is authoritative.
 
-Spec repo: /work/AnsibleSpecs
-Slice testing strategy: docs/slice-testing-strategy.md
-Slice doc plan: docs/slice-doc-plan.md
-Design philosophy: docs/design-philosophy.md
-
 **Before proposing changes, read** [`/work/AnsibleSpecs/decisions.md`](../AnsibleSpecs/decisions.md)
 — homelab doctrine: tool split, secrets, networking, MAC scheme, OS update policy — and the
 relevant slice under [`/work/AnsibleSpecs/slices/`](../AnsibleSpecs/slices/). Operational runbooks
