@@ -32,18 +32,57 @@ services:
 # Enable the Kaniko service and tool.
 imageBuilder: true
 
-# Projected as environment variables; `kc project setup` writes them to the
-# paths ansible.cfg and ssh expect. See scripts/kubecoder-keys.sh.
+# Projected as environment variables. The ANSIBLE_/SSH_ trio is materialised
+# onto disk by `kc project setup`, because ansible.cfg and ssh want paths, not
+# values — see scripts/kubecoder-keys.sh. The TF_VAR_ entries need no such step:
+# terraform reads TF_VAR_* natively and cexec carries the dev container's
+# environment into the sidecar, so `cexec iac terraform apply` picks them up
+# with no terraform.tfvars on disk at all.
+#
+# The three TF_VAR_ secrets are a SECOND COPY of kv/iac/proxmox#password,
+# kv/iac/dns-reservation#token and kv/iac/backup-server#token — srviac's
+# /etc/iac/secrets.yaml resolves those same leaves directly. Rotating any of
+# them has to touch both places, or an apply from here silently uses the stale
+# half. Their catalog keys live in the kv/eso/prd/kubecoder/prd/catalog leaf.
 secrets:
   ANSIBLE_VAULT_PASSWORD: ansible-vault-password
   SSH_KEY_ANSIBLE: ssh-key-ansible
   SSH_KEY_PVE: ssh-key-pve
+  TF_VAR_proxmox_password: proxmox-password
+  TF_VAR_dns_reservation_token: dns-reservation-token
+  TF_VAR_backup_server_token: backup-server-token
 
+# One TF_VAR_ set serves both terraform/prd and terraform/scratch: the two
+# stacks share proxmox_* and dns_reservation_*, and terraform ignores a TF_VAR_
+# whose variable the stack does not declare, so scratch simply drops
+# backup_server_*.
+#
+# Applying from here additionally needs the ssh-agent that providers.tf's
+# `ssh { agent = true }` requires for snippet uploads: `. ~/.ssh/agent-env`
+# before terraform, with id_ed25519_pve loaded.
 env:
   # Ansible resolves the vault passphrase from this path. Inside the .ansible
   # overlay, not the repo tree and not the bare home — see homeOverlays below.
   - name: ANSIBLE_VAULT_PASSWORD_FILE
     value: /home/ubuntu/.ansible/vault-pass
+
+  # Non-secret halves of the terraform credentials — URLs and usernames stay
+  # literal per the "URLs never enter Vault" decision, same as srviac's
+  # secrets.yaml keeps them.
+  - name: TF_VAR_proxmox_endpoint
+    value: https://pve.home:8006/
+  - name: TF_VAR_proxmox_username
+    value: root@pam
+  - name: TF_VAR_proxmox_insecure
+    value: "true"
+
+  # dns.home, NOT the dns-reservation.home that terraform.tfvars.example names:
+  # that hostname does not resolve from this pod. http://dns.home/reservations
+  # answers 401, so this is the reservation API's reachable address here.
+  - name: TF_VAR_dns_reservation_url
+    value: http://dns.home/
+  - name: TF_VAR_backup_server_url
+    value: https://backup-server.home/
 
 # `/home/ubuntu` is one host directory shared by *every* environment — it holds
 # the Claude credential, shell history and dotfiles. Key material must not land
