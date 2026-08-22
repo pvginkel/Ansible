@@ -246,7 +246,7 @@ Create the Secret **before** the chart is first installed, in the
 target cluster (`dev` first, then `prd`):
 
 ```sh
-kubectl -n step-ca create secret generic step-ca-intermediate \
+kubectl -n step-ca-prd create secret generic step-ca-intermediate \
   --from-file=intermediate_ca.key=.step/secrets/intermediate_ca_key \
   --from-literal=password='<paste intermediate passphrase>'
 ```
@@ -396,10 +396,13 @@ kubectl -n step-ca-prd rollout restart statefulset step-ca
 kubectl -n step-ca-prd rollout status  statefulset step-ca
 ```
 
-`step-ca-prd` and `statefulset/step-ca` are the release's one stage
-and its workload kind. Check that the restart took:
-`curl -sk https://ca.home/provisioners` lists the provisioner you
-edited.
+Check that the restart took: `curl -sk https://ca.home/provisioners`
+lists the provisioner you edited.
+
+The workload is a StatefulSet, and the namespace is `step-ca-prd` on
+both clusters — the release has a single stage, `prd`, and each
+cluster's config declares that same namespace. Every `kubectl` in
+this runbook addresses it.
 
 ### 4. Verify SSH issuance
 
@@ -455,7 +458,7 @@ hit homelab URLs.
 
 1. Copy `homelab-root.crt` (from
    `~/source/Ansible/ansible/roles/baseline/files/homelab-root.crt` on
-   `wrkdev`, or `kubectl -n step-ca exec ... cat ...` if the file is
+   `wrkdev`, or `kubectl -n step-ca-prd exec ... cat ...` if the file is
    otherwise unavailable) to the Windows machine.
 2. Open an **elevated** PowerShell.
 3. ```powershell
@@ -534,17 +537,17 @@ You will be prompted for:
 ### 3. Replace the chart's Secret
 
 ```sh
-kubectl -n step-ca create secret generic step-ca-intermediate \
+kubectl -n step-ca-prd create secret generic step-ca-intermediate \
   --from-file=intermediate_ca.key=.step/secrets/intermediate_ca_key \
   --from-literal=password='<new passphrase>' \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-Restart the step-ca deployment to pick up the new intermediate:
+Restart the step-ca StatefulSet to pick up the new intermediate:
 
 ```sh
-kubectl -n step-ca rollout restart deployment step-ca
-kubectl -n step-ca rollout status  deployment step-ca
+kubectl -n step-ca-prd rollout restart statefulset step-ca
+kubectl -n step-ca-prd rollout status  statefulset step-ca
 ```
 
 ### 4. Verify
