@@ -62,9 +62,7 @@ managed host, and the step-ca bootstrap ceremony exports it here (step 6 of
 [`step-ca-bootstrap.md`](step-ca-bootstrap.md)).
 
 **Six out-of-repo copies are on this inventory**, all byte-identical to it, and
-a rotation updates all six. The last — the KubeCoder controller's — is listed
-ahead of the file itself: it lands with that repo's SSH transport work, and
-until it does there is nothing at that path to edit.
+a rotation updates all six.
 
 | Path | What consumes it |
 |---|---|
@@ -72,7 +70,7 @@ until it does there is nothing at that path to edit.
 | `/work/HelmCharts/charts/nginx/files/ca/homelab-root.crt` | Mounted by the nginx manager Deployment and its renewal CronJob; the `certbot` image's `args.sh` bind-mounts this same file at run time. |
 | `/work/ArgoCDTools/image/homelab-root.crt` | Baked into the `argocd-hook` image's trust store — the Argo CD Terraform PreSync hook. |
 | `/work/DockerImages/kube-coder-dev-base/homelab-root.crt` | Baked into the KubeCoder dev base image's trust store, and pointed at by `NODE_EXTRA_CA_CERTS`. |
-| `/work/KubeCoder/controller/homelab-root.crt` | Baked into the KubeCoder controller image's trust store — how the controller validates `https://ca.home` when it asks step-ca to sign an environment pod's SSH host certificate. **Not on disk yet** — see above. |
+| `/work/KubeCoder/controller/homelab-root.crt` | Baked into the KubeCoder controller image's trust store — how the controller validates `https://ca.home` when it asks step-ca to sign an environment pod's SSH host certificate. |
 | `/work/ArgoCDDeploy/chart/files/homelab-root.crt` | Rendered into a ConfigMap and mounted into Argo CD's repo-server at `/etc/ssl/certs/homelab-root.crt`, which is how `helm dependency build` comes to trust `https://charts.home`. Not an image copy: it lands on Argo's next sync of its own chart, which is manual (D3). |
 
 **Two images consume the cert without holding their own copy** — they need no
@@ -146,9 +144,7 @@ md5sum /work/Ansible/ansible/roles/baseline/files/homelab-root.crt \
        /work/ArgoCDDeploy/chart/files/homelab-root.crt
 ```
 
-All seven hashes must match. Until the KubeCoder controller copy lands, drop
-its line — `md5sum` exits non-zero on a path that is not there, which is a
-missing file rather than drift.
+All seven hashes must match.
 
 The same check for the provider mirror config:
 
