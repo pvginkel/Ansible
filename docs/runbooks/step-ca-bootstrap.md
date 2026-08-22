@@ -382,8 +382,24 @@ Add SSH host durations to the provisioner's `claims`:
 `1128h = 47 days` — the same lifetime as the X.509 leaves; the
 `ssh_host_cert` role re-signs under a 14-day threshold.
 
-Validate the JSON (`jq . <file>`), re-encode to base64, redeploy
-`step-ca` — `dev` first, then `prd`.
+Validate the JSON (`jq . <file>`), re-encode to base64 and deploy.
+**The deploy is not what makes the edit live.** It applies the
+Secret and rolls nothing — the release runs the upstream
+`smallstep/step-certificates` chart with no `checksum/config`
+annotation on its pod template, so a Secret-payload edit leaves the
+rendered workload unchanged — and step-ca reads `ca.json` at
+process start only, so the running CA keeps serving the old
+provisioner set. Restart the pod yourself afterwards:
+
+```sh
+kubectl -n step-ca-prd rollout restart statefulset step-ca
+kubectl -n step-ca-prd rollout status  statefulset step-ca
+```
+
+`step-ca-prd` and `statefulset/step-ca` are the release's one stage
+and its workload kind. Check that the restart took:
+`curl -sk https://ca.home/provisioners` lists the provisioner you
+edited.
 
 ### 4. Verify SSH issuance
 
