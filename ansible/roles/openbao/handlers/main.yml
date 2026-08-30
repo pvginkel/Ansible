@@ -13,6 +13,11 @@
 - name: Reload openbao
   # Listener TLS cert reissue: SIGHUP reloads the listener cert without
   # dropping the Raft connection (openbao reloads on SIGHUP per docs).
+  # throttle 1 hands the SIGHUP to one Raft peer at a time whatever
+  # drove the play, so the three peers never reload at once — the
+  # property site-openbao.yml's serial gives the converge path, carried
+  # by the reload itself rather than restated on each caller.
   ansible.builtin.systemd:
     name: openbao
     state: reloaded
+  throttle: 1

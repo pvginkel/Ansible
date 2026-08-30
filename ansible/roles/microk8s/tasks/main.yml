@@ -23,15 +23,8 @@
 - name: Install microk8s and stage launch config
   ansible.builtin.import_tasks: install.yml
 
-# Tasks past this point read state created by the snap install (cni.yaml,
-# the microk8s CLI, the microk8s OS group). Stat the binary so a check-mode
-# run on a fresh VM short-circuits the post-install steps cleanly instead
-# of failing partway through.
-- name: Check whether microk8s is installed
-  ansible.builtin.stat:
-    path: /snap/bin/microk8s
-  register: _microk8s_installed
-  check_mode: false
+- name: Detect the microk8s install
+  ansible.builtin.import_tasks: check-installed.yml
 
 - name: Reconcile containerd registry mirrors (certs.d)
   ansible.builtin.import_tasks: registry-mirrors.yml
@@ -115,15 +108,11 @@
     - not (microk8s_worker_only | bool)
 
 # Homelab-CA TLS leaf for the kube-apiserver — an additive SNI cert, so
-# independent of the VIP block above. Per-node; gated on the
-# per-cluster SAN list.
+# independent of the VIP block above. Per-node; the eligibility gate
+# lives in the task file, so anything entering that file directly gates
+# on the same hosts.
 - name: Issue and serve the kube-apiserver homelab TLS leaf
   ansible.builtin.import_tasks: internal_tls.yml
-  when:
-    - _microk8s_installed.stat.exists
-    - microk8s_apiserver_homelab_sans | length > 0
-    # No kube-apiserver on a worker → no SNI leaf to install.
-    - not (microk8s_worker_only | bool)
 
 # Per-node apiserver-arg change: switch authorization-mode to RBAC,Node.
 # Gated on the per-cluster opt-in; skipped on workers (no apiserver to

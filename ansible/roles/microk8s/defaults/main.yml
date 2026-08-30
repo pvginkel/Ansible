@@ -239,3 +239,11 @@ microk8s_watchdog_randomized_delay: 120
 # group_vars/k8s_*.yml. See tasks/internal_tls.yml and
 # slices/internal-tls-step-ca.md §F.
 microk8s_apiserver_homelab_sans: []
+
+# How long the kubelite restart handler waits for the node it just
+# restarted to answer on its readiness endpoint before failing it. The
+# handler's one-node-at-a-time slot is held for that long, so this also
+# bounds what a wedged node costs the rest of the roll. update-k8s.yml
+# budgets 2 minutes of retries for the same kubelite restart under
+# dqlite load.
+microk8s_kubelite_ready_timeout: 180

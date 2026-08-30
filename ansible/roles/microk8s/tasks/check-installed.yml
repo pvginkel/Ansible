@@ -1,0 +1,15 @@
+---
+# Tasks past the snap install read state it creates (cni.yaml, the
+# microk8s CLI, the microk8s OS group). Stat the binary so a check-mode
+# run on a fresh VM short-circuits the post-install steps cleanly
+# instead of failing partway through.
+#
+# Its own file because task files that are also entered directly (see
+# internal_tls.yml) need the fact registered on that path too, and one
+# shared stat beats a second copy of it.
+
+- name: Check whether microk8s is installed
+  ansible.builtin.stat:
+    path: /snap/bin/microk8s
+  register: _microk8s_installed
+  check_mode: false

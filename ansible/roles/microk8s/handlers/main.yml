@@ -42,8 +42,36 @@
   # proxy/kubelet process. Restarting just this unit picks up
   # kube-apiserver arg changes without bouncing containerd, so workload
   # pods on the node keep running — only the node's control plane and
-  # kubelet blip for a few seconds. Roll one node at a time (serial: 1);
-  # on prd the apiserver VIP and the peer nodes cover the gap.
-  ansible.builtin.systemd:
-    name: snap.microk8s.daemon-kubelite
-    state: restarted
+  # kubelet blip for a few seconds. On prd the apiserver VIP and the
+  # peer nodes cover that gap, provided only one node is ever in it.
+  #
+  # The one-node-at-a-time guarantee is carried here rather than left to
+  # each caller's `serial:`: throttle 1 hands the restart to one host at
+  # a time and the wait holds that host's slot until its kubelite answers
+  # again, so the next node goes down only once this one is serving.
+  # Restart and wait must stay a single task — Ansible runs a handler
+  # across every notified host before starting the next handler, so split
+  # in two, every node would restart before any was waited on.
+  #
+  # The endpoint is the one kubelite itself binds on this node class: an
+  # apiserver node's 16443, and on a worker the kubelet healthz port,
+  # because there 16443 belongs to the separate apiserver-proxy daemon
+  # and would answer while the local kubelite is still down.
+  ansible.builtin.shell:
+    cmd: |
+      set -eu
+      systemctl restart snap.microk8s.daemon-kubelite
+      deadline=$(( $(date +%s) + {{ microk8s_kubelite_ready_timeout }} ))
+      until curl -sfk -m 5 -o /dev/null {{ _microk8s_kubelite_ready_url }}; do
+        if [ "$(date +%s)" -ge "$deadline" ]; then
+          echo "kubelite did not answer {{ _microk8s_kubelite_ready_url }} within {{ microk8s_kubelite_ready_timeout }}s" >&2
+          exit 1
+        fi
+        sleep 2
+      done
+  vars:
+    _microk8s_kubelite_ready_url: >-
+      {{ 'http://127.0.0.1:10248/healthz' if microk8s_worker_only | bool
+         else 'https://127.0.0.1:16443/livez' }}
+  changed_when: true
+  throttle: 1
