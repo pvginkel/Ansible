@@ -63,8 +63,10 @@
   # independent, so one unreachable or wedged host must not stop the
   # others from being renewed. A host that fails here still fails the
   # run, so the pipeline still pages. `serial:` would invert that —
-  # setting it defaults max_fail_percentage to 0, so the first failed
-  # host ends the play with the remaining hosts untried. The
+  # Ansible ends the play once an entire batch has failed, and under
+  # `serial: 1` a batch is one host, so the first failed or unreachable
+  # host leaves every later host untried. `max_fail_percentage` does not
+  # buy it back; that check only ever breaks the play earlier. The
   # one-at-a-time guarantee the kubelite restart and the OpenBao reload
   # need is carried by those handlers' own `throttle: 1`, not by the
   # driver.
