@@ -1,4 +1,5 @@
-// iac-scheduled-certs — weekly SSH host certificate renewal.
+// iac-scheduled-certs — weekly certificate renewal: the fleet's SSH host
+// certificates and the internal_tls step-ca leaves.
 //
 // The homelab's whole host-key verification story rests on one
 // `@cert-authority` line, and step-ca host certs live 47 days. Before
@@ -10,8 +11,15 @@
 // srvk8s1, srvk8s2 and srviac off the network — including the Ansible
 // controller's own host, which no pipeline had renewed since May.
 //
+// The internal_tls X.509 leaves — pveproxy on the PVE hosts, the
+// kube-apiserver homelab SNI cert, the OpenBao listener — sit in the
+// same hole for the same reasons: 47-day lifetime, 14-day renewal
+// window, and outside this job they are signed only by a hand-started
+// iac-apply. They renew here, and a red or unstable build of this job is
+// the whole detector for a leaf renewal that stopped happening.
+//
 // Weekly against a 14-day renewal window means two attempts before any
-// certificate lapses. The playbook is a no-op outside that window, so
+// certificate lapses. Both playbooks are a no-op outside that window, so
 // most runs are a fast changed=0.
 //
 // Deliberately NOT folded into iac-scheduled-update: coupling renewal
@@ -64,7 +72,7 @@ pipeline {
         // Everything except the dev k8s node. An expired certificate
         // makes a host unreachable to Ansible entirely, so a failure
         // here is genuinely urgent — it fails the build and pages.
-        stage('Renew (excl. k8s dev)') {
+        stage('Host certs (excl. k8s dev)') {
             steps {
                 sh '''
                     iac -c '
@@ -73,6 +81,13 @@ pipeline {
                         ansible-playbook --diff playbooks/renew-host-certs.yml --limit "!k8s_dev"
                     '
                 '''
+            }
+            post {
+                failure {
+                    script {
+                        currentBuild.description = 'host certs may lapse; TLS leaf renewal did not run'
+                    }
+                }
             }
         }
 
@@ -84,11 +99,11 @@ pipeline {
         // A dev node that stays off past its 14-day window will lapse
         // and need reissue-host-cert.yml. That is the accepted cost of
         // a box that is off more than it is on.
-        stage('Renew (k8s dev)') {
+        stage('Host certs (k8s dev)') {
             steps {
                 script {
                     if (!devUp()) {
-                        unstable('srvk8sdev is unreachable — dev cert renewal skipped')
+                        unstable('srvk8sdev is unreachable — dev host cert renewal skipped')
                         return
                     }
                     def rc = sh(
@@ -103,7 +118,75 @@ pipeline {
                     )
                     if (rc != 0) {
                         env.DEV_STAGE_FAILED = 'true'
-                        unstable("dev cert renewal failed on srvk8sdev (exit ${rc})")
+                        unstable("dev host cert renewal failed on srvk8sdev (exit ${rc})")
+                    }
+                }
+            }
+        }
+
+        // The internal_tls leaves on the same scope: pveproxy on
+        // pve/pve1/pve2, the kube-apiserver homelab SNI leaf on the prd
+        // control planes, the OpenBao listener leaf on srvvault1/2/3. A
+        // lapsed leaf breaks the Proxmox web UI, the kubernetes-api.home
+        // SNI path and the OpenBao listener, so this fails the build and
+        // pages too.
+        //
+        // The playbook renews every host it can before exiting non-zero,
+        // so a partly-failed run reds this stage at the end of the run
+        // rather than at the first bad host.
+        //
+        // No `timeout` bound: the reload phase is serialized one node at
+        // a time and each prd control-plane node's kubelite restart
+        // waits up to microk8s_kubelite_ready_timeout (180s), so a run
+        // with all three k8s leaves due spends ~9 minutes in handlers
+        // alone. A bound sized on the host-cert stage above would kill
+        // such a run mid-roll, leaving a node's kubelite down.
+        stage('TLS leaves (excl. k8s dev)') {
+            steps {
+                sh '''
+                    iac -c '
+                        set -euo pipefail
+                        cd /work/Ansible/ansible
+                        ansible-playbook --diff playbooks/renew-internal-tls.yml --limit "!k8s_dev"
+                    '
+                '''
+            }
+            post {
+                failure {
+                    script {
+                        currentBuild.description = 'internal_tls leaves may lapse'
+                    }
+                }
+            }
+        }
+
+        // Same dev handling as the host-cert stage: a powered-off box
+        // skips and yellows, a genuine failure yellows and pages. The
+        // operator picks the missed dev leaf up by hand with a manual
+        // apply; this job does not carry it forward or retry it.
+        //
+        // 15m bound: one node, one leaf, and a kubelite restart that
+        // waits up to 180s for this node to serve again.
+        stage('TLS leaves (k8s dev)') {
+            steps {
+                script {
+                    if (!devUp()) {
+                        unstable('srvk8sdev is unreachable — dev TLS leaf renewal skipped')
+                        return
+                    }
+                    def rc = sh(
+                        returnStatus: true,
+                        script: '''
+                            iac -c '
+                                set -euo pipefail
+                                cd /work/Ansible/ansible
+                                timeout --kill-after=1m 15m ansible-playbook --diff playbooks/renew-internal-tls.yml --limit k8s_dev
+                            '
+                        '''
+                    )
+                    if (rc != 0) {
+                        env.DEV_STAGE_FAILED = 'true'
+                        unstable("dev TLS leaf renewal failed on srvk8sdev (exit ${rc})")
                     }
                 }
             }
@@ -113,23 +196,22 @@ pipeline {
     post {
         // jenkins-telegram-bot watches every build and reports FAILURE loudly
         // by itself, job name and build link included — so all a failure has
-        // to add here is what a red build of *this* job costs, which the bot
-        // appends to that message from the description. UNSTABLE it
+        // to add is what a red build of *this* job costs, which the bot
+        // appends to that message from the description. The two classes of
+        // certificate cost different things, so each prd stage writes its own
+        // description rather than one handler guessing here. UNSTABLE the bot
         // deliberately stays quiet about — an accepted warning is exactly what
-        // unstable means — so the dev stage says so itself.
-        failure {
-            script {
-                currentBuild.description = 'host certs may lapse'
-            }
-        }
+        // unstable means — so the dev stages say so themselves.
         unstable {
-            // Page only when srvk8sdev was up and renewal genuinely
-            // failed. A dev box that is simply off yellows the build
-            // without pushing a notification — its cert lapsing is a
-            // known, accepted consequence (see above).
+            // Page only when srvk8sdev was up and a renewal genuinely
+            // failed; either dev stage sets the flag. A dev box that is
+            // simply off yellows the build without pushing a
+            // notification — its certificates lapsing is a known,
+            // accepted consequence (see above). Which renewal failed is
+            // in the stage's own unstable message.
             script {
                 if (env.DEV_STAGE_FAILED == 'true') {
-                    notify.warning('dev cert renewal failed on srvk8sdev')
+                    notify.warning('dev certificate renewal failed on srvk8sdev')
                 }
             }
         }
