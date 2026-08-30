@@ -31,8 +31,9 @@ Read the diff and check these explicitly, because lint does not:
 - **Blast radius.** Which hosts does the change reach — what `--limit` and which groups? A role
   edit that lands on every host in `site.yml` is a different risk from one scoped to a group.
   State it plainly in your verdict; the operator decides from that.
-- **Cluster-serial safety.** Cluster playbooks run `serial: 1` for a reason. A change to a k8s or
-  ceph role that could take a node down needs to say whether the drain/handoff path still holds.
+- **Cluster-serial safety.** Never two k8s or ceph nodes disrupted at once. A change that could
+  take a node down needs to say what holds that line — the play's `serial: 1`, or a `throttle: 1`
+  on the mutating task itself — and whether the drain/handoff path still holds.
 
 ## 3. Read-only live checks
 

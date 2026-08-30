@@ -19,4 +19,11 @@ ansible-playbook playbooks/site.yml --check --diff
 - `rebuild-k8s.yml` / `evict-k8s.yml` — full VM rebuild, and the
   pre-rebuild drain run against the old node.
 - `refresh-k8s-addons.yml` — post-snap-upgrade microk8s addon refresh.
+- `renew-host-certs.yml` / `renew-internal-tls.yml` — scheduled
+  certificate renewal (SSH host certs; `internal_tls` X.509 leaves).
+  Both are threshold-gated no-ops outside the renewal window, and
+  `iac-scheduled-certs` runs both weekly.
+- `reissue-host-cert.yml` — recovery for a host whose SSH host
+  certificate already lapsed; connects over a bootstrap channel that
+  does not depend on it.
 - `adopt.yml`, `grow-disks.yml` — one-off operations.

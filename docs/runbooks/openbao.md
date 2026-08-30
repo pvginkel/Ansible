@@ -46,6 +46,13 @@ The IaC-agent escape hatch is [`iac-cold-boot.md`](iac-cold-boot.md).
 - **Convergence playbook**: `playbooks/site-openbao.yml` — runs
   bootstrap → baseline → managed_filesystems → openbao →
   ssh_host_cert against the `openbao` group.
+- **Listener cert renewal**: `playbooks/renew-internal-tls.yml`, run
+  weekly by `iac-scheduled-certs`, reissues the listener leaf on each
+  peer once it is inside its 14-day window. It reaches the hosts over
+  the plain `ansible.cfg` args — no Terraform `known_hosts` handoff, no
+  Proxmox credentials — so it can run without the setup
+  `site-openbao.yml` needs. The window allows two attempts before a leaf
+  lapses, so a red Friday is worth chasing before the next one.
 
 ## 1 — Admin access
 

@@ -478,7 +478,8 @@ When to do this:
   intermediate.
 
 The root stays in Roboform throughout. Leaf re-issuance for every
-consumer happens organically on the next renewal cycle (≤47 days).
+consumer follows on the weekly `iac-scheduled-certs` run, as each leaf
+enters its 14-day renewal window (so ≤47 days for the whole fleet).
 
 ### 1. Reconstitute the root on `wrkdev`
 
@@ -554,10 +555,12 @@ Update the Roboform entry `homelab-ca intermediate key passphrase` to
 the new passphrase. **Only after** step 4 verified.
 
 Leaf certs in the field keep working with the old chain until they
-renew; renewal under the new intermediate is automatic at the 14-day
-threshold. To force-renew everything early, see the
-`internal_tls_renewal_threshold_days` knob in the role's README and
-either bump it temporarily or `rm <cert.pem>` on each consumer.
+renew; renewal under the new intermediate happens on the weekly
+`iac-scheduled-certs` run as each leaf reaches its 14-day threshold. To
+force-renew everything early, `rm <cert.pem>` on each consumer (or
+temporarily bump `internal_tls_renewal_threshold_days` — see the role's
+README) and run `poetry run ansible-playbook playbooks/renew-internal-tls.yml`,
+which reaches every leaf in the fleet.
 
 ---
 
@@ -621,7 +624,11 @@ re-issue:
 ```sh
 # On the target host
 rm /etc/pve/local/pveproxy-ssl.pem    # or whichever cert
-# Run the iac-scheduled-drift cycle, or invoke the consumer playbook
+
+# From the controller — a missing leaf is re-issued regardless of the
+# renewal threshold. iac-scheduled-drift cannot do this: it is
+# --check-only, so it reports the missing leaf and signs nothing.
+cd ansible && poetry run ansible-playbook playbooks/renew-internal-tls.yml --limit pve
 ```
 
 Watch the role re-issue under the new password and the consumer
@@ -666,7 +673,7 @@ curl -s 'http://prometheus.home/api/v1/query?query=certmanager_certificate_expir
 ### Alert plumbing
 
 Temporarily shorten one consumer's `internal_tls_renewal_threshold_days`
-to a value > 30 (e.g. 35). On the next iac-scheduled-drift cycle the
+to a value > 30 (e.g. 35). On the next renewal run the
 cert is still well above expiry but below the alert window of 17
 days — actually, the alert fires on remaining time below 17d, not on
 threshold-vs-validity. To force a real alert without waiting weeks,

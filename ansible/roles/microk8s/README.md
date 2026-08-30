@@ -23,7 +23,7 @@ This role covers install, idempotent multi-node join, capability-label reconcili
 | Users | `user` module appends membership to the `microk8s` group; `~/.kube` per user |
 | `kubectl` alias | `snap alias microk8s.kubectl kubectl`, guarded by a stat |
 | kube-apiserver VIP | `include_role: keepalived` rendering a plain-VRRP instance for `kubernetes-api.home`; per-node, gated on `microk8s_manage_apiserver_vip` (see `tasks/keepalived.yml`) |
-| kube-apiserver TLS leaf | `tasks/internal_tls.yml` includes the `internal_tls` role for a homelab-CA leaf, served additively via the apiserver's `--tls-sni-cert-key`; per-node, gated on `microk8s_apiserver_homelab_sans` |
+| kube-apiserver TLS leaf | `tasks/internal_tls.yml` includes the `internal_tls` role for a homelab-CA leaf, served additively via the apiserver's `--tls-sni-cert-key`; per-node, gated inside that file on `microk8s_apiserver_homelab_sans`, a present install and `not microk8s_worker_only`. Also entered directly, as `tasks_from: internal_tls`, by `playbooks/renew-internal-tls.yml` |
 
 ## Primary vs. secondary nodes
 
@@ -51,7 +51,7 @@ The role adapts in four places:
 
 - **Join path** (`tasks/join.yml`) — appends `--worker` to the join command. Idempotency can't use `high-availability.nodes` (no dqlite on a worker), so the worker path counts cluster Nodes via `microk8s kubectl get nodes` instead: 1 = still solo, >1 = joined. The post-join readiness gate likewise polls the node's Ready condition through the proxy rather than `microk8s status --wait-ready`, whose worker behaviour is version-dependent.
 - **Primary election** (`tasks/elect-primary.yml`) — worker-only hosts are dropped from the candidate set, so a worker can never be elected primary (it couldn't mint join tokens or reconcile cluster-scoped state).
-- **kube-apiserver concerns** (`tasks/main.yml`) — the Keepalived VIP and the SNI TLS leaf are skipped on workers; there is no local apiserver to front or to add a cert flag to. Both remain gated on their existing per-cluster opt-ins *and* `not microk8s_worker_only`.
+- **kube-apiserver concerns** — the Keepalived VIP (`tasks/main.yml`) and the SNI TLS leaf (`tasks/internal_tls.yml`) are skipped on workers; there is no local apiserver to front or to add a cert flag to. Both remain gated on their existing per-cluster opt-ins *and* `not microk8s_worker_only`. The leaf's gate lives in its own task file rather than in `main.yml` so that entering the role there directly — which `playbooks/renew-internal-tls.yml` does — skips the same hosts a converge skips.
 - **Calico cni.yaml patch** (`tasks/network.yml`) — skipped on workers. The autodetect method is a cluster-wide DaemonSet env var the control plane owns; a worker has no local `cni.yaml` to patch and its `calico-node` pod inherits the cluster setting.
 
 Everything else — kernel modules, Ceph client packages, the snap install, registry mirrors, the `microk8s` group membership / kubectl alias — runs on a worker exactly as on a control-plane node. Capability labels declared in the worker's `k8s_node_labels` are still applied (by the elected primary's reconcile), so a worker can carry `performance: high` and the like.
@@ -100,6 +100,7 @@ The role asserts that the four cluster-CIDR variables are set; per-cluster `grou
 | `microk8s_coredns_templates` | optional | `[]` | List of `{domain, answer_a, ttl}` entries; each renders a `template IN A <domain>` block answering any subdomain with `<answer_a>`. Reconciled on the primary. |
 | `microk8s_manage_apiserver_vip` | optional | `false` | `true` folds in a Keepalived VIP for the kube-apiserver. Set only on the 3-node prd cluster — `tasks/keepalived.yml` reads the VIP/VRID from `group_vars/all/vips.yml` and the `vrrp_auth_password` secret from there. The single-node dev cluster and the scratch fleet leave it `false`. |
 | `microk8s_apiserver_homelab_sans` | optional | `[]` | SANs for a homelab-CA TLS leaf served additively on the kube-apiserver via `--tls-sni-cert-key`. Set per cluster in `group_vars/k8s_*.yml`. Distinct from `microk8s_extra_sans`, which seeds microk8s's *own* cert at first boot — this leaf is separate and leaves the internal PKI untouched. Empty skips it. |
+| `microk8s_kubelite_ready_timeout` | optional | `180` | Seconds the `Restart microk8s kubelite` handler waits for the node it just restarted to answer its own health endpoint before failing. Also bounds what a wedged node costs the rest of a roll, since the handler holds its one-node-at-a-time slot for that long. |
 | `microk8s_worker_only` (per host, in `host_vars`) | optional | `false` | `true` joins this node with `microk8s join --worker` — outside the dqlite/HA quorum, no apiserver/datastore. See "Worker-only nodes" below. |
 
 ## Idempotency notes
@@ -112,6 +113,7 @@ The role asserts that the four cluster-CIDR variables are set; per-cluster `grou
 - The `kubectl` alias is guarded by a `stat` so `snap alias` only runs when `/snap/bin/kubectl` is absent.
 - The kube-apiserver VIP delegates to the `keepalived` role: `keepalived.conf` renders to the same content every run, so a converged node reports `changed=0` and the restart handler doesn't fire. The VIP include runs last in `main.yml`, after join, so the node is already serving the API before it can win the VRRP election.
 - The kube-apiserver TLS leaf is threshold-gated by the `internal_tls` role (re-issues only inside the renewal window) and the `--tls-sni-cert-key` arg is a `lineinfile` upsert, so a converged node reports `changed=0` and the kubelite restart doesn't fire.
+- When it does fire, `Restart microk8s kubelite` carries its own one-node-at-a-time limit rather than borrowing the calling play's `serial:`: `throttle: 1` hands the restart to one host at a time, and the same task then polls that node's own health endpoint (`https://127.0.0.1:16443/livez`; on a worker `http://127.0.0.1:10248/healthz`, because there 16443 belongs to the apiserver proxy) until it answers or `microk8s_kubelite_ready_timeout` elapses, at which point the handler fails that host. Restart and wait have to stay one task — Ansible runs a handler across every notified host before starting the next. That is what lets `playbooks/renew-internal-tls.yml` run the whole `k8s` group in one un-serialised play.
 
 ## Watch-cache freeze recovery
 

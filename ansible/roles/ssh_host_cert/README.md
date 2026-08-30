@@ -47,7 +47,9 @@ Certificates last 47 days and the role re-signs inside the last 14, so
 **something must apply the role for real at least every 33 days**, per
 host. **`iac-scheduled-certs` is what does that** — weekly, running
 `playbooks/renew-host-certs.yml`, which reaches `srviac` too. Two
-attempts inside every 14-day renewal window.
+attempts inside every 14-day renewal window. The same job also renews
+the `internal_tls` X.509 leaves, in stages of its own — so "certs job
+is red" no longer means the host certs by itself.
 
 Nothing else can be relied on for it:
 

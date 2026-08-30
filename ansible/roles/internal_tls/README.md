@@ -9,10 +9,17 @@ Design: `/work/AnsibleSpecs/slices/internal-tls-step-ca.md` §D.
 
 ## How it is used
 
-A consumer role includes it and defines its own reload handler:
+A consumer role declares its leaf in a task file of its own,
+`roles/<consumer>/tasks/internal_tls.yml`, and defines its own reload
+handler. `tasks/main.yml` imports that file, so a converge issues the
+leaf; `playbooks/renew-internal-tls.yml` enters the role at the same
+file with `tasks_from: internal_tls`, which is what makes scheduled
+renewal reach exactly the leaves a converge reaches. Whatever decides
+*whether* this host has a leaf at all belongs in that file too, not in
+`main.yml` — otherwise the two paths gate on different hosts.
 
 ```yaml
-# roles/<consumer>/tasks/main.yml
+# roles/<consumer>/tasks/internal_tls.yml
 - name: Issue the consumer's TLS leaf
   ansible.builtin.include_role:
     name: internal_tls
@@ -26,6 +33,10 @@ A consumer role includes it and defines its own reload handler:
     internal_tls_group: myservice
     internal_tls_mode: "0640"
     internal_tls_reload_handler: Reload myservice
+
+# roles/<consumer>/tasks/main.yml
+- name: Issue the consumer's TLS leaf
+  ansible.builtin.import_tasks: internal_tls.yml
 
 # roles/<consumer>/handlers/main.yml
 - name: Reload myservice
@@ -82,12 +93,16 @@ role asserts it is defined.
    node_exporter as an in-cluster DaemonSet.
 
 Cadence comes from whatever calls the consumer role, and the threshold
-gate makes the role naturally idempotent under any cadence. **Today
-nothing calls it on a schedule.** iac-scheduled-drift runs daily but
+gate makes the role naturally idempotent under any cadence.
+**`iac-scheduled-certs` is what calls it on a schedule** — weekly,
+running `playbooks/renew-internal-tls.yml`, which enters each consumer
+role at its own `internal_tls` task file (`tasks_from: internal_tls`)
+and so reaches every leaf in the fleet. Two attempts inside every 14-day renewal window.
+
+Nothing else can be relied on for it. iac-scheduled-drift runs daily but
 `--check`-only, so it reports a due renewal (step 2 above) and is
-structurally incapable of signing one; the only path that actually
-issues is a hand-started iac-apply. Renewing these leaves is therefore a
-manual act — see Trello card 737.
+structurally incapable of signing one; a converge under a hand-started
+iac-apply issues for real, but only when someone starts it.
 
 ## Requirements
 

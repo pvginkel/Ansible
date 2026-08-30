@@ -23,9 +23,15 @@ Design context:
    `openbao_version` and `openbao_deb_sha256` together, next drift
    cycle picks it up.
 3. **Issue** a homelab-CA TLS leaf for the listener via the
-   [`internal_tls`](../internal_tls/README.md) role. SANs cover the
-   node's short hostname, its `.home` FQDN, and the shared VIP
-   `secrets.home`. Reload handler SIGHUPs the openbao process.
+   [`internal_tls`](../internal_tls/README.md) role, declared in
+   `tasks/internal_tls.yml`. SANs cover the node's short hostname, its
+   `.home` FQDN, and the shared VIP `secrets.home`. The `Reload openbao`
+   handler SIGHUPs the openbao process and carries `throttle: 1`, so one
+   Raft peer reloads at a time whatever drove the play — which is what
+   lets the un-serialised `playbooks/renew-internal-tls.yml` renew all
+   three listener leaves in one batch. That playbook, run weekly by
+   `iac-scheduled-certs`, is what keeps these leaves inside their
+   validity window.
 4. **Render** `/etc/openbao/openbao.hcl` (Raft storage, TLS listener,
    `seal "static"`, `api_addr` / `cluster_addr`) and drop the
    ansible-vault'd static seal key at `/etc/openbao/seal/static.key`.

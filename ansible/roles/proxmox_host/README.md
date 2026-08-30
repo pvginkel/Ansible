@@ -52,7 +52,7 @@ The role includes `internal_tls` to replace pveproxy's self-signed certificate w
 
 - **Only the user-facing cert moves.** The PVE *cluster* CA (`/etc/pve/pve-root-ca.pem`) and the `pve-ssl.*` node certificates — which sign cluster-internal traffic — are untouched.
 - **Ownership is `root:www-data`, not `root:root`.** `/etc/pve` is pmxcfs (FUSE): it presents every file as `root:www-data 0640` and rejects `chown`/`chmod`. `root:www-data 0640` matches what pmxcfs already shows, so `internal_tls`'s `file` tasks stay idempotent; `root:root` would make them fail with `EPERM`. `pveproxy` runs as `www-data`.
-- **Renewal** is threshold-gated by `internal_tls` (re-issue under 14 days left) on each `iac-scheduled-drift` cycle.
+- **Renewal** is threshold-gated by `internal_tls` (re-issue under 14 days left) and driven by the weekly `iac-scheduled-certs` job, which runs `playbooks/renew-internal-tls.yml` against every PVE node. `iac-scheduled-drift` is `--check`-only, so it reports a due renewal without ever signing one.
 - The leaf key lands in pmxcfs, which replicates it to the other PVE nodes — inherent to how PVE stores `pveproxy-ssl.*`, and within the cluster's single root-trust domain.
 
 ## Notes

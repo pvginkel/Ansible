@@ -23,8 +23,10 @@ host at least every 33 days. When none does, the certificate lapses and ssh
 refuses the host.
 
 `IaC/Scheduled Certs` (weekly, `Jenkinsfile.iac-scheduled-certs`) exists to make
-that cadence guaranteed. A lapse means that job has been failing or unscheduled —
-**check it before doing anything else**, or you will be back here in 47 days.
+that cadence guaranteed — for these host certificates and, in stages of its own,
+for the `internal_tls` X.509 leaves. A lapse means that job has been failing or
+unscheduled — **check it before doing anything else**, or you will be back here
+in 47 days.
 
 ## Confirm it (read-only)
 
