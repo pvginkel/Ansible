@@ -41,7 +41,7 @@ def devUp() {
         script: '''
             iac -c '
                 cd /work/Ansible/ansible
-                ansible k8s_dev -m ping -o -T 5
+                ansible k8s_dev -m ping -T 5
             '
         '''
     ) == 0
