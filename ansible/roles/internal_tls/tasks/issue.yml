@@ -72,8 +72,35 @@
          or (_internal_tls_renew.rc | default(1)) == 0
          or (_internal_tls_san_drift | default(false)) }}
 
+# Under --check the issuance below is skipped, so this task carries the
+# drift signal in its place: a leaf that is missing, inside its renewal
+# window, or carrying the wrong SANs is exactly the drift the scheduled
+# pipeline exists to surface. check-ansible-drift.sh sums the recap's
+# changed= count, so reporting `changed` here is what turns a pending
+# renewal into a red build instead of a silent one.
+- name: Report the pending leaf (re)issue under --check
+  ansible.builtin.debug:
+    msg: >-
+      {{ internal_tls_cert_path }} needs (re)issuing —
+      missing={{ not _internal_tls_cert.stat.exists }},
+      within renewal window={{ (_internal_tls_renew.rc | default(1)) == 0 }},
+      SAN drift={{ _internal_tls_san_drift | default(false) }}
+  changed_when: true
+  when:
+    - _internal_tls_issue | bool
+    - ansible_check_mode
+
+# A --check run stops at the report above. It can neither mint a token
+# nor issue a leaf, and it should not try: the mint writes the fleet JWK
+# provisioner password to the controller's /dev/shm and burns a real CA
+# token, which is not something a read-only drift run has any business
+# doing. It also cannot work — ansible.builtin.tempfile has no
+# check-mode support, so under --check the tempfile task is skipped and
+# the copy below it dereferences a `.path` that was never registered.
 - name: Issue or renew the leaf certificate
-  when: _internal_tls_issue | bool
+  when:
+    - _internal_tls_issue | bool
+    - not ansible_check_mode
   block:
     # The token mint runs on the controller and anchors its TLS to the
     # CA against the repo's copy of the homelab root, so the iac agent
