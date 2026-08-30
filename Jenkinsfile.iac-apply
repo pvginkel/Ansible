@@ -66,7 +66,9 @@ pipeline {
                         terraform init -input=false -no-color
                         rc=0
                         terraform plan -out=/tmp/plan.tfplan -no-color -detailed-exitcode || rc=$?
-                        if [[ $rc -ne 0 && $rc -ne 2 ]]; then exit $rc; fi
+                        # POSIX test, not [[ ]]: iac -c runs the script under
+                        # the iac image sh (dash), where [[ is "not found".
+                        if [ "$rc" -ne 0 ] && [ "$rc" -ne 2 ]; then exit "$rc"; fi
                         terraform show -json /tmp/plan.tfplan > /tmp/plan.json
                         check-protected-vms.sh /tmp/plan.json srviac
                     '

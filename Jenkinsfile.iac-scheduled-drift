@@ -58,9 +58,14 @@ pipeline {
                         terraform init -input=false -no-color
                         rc=0
                         terraform plan -out=/tmp/plan.tfplan -no-color -detailed-exitcode || rc=$?
-                        if [[ $rc -eq 0 ]]; then
+                        # POSIX test, not [[ ]]: iac -c runs the script under
+                        # the iac image sh (dash), where [[ is "not found".
+                        # Both branches used to fall through to the else, so a
+                        # drifting plan exited 2 with no DRIFT line and no
+                        # protected-VM check.
+                        if [ "$rc" -eq 0 ]; then
                             exit 0
-                        elif [[ $rc -eq 2 ]]; then
+                        elif [ "$rc" -eq 2 ]; then
                             echo "DRIFT: terraform plan proposes changes against prd" >&2
                             # Also flag any protected-VM destroy/replace explicitly.
                             terraform show -json /tmp/plan.tfplan > /tmp/plan.json
