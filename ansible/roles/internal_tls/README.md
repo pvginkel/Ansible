@@ -81,9 +81,13 @@ role asserts it is defined.
    prometheus-node-exporter package, e.g. a k8s node running
    node_exporter as an in-cluster DaemonSet.
 
-Cadence comes from whatever calls the consumer role (iac-scheduled-drift
-for the steady state). The threshold gate makes the role naturally
-idempotent under that cadence.
+Cadence comes from whatever calls the consumer role, and the threshold
+gate makes the role naturally idempotent under any cadence. **Today
+nothing calls it on a schedule.** iac-scheduled-drift runs daily but
+`--check`-only, so it reports a due renewal (step 2 above) and is
+structurally incapable of signing one; the only path that actually
+issues is a hand-started iac-apply. Renewing these leaves is therefore a
+manual act — see Trello card 737.
 
 ## Requirements
 
