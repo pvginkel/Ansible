@@ -1,7 +1,14 @@
 {# Managed by Ansible (proxmox_host). PVE's jobs.cfg parser rejects
    shell-style comments at the file level, so this Jinja comment does
    not survive into the rendered file. Edits made through the PVE UI
-   will be overwritten on the next playbook run. #}
+   will be overwritten on the next playbook run.
+
+   The blank line at the end of this file is load-bearing. PVE serialises
+   jobs.cfg through PVE::SectionConfig::write_config, which closes every
+   section with an extra newline, so any PVE-side write puts that line
+   back — a UI edit, but also a `qmdestroy --purge`, which rewrites
+   jobs.cfg to drop the VMID. Render without it and the drift check
+   reports a permanent one-change diff on the cluster writer. #}
 vzdump: {{ proxmox_host_backup_job_id }}
 	schedule {{ proxmox_host_backup_schedule }}
 	all 1
@@ -15,3 +22,4 @@ vzdump: {{ proxmox_host_backup_job_id }}
 	notes-template {{ '{{guestname}}' }}
 	prune-backups keep-last={{ proxmox_host_backup_keep }}
 	storage {{ proxmox_host_backup_storage }}
+
