@@ -188,7 +188,7 @@ The Ceph production fleet is **not yet Ansible-managed** — `playbooks/site-cep
 
 On `pve`: `srvhomeassistant` (running, 6 GiB), `wrkdev` (operator workstation VM, running,
 6 GiB — Ansible-managed baseline but Terraform-unmanaged), `wrkdevwin` (Windows, running,
-18 GiB), plus stopped `srvhassiodev`, `srvtest`, `wrktql`, `wrktql10`, `wrkmariska`.
+18 GiB), plus stopped `srvhassiodev`, `wrktql`, `wrktql10`, `wrkmariska`.
 
 ### CPU affinity
 
