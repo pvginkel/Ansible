@@ -16,8 +16,12 @@ internal_tls_group: root
 internal_tls_mode: "0640"
 
 # Re-issue when the leaf has fewer than this many days of validity left.
-# The drift pipeline calls the consumer on its schedule; this threshold
-# is what makes the role a no-op until a renewal is actually due.
+# iac-scheduled-certs runs the consumer weekly; this threshold is what
+# makes that run a no-op until a renewal is actually due.
+# iac-scheduled-drift overrides it to 7 — one certs-job period shorter —
+# so its --check flags only a renewal the Friday run already missed, not
+# one it has yet to make. The override and its arithmetic live in
+# Jenkinsfile.iac-scheduled-drift.
 internal_tls_renewal_threshold_days: 14
 
 # Homelab CA endpoint and the VM-side provisioner. Fleet constants —

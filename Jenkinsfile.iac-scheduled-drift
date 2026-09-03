@@ -30,6 +30,25 @@ def devUp() {
     ) == 0
 }
 
+// Certificate renewal is iac-scheduled-certs' job, not this one's. That
+// job re-issues any leaf inside its last 14 days and runs weekly, so a
+// leaf that is merely inside that window is nothing for an operator to
+// act on — Friday will sign it. Checked at the role's own 14 days, this
+// build went red for up to six days per leaf per cycle over renewals
+// that needed no hand, which is how a drift signal stops being read.
+//
+// So every stage that reaches a leaf checks one renewer period shorter:
+// a leaf with under 7 days left is one the certs job has already had
+// its Friday at and missed, and that is the only certificate state
+// worth a red build here. Keep this at the role's threshold minus the
+// certs job's period if either moves.
+//
+// ssh_host_cert is not listed: its sign step is a `command` with no
+// check-mode report, so under --check it is skipped, not counted, and
+// there is nothing here to shorten. The certs job's own build is the
+// only signal for a host cert renewal that stopped happening.
+def certDriftArgs = '-e internal_tls_renewal_threshold_days=7'
+
 pipeline {
     agent { label 'iac-controller' }
 
@@ -87,13 +106,13 @@ pipeline {
                 // posture, not drift; the scheduled-update pipeline owns
                 // applying it. Drop the skip once those tasks leave
                 // site.yml (see decisions.md "OS updates").
-                sh '''
+                sh """
                     iac -c '
                         set -euo pipefail
                         cd /work/Ansible/ansible
-                        check-ansible-drift.sh playbooks/site.yml --limit "!iac_agent" --skip-tags os_update
+                        check-ansible-drift.sh playbooks/site.yml --limit "!iac_agent" --skip-tags os_update ${certDriftArgs}
                     '
-                '''
+                """
             }
         }
 
@@ -105,13 +124,13 @@ pipeline {
                 // to CI. Limited to k8s_prd; the dev node is gated below
                 // (offline most of the time). --check only; same
                 // --skip-tags os_update rationale as the stage above.
-                sh '''
+                sh """
                     iac -c '
                         set -euo pipefail
                         cd /work/Ansible/ansible
-                        check-ansible-drift.sh playbooks/site-k8s.yml --limit k8s_prd --skip-tags os_update
+                        check-ansible-drift.sh playbooks/site-k8s.yml --limit k8s_prd --skip-tags os_update ${certDriftArgs}
                     '
-                '''
+                """
             }
         }
 
@@ -130,13 +149,13 @@ pipeline {
                     }
                     def rc = sh(
                         returnStatus: true,
-                        script: '''
+                        script: """
                             iac -c '
                                 set -euo pipefail
                                 cd /work/Ansible/ansible
-                                timeout --kill-after=1m 15m check-ansible-drift.sh playbooks/site-k8s.yml --limit k8s_dev --skip-tags os_update
+                                timeout --kill-after=1m 15m check-ansible-drift.sh playbooks/site-k8s.yml --limit k8s_dev --skip-tags os_update ${certDriftArgs}
                             '
-                        '''
+                        """
                     )
                     if (rc != 0) {
                         env.DEV_STAGE_FAILED = 'true'
@@ -155,13 +174,13 @@ pipeline {
                 // change is invisible to site.yml drift, so this stage
                 // covers it. --skip-tags os_update for the same patch-
                 // posture reason.
-                sh '''
+                sh """
                     iac -c '
                         set -euo pipefail
                         cd /work/Ansible/ansible
-                        check-ansible-drift.sh playbooks/site-openbao.yml --skip-tags os_update
+                        check-ansible-drift.sh playbooks/site-openbao.yml --skip-tags os_update ${certDriftArgs}
                     '
-                '''
+                """
             }
         }
 

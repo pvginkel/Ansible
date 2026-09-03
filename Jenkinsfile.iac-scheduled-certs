@@ -15,8 +15,11 @@
 // kube-apiserver homelab SNI cert, the OpenBao listener — sit in the
 // same hole for the same reasons: 47-day lifetime, 14-day renewal
 // window, and outside this job they are signed only by a hand-started
-// iac-apply. They renew here, and a red or unstable build of this job is
-// the whole detector for a leaf renewal that stopped happening.
+// iac-apply. They renew here. A red or unstable build of this job is the
+// first detector for a leaf renewal that stopped happening, and the
+// daily iac-scheduled-drift build is the second: it checks every leaf
+// at 7 days — one period of this job shorter than the 14 the role
+// renews at — so it reds only once a Friday here has been missed.
 //
 // Weekly against a 14-day renewal window means two attempts before any
 // certificate lapses. Both playbooks are a no-op outside that window, so

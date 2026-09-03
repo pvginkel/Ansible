@@ -55,8 +55,9 @@ Nothing else can be relied on for it:
 
 - `iac-scheduled-drift` runs `check-ansible-drift.sh`, i.e.
   `ansible-playbook --check`. The signing task is a `command`, so
-  check-mode skips it. Drift **reports** an approaching expiry as
-  pending change; it can never renew one.
+  check-mode skips it — skipped, not reported as pending. Drift
+  neither renews a host cert nor flags one that is due; the certs
+  job's own build is the only signal for a renewal that stopped.
 - `iac-apply` applies for real, but only when someone starts it *and*
   every earlier stage passes. That is an accidental cadence, not a
   guarantee — and since the apply stages were split out of the on-push

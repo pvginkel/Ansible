@@ -52,7 +52,9 @@ The IaC-agent escape hatch is [`iac-cold-boot.md`](iac-cold-boot.md).
   the plain `ansible.cfg` args — no Terraform `known_hosts` handoff, no
   Proxmox credentials — so it can run without the setup
   `site-openbao.yml` needs. The window allows two attempts before a leaf
-  lapses, so a red Friday is worth chasing before the next one.
+  lapses, so a red Friday is worth chasing before the next one. The
+  daily `iac-scheduled-drift` build reds once a peer's leaf is under
+  7 days — a Friday that was missed, not one still to come.
 
 ## 1 — Admin access
 

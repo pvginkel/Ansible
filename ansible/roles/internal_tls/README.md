@@ -100,9 +100,13 @@ role at its own `internal_tls` task file (`tasks_from: internal_tls`)
 and so reaches every leaf in the fleet. Two attempts inside every 14-day renewal window.
 
 Nothing else can be relied on for it. iac-scheduled-drift runs daily but
-`--check`-only, so it reports a due renewal (step 2 above) and is
-structurally incapable of signing one; a converge under a hand-started
-iac-apply issues for real, but only when someone starts it.
+`--check`-only, so it can report a pending issue (step 2 above) and is
+structurally incapable of signing one. It also checks at 7 days rather
+than the role's 14 — one certs-job period shorter, passed as an extra
+var by `Jenkinsfile.iac-scheduled-drift` — so a leaf merely inside its
+renewal window is not drift; only a leaf the Friday run already missed
+reds the build. A converge under a hand-started iac-apply issues for
+real, but only when someone starts it.
 
 ## Requirements
 

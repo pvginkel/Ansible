@@ -6,8 +6,9 @@
 # arrangement it replaces was accidental and it failed in July 2026:
 #
 #   - iac-scheduled-drift runs `ansible-playbook --check`. The signing
-#     step is a `command`, so check-mode skips it. Drift can report an
-#     approaching expiry; it can never act on one.
+#     step is a `command`, so check-mode skips it — skipped, not counted
+#     as pending. Drift neither reports an approaching expiry nor acts
+#     on one.
 #   - The applying pipeline (iac-apply today; these stages fired on
 #     every push to main at the time) applies for real, but only when
 #     someone starts it *and* every earlier stage is green. It had been

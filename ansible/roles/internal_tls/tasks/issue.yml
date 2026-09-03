@@ -77,7 +77,10 @@
 # window, or carrying the wrong SANs is exactly the drift the scheduled
 # pipeline exists to surface. check-ansible-drift.sh sums the recap's
 # changed= count, so reporting `changed` here is what turns a pending
-# renewal into a red build instead of a silent one.
+# renewal into a red build instead of a silent one. The drift pipeline
+# passes a shorter threshold than the weekly certs job renews at, so
+# "inside its renewal window" here means a renewal that job has already
+# missed, not one it has yet to make.
 - name: Report the pending leaf (re)issue under --check
   ansible.builtin.debug:
     msg: >-
