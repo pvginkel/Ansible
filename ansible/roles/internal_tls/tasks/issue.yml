@@ -33,7 +33,11 @@
       - needs-renewal
       - "{{ internal_tls_cert_path }}"
       - "--expires-in"
-      - "{{ internal_tls_renewal_threshold_days * 24 }}h"
+      # `| int` because the threshold arrives as a string whenever it is
+      # passed with -e — the drift pipeline's 7-day override, the
+      # runbook's temporary bump — and Jinja's `*` on a string repeats
+      # it: "7" * 24 is a 24-digit hour count that step rejects.
+      - "{{ (internal_tls_renewal_threshold_days | int) * 24 }}h"
   register: _internal_tls_renew
   changed_when: false
   failed_when: _internal_tls_renew.rc not in [0, 1]

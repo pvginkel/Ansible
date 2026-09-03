@@ -84,13 +84,18 @@
 # indented line in ssh-keygen -L output) and a few extension items
 # that share the same shape — false positives are harmless here, we
 # only check whether inventory_hostname is present.
+#
+# `| int` on the threshold: passed with -e it arrives as a string, and
+# Jinja's `*` on a string repeats it instead of multiplying — the same
+# trap internal_tls hit when the drift pipeline started overriding its
+# threshold.
 - name: Decide whether the certificate needs (re-)issuing
   ansible.builtin.set_fact:
     _ssh_host_cert_issue: >-
       {{ not _ssh_host_cert_cert.stat.exists
          or ((_ssh_host_cert_not_after.stdout | int)
              - (ansible_facts.date_time.epoch | int))
-            < (ssh_host_cert_renewal_threshold_days * 86400)
+            < ((ssh_host_cert_renewal_threshold_days | int) * 86400)
          or inventory_hostname not in (
               _ssh_host_cert_inspect.stdout
               | regex_findall('(?m)^\s+(\S+)$')) }}
