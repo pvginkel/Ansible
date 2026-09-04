@@ -44,8 +44,8 @@ operator's keystroke.
 A push to `main` is safe — `iac-on-push` only plans and runs the destroy check. Convergence is the
 separate manual `iac-apply` job; never start it.
 
-Mechanics — the toolchain, the canonical command shape, node-level cluster control over SSH, and
-writing OpenBao secrets — are in [`docs/live-infra-access.md`](docs/live-infra-access.md).
+Mechanics — the toolchain, the canonical command shape, the cluster credentials (`config-prd-write`
+is cluster-admin on prd), and writing OpenBao secrets — are in [`docs/live-infra-access.md`](docs/live-infra-access.md).
 
 ## What Claude doesn't read on its own
 

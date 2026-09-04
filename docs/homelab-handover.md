@@ -211,9 +211,11 @@ no performance/efficiency split to exploit.
   not a plain host key; the CA is `ansible/files/known_hosts.d/homelab`, which is why SSH
   commands are run from the `ansible/` directory with the option pile mirroring
   `ansible.cfg`'s `ssh_args`.
-- **Kubernetes**: node-level operations (`cordon`, `drain`, anything writing a Node object)
-  cannot be done with the mounted kubeconfigs — they have no rights on the cluster-scoped
-  `nodes` resource. Use `sudo microk8s kubectl` over SSH on a node instead.
+- **Kubernetes**: `~/.kube/config-prd-write` is bound to `cluster-admin` on the prd cluster
+  (since 2026-09-04), so `cordon`, `drain` and every other cluster-scoped write work from the
+  dev pod given an explicit `--kubeconfig`. The default `~/.kube/config` is a separate, narrow
+  identity — cluster-wide `view` plus `edit` in `development`. `sudo microk8s kubectl` over SSH
+  stays the path for node-*host* work (the microk8s snap, dqlite recovery) and for break-glass.
 - **OpenBao** is at `secrets.home:8200`. Reachable, but no token is provisioned in the dev
   environment by default.
 - **Terraform** state reads work from the dev pod; `plan`/`apply` do not, because the Proxmox

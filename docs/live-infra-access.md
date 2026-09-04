@@ -77,35 +77,56 @@ When handing a command to the operator, use this exact shape:
   `iac -c 'cd terraform/prd && terraform apply'` **on srviac** — and note that `iac-impl` clones
   `main` inside the container, so that applies pushed state, not the working tree.
 
-## Cluster-scoped work goes over SSH, not the kubeconfig
+## Cluster access: `config-prd-write` is cluster-admin on prd
 
-The mounted kubeconfigs carry **no cluster-scoped verb at all**. `~/.kube/config-prd-write` is the
-`kubecoder-rw` identity — namespaced edit and nothing above it: it cannot get, list or patch
-PersistentVolumes, it cannot create namespaces, and it cannot write a Node. `nodes` is the instance
-you hit most often (`kubectl auth can-i patch nodes` is `no` on `~/.kube/config` and on both
-elevated write configs, so `kubectl cordon` / `uncordon` / `drain` are out), not a special case.
-Plan against the general rule: **anything cluster-scoped needs the SSH path.** Slice 007 planned a
-PV reattach proof around the write kubeconfig, found it could not create the fixture's
-cluster-scoped objects, and had to build them over SSH instead.
+`~/.kube/config-prd-write` is the `kubecoder-rw` identity, bound to `cluster-admin` since
+**2026-09-04** (Trello #725). It holds every verb on every resource of the prd cluster,
+cluster-scoped included — Nodes, PersistentVolumes, namespaces, cluster RBAC. `kubectl cordon` /
+`uncordon` / `drain` work from this pod, as does everything else that used to need the SSH detour.
 
-The way through is SSH. Each k8s host runs microk8s, and `sudo microk8s kubectl` on the node is
-cluster-admin:
+**The base `~/.kube/config` is unchanged and stays narrow**: it is the separate `kubecoder-ro`
+identity — cluster-wide `view` (which excludes Secrets) plus `edit` in the `development` namespace.
+It is also the *default* kubeconfig, so cluster-scoped work needs the flag spelled out:
+
+```
+cexec iac kubectl --kubeconfig ~/.kube/config-prd-write --context prd cordon srvk8s2
+```
+
+The widening swapped the `kubecoder-rw-edit` ClusterRoleBinding for `kubecoder-rw-admin`. The
+ServiceAccount and its OpenBao-held token are untouched, so nothing was re-minted and no pod
+restarted. **Nothing in this repo reconciles that binding** — it is hand-created out-of-band per
+KubeCoder slice 012's K1 recipe, and a cluster rebuild does not restore it.
+
+Same weight as any other production write: say what you are about to change and why before doing
+it, and don't leave a node cordoned at the end of a task. The credential is wide now; the care is
+what keeps it safe.
+
+Docs written before 2026-09-04 say cluster-scoped work must go over SSH — the identity was
+cluster-wide `edit` then, with no cluster-scoped verb at all, and slice 007's PV reattach proof hit
+that wall and built its fixtures over SSH. That constraint is gone; treat those citations as
+historical.
+
+### What still needs SSH
+
+Node-*host* work rather than cluster-scoped API objects: the microk8s snap itself (`snap restart`,
+channel refreshes), `k8s-dqlite` / kubelite recovery, and reading files on the node. `sudo microk8s
+kubectl` on a node also stays the break-glass path when the token or the apiserver VIP is itself
+the broken thing.
+
+The dev cluster is the other case. `~/.kube/config-dev-write` addresses `srvk8sdev`, which answers
+on neither 22 nor 16443 from this pod — unreachable here whatever the credential says, and it is
+still `edit`-bound in any case. Only the `srvk8s*` prd nodes are reachable.
 
 ```
 cd ansible && ssh -o UserKnownHostsFile=files/known_hosts.d/homelab -o GlobalKnownHostsFile=/dev/null \
   -o HostKeyAlgorithms=ssh-ed25519-cert-v01@openssh.com,ssh-ed25519 \
   -o IdentityFile=~/.ssh/id_ed25519_ansible -o IdentitiesOnly=yes \
-  ansible@srvk8s1 'sudo microk8s kubectl cordon srvk8s2'
+  ansible@srvk8s1 'sudo snap restart microk8s.daemon-k8s-dqlite'
 ```
 
 The option pile mirrors `ansible.cfg`'s `ssh_args`: hosts present an SSH CA certificate rather than
 a plain host key, and the CA lives in `ansible/files/known_hosts.d/homelab` — hence running from
-`ansible/` (or spelling that path absolutely). Only the `srvk8s*` prd nodes are reachable from this
-pod; `srvk8sdev` answers on neither 22 nor 16443.
-
-This is a live mutation of a production cluster, so it carries the same weight as any other write:
-say what you're about to cordon and why before doing it, and don't leave a node cordoned at the end
-of a task.
+`ansible/` (or spelling that path absolutely).
 
 ## Writing OpenBao secrets via `bao kv put`
 
