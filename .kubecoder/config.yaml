@@ -103,5 +103,5 @@ tools:
   # HomelabTerraformProvider
   - use: go
 
-setup:
-  - kc project setup
+# No `setup:` here. Pod start already runs every checkout's project.yaml setup,
+# this repo's included; a `kc project setup` line only ran it a second time.
