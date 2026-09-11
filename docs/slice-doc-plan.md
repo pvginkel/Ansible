@@ -58,16 +58,10 @@ changed authority rule, a repo that appeared or vanished. Apply the discipline i
 [design-philosophy.md](design-philosophy.md): state every fact once, demote detail to a `docs/`
 topic doc rather than inlining it. Growth here is a cost every future session pays.
 
-## The architecture model — a nudge, not an edit
+## The architecture model — not an edit
 
 `docs/architecture/ansible-architecture.yaml` is this repo's federated Architecture-as-Code
-artifact. **The doc phase does not edit it.** It is maintained by the `update-architecture` agent,
-which is incremental and lives in the operator's `~/.claude/agents/`.
-
-What the doc phase owes is a **nudge in its hand-back** when the slice plausibly moved the model:
-a new managed host, a new daemon or service, a removed service, a renamed external identity, a
-changed interface between systems. Say what changed and why it looks model-relevant. Routine role
-edits need no nudge.
+artifact. **The doc phase does not edit it.**
 
 ## What does not belong here
 

@@ -82,14 +82,6 @@ copy to edit and the one the `iac_agent` role installs. Older docs mention `/wor
 `/work/IaCAgent` — neither is cloned here any more, so treat those citations as historical
 provenance.
 
-## Federated architecture model
-
-The architecture for this repo is `docs/architecture/ansible-architecture.yaml`. When a change
-could affect the model, nudge the operator to spawn the `update-architecture` agent — harder for
-significant changes (new managed host, new daemon, removed service, renamed external identity).
-The agent is incremental, so it need not run on every change; when working unattended, invoke it
-yourself. Vocabulary reference: `docs/architecture/producer-manual.md`.
-
 ## Cluster upgrades
 
 On every microk8s channel bump, re-check whether the per-node `dqlite-watchdog.timer` (microk8s
