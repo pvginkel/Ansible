@@ -210,7 +210,7 @@ poetry run ansible-playbook playbooks/site.yml --limit srvk8s1 --check
 
 ## Rebuild — `srvk8sdev` (single-node dev)
 
-Different shape from prd: dev cluster is a single node, dev-tier networking (DHCP via the standard `homelab_dns_reservation`, not a static-hosts entry — see "Networking shape" at the top), no inter-node traffic, no zpool, no Ceph. The peer-count gate skips the eviction shape, so `evict-k8s.yml` is not part of this flow. The cluster gets fully replaced; HelmCharts deployments under `srvk8sdev` need re-deployment afterward (operator workflow, separate from this runbook).
+Different shape from prd: dev cluster is a single node, dev-tier networking (DHCP via the standard `homelab_dns_reservation`, not a static-hosts entry — see "Networking shape" at the top), no inter-node traffic, no zpool, no Ceph. The peer-count gate skips the eviction shape, so `evict-k8s.yml` is not part of this flow. The cluster gets fully replaced; HelmCharts deployments under `srvk8sdev` need re-deployment afterward (operator workflow, separate from this runbook). KubeCoder's cluster identities go with it too — the ServiceAccounts, bindings and token Secrets nothing reconciles — and are re-minted per the KubeCoder repo's `docs/operations/cluster-identity-remint.md`.
 
 ```sh
 # 1. Destroy the live VM:
@@ -255,4 +255,5 @@ Verify `site.yml --check` reports zero changes against the rebuild target before
 
 - Microceph rebuilds (Phase 5).
 - HelmCharts redeploy on `srvk8sdev` after rebuild — operator workflow, see HelmCharts repo.
+- Re-minting KubeCoder's cluster identities after `srvk8sdev` is replaced, or after any full cluster loss — see the KubeCoder repo's `docs/operations/cluster-identity-remint.md`.
 - Recovering from a corrupted dqlite database — `microk8s reset` is the reset hammer; deeper recovery is per microk8s upstream docs.
