@@ -145,3 +145,10 @@
   when:
     - _microk8s_installed.stat.exists
     - not (microk8s_worker_only | bool)
+
+# Node that also runs its own microceph: at shutdown, end the pods and
+# release their kernel Ceph clients before microceph stops, and keep LVM off
+# rbd/nbd devices. Otherwise shutdown wedges on I/O to the stopped Ceph.
+- name: Release kernel Ceph clients before a co-located microceph stops
+  ansible.builtin.import_tasks: ceph-release.yml
+  when: microk8s_colocated_ceph | bool

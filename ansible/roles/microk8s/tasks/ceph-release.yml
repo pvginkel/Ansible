@@ -1,0 +1,43 @@
+---
+# ceph-release.yml — on a node that also runs its own microceph, release the
+# pods' kernel Ceph clients at shutdown before microceph stops, and keep LVM
+# off rbd/nbd devices. See the README, "Co-located Ceph shutdown".
+
+- name: Install the Ceph client release script
+  ansible.builtin.copy:
+    src: k8s-release-ceph-clients.sh
+    dest: /usr/local/sbin/k8s-release-ceph-clients
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the Ceph client release unit
+  ansible.builtin.copy:
+    src: k8s-release-ceph-clients.service
+    dest: /etc/systemd/system/k8s-release-ceph-clients.service
+    owner: root
+    group: root
+    mode: "0644"
+
+# Started, never restarted: stopping the unit is what releases the clients.
+# The script refuses outside shutdown, but nothing here should lean on that.
+- name: Enable + start the Ceph client release unit
+  ansible.builtin.systemd:
+    name: k8s-release-ceph-clients.service
+    enabled: true
+    state: started
+    daemon_reload: true
+  # In check mode the copy above hasn't written the unit, so systemd can't
+  # find it and the module errors out. The file diffs are the preview.
+  when: not ansible_check_mode
+
+# lvm2-monitor's stop scans every block device, and an rbd device whose OSDs
+# are gone holds that scan in D state for good. Reject-only on purpose: LVM
+# accepts a device if any of its names hits an accept pattern first, so a
+# trailing "a|.*|" would readmit rbd0 through its /dev/disk/by-uuid alias.
+- name: Keep LVM off rbd and nbd devices
+  ansible.builtin.lineinfile:
+    path: /etc/lvm/lvm.conf
+    regexp: '^\s*global_filter\s*='
+    insertafter: '^devices \{'
+    line: "\tglobal_filter = [ \"r|/dev/rbd|\", \"r|/dev/nbd|\" ]"

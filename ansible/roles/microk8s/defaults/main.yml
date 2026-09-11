@@ -133,6 +133,13 @@ microk8s_ceph_client_packages:
   - ceph-common
   - rbd-nbd
 
+# true on a node that also runs its own microceph (srvk8sdev). Installs
+# k8s-release-ceph-clients.service, which ends the pods and releases their
+# kernel Ceph clients at shutdown before microceph stops, plus an LVM filter
+# off rbd/nbd devices. Without it, shutdown wedges on I/O to a local Ceph
+# that has already stopped. See README "Co-located Ceph shutdown".
+microk8s_colocated_ceph: false
+
 # Containerd registry mirrors. Each entry is a `<host>:<port>` string
 # matching the image-reference prefix; the role renders
 # /var/snap/microk8s/current/args/certs.d/<entry>/hosts.toml pointing

@@ -1,0 +1,21 @@
+# Managed by the microk8s Ansible role (microk8s_colocated_ceph). See the
+# role README, "Co-located Ceph shutdown".
+[Unit]
+Description=Release the pods' kernel Ceph clients before the co-located microceph stops
+# Units stop in reverse start order. After= microceph and the network puts
+# this unit's ExecStop ahead of their stop, while Ceph is still reachable;
+# Before= kubelite and containerd puts it behind theirs, so nothing restarts
+# the pods it ends. Default dependencies also order it ahead of
+# lvm2-monitor's stop.
+After=network.target snap.microceph.daemon.service snap.microceph.mon.service snap.microceph.mgr.service snap.microceph.osd.service snap.microceph.mds.service snap.microceph.rgw.service
+Before=snap.microk8s.daemon-containerd.service snap.microk8s.daemon-kubelite.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/true
+ExecStop=/usr/local/sbin/k8s-release-ceph-clients
+TimeoutStopSec=2min
+
+[Install]
+WantedBy=multi-user.target

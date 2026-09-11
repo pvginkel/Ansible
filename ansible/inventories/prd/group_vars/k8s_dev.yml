@@ -28,6 +28,11 @@ microk8s_apiserver_homelab_sans:
 # "k8s clusters enforce RBAC".
 microk8s_enable_rbac: true
 
+# srvk8sdev also runs the dev microceph (ceph_dev) its pods' volumes live
+# on, so the pods' kernel Ceph clients must be released at shutdown before
+# microceph stops. See roles/microk8s/README.md "Co-located Ceph shutdown".
+microk8s_colocated_ceph: true
+
 # core/ingress excluded per decisions.md "Tool split": operator runs
 # their own ingress controller. ha-cluster auto-enabled by microk8s.
 # MetalLB excluded: installed via the HelmCharts metallb-system

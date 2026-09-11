@@ -102,6 +102,7 @@ The role asserts that the four cluster-CIDR variables are set; per-cluster `grou
 | `microk8s_apiserver_homelab_sans` | optional | `[]` | SANs for a homelab-CA TLS leaf served additively on the kube-apiserver via `--tls-sni-cert-key`. Set per cluster in `group_vars/k8s_*.yml`. Distinct from `microk8s_extra_sans`, which seeds microk8s's *own* cert at first boot — this leaf is separate and leaves the internal PKI untouched. Empty skips it. |
 | `microk8s_kubelite_ready_timeout` | optional | `180` | Seconds the `Restart microk8s kubelite` handler waits for the node it just restarted to answer its own health endpoint before failing. Also bounds what a wedged node costs the rest of a roll, since the handler holds its one-node-at-a-time slot for that long. |
 | `microk8s_worker_only` (per host, in `host_vars`) | optional | `false` | `true` joins this node with `microk8s join --worker` — outside the dqlite/HA quorum, no apiserver/datastore. See "Worker-only nodes" below. |
+| `microk8s_colocated_ceph` | optional | `false` | `true` on a node that also runs its own microceph (`srvk8sdev`, set in `group_vars/k8s_dev.yml`). Installs the shutdown-ordering unit and the LVM filter — see "Co-located Ceph shutdown" below. |
 
 ## Idempotency notes
 
@@ -118,6 +119,14 @@ The role asserts that the four cluster-CIDR variables are set; per-cluster `grou
 ## Watch-cache freeze recovery
 
 `tasks/watchdog.yml` installs a per-node systemd timer (`dqlite-watchdog.timer`) that self-heals a frozen apiserver watch cache — the microk8s 1.34–1.35 `k8s-dqlite` watch-stall bug ([k8s-dqlite#364](https://github.com/canonical/k8s-dqlite/issues/364) / [microk8s#5386](https://github.com/canonical/microk8s/issues/5386)). Every few minutes each apiserver node probes its **own** apiserver for the freeze signature (cache-served vs quorum `resourceVersion` divergence on the controller-manager lease) and restarts `snap.microk8s.daemon-k8s-dqlite` only on that signature. Each node heals itself — no orchestrator, no cross-node coordination; `RandomizedDelaySec` jitters the nodes so they never restart in lockstep. Installed on apiserver nodes only (worker-only nodes are skipped). Tuning lives in the `microk8s_watchfreeze_*` / `microk8s_watchdog_*` defaults; the probe is `files/dqlite-watch-probe.sh`. Recovery is silent in `journalctl -u dqlite-watchdog`. Full background and manual fallback: [`docs/runbooks/dqlite-watch-freeze.md`](../../../docs/runbooks/dqlite-watch-freeze.md).
+
+## Co-located Ceph shutdown
+
+On a node that also runs its own microceph (`microk8s_colocated_ceph: true` — `srvk8sdev` today), `tasks/ceph-release.yml` installs `k8s-release-ceph-clients.service`. Without it shutdown wedges. systemd stops microceph and microk8s in parallel, and the pods outlive both: containerd runs `KillMode=process` and the pods sit in `/kubepods`, outside any unit. Their kernel Ceph clients (krbd devices, kernel CephFS mounts) keep issuing I/O to OSDs and an MDS that are gone, and that I/O never completes — `lvm2-monitor`'s stop scan hangs on `/dev/rbd*` in D state and the kernel loops on `libceph: connect … error -101` until a hard reset.
+
+The unit is a oneshot that does nothing at start and all its work at stop. Ordered after microceph and before kubelite/containerd, its `ExecStop` runs once microk8s has stopped and while microceph is still up: SIGTERM to everything in `/kubepods` with a 20 s grace, then `cgroup.kill`; unmount the remaining `ceph` and `/dev/rbd*` mounts; unmap every rbd device. Output lands in `journalctl -u k8s-release-ceph-clients` (`-b -1` for the last shutdown). The script is a no-op unless the system is shutting down, so a manual `systemctl stop`/`restart` of the unit doesn't take every pod on the node with it; `/usr/local/sbin/k8s-release-ceph-clients --force` releases on demand.
+
+The same task file sets `global_filter = [ "r|/dev/rbd|", "r|/dev/nbd|" ]` in `/etc/lvm/lvm.conf`, so an rbd device that does outlive its OSDs can't wedge the LVM scan. Nodes on the external prd Ceph need neither — their Ceph outlives their shutdown.
 
 ## What this role doesn't do (yet)
 
