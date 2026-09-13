@@ -55,7 +55,7 @@ Every credential arrives through ESO from OpenBao (`kv/` mount), refreshed hourl
 | `argocd-prd/argocd-repo-creds-github` | `eso/prd/argocd/prd/git#token` | Argo's own repo clones (classic PAT, `repo`) |
 | `argocd-prd/argocd-webhook` | `eso/prd/argocd/prd/webhook#github_secret` | both receivers and the relay; the same value GitHub holds on every hook |
 | `argocd-prd/argocd-oidc` | `eso/prd/argocd/prd/oidc#client_secret` | SSO |
-| `argocd-hooks/argocd-hook-credentials` | `eso/prd/argocd-hooks/git#token` plus eight more leaves, 22 keys | the PreSync hook: its clone, state pushes, provider credentials |
+| `argocd-hooks/argocd-hook-credentials` | `eso/prd/argocd-hooks/git#token` plus nine more leaves, 23 keys — `webhook#github_secret` above among them, as `TF_VAR_github_webhook_secret` | the PreSync hook: its clone, state pushes, provider credentials, the secret a deploy repo's webhook is signed with |
 
 The two PATs are deliberately separate and rotate independently. Regenerating a
 classic PAT on GitHub invalidates its old value, so a PAT backing more than one
@@ -95,8 +95,10 @@ section. The resource tree only shows the refused object as *Missing*.
      `eso/prd/argocd-hooks/git` is no longer accepted. Rotate it (below).
    - `Error: Resource precondition failed` or any other Terraform error — the
      app's own Terraform; the message names the file and line.
-   - a namespace "already exists" — the app's Terraform creates its namespace.
-     It must not: Argo applies the chart's Namespace before the hook runs.
+   - a Terraform error on a namespace, forbidden or "already exists" — the
+     app's Terraform manages its namespace. It must not: Argo applies the chart's
+     Namespace before the hook runs, and the hook's ClusterRole grants no
+     `namespaces`.
 2. **A resource marked `SyncFailed`.** The API server refused that object; its
    message is on the resource result. A sync-phase failure is **not atomic**:
    the valid objects in the same wave were applied anyway.
@@ -112,9 +114,16 @@ failed hook is exactly one pod), and are removed with the Application.
 
 ## Webhooks
 
-Every deploy repo needs its own GitHub webhook until D39's Terraform resource
-carries it: payload URL `https://deploy-hooks.webathome.org/api/webhook`,
-content type `application/json`, the shared secret from
+A deploy repo whose Terraform carries D39's `github_repository_webhook` gets
+its GitHub webhook from the first sync of the one stage whose tfvars set
+`manage_webhook = true` — dev, for KubeCoderDeploy — signed with the hook's
+`TF_VAR_github_webhook_secret`. Whether the hook's classic PAT can create it is
+unconfirmed until that first apply (D41). Never add one by hand to such a repo:
+the apply's create then fails on GitHub's hook-already-exists.
+
+Any other deploy repo needs its webhook made by hand: payload URL
+`https://deploy-hooks.webathome.org/api/webhook`, content type
+`application/json`, the shared secret from
 `eso/prd/argocd/prd/webhook#github_secret`, just the push event. The pod's
 GitHub token can list hooks (`gh api repos/pvginkel/<repo>/hooks`) but not
 create them, so creation is a GitHub UI keystroke.

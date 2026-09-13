@@ -72,7 +72,8 @@ separate git repo, commit there too), `HelmCharts`, `DockerImages`, `HomelabTerr
 `Charts` (the `homelab-shared` Helm library chart and the `https://charts.home` chart repository —
 see its README), `ArgoCDTools` (the Argo CD Terraform PreSync hook and its `argocd-hook` image —
 see its README), `ArgoCDDeploy` (Argo CD's own deploy repo — the wrapper chart, both
-ApplicationSets, the `releases` AppProject and the `argocd-hooks` namespace) and
+ApplicationSets, the `releases` AppProject and the `argocd-hooks` namespace), `KubeCoderDeploy`
+(KubeCoder's deploy repo, the Argo CD pilot — see its README) and
 `JenkinsPipelineUtils` (the shared library every Jenkinsfile in the estate loads). The set is
 declared in `.kubecoder/config.yaml`; adding one is an edit there plus `kc env restart`. The `iac`
 runner's tree lives in this repo at `support/iac-agent/` — that is the

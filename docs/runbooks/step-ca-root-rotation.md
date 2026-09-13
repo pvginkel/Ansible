@@ -39,7 +39,7 @@ procedure's shape depends on how they land.
   the bundle carries two roots the two sides' ordering is no longer pinned and
   the stage fires on every run. It needs the fingerprint-set comparison
   `decisions.md` specifies first.
-- **The deduplication decision is open.** Five out-of-repo copies of the root
+- **The deduplication decision is open.** Six out-of-repo copies of the root
   are maintained by hand (below). Whether they collapse to one source or stay
   copies changes what a rotation's change window contains.
 
@@ -61,8 +61,8 @@ It is public, PEM-armored, and committed. `baseline` distributes it to every
 managed host, and the step-ca bootstrap ceremony exports it here (step 6 of
 [`step-ca-bootstrap.md`](step-ca-bootstrap.md)).
 
-**Five out-of-repo copies are on this inventory**, all byte-identical to it,
-and a rotation updates all five.
+**Six out-of-repo copies are on this inventory**, all byte-identical to it,
+and a rotation updates all six.
 
 | Path | What consumes it |
 |---|---|
@@ -71,6 +71,7 @@ and a rotation updates all five.
 | `/work/ArgoCDTools/image/homelab-root.crt` | Baked into the `argocd-hook` image's trust store — the Argo CD Terraform PreSync hook. |
 | `/work/DockerImages/kube-coder-dev-base/homelab-root.crt` | Baked into the KubeCoder dev base image's trust store, and pointed at by `NODE_EXTRA_CA_CERTS`. |
 | `/work/ArgoCDDeploy/chart/files/homelab-root.crt` | Rendered into a ConfigMap and mounted into Argo CD's repo-server at `/etc/ssl/certs/homelab-root.crt`, which is how `helm dependency build` comes to trust `https://charts.home`. Not an image copy: it lands on Argo's next sync of its own chart, which is manual (D3). |
+| `/work/KubeCoderDeploy/chart/files/ca/homelab-root.crt` | KubeCoder's Argo CD deploy repo's copy of the `kubecoder` chart: the same ConfigMap, controller mount and `step --root` use as the `/work/HelmCharts/homelab-root.crt` row. A real file, not a symlink — Argo's repo-server refuses a symlink that leaves the repository. Nothing deploys it until KubeCoder's cutover to Argo (slice 012); from then it is the copy the controller gets, landing on KubeCoder's next sync. |
 
 **Two images consume the cert without holding their own copy** — they need no
 edit, but they do need a rebuild:
@@ -128,7 +129,7 @@ from the repos and hosts after that.
 
 ## Verifying the inventory is still whole
 
-The six paths are duplicates by convention, not by mechanism, so drift
+The seven paths are duplicates by convention, not by mechanism, so drift
 between them is silent. Check them against each other before and after any
 change window:
 
@@ -138,10 +139,11 @@ md5sum /work/Ansible/ansible/roles/baseline/files/homelab-root.crt \
        /work/HelmCharts/charts/nginx/files/ca/homelab-root.crt \
        /work/ArgoCDTools/image/homelab-root.crt \
        /work/DockerImages/kube-coder-dev-base/homelab-root.crt \
-       /work/ArgoCDDeploy/chart/files/homelab-root.crt
+       /work/ArgoCDDeploy/chart/files/homelab-root.crt \
+       /work/KubeCoderDeploy/chart/files/ca/homelab-root.crt
 ```
 
-All six hashes must match.
+All seven hashes must match.
 
 The same check for the provider mirror config:
 
