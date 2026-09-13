@@ -320,23 +320,20 @@ For KubeCoder's dev stage:
    cexec iac kubectl $KC get namespace kubecoder-dev
    ```
 
-A sensible diff is slice 012's expected set: its requirement 8, extended in its
-"Carried in from slice 010" section
-([`slice.md`](../../../AnsibleSpecs/slices/backlog/012_kubecoder_argo_cutover/slice.md)).
-These objects, these fields:
+A sensible diff has these objects and these fields:
 
 | Object | Expected difference |
 | --- | --- |
-| `Namespace/kubecoder-dev` | gains `argocd.argoproj.io/sync-wave: "-1"`, `argocd.argoproj.io/sync-options: Prune=false` and Argo's tracking annotation |
+| every object the chart renders | gains `argocd.argoproj.io/tracking-id` |
+| `Namespace/kubecoder-dev` | gains `argocd.argoproj.io/sync-wave: "-1"` and `argocd.argoproj.io/sync-options: Prune=false` |
 | `ConfigMap/kubecoder-controller-config` | the `worker` and `vsix` images: `dev-latest` → the pinned build |
-| `Deployment/kubecoder-controller` | `deployment`: a timestamp → the controllerConfig checksum, which `checksum/config` also carries; the controller, ingress and manual containers: image → the pin, `imagePullPolicy: Always` gone |
-| `Deployment/kubecoder-bot`, `Deployment/kubecoder-mcp` | the `deployment` annotation gone; image → the pin, `imagePullPolicy: Always` gone |
+| `Deployment/kubecoder-controller` | `deployment` (a timestamp) and `checksum/config` → the new controllerConfig checksum; the controller, ingress and manual images: a digest → the pin; `tunnel-reclaim`'s: a digest → `:latest` |
+| `Deployment/kubecoder-bot`, `Deployment/kubecoder-mcp` | image: a digest → the pin |
 
-The PreSync Job is a hook, so the diff never lists it, and `tunnel-reclaim`
-keeps `:latest` and `Always`. Anything else is the finding: another object,
-another field, or an object *Missing*. The exception is a difference that one of
-the HelmCharts commits from step 1 explains. That is the chart re-sync slice 012
-owes before its own review, not a defect.
+The PreSync Job is a hook, so the diff never lists it. Anything else is the
+finding: another object, another field, or an object *Missing*. The exception is
+a difference that one of the HelmCharts commits from step 1 explains. That is
+the chart re-sync slice 012 owes before its own review, not a defect.
 
 ## Bootstrapping Argo from nothing
 
