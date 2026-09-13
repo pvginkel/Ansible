@@ -49,6 +49,94 @@ def devUp() {
 // only signal for a host cert renewal that stopped happening.
 def certDriftArgs = '-e internal_tls_renewal_threshold_days=7'
 
+// A red build used to reach Telegram as a bare "Scheduled Drift #N",
+// and what had drifted was only in a log thousands of lines long. So
+// every check tees its output to drift-logs/<name>.log, and a check that
+// goes wrong records the lines naming the drift in the build
+// description: jenkins-telegram-bot appends that to its FAILURE
+// message, and the dev stages' UNSTABLE warning carries it too.
+//
+// The tee is why every check's script opens with a bash shebang: the
+// pipe needs pipefail, or the step would report tee's status instead
+// of the check's. (iac is itself a bash script on this agent.)
+
+// Pulls the lines that name the drift out of a check's teed output:
+//   terraform  each resource header of the plan ("<address> will be
+//              updated in-place"), check-protected-vms' verdict, and
+//              the Error: lines when the plan itself broke
+//   ansible    each task that came back changed, failed or unreachable,
+//              as "<host>: <role : task> (<what>)"
+//   otherwise  the stage's own DRIFT: lines
+// Falls back to the last lines of output when nothing matches (an iac
+// lock timeout, a broken init), and caps the list so a sweeping change
+// still reads as a message.
+@NonCPS
+String driftSummary(String output, String tool) {
+    def items = new LinkedHashSet<String>()
+    def errors = new LinkedHashSet<String>()
+    String task = null
+    String[] outputLines = output.split('\n')
+    for (String line : outputLines) {
+        def m
+        if (tool == 'terraform') {
+            if ((m = line =~ /^\s*# (\S+ (?:is tainted, so )?(?:will|must) be .+)$/)) {
+                items << m.group(1)
+            } else if ((m = line =~ /^check-protected-vms: (.+?):?$/)) {
+                items << m.group(1)
+            } else if ((m = line =~ /^\W*Error: (.+)$/)) {
+                errors << m.group(1)
+            }
+        } else if (tool == 'ansible') {
+            if ((m = line =~ /^(?:TASK|RUNNING HANDLER) \[(.+)\] \**\s*$/)) {
+                task = m.group(1)
+            } else if ((m = line =~ /^(changed|fatal): \[([^\]]+)\](.*)$/)) {
+                String what = 'changed'
+                if (m.group(1) == 'fatal') {
+                    what = m.group(3).contains('UNREACHABLE!') ? 'unreachable' : 'failed'
+                }
+                items << "${m.group(2)}: ${task} (${what})".toString()
+            } else if ((m = line =~ /^(?:\[ERROR\]: |ERROR! )(.+)$/)) {
+                errors << m.group(1)
+            }
+        } else if ((m = line =~ /^DRIFT: (.+)$/)) {
+            items << m.group(1)
+        }
+    }
+
+    List<String> lines = new ArrayList<String>(items ?: errors)
+    if (lines.isEmpty()) {
+        for (String line : outputLines) {
+            if (line.trim()) {
+                lines.add(line.trim())
+            }
+        }
+        lines = lines.subList(Math.max(0, lines.size() - 3), lines.size())
+    }
+    if (lines.isEmpty()) {
+        return 'no output captured; see the build log'
+    }
+    int max = 10
+    List<String> shown = new ArrayList<String>(lines.subList(0, Math.min(max, lines.size())))
+    if (lines.size() > max) {
+        shown << "… and ${lines.size() - max} more in the build log".toString()
+    }
+    return shown.join('\n')
+}
+
+// Records a check that went wrong in the build description, under its
+// stage name. Appends rather than overwrites: a dev stage can record its
+// drift before a later prd stage fails.
+def recordDrift(String stage, String log, String tool) {
+    def path = "drift-logs/${log}.log"
+    def output = fileExists(path) ? readFile(path) : ''
+    def entry = "${stage}:\n${driftSummary(output, tool)}".toString()
+    if (currentBuild.description) {
+        currentBuild.description = "${currentBuild.description}\n\n${entry}".toString()
+    } else {
+        currentBuild.description = entry
+    }
+}
+
 pipeline {
     agent { label 'iac-controller' }
 
@@ -70,7 +158,9 @@ pipeline {
     stages {
         stage('Terraform drift (prd)') {
             steps {
-                sh '''
+                sh '''#!/usr/bin/env bash
+                    set -o pipefail
+                    mkdir -p drift-logs
                     iac -c '
                         set -euo pipefail
                         cd /work/Ansible/terraform/prd
@@ -93,8 +183,15 @@ pipeline {
                         else
                             exit $rc
                         fi
-                    '
+                    ' 2>&1 | tee drift-logs/tf-prd.log
                 '''
+            }
+            post {
+                failure {
+                    script {
+                        recordDrift('Terraform drift (prd)', 'tf-prd', 'terraform')
+                    }
+                }
             }
         }
 
@@ -106,13 +203,22 @@ pipeline {
                 // posture, not drift; the scheduled-update pipeline owns
                 // applying it. Drop the skip once those tasks leave
                 // site.yml (see decisions.md "OS updates").
-                sh """
+                sh """#!/usr/bin/env bash
+                    set -o pipefail
+                    mkdir -p drift-logs
                     iac -c '
                         set -euo pipefail
                         cd /work/Ansible/ansible
                         check-ansible-drift.sh playbooks/site.yml --limit "!iac_agent" --skip-tags os_update ${certDriftArgs}
-                    '
+                    ' 2>&1 | tee drift-logs/site.log
                 """
+            }
+            post {
+                failure {
+                    script {
+                        recordDrift('Ansible drift (excl. iac_agent)', 'site', 'ansible')
+                    }
+                }
             }
         }
 
@@ -124,13 +230,22 @@ pipeline {
                 // to CI. Limited to k8s_prd; the dev node is gated below
                 // (offline most of the time). --check only; same
                 // --skip-tags os_update rationale as the stage above.
-                sh """
+                sh """#!/usr/bin/env bash
+                    set -o pipefail
+                    mkdir -p drift-logs
                     iac -c '
                         set -euo pipefail
                         cd /work/Ansible/ansible
                         check-ansible-drift.sh playbooks/site-k8s.yml --limit k8s_prd --skip-tags os_update ${certDriftArgs}
-                    '
+                    ' 2>&1 | tee drift-logs/k8s-prd.log
                 """
+            }
+            post {
+                failure {
+                    script {
+                        recordDrift('Ansible drift (k8s prd)', 'k8s-prd', 'ansible')
+                    }
+                }
             }
         }
 
@@ -149,16 +264,19 @@ pipeline {
                     }
                     def rc = sh(
                         returnStatus: true,
-                        script: """
+                        script: """#!/usr/bin/env bash
+                            set -o pipefail
+                            mkdir -p drift-logs
                             iac -c '
                                 set -euo pipefail
                                 cd /work/Ansible/ansible
                                 timeout --kill-after=1m 15m check-ansible-drift.sh playbooks/site-k8s.yml --limit k8s_dev --skip-tags os_update ${certDriftArgs}
-                            '
+                            ' 2>&1 | tee drift-logs/k8s-dev.log
                         """
                     )
                     if (rc != 0) {
                         env.DEV_STAGE_FAILED = 'true'
+                        recordDrift('Ansible drift (k8s dev)', 'k8s-dev', 'ansible')
                         unstable("dev k8s drift check reported changes or failed (exit ${rc})")
                     }
                 }
@@ -174,13 +292,22 @@ pipeline {
                 // change is invisible to site.yml drift, so this stage
                 // covers it. --skip-tags os_update for the same patch-
                 // posture reason.
-                sh """
+                sh """#!/usr/bin/env bash
+                    set -o pipefail
+                    mkdir -p drift-logs
                     iac -c '
                         set -euo pipefail
                         cd /work/Ansible/ansible
                         check-ansible-drift.sh playbooks/site-openbao.yml --skip-tags os_update ${certDriftArgs}
-                    '
+                    ' 2>&1 | tee drift-logs/openbao.log
                 """
+            }
+            post {
+                failure {
+                    script {
+                        recordDrift('Ansible drift (openbao)', 'openbao', 'ansible')
+                    }
+                }
             }
         }
 
@@ -200,16 +327,19 @@ pipeline {
                     }
                     def rc = sh(
                         returnStatus: true,
-                        script: '''
+                        script: '''#!/usr/bin/env bash
+                            set -o pipefail
+                            mkdir -p drift-logs
                             iac -c '
                                 set -euo pipefail
                                 cd /work/Ansible/ansible
                                 timeout --kill-after=1m 15m check-ansible-drift.sh playbooks/site-ceph.yml --skip-tags os_update
-                            '
+                            ' 2>&1 | tee drift-logs/ceph-dev.log
                         '''
                     )
                     if (rc != 0) {
                         env.DEV_STAGE_FAILED = 'true'
+                        recordDrift('Ansible drift (ceph dev)', 'ceph-dev', 'ansible')
                         unstable("dev ceph drift check reported changes or failed (exit ${rc})")
                     }
                 }
@@ -231,7 +361,9 @@ pipeline {
                 // has been re-issued under a new root the repo does not
                 // yet trust (curl exits non-zero before we ever read
                 // the body).
-                sh '''
+                sh '''#!/usr/bin/env bash
+                    set -o pipefail
+                    mkdir -p drift-logs
                     iac -c '
                         set -euo pipefail
                         cd /work/Ansible
@@ -247,15 +379,23 @@ pipeline {
                             echo "DRIFT: https://ca.home/roots.pem differs from $expected" >&2
                             exit 1
                         fi
-                    '
+                    ' 2>&1 | tee drift-logs/ca-root.log
                 '''
+            }
+            post {
+                failure {
+                    script {
+                        recordDrift('Homelab CA root drift', 'ca-root', 'plain')
+                    }
+                }
             }
         }
     }
 
     post {
         // No failure handler: jenkins-telegram-bot watches every build and
-        // reports FAILURE loudly by itself, job name and build link included.
+        // reports FAILURE loudly by itself, job name and build link included,
+        // with the build description (recordDrift) on the lines under it.
         // The old handler claimed "detected drift" on any red build, which
         // this job's own name says better and its failure modes contradict —
         // a host it could not reach fails it just as readily. UNSTABLE the bot
@@ -266,7 +406,7 @@ pipeline {
             // which on a daily job would otherwise be a daily false page.
             script {
                 if (env.DEV_STAGE_FAILED == 'true') {
-                    notify.warning('detected drift on srvk8sdev')
+                    notify.warning("detected drift on srvk8sdev\n\n${currentBuild.description}")
                 }
             }
         }
