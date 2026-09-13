@@ -234,6 +234,110 @@ the hook Jobs were all gone within 45 seconds on 2026-09-13. What stays: the
 state file in TerraformState (nothing prunes it until D28 is designed) and the
 deploy repo's GitHub webhook. **Unregister** is deleting the entry directory.
 
+## Previewing a migrating app's diff before its cutover
+
+Before a migration registers its entry, a hand-made Application can show what
+the first sync would change on the live Helm release. It renders the deploy repo
+exactly as the generated Application will, but has no `syncPolicy` and no
+resources finalizer. It is read, then deleted. Phase A.5 left this check open
+([`phases.md`](../../../AnsibleSpecs/argo-cd/phases.md) A.5); KubeCoder's dev
+stage is the first to run it.
+
+What the manifest cannot show:
+
+- **Never named `<app>-<stage>`.** The registry entry generates that name
+  (above), and the ApplicationSet would take over an Application already
+  holding it. Use `<app>-<stage>-preview`.
+- **Never synced.** A sync runs the PreSync hook against
+  `argocd/<repo>/<stage>/terraform.tfstate`, which holds nothing until the
+  cutover's state surgery. That apply would try to create the live dataset, PV and
+  webhook, and the sync would then apply the chart over the Helm-owned release.
+  *Refresh* and *App Diff* are reads; *Sync* is not.
+- **Deleted with `kubectl`, never the UI's *Delete*.** With no finalizer,
+  `kubectl delete` removes the Application alone. The UI dialog defaults to a
+  cascading policy, and argocd-server then adds the resources finalizer, which
+  deletes the live namespace and everything in it.
+- **Applying and deleting it are the operator's keystrokes**, both with the
+  prd-write kubeconfig (Conventions).
+- The notification subscription covers every Application, this one included.
+  It never syncs, so only `ArgoCDHealthDegraded` can fire, and that reports the
+  live release's health.
+
+For KubeCoder's dev stage:
+
+1. KubeCoderDeploy is pushed: Argo clones `origin/main`, never `/work`. List what
+   HelmCharts changed in the chart since the copy, with the replay command in
+   KubeCoderDeploy's `README.md`.
+2. Apply. The quoted heredoc keeps `$ARGOCD_APP_REVISION` literal for Argo:
+
+   ```sh
+   cexec iac kubectl $KC apply -f - <<'EOF'
+   apiVersion: argoproj.io/v1alpha1
+   kind: Application
+   metadata:
+     name: kubecoder-dev-preview
+     namespace: argocd-prd
+   spec:
+     project: releases
+     source:
+       repoURL: https://github.com/pvginkel/KubeCoderDeploy.git
+       targetRevision: main
+       path: chart
+       helm:
+         valueFiles:
+           - ../config/dev/values.yaml
+         # All four, as releases-local passes them: the library chart
+         # required-guards each, so a missing one fails the whole render.
+         parameters:
+           - name: hook.repo
+             value: https://github.com/pvginkel/KubeCoderDeploy.git
+           - name: hook.revision
+             value: $ARGOCD_APP_REVISION
+           - name: hook.stage
+             value: dev
+           - name: hook.namespace
+             value: kubecoder-dev
+     destination:
+       name: in-cluster
+       namespace: kubecoder-dev
+   EOF
+   ```
+
+3. Argo compares it on creation. The repo has no webhook until its cutover, so
+   after a later push refresh it by hand (Webhooks).
+4. Read the diff: the UI's *App Diff* with *Compact diff*, or each resource's
+   *Diff* tab. The objects that differ:
+
+   ```sh
+   cexec iac kubectl $KC get application -n argocd-prd kubecoder-dev-preview \
+     -o jsonpath='{range .status.resources[?(@.status=="OutOfSync")]}{.kind}/{.name}{"\n"}{end}'
+   ```
+
+5. Delete it, then confirm `kubecoder-dev` is still `Active`:
+
+   ```sh
+   cexec iac kubectl $KC delete application -n argocd-prd kubecoder-dev-preview
+   cexec iac kubectl $KC get namespace kubecoder-dev
+   ```
+
+A sensible diff is slice 012's expected set: its requirement 8, extended in its
+"Carried in from slice 010" section
+([`slice.md`](../../../AnsibleSpecs/slices/backlog/012_kubecoder_argo_cutover/slice.md)).
+These objects, these fields:
+
+| Object | Expected difference |
+| --- | --- |
+| `Namespace/kubecoder-dev` | gains `argocd.argoproj.io/sync-wave: "-1"`, `argocd.argoproj.io/sync-options: Prune=false` and Argo's tracking annotation |
+| `ConfigMap/kubecoder-controller-config` | the `worker` and `vsix` images: `dev-latest` → the pinned build |
+| `Deployment/kubecoder-controller` | `deployment`: a timestamp → the controllerConfig checksum, which `checksum/config` also carries; the controller, ingress and manual containers: image → the pin, `imagePullPolicy: Always` gone |
+| `Deployment/kubecoder-bot`, `Deployment/kubecoder-mcp` | the `deployment` annotation gone; image → the pin, `imagePullPolicy: Always` gone |
+
+The PreSync Job is a hook, so the diff never lists it, and `tunnel-reclaim`
+keeps `:latest` and `Always`. Anything else is the finding: another object,
+another field, or an object *Missing*. The exception is a difference that one of
+the HelmCharts commits from step 1 explains. That is the chart re-sync slice 012
+owes before its own review, not a defect.
+
 ## Bootstrapping Argo from nothing
 
 As run on 2026-09-04. Only when the cluster, or the `argocd-prd` namespace, is
