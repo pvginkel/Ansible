@@ -114,10 +114,11 @@ locals {
 
       cpu_cores   = 4
       cpu_sockets = 1
-      # 12 GiB: shares the box with the microk8s control plane + dev
-      # workloads AND a co-located single-node microceph (group_vars/
-      # ceph_dev.yml). Tuned tight — dev carries no persistent load.
-      memory_mb = 12 * 1024
+      # 8 GiB (cut from 12 on 2026-09-10): shares the box with the
+      # microk8s control plane + dev workloads AND a co-located
+      # single-node microceph (group_vars/ceph_dev.yml). Tuned tight —
+      # dev carries no persistent load.
+      memory_mb = 8 * 1024
 
       managed_disks = [
         { interface = "scsi0", size = 60 },
