@@ -118,9 +118,11 @@ real, but only when someone starts it.
   on `/usr/local/share/ca-certificates/homelab-root.crt` being present
   so the target trusts `ca.home`. The role asserts this and fails with
   a clear message if baseline has not run.
-- The JWK provisioner's SAN allow-policy must already permit every SAN
-  in `internal_tls_san_list`; otherwise step-ca rejects issuance. See
-  `docs/runbooks/step-ca-bootstrap.md`.
+- Nothing on the CA side narrows the SANs today: step-ca does not
+  enforce the `ansible-jwk` provisioner's `allow.dns` list in
+  `ca.json`, so issuance succeeds for any `internal_tls_san_list`. The
+  control is wanted and not in place — see
+  `docs/runbooks/step-ca-bootstrap.md` and Trello #993.
 
 ## Out of scope
 

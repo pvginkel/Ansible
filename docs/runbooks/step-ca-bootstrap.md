@@ -148,10 +148,18 @@ password to encrypt the private JWK. Generate a 32+ char random
 passphrase and save to Roboform as
 `homelab-ca JWK provisioner password`, then paste here.
 
-Restrict issuance by editing the new provisioner entry in `ca.json`.
-The allow list is **fully enumerated** — no wildcards. Every name the
-CA may sign appears literally; adding a new managed host means
-updating this list and restarting step-ca.
+Record the intended scope by editing the new provisioner entry in
+`ca.json`. The allow list is **fully enumerated** — no wildcards. Every
+name the CA should sign appears literally; adding a new managed host
+means updating this list and restarting step-ca.
+
+> **Not enforced.** step-ca 0.30.2 ignores per-provisioner name policy
+> in a file-based `ca.json`: those fields are filled only through the
+> remote-management API, which this estate does not use. The list
+> below is dead configuration and the provisioner signs any name —
+> OpenBao's listener leaf (`secrets.home`, `srvvault1.home`) is not on
+> it. The control is wanted and not in place; Trello #993 implements
+> it.
 
 ```json
 {
@@ -211,9 +219,10 @@ Notes:
 - Microk8s's stock self-signed cert keeps all its own SANs and CA —
   internal clients are unaffected by the additive SNI leaf.
 - **When adding a new JWK consumer**: append its short + FQDN to the
-  `dns` list, reload step-ca, *then* land the role change that wires
-  it in. The role will fail with "not authorized" if the policy
-  hasn't been updated first.
+  `dns` list and reload step-ca alongside the role change that wires
+  it in. Issuance does not fail without it while the list is not
+  enforced (above); keeping it current keeps the intended scope
+  written down for #993.
 
 Validate the JSON before continuing:
 
