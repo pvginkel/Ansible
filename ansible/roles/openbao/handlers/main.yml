@@ -6,9 +6,14 @@
     daemon_reload: true
 
 - name: Restart openbao
+  # throttle 1, like Reload openbao below: a full restart is strictly
+  # more disruptive to the Raft peers than a SIGHUP, so the three peers
+  # never restart at once whatever drove the play. Notified from
+  # config.yml and hardening.yml.
   ansible.builtin.systemd:
     name: openbao
     state: restarted
+  throttle: 1
 
 - name: Reload openbao
   # Listener TLS cert reissue: SIGHUP reloads the listener cert without
