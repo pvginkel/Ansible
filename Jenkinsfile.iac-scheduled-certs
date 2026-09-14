@@ -53,6 +53,31 @@ def devUp() {
     ) == 0
 }
 
+// jenkins-telegram-bot reports a FAILURE by itself and appends the build
+// description to that message, so a prd stage that fails adds what its
+// failure costs as a line of its own. UNSTABLE the bot stays quiet about, so
+// a dev stage that genuinely fails raises its own warning where it fails: the
+// bot sends every marker in a finished build's log whatever the build result.
+
+// Runs a prd stage's playbook. A non-zero exit appends `cost` to the build
+// description and marks the stage and the build FAILURE without throwing, so
+// the stages after it still run. The sh stays outside catchError: an abort or
+// a timeout() caught inside it sets the build ABORTED whatever buildResult
+// says (iac-apply build #113).
+def prdStage(String cost, String shellScript) {
+    int rc = sh(returnStatus: true, script: shellScript)
+    if (rc != 0) {
+        if (currentBuild.description) {
+            currentBuild.description = "${currentBuild.description}\n${cost}".toString()
+        } else {
+            currentBuild.description = cost
+        }
+        catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {
+            error("${env.STAGE_NAME} failed (exit ${rc})")
+        }
+    }
+}
+
 pipeline {
     agent { label 'iac-controller' }
 
@@ -77,19 +102,14 @@ pipeline {
         // here is genuinely urgent — it fails the build and pages.
         stage('Host certs (excl. k8s dev)') {
             steps {
-                sh '''
-                    iac -c '
-                        set -euo pipefail
-                        cd /work/Ansible/ansible
-                        ansible-playbook --diff playbooks/renew-host-certs.yml --limit "!k8s_dev"
-                    '
-                '''
-            }
-            post {
-                failure {
-                    script {
-                        currentBuild.description = 'host certs may lapse; TLS leaf renewal did not run'
-                    }
+                script {
+                    prdStage('host certs may lapse', '''
+                        iac -c '
+                            set -euo pipefail
+                            cd /work/Ansible/ansible
+                            ansible-playbook --diff playbooks/renew-host-certs.yml --limit "!k8s_dev"
+                        '
+                    ''')
                 }
             }
         }
@@ -120,8 +140,9 @@ pipeline {
                         '''
                     )
                     if (rc != 0) {
-                        env.DEV_STAGE_FAILED = 'true'
-                        unstable("dev host cert renewal failed on srvk8sdev (exit ${rc})")
+                        String message = "dev host cert renewal failed on srvk8sdev (exit ${rc})"
+                        notify.warning(message)
+                        unstable(message)
                     }
                 }
             }
@@ -146,19 +167,14 @@ pipeline {
         // such a run mid-roll, leaving a node's kubelite down.
         stage('TLS leaves (excl. k8s dev)') {
             steps {
-                sh '''
-                    iac -c '
-                        set -euo pipefail
-                        cd /work/Ansible/ansible
-                        ansible-playbook --diff playbooks/renew-internal-tls.yml --limit "!k8s_dev"
-                    '
-                '''
-            }
-            post {
-                failure {
-                    script {
-                        currentBuild.description = 'internal_tls leaves may lapse'
-                    }
+                script {
+                    prdStage('internal_tls leaves may lapse', '''
+                        iac -c '
+                            set -euo pipefail
+                            cd /work/Ansible/ansible
+                            ansible-playbook --diff playbooks/renew-internal-tls.yml --limit "!k8s_dev"
+                        '
+                    ''')
                 }
             }
         }
@@ -188,33 +204,10 @@ pipeline {
                         '''
                     )
                     if (rc != 0) {
-                        env.DEV_STAGE_FAILED = 'true'
-                        unstable("dev TLS leaf renewal failed on srvk8sdev (exit ${rc})")
+                        String message = "dev TLS leaf renewal failed on srvk8sdev (exit ${rc})"
+                        notify.warning(message)
+                        unstable(message)
                     }
-                }
-            }
-        }
-    }
-
-    post {
-        // jenkins-telegram-bot watches every build and reports FAILURE loudly
-        // by itself, job name and build link included — so all a failure has
-        // to add is what a red build of *this* job costs, which the bot
-        // appends to that message from the description. The two classes of
-        // certificate cost different things, so each prd stage writes its own
-        // description rather than one handler guessing here. UNSTABLE the bot
-        // deliberately stays quiet about — an accepted warning is exactly what
-        // unstable means — so the dev stages say so themselves.
-        unstable {
-            // Page only when srvk8sdev was up and a renewal genuinely
-            // failed; either dev stage sets the flag. A dev box that is
-            // simply off yellows the build without pushing a
-            // notification — its certificates lapsing is a known,
-            // accepted consequence (see above). Which renewal failed is
-            // in the stage's own unstable message.
-            script {
-                if (env.DEV_STAGE_FAILED == 'true') {
-                    notify.warning('dev certificate renewal failed on srvk8sdev')
                 }
             }
         }
