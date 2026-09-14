@@ -3,7 +3,7 @@
 // to main validates (Jenkinsfile.iac-on-push); converging prd is a
 // deliberate act someone starts.
 //
-// Sequential, fail-fast on prd: plan + destroy-check, apply, site (sans
+// Sequential, fail-fast on prd: plan + destroy-check + apply, site (sans
 // iac_agent), site-openbao, site-k8s (prd). A trailing dev stage
 // (srvk8sdev: site-k8s dev + site-ceph) can only ever downgrade the
 // build to UNSTABLE — see devUp() below. Each stage wraps its work in a
@@ -13,7 +13,9 @@
 // The plan + destroy check is repeated here rather than trusted from
 // the validate run: check-protected-vms.sh is the guard that stops an
 // apply destroying a prd VM, and a guard that runs in a different build
-// against a different commit is not a guard.
+// against a different commit is not a guard. For the same reason the
+// plan, the check and the apply of that saved plan share one `iac`
+// call: a second call would plan again in a new clone.
 //
 // All ansible stages run with `--skip-tags os_update`: apt cache
 // refresh + dist-upgrade are patch posture, owned by
@@ -57,7 +59,9 @@ pipeline {
     }
 
     stages {
-        stage('Plan + destroy check') {
+        // The plan file stays inside the iac container: a saved plan holds
+        // the secret values it would write.
+        stage('Terraform plan + destroy check + apply (prd)') {
             steps {
                 sh '''
                     iac -c '
@@ -71,19 +75,7 @@ pipeline {
                         if [ "$rc" -ne 0 ] && [ "$rc" -ne 2 ]; then exit "$rc"; fi
                         terraform show -json /tmp/plan.tfplan > /tmp/plan.json
                         check-protected-vms.sh /tmp/plan.json
-                    '
-                '''
-            }
-        }
-
-        stage('Terraform apply (prd)') {
-            steps {
-                sh '''
-                    iac -c '
-                        set -euo pipefail
-                        cd /work/Ansible/terraform/prd
-                        terraform init -input=false -no-color
-                        terraform apply -auto-approve -no-color
+                        terraform apply -input=false -no-color /tmp/plan.tfplan
                     '
                 '''
             }
