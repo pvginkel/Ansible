@@ -270,7 +270,8 @@ container on srviac, the Jenkins controller, and ESO inside each
 microk8s cluster. When OpenBao is unreachable (whole-cluster loss
 mid-recovery, network partition, listener cert expired), each one
 degrades differently. The right intervention depends on which one
-is on fire.
+is on fire. An expired listener cert is renewed per
+[`internal-tls-expiry.md`](internal-tls-expiry.md).
 
 ### iac-agent
 
