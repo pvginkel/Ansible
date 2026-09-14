@@ -103,10 +103,11 @@ resource "tls_private_key" "host_ed25519" {
 # decisions.md "Ceph nodes and prd k8s nodes are static infrastructure".
 #
 # After first boot, Ansible owns drift detection on these surfaces. The
-# `managed-vm` module pins `lifecycle.ignore_changes = [initialization]`
-# on the VM resource so a template edit re-renders this snippet but does
-# not recreate the VM; the `static_netplan` task in the baseline role
-# re-asserts the netplan from inventory data (`static_netplan` host_var).
+# `managed-vm` module pins `lifecycle.ignore_changes` on
+# `initialization[0].user_data_file_id` on the VM resource so a template
+# edit re-renders this snippet but does not recreate the VM; the
+# `static_netplan` task in the baseline role re-asserts the netplan from
+# inventory data (`static_netplan` host_var).
 # To pick up a snippet change on first boot, rebuild the VM: destroy it on
 # Proxmox (`qm destroy`), then apply.
 resource "proxmox_virtual_environment_file" "cloud_init" {
