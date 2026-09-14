@@ -47,10 +47,29 @@
     path: "{{ openbao_config_dir }}/backup-secret-id"
   register: _openbao_node_secret_id
 
+# A --check run with -e openbao_rotate_secret_ids=true cannot prove the
+# staged secret_id. The apply replaces it before this task: the
+# bootstrap host (the lowest-sorted openbao host, first in the converge
+# play's serial: 1 order) mints and stages one in approle.yml. --check
+# skips that mint, so the file still holds the secret_id the apply
+# retires, and proving it would fail a dry run the apply passes.
+- name: Note whether this is a --check preview of a secret_id rotation
+  ansible.builtin.set_fact:
+    _openbao_backup_rotation_preview: "{{ ansible_check_mode and openbao_rotate_secret_ids | bool }}"
+
+- name: Report the backup secret_id a real rotation run would deliver (check mode)
+  ansible.builtin.debug:
+    msg: >-
+      A real run would deliver the backup secret_id it mints on
+      {{ openbao_bootstrap_host }}. The staged one is not proven under
+      --check.
+  changed_when: true
+  when: _openbao_backup_rotation_preview
+
 # The wrapper's own login, made against the leader-tracking VIP. Runs
-# under --check too. no_log would hide the uri module's failure
-# message, so the fail tasks below report the status and OpenBao's
-# error text instead.
+# under --check too, except a rotation preview. no_log would hide the
+# uri module's failure message, so the fail tasks below report the
+# status and OpenBao's error text instead.
 - name: Log in with the staged backup AppRole credentials
   ansible.builtin.uri:
     url: "{{ openbao_admin_api_addr }}/v1/auth/approle/login"
@@ -67,6 +86,7 @@
   when:
     - _openbao_staged_role_id.stat.exists
     - _openbao_staged_secret_id.stat.exists
+    - not _openbao_backup_rotation_preview
 
 # With no AppRole auth method mounted, OpenBao treats the login path as
 # an unauthenticated request and answers 403 "permission denied". A
@@ -129,14 +149,16 @@
     - _openbao_backup_revoke.status != 204
 
 # Configurable once the role_id + upload token are staged AND the
-# secret_id can be placed — either a staged one was just proven, or a
-# prior run already delivered one to the node.
+# secret_id can be placed — either a staged one was just proven, a
+# rotation run would mint one (its --check preview), or a prior run
+# already delivered one to the node.
 - name: Decide whether the backup pipeline can be configured
   ansible.builtin.set_fact:
     _openbao_backup_ready: >-
       {{ _openbao_staged_role_id.stat.exists
          and _openbao_staged_token.stat.exists
          and (_openbao_backup_secret_id_proven
+              or _openbao_backup_rotation_preview
               or _openbao_node_secret_id.stat.exists) }}
 
 - name: Report the backup credential undelivered to a cluster without AppRole auth

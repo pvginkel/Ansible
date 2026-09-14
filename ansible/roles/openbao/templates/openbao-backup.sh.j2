@@ -111,6 +111,10 @@ printf '%s\n' "${policies}" > "${work}/policies.json"
 # --- collect the KV-v2 tree (path -> secret data) -------------------
 # An empty metadata path lists as 404; the walk treats that as "no
 # keys here" so a freshly-mounted, still-empty kv/ is not an error.
+# A key whose current version is soft-deleted or destroyed still lists,
+# but its data read answers 404 with that version's metadata; the walk
+# leaves it out of kv.json and names it in the journal. The Raft
+# snapshot still holds a soft-deleted version.
 kv='{}'
 kv_walk() {
   local prefix="$1" keys key
@@ -125,7 +129,14 @@ kv_walk() {
     if [[ "${key}" == */ ]]; then
       kv_walk "${prefix}${key}"
     else
-      bao_api GET "${KV_MOUNT}/data/${prefix}${key}" "${resp}" "${auth[@]}"
+      bao_request GET "${KV_MOUNT}/data/${prefix}${key}" "${resp}" "${auth[@]}"
+      if [[ "${http}" == "404" ]] && jq -e '.data.metadata
+          | (.deletion_time // "") != "" or .destroyed == true' \
+          "${resp}" > /dev/null 2>&1; then
+        log "skipped ${KV_MOUNT}/data/${prefix}${key}: its current version is deleted"
+        continue
+      fi
+      bao_check GET "${KV_MOUNT}/data/${prefix}${key}" "${resp}"
       kv=$(jq --argjson o "${kv}" --arg p "${prefix}${key}" \
         '$o + {($p): .data.data}' "${resp}")
     fi

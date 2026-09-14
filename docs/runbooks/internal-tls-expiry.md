@@ -51,8 +51,8 @@ cd ansible && poetry run ansible 'proxmox:openbao:k8s' -m ping
 
 - `pong` — go on.
 - `UNREACHABLE` with `Certificate invalid: expired` — fix the host certificate first with
-  [`ssh-host-cert-expiry.md`](ssh-host-cert-expiry.md), then come back. Its fix covers only VMs
-  Terraform builds from scratch, not pve, pve1 or pve2.
+  [`ssh-host-cert-expiry.md`](ssh-host-cert-expiry.md), then come back. For pve, pve1 and pve2 its
+  fix takes a host key you first verify on the node's own console.
 - srvk8sdev is powered off most of the time; from srviac, where the Friday job runs, a connection
   timeout there only means it is off. A KubeCoder environment cannot reach srvk8sdev at all
   ([`../live-infra-access.md`](../live-infra-access.md)), so from there a failure says nothing

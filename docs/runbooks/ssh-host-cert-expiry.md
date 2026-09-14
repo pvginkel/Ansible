@@ -45,20 +45,48 @@ Anything inside 14 days is due; anything past its `to` date is already lapsed.
 ## Fix
 
 `playbooks/reissue-host-cert.yml` re-signs over a bootstrap channel that does not
-depend on the broken certificate. It pins the target's bare host key from
-`terraform output host_pubkeys` — authoritative, no TOFU — and connects with
-`HostKeyAlgorithms=ssh-ed25519` alone so sshd serves that bare key instead of the
-expired certificate. Several hosts at once, comma-separated:
+depend on the broken certificate. It pins the target's bare host key and connects with
+`HostKeyAlgorithms=ssh-ed25519` alone, so sshd serves that bare key instead of the
+expired certificate. Either route below needs the `step` CLI on the controller (wrkdev
+or the iac container) and the fleet vault passphrase.
+
+### VMs Terraform builds from scratch
+
+For these (`from_scratch = true` in `terraform/prd/vms.tf`) the playbook pins the key
+from `terraform output host_pubkeys` — authoritative, no TOFU. Several hosts at once,
+comma-separated:
 
 ```sh
 cd ansible && poetry run ansible-playbook playbooks/reissue-host-cert.yml \
     -e reissue_target=srvk8s1,srvk8s2,srviac
 ```
 
-Requires the `step` CLI on the controller (wrkdev or the iac container) and the
-fleet vault passphrase. It only covers VMs Terraform builds from scratch
-(`from_scratch = true` in `terraform/prd/vms.tf`) — those are the ones whose host
-key Terraform pins.
+### Any other host: pve, pve1, pve2, the workstations
+
+Terraform does not know these hosts' keys, so you supply the key, and verify it first.
+Read its fingerprint on the host itself, over a channel that does not use SSH: the
+machine's console, or for a PVE node its own web UI (log in at
+`https://<node>.home:8006` on that node, then open its **Shell**):
+
+```sh
+ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+```
+
+From the controller, fetch the key over the network and compare fingerprints. They must
+match; if they do not, something other than that host answered — stop.
+
+```sh
+ssh-keyscan -t ed25519 pve1 2>/dev/null | ssh-keygen -lf -
+ssh-keyscan -t ed25519 pve1 2>/dev/null | cut -d' ' -f2-   # the key to pass
+```
+
+Pass the key in `reissue_host_pubkeys`, one entry per target:
+
+```sh
+cd ansible && poetry run ansible-playbook playbooks/reissue-host-cert.yml \
+    -e reissue_target=pve1 \
+    -e '{"reissue_host_pubkeys": {"pve1": "ssh-ed25519 AAAA…"}}'
+```
 
 Then confirm normal verification is restored, through the committed
 `@cert-authority` line with no special flags:

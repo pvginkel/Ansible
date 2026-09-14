@@ -346,6 +346,20 @@
       no_log: true
       when: openbao_rotate_secret_ids | bool
 
+    # --check skips the mint (uri has no check mode), and it must: a mint
+    # under --check would issue real secret_ids. Report it instead; the
+    # secret_id staging below stays off the skipped mint's results.
+    - name: Report the secret-id mint a real run would perform (check mode)
+      ansible.builtin.debug:
+        msg: >-
+          A real run would mint a fresh secret_id for every AppRole
+          (openbao-admin, iac-agent, jenkins, eso, eso-dev, backup) and
+          stage them on the controller.
+      changed_when: true
+      when:
+        - openbao_rotate_secret_ids | bool
+        - ansible_check_mode
+
     # ----- backup pipeline credential hand-off ------------------------
     #
     # backup.yml runs on every srvvaultN, but the backup AppRole creds
@@ -391,7 +405,9 @@
         mode: "0600"
       delegate_to: localhost
       become: false
-      when: openbao_rotate_secret_ids | bool
+      when:
+        - openbao_rotate_secret_ids | bool
+        - not ansible_check_mode
       no_log: true
 
     # ----- operator-capture staging (rotation runs only) --------------
@@ -406,7 +422,9 @@
     # already delivers its creds straight to each srvvaultN.
 
     - name: Stage AppRole credentials for operator capture (rotation runs only)
-      when: openbao_rotate_secret_ids | bool
+      when:
+        - openbao_rotate_secret_ids | bool
+        - not ansible_check_mode
       delegate_to: localhost
       become: false
       block:

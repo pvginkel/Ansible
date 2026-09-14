@@ -26,16 +26,28 @@
 #   ansible-playbook playbooks/reissue-host-cert.yml -e reissue_target=<hostname>
 #   ansible-playbook playbooks/reissue-host-cert.yml -e reissue_target=srvk8s1,srvk8s2
 #
+# A host Terraform does not build from scratch (pve, pve1, pve2, the
+# workstations) also needs its host key, verified on its console first:
+#   ansible-playbook playbooks/reissue-host-cert.yml -e reissue_target=pve1 \
+#     -e '{"reissue_host_pubkeys": {"pve1": "ssh-ed25519 AAAA…"}}'
+#
 # This converges only ssh_host_cert. It assumes the host is otherwise a
 # fully-converged managed host (baseline's homelab CA root in the trust
 # store, and on k8s nodes the `ca.home` /etc/hosts pin) — which holds
 # for a host that lost its cert post-converge. For a brand-new VM use
 # rebuild-k8s.yml (full bootstrap), not this.
 
-# Seed a transient known_hosts from `terraform output` — the host key
-# Terraform generated and embedded via cloud-init, authoritative and no
-# TOFU — for the single pre-certificate connection. Mirrors Play 1 of
+# Seed a transient known_hosts for the single pre-certificate
+# connection. For a VM Terraform builds from scratch the key comes from
+# `terraform output` — the host key Terraform generated and embedded via
+# cloud-init, authoritative and no TOFU. Mirrors Play 1 of
 # rebuild-k8s.yml. See AnsibleSpecs slices/ssh-host-ca.md.
+#
+# Terraform knows no other host's key. For those the operator passes it
+# in reissue_host_pubkeys (hostname → OpenSSH public key), having first
+# matched its fingerprint against the one read on the host's own console
+# (docs/runbooks/ssh-host-cert-expiry.md). An entry there wins over
+# terraform output.
 - name: Seed a transient known_hosts for the cert-less hosts
   hosts: localhost
   gather_facts: false
@@ -72,13 +84,28 @@
       changed_when: false
       check_mode: false
 
+    - name: Combine the Terraform-pinned and operator-supplied host keys
+      ansible.builtin.set_fact:
+        _reissue_pubkeys: "{{ _tf_host_pubkeys.stdout | from_json | combine(reissue_host_pubkeys | default({})) }}"
+
     - name: Require a host key for every reissue target
       ansible.builtin.assert:
-        that: item in (_tf_host_pubkeys.stdout | from_json)
+        that: item in _reissue_pubkeys
         fail_msg: >-
-          terraform output host_pubkeys has no entry for
-          {{ item }} — this playbook only recovers from-scratch
-          VMs whose host key Terraform pins.
+          No host key for {{ item }}: terraform output host_pubkeys pins
+          only from-scratch VMs. For any other host, pass its
+          console-verified key in reissue_host_pubkeys — see
+          docs/runbooks/ssh-host-cert-expiry.md.
+      loop: "{{ _reissue_targets }}"
+
+    # Play 2 offers ssh-ed25519 alone, so no other key type can match. A
+    # pasted ssh-keyscan line still carries its hostname in front.
+    - name: Require an ssh-ed25519 key for every reissue target
+      ansible.builtin.assert:
+        that: _reissue_pubkeys[item] is match('ssh-ed25519 ')
+        fail_msg: >-
+          The host key for {{ item }} does not start with "ssh-ed25519 ".
+          Pass the key alone, as in /etc/ssh/ssh_host_ed25519_key.pub.
       loop: "{{ _reissue_targets }}"
 
     - name: Ensure the transient known_hosts directory exists
@@ -93,7 +120,7 @@
         dest: "{{ _transient_known_hosts }}"
         content: |
           {% for host in _reissue_targets %}
-          {{ host }},{{ host }}.home {{ (_tf_host_pubkeys.stdout | from_json)[host] }}
+          {{ host }},{{ host }}.home {{ _reissue_pubkeys[host] }}
           {% endfor %}
         mode: "0644"
       check_mode: false
@@ -106,8 +133,8 @@
     # Replace ssh_args wholesale — for repeated `-o` options OpenSSH
     # takes the first value, so an appended common_args cannot override
     # ansible.cfg's UserKnownHostsFile. The transient file (Play 1)
-    # carries the Terraform-pinned bare key. The rest mirrors
-    # ansible.cfg's ssh_args.
+    # carries the pinned bare key. The rest mirrors ansible.cfg's
+    # ssh_args.
     #
     # HostKeyAlgorithms is `ssh-ed25519` ALONE, deliberately — not
     # ansible.cfg's cert-then-bare list. sshd serves the *first*
