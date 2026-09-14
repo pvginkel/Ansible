@@ -62,9 +62,10 @@ sudo grep -nE '^\s*[^#].*!bao ' /etc/iac/secrets.yaml
 
 Every match is a ref that needs a Roboform value. The match line
 shows the `mount/path#key` triple; Roboform entries are named after
-the consumer (e.g. "Home Assistant — long-lived token") rather than
-the KV path, so use the surrounding YAML context (the `name:` key on
-`env:` entries, the `path:` on `files:` entries) to match up.
+the consumer (the Proxmox password, for one, is the PVE root account
+entry) rather than the KV path, so use the surrounding YAML context
+(the `name:` key on `env:` entries, the `path:` on `files:` entries)
+to match up.
 
 ### 3 — Substitute literals in place
 
@@ -78,8 +79,8 @@ each `!bao` ref:
 Example before:
 
 ```yaml
-- name: HA_TOKEN
-  value: !bao kv/iac/home-assistant#token
+- name: TF_VAR_proxmox_password
+  value: !bao kv/iac/proxmox#password
 
 - path: /root/.ssh/id_ed25519_ansible
   content: !bao kv/iac/ansible-ssh-key#private
@@ -89,8 +90,8 @@ Example before:
 Example after:
 
 ```yaml
-- name: HA_TOKEN
-  value: "eyJhbGc...<copied from Roboform>"
+- name: TF_VAR_proxmox_password
+  value: "<copied from Roboform>"
 
 - path: /root/.ssh/id_ed25519_ansible
   content: |
@@ -141,7 +142,7 @@ sudo stat -c '%a %U:%G' /etc/iac/secrets.yaml   # expect: 600 root:root
 Smoke-test:
 
 ```bash
-sudo iac -c 'env | grep -E "^(HA_TOKEN|JENKINS_AGENT_SECRET)" | wc -l'
+sudo iac -c 'env | grep -E "^(TF_VAR_proxmox_password|JENKINS_AGENT_SECRET)" | wc -l'
 ```
 
 A value of `2` (or however many !bao-resolved env vars you have)
