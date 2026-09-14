@@ -206,11 +206,17 @@ resource "proxmox_virtual_environment_vm" "this" {
   }
 
   lifecycle {
+    # Terraform never destroys a VM: a plan that would delete or replace
+    # one fails with "Instance cannot be destroyed". To rebuild or remove
+    # a VM, destroy it on Proxmox first (`qm destroy`); the next apply
+    # recreates it, or forgets it once its vms.tf entry is gone.
+    prevent_destroy = true
+
     ignore_changes = [
       # Cloud image rolls forward under `current/`; ignore so a newer
       # Canonical point release doesn't make every plan want to rebuild
-      # the VM. Pick up a new image deliberately via `terraform apply
-      # -replace`. No-op on adopted VMs (no file_id on disk[0]).
+      # the VM. Pick up a new image deliberately by destroying the VM on
+      # Proxmox and applying. No-op on adopted VMs (no file_id on disk[0]).
       disk[0].file_id,
       # Cloud-init user-data is a first-boot artefact — re-rendering
       # its snippet for a running VM accomplishes nothing operational.
@@ -220,7 +226,7 @@ resource "proxmox_virtual_environment_vm" "this" {
       # template would rebuild every from-scratch VM. Drift on the
       # written netplan after first boot is Ansible's job (see
       # `static_netplan` in the baseline role). Pick up a template
-      # change deliberately via `terraform apply -replace=<vm>`.
+      # change deliberately by destroying the VM on Proxmox and applying.
       #
       # Narrowed to user_data_file_id specifically (rather than the
       # whole `initialization` block) so that `ip_config` changes do

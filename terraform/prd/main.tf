@@ -107,8 +107,8 @@ resource "tls_private_key" "host_ed25519" {
 # on the VM resource so a template edit re-renders this snippet but does
 # not recreate the VM; the `static_netplan` task in the baseline role
 # re-asserts the netplan from inventory data (`static_netplan` host_var).
-# To pick up a snippet change on first boot, rebuild via
-# `terraform apply -replace='module.vm["<name>"]'`.
+# To pick up a snippet change on first boot, rebuild the VM: destroy it on
+# Proxmox (`qm destroy`), then apply.
 resource "proxmox_virtual_environment_file" "cloud_init" {
   for_each     = local.vms_from_scratch
   content_type = "snippets"
