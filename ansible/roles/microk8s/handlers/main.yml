@@ -73,31 +73,57 @@
   #
   # The one-node-at-a-time guarantee is carried here rather than left to
   # each caller's `serial:`: throttle 1 hands the restart to one host at
-  # a time and the wait holds that host's slot until its kubelite answers
-  # again, so the next node goes down only once this one is serving.
-  # Restart and wait must stay a single task — Ansible runs a handler
-  # across every notified host before starting the next handler, so split
-  # in two, every node would restart before any was waited on.
+  # a time and the wait holds that host's slot until the node is ready
+  # again. A node not ready within microk8s_kubelite_ready_timeout fails
+  # the handler. Restart and wait must stay a single task — Ansible runs
+  # a handler across every notified host before starting the next
+  # handler, so split in two, every node would restart before any was
+  # waited on.
   #
-  # The endpoint is the one kubelite itself binds on this node class: an
-  # apiserver node's 16443, and on a worker the kubelet healthz port,
-  # because there 16443 belongs to the separate apiserver-proxy daemon
-  # and would answer while the local kubelite is still down.
+  # Ready depends on the node class:
+  # - An apiserver node: its own apiserver passes /readyz on 16443, which
+  #   covers the datastore and informer sync that /livez leaves out.
+  # - A worker runs no apiserver, and its 16443 is the separate
+  #   apiserver-proxy daemon, which answers while kubelite is still down.
+  #   Its Node object, read through that proxy with the kubelet's own
+  #   credential (the Node authorizer lets a kubelet read its own Node),
+  #   has to show Ready=True with a heartbeat later than the second the
+  #   restart returned. The Ready condition written before the restart
+  #   stays True until the node controller marks the node lost. A
+  #   restarted kubelet reports its status on its first sync, stamped by
+  #   this node's clock, and `systemctl restart` returns only once the
+  #   old kubelet has exited.
   ansible.builtin.shell:
     cmd: |
       set -eu
       systemctl restart snap.microk8s.daemon-kubelite
-      deadline=$(( $(date +%s) + {{ microk8s_kubelite_ready_timeout }} ))
-      until curl -sfk -m 5 -o /dev/null {{ _microk8s_kubelite_ready_url }}; do
+      restarted=$(date +%s)
+      deadline=$(( restarted + {{ microk8s_kubelite_ready_timeout }} ))
+      {% if microk8s_worker_only | bool %}
+      awaited="Ready report from node {{ inventory_hostname }} after the restart"
+      ready() {
+        seen=$(/snap/microk8s/current/kubectl \
+            --kubeconfig /var/snap/microk8s/current/credentials/kubelet.config \
+            get node {{ inventory_hostname }} \
+            -o 'jsonpath={range .status.conditions[?(@.type=="Ready")]}{.status} {.lastHeartbeatTime}{end}') \
+          || return 1
+        set -- $seen
+        [ "${1:-}" = True ] && [ "$(date -d "${2:-}" +%s)" -gt "$restarted" ]
+      }
+      {% else %}
+      awaited="HTTP 200 from https://127.0.0.1:16443/readyz"
+      ready() {
+        seen=$(curl -sk -m 5 -o /dev/null -w 'HTTP %{http_code}' https://127.0.0.1:16443/readyz) || :
+        [ "$seen" = "HTTP 200" ]
+      }
+      {% endif %}
+      seen=
+      until ready; do
         if [ "$(date +%s)" -ge "$deadline" ]; then
-          echo "kubelite did not answer {{ _microk8s_kubelite_ready_url }} within {{ microk8s_kubelite_ready_timeout }}s" >&2
+          echo "kubelite restarted, but got no $awaited within {{ microk8s_kubelite_ready_timeout }}s (last seen: $seen)" >&2
           exit 1
         fi
         sleep 2
       done
-  vars:
-    _microk8s_kubelite_ready_url: >-
-      {{ 'http://127.0.0.1:10248/healthz' if microk8s_worker_only | bool
-         else 'https://127.0.0.1:16443/livez' }}
   changed_when: true
   throttle: 1
