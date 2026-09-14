@@ -17,7 +17,7 @@ What does **not** persist:
 | Scenario | Action |
 |---|---|
 | Scratch VM after a role change | Rebuild on demand; that's its job. |
-| k8s node | Phase 4 — drain → rebuild → uncordon, `serial: 1`. |
+| k8s node | [k8s-rebuild.md](k8s-rebuild.md) — evict → `qm destroy` → `terraform apply` → `rebuild-k8s.yml`, one node at a time. |
 | Ceph node | Phase 5 — `noout` → drain → rebuild → reattach OSDs, `serial: 1`. |
 | `wrkdev` | Operator-scheduled. |
 | pve hosts | Never. Bare metal, fidelity-only. |
@@ -77,23 +77,22 @@ Non-zero `changed` here means either a baseline imperfection in a role (idempote
 
 ## Rebuild flow — k8s and Ceph cluster members
 
-The current `terraform/prd/` root is the **adoption** shape: it models live VMs but lacks the from-scratch assets (cloud-init, `tls_private_key`, `local_file` for known_hosts.d) that `terraform/scratch/` carries. **A rebuild requires extending the configuration to the from-scratch shape first** — that's a deliberate commit, not a transparent operation.
+**k8s nodes: use [k8s-rebuild.md](k8s-rebuild.md).** Phase 4 rebuilt the k8s fleet from scratch (`from_scratch = true` in `terraform/prd/vms.tf`), and that runbook is the concrete, playbook-backed flow: `evict-k8s.yml`, `qm destroy`, `terraform apply`, `rebuild-k8s.yml`. The outline below does not apply to k8s nodes.
 
-The full procedure lands when Phase 4 (k8s) and Phase 5 (Ceph) need it. Outline so the constraints are visible now:
+**Ceph nodes are still adopted.** `srvceph1`–`srvceph3` keep their legacy VMIDs (113–115) and carry no `from_scratch`, so **a rebuild requires switching the VM's entry to the from-scratch shape first** — that's a deliberate commit, not a transparent operation. The full procedure lands with Phase 5 (decisions.md "Ceph rebuild path"). Outline so the constraints are visible now:
 
-1. **Pre-rebuild drain.** Cordon + drain (k8s) or `ceph osd set noout` and stop the OSD/mon (Ceph). Owned by Ansible; Phase 4/5 builds the playbook.
-2. **Configuration update commit.** The VM's entry in `terraform/prd/vms.tf` and the supporting per-VM resources switch from "model what's there" to the from-scratch shape:
-   - Add `proxmox_download_file`, `proxmox_virtual_environment_file` (cloud-init snippet), `tls_private_key`, `local_file` (known_hosts.d/<host> entry).
-   - Add `initialization { user_data_file_id = ... }` to the VM resource.
+1. **Pre-rebuild drain.** `ceph osd set noout` and stop the OSD/mon. Owned by Ansible; Phase 5 builds the playbook.
+2. **Configuration update commit.** The VM's entry in `terraform/prd/vms.tf` switches from "model what's there" to the from-scratch shape:
+   - Set `from_scratch = true`. `terraform/prd/main.tf` then builds the per-VM scaffolding — the Ubuntu cloud image (`proxmox_download_file`), the cloud-init snippet (`proxmox_virtual_environment_file`), the host keypair (`tls_private_key`) — and hands `managed-vm` the `cloud_init` wiring that adds the `initialization` block.
    - Switch from BC:24:11:... MAC to deterministic `02:A7:F3:VV:VV:EE` (decisions.md "MAC addressing"). VMID likely also moves into the 900-and-up range; if so, the deterministic MAC moves accordingly.
    - **Keep or add `passthrough_disks`** on the VM's TF entry — TF attaches them atomically with the VM, no staged Ansible reattach.
 3. **dnsmasq reservation update.** New MAC → new reservation (or new IP allocation). Must land before `terraform apply` so the first DHCP lease on the rebuilt VM lands correctly.
 4. **Destroy the VM on Proxmox, then `terraform apply`.** `qm destroy` on the PVE node that owns it; Terraform's refresh finds the VM gone and recreates it under its `vm_id` — the shape of [k8s-rebuild.md](k8s-rebuild.md) steps 2 and 4. The scratch flow's `-replace` does not carry over: Terraform refuses to destroy or replace a prd VM (`prevent_destroy` in `managed-vm`), so until the destroy, any plan in which step 2's commit replaces the VM fails with `Error: Instance cannot be destroyed`. A Ceph node's OSD disks are passthrough `/dev/disk/by-id` paths, not Proxmox volumes: `qm destroy` leaves them in place and the new VM reattaches them from `passthrough_disks`.
-5. **`site.yml`** — bootstrap + baseline + microk8s/microceph role lands the cluster bits.
-6. **Re-join the cluster.** k8s: uncordon. Ceph: `noout` lifted, OSDs come back, wait for `HEALTH_OK`.
+5. **`site.yml`** — bootstrap + baseline + microceph role lands the cluster bits.
+6. **Re-join the cluster.** `noout` lifted, OSDs come back, wait for `HEALTH_OK`.
 7. **Verify zero residual** with `--check` against the rebuilt host.
 
-Phase 4 / 5 will produce concrete playbooks for steps 1, 6. Until then, this section is forward-looking — don't try to rebuild a k8s or Ceph node by hand without the playbook backing.
+Phase 5 will produce concrete playbooks for steps 1, 6. Until then, this outline is forward-looking — don't try to rebuild a Ceph node by hand without the playbook backing.
 
 ## Disk passthrough — replacing a failing OSD disk
 
