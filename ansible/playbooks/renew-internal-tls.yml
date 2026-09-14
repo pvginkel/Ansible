@@ -46,13 +46,13 @@
 #   ansible-playbook playbooks/renew-internal-tls.yml --limit '!k8s_dev'
 #   ansible-playbook playbooks/renew-internal-tls.yml --limit k8s_dev
 
-- name: Renew internal_tls leaf certificates approaching expiry
-  # One play across all three consumer groups rather than one play per
-  # group: when every host of a play fails, Ansible abandons the run and
-  # the later plays never execute (max_fail_percentage does not lift
-  # that), so one wedged group would cost the other groups their
-  # renewal. Within a single play a failing host only drops itself.
-  hosts: proxmox:k8s:openbao
+- name: Renew the pveproxy and OpenBao listener TLS leaves
+  # One play across both consumer groups rather than one play per group:
+  # when every host of a play fails, Ansible abandons the run and the
+  # later plays never execute (max_fail_percentage does not lift that),
+  # so one wedged group would cost the other its renewal. Within a
+  # single play a failing host only drops itself.
+  hosts: proxmox:openbao
   become: true
   gather_facts: true
   # A leaf is installed by one task and picked up by a handler at end of
@@ -69,9 +69,8 @@
   # `serial: 1` a batch is one host, so the first failed or unreachable
   # host leaves every later host untried. `max_fail_percentage` does not
   # buy it back; that check only ever breaks the play earlier. The
-  # one-at-a-time guarantee the kubelite restart and the OpenBao reload
-  # need is carried by those handlers' own `throttle: 1`, not by the
-  # driver.
+  # one-Raft-peer-at-a-time limit the OpenBao reload needs is carried by
+  # that handler's own `throttle: 1`, not by the driver.
   tasks:
     # Group membership is the only routing done here. Every other
     # condition on whether a host has a leaf lives in the task files
@@ -82,14 +81,30 @@
         tasks_from: internal_tls
       when: "'proxmox' in group_names"
 
-    - name: Renew the kube-apiserver homelab TLS leaf
-      ansible.builtin.import_role:
-        name: microk8s
-        tasks_from: internal_tls
-      when: "'k8s' in group_names"
-
     - name: Renew the OpenBao listener TLS leaf
       ansible.builtin.import_role:
         name: openbao
         tasks_from: internal_tls
       when: "'openbao' in group_names"
+
+- name: Renew the kube-apiserver homelab TLS leaves, one node at a time
+  hosts: k8s
+  become: true
+  gather_facts: true
+  # For the same reason as the play above.
+  force_handlers: true
+  # The exception to the play above. A re-issued leaf restarts kubelite,
+  # and a node that does not come back ready must stop the roll before
+  # the next node's control plane goes down. The restart handler's
+  # `throttle: 1` does not do that alone: in an un-serialised play, once
+  # one host fails the handler, the other notified hosts still restart,
+  # with or without any_errors_fatal. The cost of `serial: 1` is the one
+  # the play above avoids — the first failed or unreachable k8s node
+  # leaves every later k8s node unrenewed that run. A batch with every
+  # host failed also ends the whole run, which is why this play is last.
+  serial: 1
+  tasks:
+    - name: Renew the kube-apiserver homelab TLS leaf
+      ansible.builtin.import_role:
+        name: microk8s
+        tasks_from: internal_tls

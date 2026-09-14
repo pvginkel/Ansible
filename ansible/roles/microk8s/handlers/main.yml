@@ -75,10 +75,11 @@
   # each caller's `serial:`: throttle 1 hands the restart to one host at
   # a time and the wait holds that host's slot until the node is ready
   # again. A node not ready within microk8s_kubelite_ready_timeout fails
-  # the handler. Restart and wait must stay a single task — Ansible runs
-  # a handler across every notified host before starting the next
-  # handler, so split in two, every node would restart before any was
-  # waited on.
+  # the handler, which stops the roll only in a `serial: 1` play: in an
+  # un-serialised one the other notified hosts still take their turn.
+  # Restart and wait must stay a single task — Ansible runs a handler
+  # across every notified host before starting the next handler, so
+  # split in two, every node would restart before any was waited on.
   #
   # Ready depends on the node class:
   # - An apiserver node: its own apiserver passes /readyz on 16443, which
