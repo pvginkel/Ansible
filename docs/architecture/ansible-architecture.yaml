@@ -648,6 +648,7 @@ technologyInterfaces:
     logo: proxmox
     environment: prd
     cluster: pve-prd
+    webUi: true
     stats:
       url: https://pve.home:8006/
 
@@ -681,6 +682,7 @@ technologyInterfaces:
     logo: openbao
     environment: prd
     cluster: openbao-prd
+    webUi: true
     stats:
       url: https://secrets.home/
 
@@ -703,6 +705,7 @@ technologyInterfaces:
     logo: ceph
     environment: prd
     cluster: ceph-prd
+    webUi: true
     stats:
       vip: 10.1.0.38
       dns: ceph.home
@@ -1403,22 +1406,4 @@ relations:
   - id: rel:metallb-prd-realizes-ha
     source: ss:metallb-prd
     target: cap:high-availability
-    type: Realization
-
-  # ─── Realization: TechnologyInterface → cap:web-ui ─────────────────
-  # The browser-facing UIs a human opens (homeapps launcher tiles). Marked at
-  # the interface, not the service: OpenBao's service backs both the 443 UI and
-  # the 8200 admin-API interface, so only the 443 interface is a UI. The S3,
-  # 8200, :16443 and /metrics interfaces are machine endpoints — left unmarked.
-  - id: rel:proxmox-api-if-realizes-web-ui
-    source: if:proxmox-api-prd
-    target: cap:web-ui
-    type: Realization
-  - id: rel:openbao-vip-https-if-realizes-web-ui
-    source: if:openbao-vip-https-prd
-    target: cap:web-ui
-    type: Realization
-  - id: rel:ceph-vip-if-realizes-web-ui
-    source: if:ceph-vip-prd
-    target: cap:web-ui
     type: Realization
