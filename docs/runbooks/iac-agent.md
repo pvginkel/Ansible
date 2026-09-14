@@ -20,8 +20,9 @@ See [`/work/AnsibleSpecs/phases/completed/iac-agent.md`](../../../AnsibleSpecs/p
 
 **Pushing and applying are two acts.** A merge to `main` on `pvginkel/Ansible` triggers
 `iac-on-push`, which is read-only: it plan-checks `terraform/prd` and fails fast if the plan
-proposes `replace`/`destroy` on `srviac` (or any other VM name in `check-protected-vms.sh`'s
-argument list). Nothing converges. A red build means the commit would not apply cleanly; the estate
+deletes or replaces any prd VM. Terraform refuses such a plan itself (`prevent_destroy` in the
+`managed-vm` module); `check-protected-vms.sh` fails it for a config without that line. Nothing
+converges. A red build means the commit would not apply cleanly; the estate
 is untouched either way.
 
 Convergence is `iac-apply`, started by hand once the validation is green. The job, inside one
@@ -164,10 +165,11 @@ This is the sequence to stand `srviac` up the first time, after all the source c
 
 ### Rebuild `srviac` from scratch
 
-From `wrkdev`:
+From `wrkdev`, not `iac-apply`, which runs on `srviac`. Terraform refuses to replace a prd VM, so destroy `srviac` on Proxmox first (`vm_id` 920 on `pve`, from `terraform/prd/vms.tf`); the apply then finds it gone and recreates it:
 
 ```sh
-cd terraform/prd && terraform apply -replace='module.vm["srviac"]'
+ssh root@pve 'qm shutdown 920 ; sleep 5 ; qm destroy 920'
+cd terraform/prd && terraform apply
 cd ../../ansible && poetry run ansible-playbook playbooks/site.yml --limit srviac
 # then re-populate /etc/iac/secrets.yaml as in step 3 of cutover
 ```

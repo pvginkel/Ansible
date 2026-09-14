@@ -91,11 +91,14 @@ The other two hold quorum, the VIP rides the surviving leader, and
 clients are unaffected. Goal: rebuild the node and return it to a
 voter.
 
-1. **Recreate the VM.** Find the resource address and replace it:
+1. **Recreate the VM.** Terraform refuses to replace a prd VM, so
+   destroy it on Proxmox first if it is still there, then apply —
+   Terraform's refresh finds it gone and recreates it. Its `vm_id` and
+   `pve_node` are under its key in `terraform/prd/vms.tf`:
 
    ```bash
-   cd terraform/prd && terraform state list | grep -i srvvault
-   cd terraform/prd && terraform apply -replace='<srvvaultN address>'
+   ssh root@<pve_node> 'qm stop <vm_id> && qm destroy <vm_id>'
+   cd terraform/prd && terraform apply
    ```
 
 2. **Converge the node.** A full run is safe — the two healthy nodes
@@ -141,11 +144,13 @@ and the latest backup's Raft snapshot is restored into it.
    tar xzf openbao-backup.tgz        # yields raft.snap + *.json
    ```
 
-2. **Rebuild all three VMs.**
+2. **Rebuild all three VMs.** Destroy each `srvvaultN` still on
+   Proxmox (`vm_id` and `pve_node` under its key in
+   `terraform/prd/vms.tf`), then apply; Terraform recreates the three:
 
    ```bash
-   cd terraform/prd && terraform apply \
-       -replace='<srvvault1>' -replace='<srvvault2>' -replace='<srvvault3>'
+   ssh root@<pve_node> 'qm stop <vm_id> && qm destroy <vm_id>'   # each srvvaultN still on Proxmox
+   cd terraform/prd && terraform apply
    ```
 
 3. **Converge a fresh empty cluster.** Same seal key, so it

@@ -88,7 +88,7 @@ The full procedure lands when Phase 4 (k8s) and Phase 5 (Ceph) need it. Outline 
    - Switch from BC:24:11:... MAC to deterministic `02:A7:F3:VV:VV:EE` (decisions.md "MAC addressing"). VMID likely also moves into the 900-and-up range; if so, the deterministic MAC moves accordingly.
    - **Keep or add `passthrough_disks`** on the VM's TF entry — TF attaches them atomically with the VM, no staged Ansible reattach.
 3. **dnsmasq reservation update.** New MAC → new reservation (or new IP allocation). Must land before `terraform apply` so the first DHCP lease on the rebuilt VM lands correctly.
-4. **`terraform apply -replace`** on the VM resource. Same shape as the scratch flow above.
+4. **Destroy the VM on Proxmox, then `terraform apply`.** `qm destroy` on the PVE node that owns it; Terraform's refresh finds the VM gone and recreates it under its `vm_id` — the shape of [k8s-rebuild.md](k8s-rebuild.md) steps 2 and 4. The scratch flow's `-replace` does not carry over: Terraform refuses to destroy or replace a prd VM (`prevent_destroy` in `managed-vm`), so until the destroy, any plan in which step 2's commit replaces the VM fails with `Error: Instance cannot be destroyed`. A Ceph node's OSD disks are passthrough `/dev/disk/by-id` paths, not Proxmox volumes: `qm destroy` leaves them in place and the new VM reattaches them from `passthrough_disks`.
 5. **`site.yml`** — bootstrap + baseline + microk8s/microceph role lands the cluster bits.
 6. **Re-join the cluster.** k8s: uncordon. Ceph: `noout` lifted, OSDs come back, wait for `HEALTH_OK`.
 7. **Verify zero residual** with `--check` against the rebuilt host.
@@ -129,11 +129,17 @@ The Ceph side (re-adding the OSD on top of the new disk, balancing) is owned by 
 
 ## If a rebuild goes sideways
 
-`terraform apply -replace` is destructive once Terraform commits to the destroy phase. If it fails after destroy and before create, the VM is gone but state may be partially written.
+**Scratch VM (`terraform apply -replace`).** `-replace` is destructive once Terraform commits to the destroy phase. If it fails after destroy and before create, the VM is gone but state may be partially written.
 
 - **TF errors before destroy:** safe — no live impact, fix the error and retry.
 - **TF errors during create:** state may have a tainted resource. `terraform plan` will surface a `-/+` (replace) on the next run. Fix the underlying cause (image download, network, snippet upload) and `terraform apply` again.
 - **VM created but cloud-init never finished:** Terraform times out waiting for the IP. SSH to the PVE host and `qm console <vmid>` or check `journalctl -u cloud-init` on the VM. Usually `qemu-guest-agent` failing to install — fix the snippet, `terraform apply -replace` again.
-- **`site.yml` fails on the rebuilt VM:** the VM exists, just isn't fully roled. Fix the role and re-run; cloud-init has done its part (`ansible` user + host key) and bootstrap can re-run idempotently.
+
+**Prd VM (destroyed on Proxmox, then `terraform apply`).** The old VM is gone before Terraform runs; recovery is forward.
+
+- **TF errors before the VM is created:** fix the error and `terraform apply` again.
+- **TF errors during create, or VM created but cloud-init never finished:** a VM the failed create left on Proxmox is tainted in state, and Terraform refuses the replace it needs (`Error: Instance cannot be destroyed`). Every `terraform/prd` plan fails on it, the daily drift run's included, until it is cleared. Find the cause as for scratch (`qm console <vmid>`, `journalctl -u cloud-init`) and fix it, then `qm destroy <vmid>` on the PVE host and `terraform apply` again.
+
+**`site.yml` fails on the rebuilt VM** (either root): the VM exists, just isn't fully roled. Fix the role and re-run; cloud-init has done its part (`ansible` user + host key) and bootstrap can re-run idempotently.
 
 For cluster members, leave the node cordoned/drained until `site.yml --check` reports zero changes. Only then bring it back to the cluster.
