@@ -32,7 +32,8 @@ Each rebuild's eviction (and every `update-k8s.yml` run) hands off opt-in worklo
 Today's opt-ins:
 
 - `keycloak` (Deployment, `RollingUpdate maxSurge:1 / maxUnavailable:0`). Two-pod window during surge — ~60s. No sticky sessions on the in-house ingress, so a mid-login request may re-auth. Accepted.
-- `keycloak-db` (Deployment, `Recreate`, RWO PVC, single Postgres). ~30s outage during the controlled swap. Better than the same swap landing mid-drain.
+
+Keycloak's database is the CNPG `postgres-pas` cluster (reached through the `postgres-pooler-rw` pooler), which does not opt in; the former single-Postgres `keycloak-db` Deployment no longer exists.
 
 Forward contract: a Deployment that needs a controlled hand-off (single replica, RWO PVC, etc.) opts in by setting `iac.webathome.org/pre-drain: "true"` on **both** `metadata.labels` and `spec.template.metadata.labels`. The first lets `kubectl get deploy -l ...` enumerate opt-ins; the second is what the hand-off's pod-list query actually matches on. DaemonSets and StatefulSets must NOT carry the label — the Pod → ReplicaSet → Deployment walk silently ignores them, so labeling them is dormant config.
 

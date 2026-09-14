@@ -18,8 +18,8 @@
 # Workloads opt in by carrying `iac.webathome.org/pre-drain=true` on
 # both `.metadata.labels` (so `get deploy -l ...` finds them) and
 # `.spec.template.metadata.labels` (so `get pods -l ...` finds the
-# running pods, which is the query this file uses). Today's opt-ins:
-# keycloak, keycloak-db (HelmCharts).
+# running pods, which is the query this file uses). Today's opt-in:
+# keycloak (HelmCharts).
 #
 # DaemonSets and StatefulSets must NOT carry the label — the Pod →
 # ReplicaSet → Deployment walk silently ignores them and labeling
