@@ -3,8 +3,8 @@
 The X.509 counterpart of [`ssh-host-cert-expiry.md`](ssh-host-cert-expiry.md).
 
 Commands run from the Ansible checkout, as in that runbook. In a KubeCoder environment the toolchain
-lives in the `iac` sidecar, so prefix each command with `cexec iac` (see
-[`../live-infra-access.md`](../live-infra-access.md)).
+lives in the `iac` sidecar, so put `cexec iac` after the `cd`: `cd ansible && cexec iac poetry run …`
+(see [`../live-infra-access.md`](../live-infra-access.md)).
 
 ## Symptom
 
@@ -53,7 +53,10 @@ cd ansible && poetry run ansible 'proxmox:openbao:k8s' -m ping
 - `UNREACHABLE` with `Certificate invalid: expired` — fix the host certificate first with
   [`ssh-host-cert-expiry.md`](ssh-host-cert-expiry.md), then come back. Its fix covers only VMs
   Terraform builds from scratch, not pve, pve1 or pve2.
-- srvk8sdev is powered off most of the time; a connection timeout there only means it is off.
+- srvk8sdev is powered off most of the time; from srviac, where the Friday job runs, a connection
+  timeout there only means it is off. A KubeCoder environment cannot reach srvk8sdev at all
+  ([`../live-infra-access.md`](../live-infra-access.md)), so from there a failure says nothing
+  about the box; renew its leaf from srviac.
 
 ## 2 — Confirm the leaf has lapsed (read-only)
 

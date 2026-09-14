@@ -229,7 +229,7 @@ and the latest backup's Raft snapshot is restored into it.
    export BAO_ADDR=https://secrets
    bao operator raft list-peers      # three voters
    bao secrets list                  # kv/ present
-   bao policy list                   # the five role policies present
+   bao policy list                   # the six role policies present
    bao kv get kv/<a known path>      # a real secret reads back
    ```
 
