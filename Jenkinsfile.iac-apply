@@ -7,8 +7,8 @@
 // iac_agent), site-openbao, site-k8s (prd). A trailing dev stage
 // (srvk8sdev: site-k8s dev + site-ceph) can only ever downgrade the
 // build to UNSTABLE — see devUp() below. Each stage wraps its work in a
-// single `iac -c '...'` so the IaC mutex is held across the steps that
-// must be atomic.
+// single `iac -c '...'` so the steps that belong together share one
+// container — every `iac` call is a fresh container and clone.
 //
 // The plan + destroy check is repeated here rather than trusted from
 // the validate run: check-protected-vms.sh is the guard that stops an

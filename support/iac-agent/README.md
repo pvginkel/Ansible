@@ -6,7 +6,7 @@ Host glue for `srviac`, the homelab's IaC orchestrator VM. Part of the Ansible r
 
 | Path | What it is |
 |---|---|
-| `bin/iac` | The host shim. Acquires `/var/lock/iac.lock` (`flock -w 60`) and runs `iac-impl` inside the `iac` container (`registry:5000/iac:latest`, built from this repo's `support/iac-image/`); bind-mounts four paths in — `iac-impl`, `/etc/iac/secrets.yaml`, `check-protected-vms.sh` and `check-ansible-drift.sh`. |
+| `bin/iac` | The host shim. Runs `iac-impl` inside the `iac` container (`registry:5000/iac:latest`, built from this repo's `support/iac-image/`); bind-mounts four paths in — `iac-impl`, `/etc/iac/secrets.yaml`, `check-protected-vms.sh` and `check-ansible-drift.sh`. |
 | `bin/iac-impl` | The in-container entrypoint. Parses secrets, clones the Ansible repo, starts the `terraform-backend-git` daemon on `127.0.0.1:6061` (terraform reaches state through it via each config's `backend.tf` http block), runs `poetry install`, then executes the caller's command. Bind-mounted in from `/usr/local/bin/iac-impl` on the host (so changes don't require an `iac` image rebuild). |
 | `bin/jenkins-agent-launch.sh` | Wrapper invoked by the systemd unit; extracts `JENKINS_AGENT_SECRET` from `/etc/iac/secrets.yaml` and launches the Jenkins inbound-agent container. |
 | `bin/check-protected-vms.sh` | Used by the on-push, apply and drift Jenkins jobs. Fails when a `terraform plan` proposes destroy/replace on any of the named VMs. |
@@ -19,7 +19,7 @@ Host glue for `srviac`, the homelab's IaC orchestrator VM. Part of the Ansible r
 
 The Jenkins pipelines that drive `srviac` live at the root of this repo as
 `Jenkinsfile.*`; the controller jobs check them out from there and run on
-the `iac-controller`-labelled agent, holding the IaC mutex via `iac -c`.
+the `iac-controller`-labelled agent, doing their work through `iac -c`.
 They lean on this tree's helpers — `check-protected-vms.sh` and
 `check-ansible-drift.sh` — which `iac` bind-mounts into the container.
 Reporting is not one of them: jenkins-telegram-bot watches every build and
@@ -49,7 +49,7 @@ iac -c '<shell script>'          # run the script inside the container
 iac -v -c '<shell script>'       # same, with iac-impl's setup-progress prints
 ```
 
-Both hold `/var/lock/iac.lock` via `flock -w 60`. One call = one lock — compose multi-step work into a single `iac -c '…'` rather than chaining calls.
+Neither form takes a host lock. Terraform state is locked per state by `terraform-backend-git`'s `locks/<state-path>` branches, and the `IaC Agent` node's single executor queues the Jenkins jobs behind one another. The accepted loss: hand-run Ansible on srviac no longer interlocks with a running job (terraform still does, via lock branches). Each call is a fresh container and clone, so compose multi-step work into a single `iac -c '…'` rather than chaining calls.
 
 Inside the container `ansible-playbook` and friends are on `$PATH` directly — `iac-impl` runs `poetry install` and resolves the venv via `poetry env info --path`, so callers don't need `poetry run`.
 

@@ -37,7 +37,7 @@ pipeline {
 
     triggers {
         // Weekly, mid-week and offset from the weekly OS-update roll so the
-        // two never contend for the iac.lock, and a calico-node restart
+        // two never run together, and a calico-node restart
         // lands between OS rolls. Cron lives here on purpose — the schedule
         // is part of the job and shouldn't hide in the controller's config.
         cron('H 4 * * 3')

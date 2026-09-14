@@ -59,7 +59,7 @@ pipeline {
     triggers {
         // Friday morning: clear of the Sunday OS roll, the Wednesday
         // calico rollout and the daily 11:00 drift check, so this never
-        // contends for the iac.lock. Cron lives here, in git, on
+        // runs alongside them. Cron lives here, in git, on
         // purpose — see the comment in Jenkinsfile.iac-scheduled-drift
         // for what happens when a schedule lives only in the UI.
         cron('H 4 * * 5')

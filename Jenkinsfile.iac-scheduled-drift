@@ -68,8 +68,8 @@ def certDriftArgs = '-e internal_tls_renewal_threshold_days=7'
 //              as "<host>: <role : task> (<what>)"
 //   otherwise  the stage's own DRIFT: lines
 // Falls back to the last lines of output when nothing matches (an iac
-// lock timeout, a broken init), and caps the list so a sweeping change
-// still reads as a message.
+// that failed to start, a broken init), and caps the list so a
+// sweeping change still reads as a message.
 @NonCPS
 String driftSummary(String output, String tool) {
     def items = new LinkedHashSet<String>()

@@ -45,10 +45,9 @@ fi
 docker_gid=$(stat -c %g /var/run/docker.sock)
 
 # The agent container's `sh` steps invoke `iac` directly; mount the
-# shim and its sibling helpers in so they're on the agent's PATH.
-# /var/lock is mounted so the flock acquired by iac is visible across
-# host and agent. The docker socket + binary let iac spawn sibling
-# containers as if it were running on the host.
+# shim and its sibling helpers in so they're on the agent's PATH. The
+# docker socket + binary let iac spawn sibling containers as if it were
+# running on the host.
 #
 # /etc/iac/secrets.yaml is intentionally not mounted into this agent.
 # The agent never reads it; iac passes the host path to docker run and
@@ -64,7 +63,6 @@ exec docker run --rm \
     --group-add "$docker_gid" \
     -v /var/run/docker.sock:/var/run/docker.sock \
     -v /usr/bin/docker:/usr/bin/docker:ro \
-    -v /var/lock:/var/lock \
     -v /usr/local/bin/iac:/usr/local/bin/iac:ro \
     -v /usr/local/bin/iac-impl:/usr/local/bin/iac-impl:ro \
     "$AGENT_IMAGE" \

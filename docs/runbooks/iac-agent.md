@@ -8,11 +8,11 @@ See [`/work/AnsibleSpecs/phases/completed/iac-agent.md`](../../../AnsibleSpecs/p
 
 | Where | What |
 |---|---|
-| `srviac` host | Docker, the `iac` shim, a daily `docker image prune -f` cron, a systemd unit running the Jenkins inbound-agent container, `/etc/iac/secrets.yaml` (operator-curated, `0600`), `/var/lock/iac.lock` (the IaC mutex). |
+| `srviac` host | Docker, the `iac` shim, a daily `docker image prune -f` cron, a systemd unit running the Jenkins inbound-agent container, `/etc/iac/secrets.yaml` (operator-curated, `0600`). |
 | `registry:5000/iac` image | Terraform, Ansible, kubectl, helm, python, poetry, `terraform-backend-git`, plus `iac-impl` — the in-container entrypoint that parses `secrets.yaml`, clones the repos `secrets.yaml` names (Ansible alone by default), starts the terraform-backend-git daemon on `127.0.0.1:6061`, then exec's whatever you asked for. The Python venv is baked in at image build from this repo's `pyproject.toml`/`poetry.lock`; `iac-impl` installs nothing at runtime and instead warns when the cloned `poetry.lock` differs from the baked one. Built from `support/iac-image/Dockerfile` by this repo's `iac-image` job. |
 | `pvginkel/Ansible` (this repo) | Roles, playbooks, inventory, the Terraform configs (`terraform/{prd,scratch}/`, each with a `backend.tf` http block), the Jenkins pipeline scripts (`Jenkinsfile.*`) every job checks out, the iac image's build context (`support/iac-image/`), and the srviac host glue (`support/iac-agent/` — `bin/iac`, `install.sh`, the systemd unit, the `secrets.example.yaml` template). |
 | `pvginkel/TerraformState` | tfstate served through the terraform-backend-git http backend, sops+age-encrypted at rest. Private. Holds the same sensitivity as any secret-bearing repo (VM host private keys, API tokens, proxmox creds). Not srviac's alone: the Argo CD Terraform PreSync hook (`/work/ArgoCDTools`) writes into the same repo under `argocd/<repo>/<stage>/terraform.tfstate`, starting its own terraform-backend-git in the hook pod. Both sides decrypt with the one age keypair at `kv/iac/tf-backend`: the prd `eso` AppRole is granted read on that single leaf rather than a copy being made, so the two cannot drift onto different keys. |
-| Jenkins controller (`jenkins.webathome.org`) | Six jobs on the `iac-controller`-labelled agent: `iac-on-push`, `iac-apply`, `iac-scheduled-update`, `iac-scheduled-drift`, `iac-scheduled-calico`, `iac-scheduled-certs`. `iac-image` and `architecture` also build from this repo, but on Kubernetes pod agents — they hold no IaC mutex and use none of the host glue. |
+| Jenkins controller (`jenkins.webathome.org`) | Six jobs on the `iac-controller`-labelled agent: `iac-on-push`, `iac-apply`, `iac-scheduled-update`, `iac-scheduled-drift`, `iac-scheduled-calico`, `iac-scheduled-certs`. `iac-image` and `architecture` also build from this repo, but on Kubernetes pod agents — they use none of the host glue. |
 
 ## Operator workflow
 
@@ -72,7 +72,7 @@ when there are no new commits since its last build. There is no force parameter.
 
 ### Routine: manual run from `srviac`
 
-SSH in and use `iac`. Two forms, one lock:
+SSH in and use `iac`. Two forms:
 
 ```sh
 ssh srviac
@@ -80,7 +80,7 @@ iac                           # interactive bash inside the container
 iac -c 'cd /work/Ansible/ansible && ansible-playbook playbooks/site.yml --limit srvxxx --check'
 ```
 
-Both acquire `/var/lock/iac.lock` via `flock -w 60`. On contention, the call fails fast (within 60 s) with the holder PID surfaced — there is no waiting; rerun once the holder releases.
+Neither takes a host lock. Terraform still interlocks with a running Jenkins job, through the backend's per-state lock branches, but hand-run Ansible on `srviac` no longer interlocks with a running job — check for a running `IaC/*` build before converging by hand.
 
 Inside the container: `/work/Ansible` is a fresh clone, terraform state flows through the local terraform-backend-git daemon (the `backend.tf` http block in each config — no symlinks, no `/work/TerraformState` checkout in the container), every env entry from `secrets.yaml` is exported, and every file entry has been written at its declared mode. **Edits inside an `iac` shell are lost on exit** unless committed and pushed before exiting — same constraint Jenkins jobs run under.
 
@@ -90,7 +90,7 @@ The orchestrator cannot orchestrate its own replacement. Anything that mutates `
 
 - Initial creation: `cd terraform/prd && terraform apply` then `cd ansible && poetry run ansible-playbook playbooks/site.yml --limit srviac`.
 - Subsequent agent VM changes (disk resize, role refresh, image bump): same.
-- True break-glass (CI down, controller unreachable): `wrkdev` can still run `terraform apply` and `ansible-playbook` directly. **The host-level flock does not see the workstation**, so don't mix routine work between `wrkdev` and `srviac`; that defeats the lock.
+- True break-glass (CI down, controller unreachable): `wrkdev` can still run `terraform apply` and `ansible-playbook` directly. Terraform there still takes the backend's lock branches, but **nothing interlocks Ansible between the workstation and `srviac`**, so don't mix routine work between the two.
 
 ## First-time cutover (one-off)
 
@@ -159,7 +159,7 @@ This is the sequence to stand `srviac` up the first time, after all the source c
 
 ### `srviac` is unreachable
 
-- If the host is up but `iac` won't run, check `/var/lock/iac.lock` holder via `fuser -v /var/lock/iac.lock` and `docker ps`.
+- If the host is up but `iac` won't run, run `iac -v -c true` to see where `iac-impl`'s setup stops, and check `docker ps`.
 - If the systemd Jenkins agent is failing, `journalctl -u jenkins-agent -n 100`. Most failures are stale `JENKINS_AGENT_SECRET` (controller regenerated it) or controller unreachable.
 
 ### Rebuild `srviac` from scratch
