@@ -15,6 +15,18 @@
   delay: 2
   changed_when: true
 
+- name: Report the microk8s restart a real run would perform (check mode)
+  # The restart handlers shell out, so --check skips them, and ansible.cfg's
+  # display_skipped_hosts = False hides even the skip. Each one covered has
+  # a debug handler listening on its name that reports the would-be restart
+  # as a change on every notified host instead. Only a changed task
+  # notifies, so a converged host still shows changed=0 under --check.
+  ansible.builtin.debug:
+    msg: A real run would restart microk8s on this node (microk8s stop, then start).
+  listen: Restart microk8s
+  changed_when: true
+  when: ansible_check_mode
+
 - name: Restart microk8s
   # Containerd reads certs.d/<host>/hosts.toml at start; editing the
   # file doesn't reach the running daemon. `microk8s stop && start`
@@ -26,6 +38,13 @@
     - microk8s start
   changed_when: true
 
+- name: Report the coredns rollout restart a real run would perform (check mode)
+  ansible.builtin.debug:
+    msg: A real run would rollout-restart kube-system/coredns.
+  listen: Rollout-restart coredns
+  changed_when: true
+  when: ansible_check_mode
+
 - name: Rollout-restart coredns
   # Same end-of-play apiserver-transient race as the Calico handler
   # above — retry the call rather than chasing a separate readiness
@@ -36,6 +55,13 @@
   retries: 30
   delay: 2
   changed_when: true
+
+- name: Report the kubelite restart a real run would perform (check mode)
+  ansible.builtin.debug:
+    msg: A real run would restart kubelite on this node, one node at a time.
+  listen: Restart microk8s kubelite
+  changed_when: true
+  when: ansible_check_mode
 
 - name: Restart microk8s kubelite
   # kubelite is microk8s's combined apiserver/controller/scheduler/
