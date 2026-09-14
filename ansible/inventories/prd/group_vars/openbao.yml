@@ -65,8 +65,8 @@ openbao_oidc_client_secret: !vault |
 # kv/shared/* paths are enumerated explicitly per consumer (not a
 # wildcard) — `kv/shared` carries cross-consumer values but each
 # consumer reads only the leaves it actually needs. Jenkins consumes
-# the per-cluster RGW S3 admin (artifact-upload pipelines and the
-# HelmCharts deploy pipeline's homelab TF provider), the per-cluster
+# the per-cluster RGW S3 admin (the HelmCharts deploy pipeline's
+# homelab TF provider), the per-cluster
 # cephx user (same provider), the iac-provisioner agent token (same
 # provider — the one eso leaf Jenkins reads, cross-consumer by the
 # deploy pipeline's nature), and the Wi-Fi password (firmware-burn

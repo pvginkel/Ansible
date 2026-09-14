@@ -140,10 +140,14 @@ from this runbook.
 2. **Set up** §1 steps 1–3, with `app` for the bucket's namespace.
 
 3. **Find the runs since the loss.** Folder names are run start times in UTC; every folder stamped
-   after the loss holds versions that run displaced:
+   after the loss holds versions that run displaced. A run mirrors buckets one at a time for up to
+   2 h, so also take the newest folder stamped before the loss if its run had not reached this
+   bucket when the loss happened. The last three runs' Jobs are kept; in a run's log, the
+   timestamped rclone lines after `==> mirroring <bucket>` show when it got there:
 
    ```bash
    rclone lsf mirror:archive/<bucket>/
+   kubectl --context prd -n storage-prd logs job/<job> | grep -A3 '==> mirroring <bucket>'
    ```
 
 4. **Copy the live state back**, dry run first:
@@ -153,7 +157,7 @@ from this runbook.
    rclone copy mirror:current/<bucket> app:<bucket> --progress
    ```
 
-5. **Copy each archive folder stamped after the loss over it, newest first.** The oldest folder is
+5. **Copy each archive folder step 3 found over it, newest first.** The oldest folder is
    copied last, so each object ends at its version from before the loss:
 
    ```bash
