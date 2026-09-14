@@ -54,7 +54,8 @@ The IaC-agent escape hatch is [`iac-cold-boot.md`](iac-cold-boot.md).
   `site-openbao.yml` needs. The window allows two attempts before a leaf
   lapses, so a red Friday is worth chasing before the next one. The
   daily `iac-scheduled-drift` build reds once a peer's leaf is under
-  7 days — a Friday that was missed, not one still to come.
+  7 days — a Friday that was missed, not one still to come. A leaf that
+  has already lapsed: [`internal-tls-expiry.md`](internal-tls-expiry.md).
 
 ## 1 — Admin access
 
@@ -404,6 +405,18 @@ Timings from the recovery drills (cards #13 / #14):
 
 ## What can go wrong
 
+- **A converge fails at `Refuse a staged backup secret_id the backup
+  AppRole rejects`** — the checkout's `tmp/openbao-backup-secret-id`
+  is a leftover the live `backup` AppRole no longer accepts, and
+  nothing was installed. Converge with
+  `-e openbao_rotate_secret_ids=true`, at the cost §3 step 5 names.
+- **A nightly backup failed** — `journalctl -u openbao-backup` on the
+  node that was leader names the call that broke, with its HTTP status
+  and OpenBao's error text. `POST auth/approle/login failed: HTTP 400:
+  invalid role or secret ID` means the AppRole rejected the nodes'
+  backup credentials: converge with the rotation flag, as above. An
+  upload that fails with `HTTP 401` has a bad upload token: rotate it
+  per §5.
 - **Snapshot endpoint returns 403** — the `backup` AppRole policy is
   missing `read` on `sys/storage/raft/snapshot`. Re-apply the role.
   (`read` alone is sufficient — confirmed against OpenBao 2.5.4.)

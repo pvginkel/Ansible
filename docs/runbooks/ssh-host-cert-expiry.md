@@ -24,7 +24,8 @@ refuses the host.
 
 `IaC/Scheduled Certs` (weekly, `Jenkinsfile.iac-scheduled-certs`) exists to make
 that cadence guaranteed — for these host certificates and, in stages of its own,
-for the `internal_tls` X.509 leaves. A lapse means that job has been failing or
+for the `internal_tls` X.509 leaves, whose lapse has its own runbook,
+[`internal-tls-expiry.md`](internal-tls-expiry.md). A lapse means that job has been failing or
 unscheduled — **check it before doing anything else**, or you will be back here
 in 47 days.
 

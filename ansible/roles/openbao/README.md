@@ -64,7 +64,7 @@ Design context:
     for the rationale.
 11. **Provision auth** on the bootstrap node — enable approle, write
     the kv-v2 mount, render and write policies (`openbao-admin`,
-    `iac-agent`, `jenkins`, `eso`, `backup`), write the AppRoles bound
+    `iac-agent`, `jenkins`, `eso`, `eso-dev`, `backup`), write the AppRoles bound
     to each. Optionally rotate secret-ids
     (`-e openbao_rotate_secret_ids=true`) and retire the root token
     (`-e openbao_retire_root_token=true`).
@@ -88,8 +88,10 @@ Design context:
     `backup` AppRole, assembles a `.tgz` (a native Raft snapshot plus
     a plaintext JSON export of policies, auth methods, mounts, and the
     KV-v2 tree), and POSTs it to the in-cluster backup-server;
-    followers exit 0. Self-skips until the `backup` AppRole creds and
-    the upload token are both available — see §Backup pipeline below.
+    followers exit 0. A failing run names the call that broke. Self-skips
+    until the `backup` AppRole creds and the upload token are both
+    available, and installs a staged secret_id only once a login proves
+    it — see §Backup pipeline below.
 
 ## Inputs
 
@@ -124,8 +126,8 @@ Auth + audit + ufw inputs (cards #40 / #11):
   consumer's policy. Empty list = inert policy (AppRole exists, reads
   return 403 until a path is added). Extend per migrated ref.
 - `openbao_rotate_secret_ids` — when `true`, mints fresh secret-ids
-  for every AppRole (admin, iac-agent, jenkins, eso, backup) and
-  stages the four operator-facing ones to
+  for every AppRole (admin, iac-agent, jenkins, eso, eso-dev, backup)
+  and stages the five operator-facing ones to
   `openbao_credential_staging_dir` for capture. Default `false`; flip
   on the first apply and whenever you rotate. Steady-state runs skip
   the mint and the staging entirely — nothing is written or printed.
@@ -191,7 +193,7 @@ can capture the admin AppRole creds into vault between them.
    ```
 
    `approle.yml` writes the freshly minted role_ids + secret_ids for
-   `openbao-admin`, `iac-agent`, `jenkins`, and `eso` to mode-`0600`
+   `openbao-admin`, `iac-agent`, `jenkins`, `eso` and `eso-dev` to mode-`0600`
    files in `openbao_credential_staging_dir`
    (`ansible/tmp/openbao-credentials/` by default). Nothing is printed
    to stdout. `backup` is excluded — `backup.yml` delivers its creds
@@ -208,8 +210,8 @@ can capture the admin AppRole creds into vault between them.
    Commit. The drift cycle now authenticates via the admin AppRole.
 
 3. **Paste the iac-agent creds** into `srviac:/etc/iac/secrets.yaml`
-   (`OPENBAO_ROLE_ID`, `OPENBAO_SECRET_ID`). Paste the jenkins and
-   eso creds into their respective consumer configs (Jenkins Vault
+   (`OPENBAO_ROLE_ID`, `OPENBAO_SECRET_ID`). Paste the jenkins,
+   eso and eso-dev creds into their respective consumer configs (Jenkins Vault
    plugin, ESO SecretStore CR). Source each value from the matching
    `<approle>-role-id` / `<approle>-secret-id` file under
    `tmp/openbao-credentials/`.
@@ -348,8 +350,9 @@ online after the cluster is provisioned:
    ```
 
    Play 0 stages the token; `approle.yml` mints the `backup` secret-id
-   and stages it with the role_id; `backup.yml` delivers all three to
-   `/etc/openbao/` on each node and enables `openbao-backup.timer`. The
+   and stages it with the role_id; `backup.yml` on each node proves the
+   staged secret_id with an AppRole login, then delivers all three to
+   `/etc/openbao/` and enables `openbao-backup.timer`. The
    rotate flag is required only on this first run — it is what mints
    the `backup` secret-id.
 
@@ -369,6 +372,38 @@ exposes `no_log` data across hosts. The staging files persist: they
 are the rendezvous between the bootstrap host's converge and the
 later `serial: 1` batches, and they keep `backup.yml` evaluable under
 a drift `--check`. `tmp/` is gitignored.
+
+**Proving a staged secret_id.** A staged secret_id outlives the
+rotation run that minted it, so a leftover file in a persistent
+checkout could otherwise install a dead credential. Before installing
+it, each node's `backup.yml` pass logs in with the staged `role_id` and
+`secret_id` at `openbao_admin_api_addr`, under `--check` too. It then
+revokes the token it got back, which is why the `backup` policy grants
+`auth/token/revoke-self`, and fails the run if that revoke does. The
+login's answer decides the rest:
+
+- **200** — the secret_id is delivered.
+- **400** (the AppRole rejects the pair) — the run fails at `Refuse a
+  staged backup secret_id the backup AppRole rejects`, naming
+  `-e openbao_rotate_secret_ids=true`. Nothing is re-minted without
+  that flag.
+- **403 `permission denied`** (no AppRole auth mounted, as on a
+  whole-cluster recovery converge before the snapshot restore) —
+  nothing is installed, the run goes on, and it prints `Backup AppRole
+  secret_id not delivered`. A converge after the restore delivers it
+  ([`openbao.md`](../../../docs/runbooks/openbao.md) §3).
+- **Anything else** (OpenBao unreachable or sealed) — the run fails
+  with the status and OpenBao's error text.
+
+With no staged secret_id, a node that already holds one keeps it.
+
+**When a backup fails.** The unit fails, and its journal
+(`journalctl -u openbao-backup`) names the call that broke. An OpenBao
+call is named by method and path, with the HTTP status and OpenBao's
+error strings (`POST auth/approle/login failed: HTTP 400: invalid role
+or secret ID`). A call with no complete response logs curl's exit
+code, and the upload logs its URL and status alone. No response body,
+token or secret_id is logged.
 
 ## Bootstrap procedure
 

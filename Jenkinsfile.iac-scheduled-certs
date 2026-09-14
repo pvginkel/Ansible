@@ -155,9 +155,11 @@ pipeline {
         // SNI path and the OpenBao listener, so this fails the build and
         // pages too.
         //
-        // The playbook renews every host it can before exiting non-zero,
-        // so a partly-failed run reds this stage at the end of the run
-        // rather than at the first bad host.
+        // The playbook renews every pveproxy and OpenBao host it can,
+        // then the k8s leaves one node at a time, stopping at the first
+        // k8s node that fails, so a node not ready after its kubelite
+        // restart never lets the next one go down. Either way the stage
+        // reds when the run ends, not at the first bad host.
         //
         // No `timeout` bound: the reload phase is serialized one node at
         // a time and each prd control-plane node's kubelite restart
@@ -185,7 +187,7 @@ pipeline {
         // apply; this job does not carry it forward or retry it.
         //
         // 15m bound: one node, one leaf, and a kubelite restart that
-        // waits up to 180s for this node to serve again.
+        // waits up to 180s for this node to be ready again.
         stage('TLS leaves (k8s dev)') {
             steps {
                 script {
