@@ -12,7 +12,7 @@
 //
 // The plan + destroy check is repeated here rather than trusted from
 // the validate run: check-protected-vms.sh is the guard that stops an
-// apply destroying srviac, and a guard that runs in a different build
+// apply destroying a prd VM, and a guard that runs in a different build
 // against a different commit is not a guard.
 //
 // All ansible stages run with `--skip-tags os_update`: apt cache
@@ -70,7 +70,7 @@ pipeline {
                         # the iac image sh (dash), where [[ is "not found".
                         if [ "$rc" -ne 0 ] && [ "$rc" -ne 2 ]; then exit "$rc"; fi
                         terraform show -json /tmp/plan.tfplan > /tmp/plan.json
-                        check-protected-vms.sh /tmp/plan.json srviac
+                        check-protected-vms.sh /tmp/plan.json
                     '
                 '''
             }
