@@ -2,7 +2,8 @@
 
 Restoring production RGW buckets from their encrypted mirror on Google Drive, reading the mirror
 with no cluster at all, and the restore drill. Read this when a production bucket lost or corrupted
-objects, when an earlier version of an object is needed, or when the whole site is gone.
+objects, when an earlier version of an object is needed, when the whole site is gone, or when
+`S3MirrorStale` fires (What can go wrong).
 
 Design context: §"Backup" in [`../../../AnsibleSpecs/decisions.md`](../../../AnsibleSpecs/decisions.md).
 The mirror is HelmCharts `charts/storage/files/s3-mirror/s3_mirror.py`, run nightly by the
@@ -62,8 +63,10 @@ A release's RGW user is named after its namespace, and today every bucket name s
    ```
 
    Log in in the browser as the account that owns `Homelab Backups`. `scope=drive` sees every file
-   in the account, whichever OAuth client uploaded it. On a host without a browser, add
-   `config_is_local=false` and run the `rclone authorize` command it prints on a host that has one.
+   in the account, whichever OAuth client uploaded it. On a host without a browser, `config create`
+   cannot finish the login: with `config_is_local=false` it prints no `rclone authorize` command
+   and saves the remote without a token. Follow rclone's remote setup instead
+   (<https://rclone.org/remote_setup/>).
 
 2. **The mirror.** The settings must match the mirror job's
    (HelmCharts `charts/storage/templates/s3-mirror-cronjob.yaml`); any difference decrypts nothing.
@@ -281,6 +284,15 @@ a successful nightly run, so the live bucket has changed as little as possible s
   `-prd` namespace; the nightly mirror fails on that bucket too.
 - **`http://srvk8sdev/` never answers** — the VM is still booting, or microceph's RGW is down:
   `ssh srvk8sdev 'sudo microceph status'`.
+- **`S3MirrorStale` fires** — the `s3-mirror` CronJob has not succeeded for 52 h, so two nightly
+  runs failed. The copy already on Drive stays readable. Find the newest Job with
+  `kubectl --context prd -n storage-prd get jobs`, then read its log with
+  `kubectl --context prd -n storage-prd logs job/<name>`:
+  - `listing buckets failed` or `no bucket is owned by a prd-stage user` — the run stopped at the
+    admin-API bucket listing as `backup-reader`, before any sync.
+  - `FAILED buckets: …` — those buckets' sync or prune failed; the other buckets were mirrored.
+  - A log that stops without `all buckets mirrored` — the Job was killed, for instance at its 2 h
+    `activeDeadlineSeconds`.
 
 ## Pre-flight checklist
 
