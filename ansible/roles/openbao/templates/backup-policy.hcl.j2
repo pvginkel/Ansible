@@ -2,9 +2,17 @@
 #
 # Read-only export scope for the daily backup. Covers a native Raft
 # snapshot plus a plaintext export of the policy catalog, auth
-# methods, mounts, and the full KV-v2 tree. No write capability
-# anywhere; the daily timer on each srvvaultN authenticates with this
-# AppRole and ships a `.tgz` to the backup-server.
+# methods, mounts, and the full KV-v2 tree. No write capability beyond
+# revoking its own token; the daily timer on each srvvaultN
+# authenticates with this AppRole and ships a `.tgz` to the
+# backup-server.
+
+# The AppRole sets token_no_default_policy, so revoke-self must be
+# granted here. backup.yml revokes the token of the login that proves a
+# staged secret_id.
+path "auth/token/revoke-self" {
+  capabilities = ["update"]
+}
 
 path "sys/storage/raft/snapshot" {
   capabilities = ["read"]

@@ -16,6 +16,8 @@
 #   - site-openbao.yml Play 0 stages the upload token from
 #     `terraform output`.
 # This task reads those files back and delivers them to every node.
+# A staged secret_id outlives the rotation run that minted it, so each
+# node's pass proves it with an AppRole login before installing it.
 # Until all three inputs are resolvable the pipeline self-skips: no
 # timer, no failing unit.
 
@@ -45,16 +47,107 @@
     path: "{{ openbao_config_dir }}/backup-secret-id"
   register: _openbao_node_secret_id
 
+# The wrapper's own login, made against the leader-tracking VIP. Runs
+# under --check too. no_log would hide the uri module's failure
+# message, so the fail tasks below report the status and OpenBao's
+# error text instead.
+- name: Log in with the staged backup AppRole credentials
+  ansible.builtin.uri:
+    url: "{{ openbao_admin_api_addr }}/v1/auth/approle/login"
+    method: POST
+    body_format: json
+    body:
+      role_id: "{{ lookup('file', openbao_backup_staging_dir + '/openbao-backup-role-id') }}"
+      secret_id: "{{ lookup('file', openbao_backup_staging_dir + '/openbao-backup-secret-id') }}"
+    validate_certs: true
+  register: _openbao_backup_login
+  failed_when: false
+  no_log: true
+  check_mode: false
+  when:
+    - _openbao_staged_role_id.stat.exists
+    - _openbao_staged_secret_id.stat.exists
+
+# With no AppRole auth method mounted, OpenBao treats the login path as
+# an unauthenticated request and answers 403 "permission denied". A
+# mounted AppRole answers bad credentials itself, with 400 — so a dead
+# secret_id against a live cluster never reads as "no AppRole".
+- name: Classify the staged backup AppRole login
+  ansible.builtin.set_fact:
+    _openbao_backup_secret_id_proven: "{{ _openbao_backup_login.status | default(0) == 200 }}"
+    _openbao_backup_no_approle: >-
+      {{ _openbao_backup_login.status | default(0) == 403
+         and _openbao_backup_login.json.errors | default([]) == ['permission denied'] }}
+
+- name: Refuse a staged backup secret_id the backup AppRole rejects
+  ansible.builtin.fail:
+    msg: >-
+      The backup AppRole login with the staged role_id and secret_id in
+      {{ openbao_backup_staging_dir }} was rejected (HTTP 400:
+      {{ _openbao_backup_login.json.errors | default([]) | join('; ') }}),
+      so the staged secret_id was not installed. Mint and stage a fresh
+      one with a site-openbao.yml run with
+      -e openbao_rotate_secret_ids=true (it mints a fresh secret_id for
+      every AppRole).
+  when: _openbao_backup_login.status | default(0) == 400
+
+- name: Fail when the staged backup AppRole login did not complete
+  ansible.builtin.fail:
+    msg: >-
+      The backup AppRole login at {{ openbao_admin_api_addr }} with the
+      staged credentials returned HTTP {{ _openbao_backup_login.status }}:
+      {{ _openbao_backup_login.json.errors | default([_openbao_backup_login.msg | default('')]) | join('; ') }}.
+      The staged secret_id was not installed.
+  when:
+    - _openbao_backup_login.status is defined
+    - _openbao_backup_login.status not in [200, 400]
+    - not _openbao_backup_no_approle
+
+- name: Revoke the token the proving login returned
+  ansible.builtin.uri:
+    url: "{{ openbao_admin_api_addr }}/v1/auth/token/revoke-self"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ _openbao_backup_login.json.auth.client_token }}"
+    status_code: 204
+    validate_certs: true
+  register: _openbao_backup_revoke
+  failed_when: false
+  no_log: true
+  check_mode: false
+  when: _openbao_backup_secret_id_proven
+
+- name: Fail when the proving login's token was not revoked
+  ansible.builtin.fail:
+    msg: >-
+      Revoking the backup AppRole token the proving login returned
+      failed: auth/token/revoke-self returned HTTP
+      {{ _openbao_backup_revoke.status }}:
+      {{ _openbao_backup_revoke.json.errors | default([_openbao_backup_revoke.msg | default('')]) | join('; ') }}.
+  when:
+    - _openbao_backup_secret_id_proven
+    - _openbao_backup_revoke.status != 204
+
 # Configurable once the role_id + upload token are staged AND the
-# secret_id can be placed — either it is staged now (a rotation run
-# just minted it) or a prior run already delivered it to the node.
+# secret_id can be placed — either a staged one was just proven, or a
+# prior run already delivered one to the node.
 - name: Decide whether the backup pipeline can be configured
   ansible.builtin.set_fact:
     _openbao_backup_ready: >-
       {{ _openbao_staged_role_id.stat.exists
          and _openbao_staged_token.stat.exists
-         and (_openbao_staged_secret_id.stat.exists
+         and (_openbao_backup_secret_id_proven
               or _openbao_node_secret_id.stat.exists) }}
+
+- name: Report the backup credential undelivered to a cluster without AppRole auth
+  ansible.builtin.debug:
+    msg: >-
+      Backup AppRole secret_id not delivered: the cluster has no AppRole
+      auth method to prove the staged one against, as on a whole-cluster
+      recovery converge before the snapshot restore. Converge
+      site-openbao.yml again after the restore to prove and deliver it.
+      {{ '' if _openbao_backup_ready else 'The backup pipeline stays unconfigured until then.' }}
+  when: _openbao_backup_no_approle
 
 - name: Skip the backup pipeline until its inputs exist
   ansible.builtin.debug:
@@ -65,7 +158,9 @@
       backup secret_id) and the backup-server upload token
       (`terraform apply` for homelab_backup_credential). Re-run
       site-openbao.yml once those are in place.
-  when: not _openbao_backup_ready
+  when:
+    - not _openbao_backup_ready
+    - not _openbao_backup_no_approle
 
 - name: Configure the backup pipeline
   when: _openbao_backup_ready
@@ -85,10 +180,8 @@
         mode: "0400"
       no_log: true
 
-    # Delivered whenever a staged secret_id exists — a rotation run
-    # just staged a fresh one, or a prior rotation's file persists.
-    # When neither, _openbao_backup_ready already required the file to
-    # be on the node, so the wrapper still has a usable credential.
+    # Delivered only once proven by the login above. When not,
+    # _openbao_backup_ready required the file to be on the node already.
     - name: Deliver the backup AppRole secret_id
       ansible.builtin.copy:
         dest: "{{ openbao_config_dir }}/backup-secret-id"
@@ -96,7 +189,7 @@
         owner: openbao
         group: openbao
         mode: "0400"
-      when: _openbao_staged_secret_id.stat.exists
+      when: _openbao_backup_secret_id_proven
       no_log: true
 
     - name: Deliver the backup-server upload token
