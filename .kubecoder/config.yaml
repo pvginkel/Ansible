@@ -48,6 +48,9 @@ secrets:
   TF_VAR_proxmox_password: proxmox-password
   TF_VAR_dns_reservation_token: dns-reservation-token
   TF_VAR_backup_server_token: backup-server-token
+  # Jenkins API token for tools/ai_workflow/track_build.py (on PATH here), which
+  # signs in as $JENKINS_USER, default `admin`.
+  JENKINS_TOKEN: jenkins-token
 
 # One TF_VAR_ set serves both terraform/prd and terraform/scratch: the two
 # stacks share proxmox_* and dns_reservation_*, and terraform ignores a TF_VAR_
