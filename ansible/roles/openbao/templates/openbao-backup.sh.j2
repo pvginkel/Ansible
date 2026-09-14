@@ -12,7 +12,9 @@
 #
 # Followers exit 0 immediately; only the Raft leader produces a bundle.
 # Any failure exits non-zero so the systemd unit is marked failed and
-# surfaces in `systemctl --failed`.
+# surfaces in `systemctl --failed`. A failed call logs its method, path,
+# HTTP status and OpenBao's error strings, never a response body: the
+# login, snapshot, KV and policy responses carry secret material.
 set -euo pipefail
 
 OPENBAO_ADDR="{{ openbao_api_addr }}"
@@ -25,8 +27,54 @@ UPLOAD_FILENAME="openbao-backup.tgz"
 
 log() { echo "openbao-backup: $*"; }
 
+work=$(mktemp -d /dev/shm/openbao-backup.XXXXXX)
+trap 'rm -rf "${work}"' EXIT
+resp="${work}/response"
+
+# request NAME OUT CURL_ARG... — one HTTP call: the body to OUT, the
+# status to ${http}. A call without a complete response ends the run.
+http=""
+request() {
+  local name="$1" out="$2" rc=0
+  shift 2
+  http=$(curl -sS -o "${out}" -w '%{http_code}' "$@") || rc=$?
+  if (( rc == 0 )); then
+    return 0
+  elif [[ "${http}" == "000" ]]; then
+    log "${name} failed: no HTTP response (curl exit ${rc})" >&2
+  else
+    log "${name} failed: HTTP ${http}, then curl exit ${rc}" >&2
+  fi
+  exit 1
+}
+
+# bao_request METHOD PATH OUT [CURL_ARG...] — one OpenBao API call.
+bao_request() {
+  local method="$1" path="$2" out="$3"
+  shift 3
+  request "${method} ${path}" "${out}" -X "${method}" "$@" \
+    "${OPENBAO_ADDR}/v1/${path}"
+}
+
+# bao_check METHOD PATH OUT — ends the run unless the last call answered
+# 2xx, logging the "errors" strings of OpenBao's error body in OUT.
+bao_check() {
+  local errors
+  if [[ "${http}" == 2?? ]]; then
+    return 0
+  fi
+  errors=$(jq -r '[(.errors? // [])[]? | strings | gsub("\\s+"; " ")
+    | ltrimstr(" ") | rtrimstr(" ")] | join("; ")' "$3" 2>/dev/null) \
+    || errors=""
+  log "$1 $2 failed: HTTP ${http}${errors:+: ${errors}}" >&2
+  exit 1
+}
+
+bao_api() { bao_request "$@"; bao_check "$1" "$2" "$3"; }
+
 # --- leader guard (sys/leader is unauthenticated) -------------------
-is_self=$(curl -fsS "${OPENBAO_ADDR}/v1/sys/leader" | jq -r '.is_self')
+bao_api GET sys/leader "${resp}"
+is_self=$(jq -r '.is_self' "${resp}")
 if [[ "${is_self}" != "true" ]]; then
   log "not the Raft leader; nothing to do"
   exit 0
@@ -35,30 +83,26 @@ fi
 # --- authenticate via the backup AppRole ----------------------------
 login_body=$(jq -n --arg r "$(< "${ROLE_ID_FILE}")" \
   --arg s "$(< "${SECRET_ID_FILE}")" '{role_id: $r, secret_id: $s}')
-token=$(curl -fsS -X POST -H 'Content-Type: application/json' \
-  -d "${login_body}" "${OPENBAO_ADDR}/v1/auth/approle/login" \
-  | jq -r '.auth.client_token')
+bao_api POST auth/approle/login "${resp}" \
+  -H 'Content-Type: application/json' -d "${login_body}"
+token=$(jq -r '.auth.client_token' "${resp}")
 if [[ -z "${token}" || "${token}" == "null" ]]; then
-  log "AppRole login returned no token" >&2
+  log "POST auth/approle/login returned no token" >&2
   exit 1
 fi
-
-bao_get() { curl -fsS -H "X-Vault-Token: ${token}" "${OPENBAO_ADDR}/v1/$1"; }
-
-work=$(mktemp -d /dev/shm/openbao-backup.XXXXXX)
-trap 'rm -rf "${work}"' EXIT
+auth=(-H "X-Vault-Token: ${token}")
 
 # --- the restore artifact: native Raft snapshot ---------------------
-curl -fsS -H "X-Vault-Token: ${token}" \
-  "${OPENBAO_ADDR}/v1/sys/storage/raft/snapshot" -o "${work}/raft.snap"
+bao_api GET sys/storage/raft/snapshot "${work}/raft.snap" "${auth[@]}"
 
 # --- collect ACL policies (name -> HCL text) ------------------------
 policies='{}'
-policy_names=$(curl -fsS -H "X-Vault-Token: ${token}" -X LIST \
-  "${OPENBAO_ADDR}/v1/sys/policies/acl" | jq -r '(.data.keys // [])[]')
+bao_api LIST sys/policies/acl "${resp}" "${auth[@]}"
+policy_names=$(jq -r '(.data.keys // [])[]' "${resp}")
 while IFS= read -r name; do
   [[ -n "${name}" ]] || continue
-  hcl=$(bao_get "sys/policies/acl/${name}" | jq -r '.data.policy // ""')
+  bao_api GET "sys/policies/acl/${name}" "${resp}" "${auth[@]}"
+  hcl=$(jq -r '.data.policy // ""' "${resp}")
   policies=$(jq -n --argjson o "${policies}" --arg n "${name}" \
     --arg p "${hcl}" '$o + {($n): $p}')
 done <<< "${policy_names}"
@@ -69,38 +113,32 @@ printf '%s\n' "${policies}" > "${work}/policies.json"
 # keys here" so a freshly-mounted, still-empty kv/ is not an error.
 kv='{}'
 kv_walk() {
-  local prefix="$1" listing http
-  listing=$(curl -sS -H "X-Vault-Token: ${token}" -X LIST \
-    -w '\n%{http_code}' \
-    "${OPENBAO_ADDR}/v1/${KV_MOUNT}/metadata/${prefix}")
-  http="${listing##*$'\n'}"
-  listing="${listing%$'\n'*}"
+  local prefix="$1" keys key
+  bao_request LIST "${KV_MOUNT}/metadata/${prefix}" "${resp}" "${auth[@]}"
   if [[ "${http}" == "404" ]]; then
     return 0
-  elif [[ "${http}" != "200" ]]; then
-    log "LIST ${KV_MOUNT}/metadata/${prefix} returned ${http}" >&2
-    return 1
   fi
-  local key
+  bao_check LIST "${KV_MOUNT}/metadata/${prefix}" "${resp}"
+  keys=$(jq -r '(.data.keys // [])[]' "${resp}")
   while IFS= read -r key; do
     [[ -n "${key}" ]] || continue
     if [[ "${key}" == */ ]]; then
       kv_walk "${prefix}${key}"
     else
-      local secret
-      secret=$(bao_get "${KV_MOUNT}/data/${prefix}${key}")
-      kv=$(jq -n --argjson o "${kv}" --arg p "${prefix}${key}" \
-        --argjson d "$(jq '.data.data' <<< "${secret}")" \
-        '$o + {($p): $d}')
+      bao_api GET "${KV_MOUNT}/data/${prefix}${key}" "${resp}" "${auth[@]}"
+      kv=$(jq --argjson o "${kv}" --arg p "${prefix}${key}" \
+        '$o + {($p): .data.data}' "${resp}")
     fi
-  done <<< "$(jq -r '(.data.keys // [])[]' <<< "${listing}")"
+  done <<< "${keys}"
 }
-kv_walk "" || { log "KV walk failed" >&2; exit 1; }
+kv_walk ""
 printf '%s\n' "${kv}" > "${work}/kv.json"
 
 # --- auth + mount config --------------------------------------------
-bao_get "sys/auth"   | jq '.data' > "${work}/auth.json"
-bao_get "sys/mounts" | jq '.data' > "${work}/mounts.json"
+bao_api GET sys/auth "${resp}" "${auth[@]}"
+jq '.data' "${resp}" > "${work}/auth.json"
+bao_api GET sys/mounts "${resp}" "${auth[@]}"
+jq '.data' "${resp}" > "${work}/mounts.json"
 
 # --- manifest -------------------------------------------------------
 jq -n \
@@ -114,11 +152,15 @@ jq -n \
 tar czf "${work}/${UPLOAD_FILENAME}" -C "${work}" \
   manifest.json auth.json mounts.json policies.json kv.json raft.snap
 
-curl -fsS -X POST \
+# backup-server answers in plain text, so only the status is logged.
+request "POST ${BACKUP_SERVER_URL}/upload" "${resp}" -X POST \
   -H "Authorization: Bearer $(< "${UPLOAD_TOKEN_FILE}")" \
   -H 'Content-Type: application/octet-stream' \
   --data-binary "@${work}/${UPLOAD_FILENAME}" \
-  "${BACKUP_SERVER_URL}/upload?filename=${UPLOAD_FILENAME}" \
-  > /dev/null
+  "${BACKUP_SERVER_URL}/upload?filename=${UPLOAD_FILENAME}"
+if [[ "${http}" != 2?? ]]; then
+  log "POST ${BACKUP_SERVER_URL}/upload failed: HTTP ${http}" >&2
+  exit 1
+fi
 
 log "backup uploaded (snapshot $(stat -c %s "${work}/raft.snap") bytes, bundle $(stat -c %s "${work}/${UPLOAD_FILENAME}") bytes)"
