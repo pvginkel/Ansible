@@ -167,6 +167,12 @@ and the latest backup's Raft snapshot is restored into it.
    ssh srvvault1 sudo cat /dev/shm/openbao-init.json
    ```
 
+   This converge leaves the backup pipeline unconfigured. The empty
+   cluster has no AppRole auth to prove a staged backup secret_id
+   against, so it prints `Backup AppRole secret_id not delivered`, or
+   `OpenBao backup pipeline not configured` when none is staged.
+   Step 5 delivers it.
+
 4. **Restore the snapshot.** Copy `raft.snap` to `srvvault1`, then:
 
    ```bash
@@ -181,7 +187,43 @@ and the latest backup's Raft snapshot is restored into it.
    The fresh init file at `/dev/shm/openbao-init.json` is now stale —
    leave it; tmpfs clears on reboot and the keys it holds are inert.
 
-5. **Verify.**
+5. **Converge again, to deliver the backup credential.** The rebuilt
+   nodes hold no backup secret_id: step 3 had no `backup` AppRole to
+   prove one against. This converge authenticates with the restored
+   `openbao-admin` AppRole, re-stages the restored `backup` role_id,
+   and logs in with the staged secret_id before installing it:
+
+   ```bash
+   cd ansible && poetry run ansible-playbook playbooks/site-openbao.yml
+   ```
+
+   The outcome depends on the checkout's `tmp/openbao-backup-secret-id`:
+
+   - **Staged, and the restored role accepts it**: delivered to every
+     node, with `openbao-backup.timer` enabled.
+   - **Staged, and the restored role rejects it**: the run fails at
+     `Refuse a staged backup secret_id the backup AppRole rejects`,
+     naming `-e openbao_rotate_secret_ids=true`.
+   - **None staged** (a fresh clone, as every Jenkins run is): the
+     run completes with `OpenBao backup pipeline not configured`, and
+     no timer is installed.
+
+   For either of the last two, converge once more with the rotation
+   flag:
+
+   ```bash
+   cd ansible && poetry run ansible-playbook playbooks/site-openbao.yml \
+       -e openbao_rotate_secret_ids=true
+   ```
+
+   It mints and stages a fresh `backup` secret_id, which every node
+   proves and receives. It also mints a fresh never-expiring
+   secret_id for the other five AppRoles and revokes none, so every
+   consumer keeps its restored pair. The credentials it stages for
+   capture need no redistribution; wipe them with the `shred -u` its
+   closing message prints.
+
+6. **Verify.**
 
    ```bash
    export BAO_ADDR=https://secrets
@@ -190,6 +232,16 @@ and the latest backup's Raft snapshot is restored into it.
    bao policy list                   # the five role policies present
    bao kv get kv/<a known path>      # a real secret reads back
    ```
+
+   Run one backup on the node `list-peers` shows as leader:
+
+   ```bash
+   ssh srvvaultN sudo systemctl start openbao-backup.service
+   ssh srvvaultN sudo journalctl -u openbao-backup -n 5 --no-pager
+   ```
+
+   Expect `openbao-backup: backup uploaded (…)`. A failed run names
+   the call that broke.
 
    Consumers (iac-agent, Jenkins, ESO) need **no** credential
    redistribution — their AppRole `role_id`/`secret_id` pairs are
