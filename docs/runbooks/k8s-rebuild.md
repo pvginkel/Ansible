@@ -23,7 +23,7 @@ For a single-node rebuild (the common steady-state case), drop the pre-flight st
 - SSH agent loaded with both operator and ansible keys (see `operator-workstation.md`).
 - Workstation has a secondary DNS resolver configured (per `decisions.md` "DNS and hostnames"). A node reboot blacks out resolution from the workstation otherwise.
 - Maintenance window for prd. `srvk8sdev` is dev only.
-- `git status` clean. `terraform plan` shows only the queued rebuild entries (no unrelated drift). If a previous half-rebuild left an orphan `module.vm["<old-hostname>"]` in state, `terraform state rm 'module.vm["<old-hostname>"].proxmox_virtual_environment_vm.this'` first — `for_each` orphan reconciliation isn't suppressed by `-target`, and a leftover orphan otherwise queues a destroy alongside the targeted apply.
+- `git status` clean. `terraform plan` shows only the queued rebuild entries (no unrelated drift). If a previous half-rebuild left an orphan `module.vm["<old-hostname>"]` in state, `terraform state rm 'module.vm["<old-hostname>"].proxmox_virtual_environment_vm.this'` first — `for_each` orphan reconciliation isn't suppressed by `-target`, and a leftover orphan otherwise queues a destroy alongside the targeted apply, which `prevent_destroy` refuses: the plan fails with `Error: Instance cannot be destroyed`.
 
 ## Pre-drain hand-off
 

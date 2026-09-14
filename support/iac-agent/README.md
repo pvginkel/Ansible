@@ -9,7 +9,7 @@ Host glue for `srviac`, the homelab's IaC orchestrator VM. Part of the Ansible r
 | `bin/iac` | The host shim. Runs `iac-impl` inside the `iac` container (`registry:5000/iac:latest`, built from this repo's `support/iac-image/`); bind-mounts four paths in — `iac-impl`, `/etc/iac/secrets.yaml`, `check-protected-vms.sh` and `check-ansible-drift.sh`. |
 | `bin/iac-impl` | The in-container entrypoint. Parses secrets, clones the Ansible repo, starts the `terraform-backend-git` daemon on `127.0.0.1:6061` (terraform reaches state through it via each config's `backend.tf` http block), runs `poetry install`, then executes the caller's command. Bind-mounted in from `/usr/local/bin/iac-impl` on the host (so changes don't require an `iac` image rebuild). |
 | `bin/jenkins-agent-launch.sh` | Wrapper invoked by the systemd unit; extracts `JENKINS_AGENT_SECRET` from `/etc/iac/secrets.yaml` and launches the Jenkins inbound-agent container. |
-| `bin/check-protected-vms.sh` | Used by the on-push, apply and drift Jenkins jobs. Fails when a `terraform plan` proposes destroy/replace on any of the named VMs. |
+| `bin/check-protected-vms.sh` | Used by the on-push, apply and drift Jenkins jobs, against the `terraform/prd` plan JSON. Fails (exit 1) when the plan deletes or replaces any VM; exits 2 on a usage error or an unreadable plan. The second rail: while `managed-vm`'s VM resource carries `prevent_destroy`, `terraform plan` refuses such a plan before the guard runs. |
 | `bin/check-ansible-drift.sh` | Used by the drift job. Wraps `ansible-playbook --check --diff` and fails when the recap reports any pending changes. |
 | `etc/iac/secrets.example.yaml` | Placeholder for `/etc/iac/secrets.yaml`. The Ansible role places this on a fresh srviac and fails loudly until the operator copies it to `secrets.yaml` and fills in real values. |
 | `etc/docker/daemon.json` | Declares `registry:5000` as an insecure registry. |
@@ -27,7 +27,7 @@ reports FAILURE by itself, and where a job needs to say something the build
 result does not, it calls JenkinsPipelineUtils' `notify` var. Current jobs:
 
 - **`Jenkinsfile.iac-on-push`** — push to `main` on `pvginkel/Ansible`: read-only validation, `terraform plan` plus the protected-VM destroy check. It converges nothing.
-- **`Jenkinsfile.iac-apply`** — the converging half, started by hand: plan + destroy-check, apply, then Ansible convergence across the `site*.yml` playbooks.
+- **`Jenkinsfile.iac-apply`** — the converging half, started by hand: plan, destroy check and apply of that saved plan in one `iac` call, then Ansible convergence across the `site*.yml` playbooks.
 - **`Jenkinsfile.iac-scheduled-update`** — weekly cron: OS-update / patch posture for the cluster class (drain → upgrade → reboot).
 - **`Jenkinsfile.iac-scheduled-drift`** — daily cron: terraform + Ansible `--check` drift across the same playbooks, plus the homelab CA root.
 - **`Jenkinsfile.iac-scheduled-calico`** — weekly cron: rolling restart of the `calico-node` DaemonSet, capping every pod's uptime below the token-refresh stall window.

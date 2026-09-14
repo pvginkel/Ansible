@@ -28,13 +28,14 @@ is untouched either way.
 Convergence is `iac-apply`, started by hand once the validation is green. The job, inside one
 `iac -c '…'` per stage:
 
-1. Repeats the plan + destroy check — the guard has to run against the commit being applied, not a
-   different build.
-2. Applies `terraform/prd`.
-3. Runs `site.yml --limit '!iac_agent'`.
-4. Runs `site-openbao.yml`.
-5. Runs `site-k8s.yml --limit k8s_prd`.
-6. Converges `srvk8sdev` last, in a stage that can only ever downgrade the build to UNSTABLE.
+1. Plans `terraform/prd`, runs the destroy check against that plan, and applies that saved plan —
+   one stage, one call. The guard has to run against the commit being applied, not a different
+   build, and a second call would plan again in a fresh clone, so the plan applied is the plan
+   checked.
+2. Runs `site.yml --limit '!iac_agent'`.
+3. Runs `site-openbao.yml`.
+4. Runs `site-k8s.yml --limit k8s_prd`.
+5. Converges `srvk8sdev` last, in a stage that can only ever downgrade the build to UNSTABLE.
 
 All ansible stages pass `--skip-tags os_update`: patch posture belongs to `iac-scheduled-update`.
 

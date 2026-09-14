@@ -2,7 +2,9 @@
 
 Provider: [`bpg/proxmox`](https://registry.terraform.io/providers/bpg/proxmox/latest).
 
-Terraform creates and destroys VMs (disks, network, cloud-init user-data). Ansible picks up from cloud-init and does all OS-level configuration.
+Terraform creates VMs (disks, network, cloud-init user-data). Ansible picks up from cloud-init and does all OS-level configuration.
+
+Terraform never destroys a production VM: `managed-vm`'s VM resource carries `prevent_destroy`, so a `prd/` plan that would delete or replace one fails. A prd VM is rebuilt or removed by destroying it on Proxmox first — see [`prd/README.md`](prd/README.md). The scratch root has its own VM resource and destroys or replaces its VMs freely.
 
 ## Layout
 

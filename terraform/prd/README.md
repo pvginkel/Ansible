@@ -50,6 +50,10 @@ To touch a single VM during plan/apply, target it: `terraform plan -target='modu
 
 For a fresh state file or recovery from state loss, [`./import.sh`](import.sh) runs the import step for every entry in `local.vms` and skips ones already in state.
 
+## Rebuilding or removing a VM
+
+Terraform never destroys a VM in this root. `managed-vm`'s VM resource carries `prevent_destroy`, so a plan that deletes or replaces one fails with `Error: Instance cannot be destroyed`. That covers a changed field that forces a new VM, a removed `vms.tf` entry, and a VM a failed create left tainted. Destroy the VM on Proxmox first: `qm destroy <vm_id>` on its `pve_node`. The next apply finds it gone and recreates it under its `vm_id`. To remove a VM, destroy it on Proxmox the same way, then drop its `vms.tf` entry and apply. Procedures: [`vm-rebuild.md`](../../docs/runbooks/vm-rebuild.md), [`k8s-rebuild.md`](../../docs/runbooks/k8s-rebuild.md). Doctrine: `decisions.md` "Production execution model".
+
 ## State
 
 `terraform.tfstate` is local-only on the operator workstation today. The future production execution model commits state to a dedicated git repo per `decisions.md`.
