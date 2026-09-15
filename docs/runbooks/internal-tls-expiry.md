@@ -53,11 +53,8 @@ cd ansible && poetry run ansible 'proxmox:openbao:k8s' -m ping
 - `UNREACHABLE` with `Certificate invalid: expired` — fix the host certificate first with
   [`ssh-host-cert-expiry.md`](ssh-host-cert-expiry.md), then come back. For pve, pve1 and pve2 its
   fix takes a host key you first verify on the node's own console.
-- srvk8sdev starts with `pve` but can be stopped by hand; from srviac, where the Friday job runs, a
-  connection timeout there usually means it is off (`qm status 919` on pve). A KubeCoder environment
-  cannot reach srvk8sdev at all
-  ([`../live-infra-access.md`](../live-infra-access.md)), so from there a failure says nothing
-  about the box; renew its leaf from srviac.
+- srvk8sdev starts with `pve` but can be stopped by hand, so a connection timeout there usually
+  means it is off (`qm status 919` on pve).
 
 ## 2 — Confirm the leaf has lapsed (read-only)
 

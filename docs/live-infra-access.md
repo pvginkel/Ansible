@@ -135,9 +135,10 @@ channel refreshes), `k8s-dqlite` / kubelite recovery, and reading files on the n
 kubectl` on a node also stays the break-glass path when the token or the apiserver VIP is itself
 the broken thing.
 
-The dev cluster is the other case. `~/.kube/config-dev-write` addresses `srvk8sdev`, which answers
-on neither 22 nor 16443 from this pod — unreachable here whatever the credential says, and it is
-still `edit`-bound in any case. Only the `srvk8s*` prd nodes are reachable.
+The dev cluster is the other case. `~/.kube/config-dev-write` addresses `srvk8sdev` as
+`kubecoder-rw`, which is still only `edit`-bound there, so cluster-scoped work on dev goes over SSH.
+When srvk8sdev is running it answers from this pod on 22, 16443 and RGW's 80 (checked 2026-09-15);
+docs written before then call it unreachable from here.
 
 ```
 cd ansible && ssh -o UserKnownHostsFile=files/known_hosts.d/homelab -o GlobalKnownHostsFile=/dev/null \

@@ -20,7 +20,7 @@ The mirror is HelmCharts `charts/storage/files/s3-mirror/s3_mirror.py`, run nigh
 - "Roboform" is the password manager of record.
 - Everything runs on one **rclone host**: rclone, kubectl, jq, curl and ssh installed, a browser
   for the Drive login, and LAN reach to `http://ceph:7480` (and to `http://srvk8sdev` for the
-  drill). The KubeCoder pod does not qualify: it has no rclone and does not reach srvk8sdev.
+  drill). The KubeCoder pod does not qualify: it has no rclone.
 
 ## Mirror layout
 
