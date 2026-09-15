@@ -62,7 +62,8 @@ is cluster-admin on prd), and writing OpenBao secrets — are in [`docs/live-inf
 The toolchain lives in the `iac` sidecar, not this container: `cexec iac <cmd>` for poetry,
 ansible, terraform, kubectl, helm, `bao`, `step`. Curated entry points are `kc project
 setup|lint|test`. **Linting is manual** — no pre-commit hook; run `kc project lint` before
-proposing a commit. Terraform state reads work here; `plan`/`apply` do not. Details in
+proposing a commit. Terraform `plan`/`apply` work here as well as on srviac, which Jenkins uses
+and which stays up when Kubernetes is down. Details in
 [`docs/live-infra-access.md`](docs/live-infra-access.md).
 
 ## Related repos on this machine

@@ -218,9 +218,9 @@ no performance/efficiency split to exploit.
   stays the path for node-*host* work (the microk8s snap, dqlite recovery) and for break-glass.
 - **OpenBao** is at `secrets.home:8200`. Reachable, but no token is provisioned in the dev
   environment by default.
-- **Terraform** state reads work from the dev pod; `plan`/`apply` do not, because the Proxmox
-  credentials are not in the secret catalog. Applies run through the `IaC/*` Jenkins
-  pipelines or by hand on `srviac`.
+- **Terraform** works from the dev pod — state reads, `plan` and `apply` — because the Proxmox
+  credentials reach it as `TF_VAR_*`. The `IaC/*` Jenkins pipelines run the same thing on
+  `srviac`, which stays up when Kubernetes is down.
 - **The UDM Pro** accepts the `id_ed25519_pve` key as `root` at `router.home`. Its UniFi
   controller configuration lives in a local MongoDB on port 27117 (database `ace`), which is
   where the network, device and port definitions in §3 were read from. Treat this access as

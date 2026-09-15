@@ -16,19 +16,41 @@ needing poetry, ansible, terraform, kubectl, helm, `bao` or `step`. Curated entr
 `inventories/prd` (every production-grade host); `inventories/scratch` holds the disposable scratch
 fleet, reached with `-i inventories/scratch`.
 
-**Terraform** lives in `terraform/`. **State reads work from this pod; `plan`/`apply` do not.**
-Provider is `bpg/proxmox`; `terraform/{prd,scratch}/backend.tf` points at an http backend on
-`127.0.0.1:6061`, served here by the `terraform-backend-git` catalog service that
-`.kubecoder/config.yaml` runs as a sidecar. So `terraform init` and state reads (`state list`,
-`show`) succeed via `cexec iac`. The backend URL names the git store (`pvginkel/TerraformState`,
-ref `main`), so this daemon and the one `iac-impl` starts on **srviac** resolve to the same state —
-reads here are the real thing, not a private copy. `terraform fmt` needs no state at all.
+**Terraform** lives in `terraform/`, and all of it works from this pod via `cexec iac`: `init`,
+state reads, `plan` and `apply`. Provider is `bpg/proxmox`; `terraform/{prd,scratch}/backend.tf`
+points at an http backend on `127.0.0.1:6061`, served here by the `terraform-backend-git` catalog
+service that `.kubecoder/config.yaml` runs as a sidecar. The backend URL names the git store
+(`pvginkel/TerraformState`, ref `main`), so this daemon and the one `iac-impl` starts on **srviac**
+resolve to the same state — reads here are the real thing, not a private copy. `terraform fmt`
+needs no state at all.
 
-What does not work is anything that contacts Proxmox: `terraform/prd` takes its credentials as
-variables (`proxmox_endpoint`, `proxmox_username`, `proxmox_password`, `dns_reservation_token`,
-`backup_server_token`), only `terraform.tfvars.example` is checked in, and the KubeCoder secret
-catalog carries none of them — so `plan`/`apply` fail here on missing variables. Those runs happen
-in the `IaC/*` Jenkins pipelines, or by hand on srviac via `iac -c '…'`.
+`terraform/prd` takes its credentials as variables (`proxmox_endpoint`, `proxmox_username`,
+`proxmox_password`, `dns_reservation_token`, `backup_server_token`). Only
+`terraform.tfvars.example` is checked in; the values reach this pod's environment as `TF_VAR_*`, in
+the dev container and the `iac` sidecar alike, so nothing needs sourcing.
+
+The `IaC/*` Jenkins pipelines run the same Terraform on **srviac** through `iac -c '…'`. The setup
+matches this pod's, but srviac is its own VM, so that path still works when Kubernetes — and with it
+this pod — is down. Each `iac` run is a throwaway container with a fresh clone of `main`: it sees
+pushed state, not the working tree, and `terraform init -input=false` has to come first. From this
+pod, go in as `ansible` and use `sudo`, because only `pvginkel` is in srviac's `docker` group (the
+SSH options are the ones under "What still needs SSH"):
+
+```
+cd ansible && ssh <options> ansible@srviac \
+  "sudo iac -c 'cd /work/Ansible/terraform/prd && terraform init -input=false && terraform plan'"
+```
+
+A **HelmCharts release's** Terraform also needs OpenBao-held provider credentials. Load them and
+plan in one shell — the verb is `deploy plan`, there is no bare `plan` script:
+
+```
+. scripts/bao-login.sh && cd /work/HelmCharts && . scripts/setup-env.sh prd && cexec iac poetry run deploy plan prd/<chart>
+```
+
+`setup-env.sh` reads OpenBao values into the environment, so it falls under `CLAUDE.md`'s "What
+Claude doesn't read on its own" — ask first. On srviac the equivalent is the `IAC_SETUP` prelude in
+HelmCharts' `Jenkinsfile`, then `/tmp/hcvenv/bin/deploy plan prd/<chart>`.
 
 **Linting is manual.** There is no pre-commit hook — it was removed because it was breaking
 commits. Run `kc project lint` before proposing a commit. For a single path, reach past it:
@@ -70,12 +92,12 @@ When handing a command to the operator, use this exact shape:
   operator converts it to an apply by deleting the trailing flag — never put `--check`
   mid-command. Never include `--ask-vault-pass`: `ANSIBLE_VAULT_PASSWORD_FILE` is projected by
   `.kubecoder/config.yaml` and survives into the sidecar, so the vault unlocks automatically.
-- **Terraform:** don't hand over a `terraform apply` for prd or scratch — the Proxmox credentials
-  are not reachable here, so the command fails on missing variables. Route it through a push to
-  `main`, which CI turns into an apply, and say so explicitly rather than proposing a command that
-  will fail. If it genuinely must be manual, the shape is
-  `iac -c 'cd terraform/prd && terraform apply'` **on srviac** — and note that `iac-impl` clones
-  `main` inside the container, so that applies pushed state, not the working tree.
+- **Terraform:** `cd terraform/prd && cexec iac terraform apply`. It applies the working tree, so
+  push first and state never runs ahead of `main`. A push to `main` does not apply: `iac-on-push`
+  only plans, and convergence is the manual `iac-apply` job. The srviac shape is
+  `iac -c 'cd /work/Ansible/terraform/prd && terraform init -input=false && terraform apply'` — it
+  applies pushed `main`, not the working tree, and it is the one that still works with Kubernetes
+  down.
 
 ## Cluster access: `config-prd-write` is cluster-admin on prd
 
