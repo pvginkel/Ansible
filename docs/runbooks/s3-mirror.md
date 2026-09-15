@@ -222,10 +222,11 @@ a successful nightly run, so the live bucket has changed as little as possible s
    kubectl --context prd -n storage-prd get cronjob s3-mirror -o jsonpath='{.status.lastSuccessfulTime}{"\n"}'
    ```
 
-2. **Start srvk8sdev** (VM 919 on `pve`, off by default) and wait for its RGW on port 80:
+2. **Make sure srvk8sdev is up** (VM 919 on `pve`) and wait for its RGW on port 80. It starts with
+   `pve`, but it can be stopped by hand — `qm start 919` if `qm status` says `stopped`:
 
    ```bash
-   ssh root@pve qm start 919
+   ssh root@pve qm status 919
    until curl -s -o /dev/null http://srvk8sdev/; do sleep 10; done
    ```
 

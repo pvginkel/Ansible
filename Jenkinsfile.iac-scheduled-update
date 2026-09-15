@@ -19,8 +19,9 @@
 
 library identifier: 'JenkinsPipelineUtils', changelog: false
 
-// srvk8sdev is powered off most of the time. Every dev stage in every
-// iac-* pipeline opens with this bounded SSH probe: `-T 5` caps the
+// srvk8sdev can be down: it starts with pve, but may be stopped by
+// hand. Every dev stage in every iac-* pipeline opens with this
+// bounded SSH probe: `-T 5` caps the
 // connect, so a down box costs seconds rather than a playbook's worth
 // of connection retries. A false result means "skip the stage and mark
 // the build UNSTABLE" — never FAILURE, and never a page.

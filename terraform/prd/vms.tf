@@ -81,7 +81,7 @@ locals {
 
       cpu_cores   = 8
       cpu_sockets = 1
-      memory_mb   = 20 * 1024
+      memory_mb   = 32 * 1024
 
       managed_disks = [
         { interface = "scsi0", size = 20 },
@@ -106,11 +106,6 @@ locals {
       tags          = ["ansible-managed", "terraform", "k8s"]
       bios          = "ovmf"
       machine       = "q35"
-
-      # Off unless someone is actively iterating on it — a dev canary
-      # that is up all the time just burns pve capacity and drags every
-      # pipeline's dev stage along with it.
-      on_boot = false
 
       cpu_cores   = 4
       cpu_sockets = 1

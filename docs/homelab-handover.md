@@ -167,8 +167,8 @@ Terraform manages 12 production VMs (`terraform/prd`) plus 2 disposable scratch 
 | srvk8s1 | 910 | pve | 8 | 16 GiB | 20G + 80G, NVMe passthrough (`zpool2`) | microk8s node |
 | srvk8s2 | 911 | pve1 | 3 | 16 GiB | 20G + 80G + 40G (`zpool3`) | microk8s node |
 | srvk8s3 | 912 | pve2 | 3 | 16 GiB | 20G + 80G + 40G (`zpool4`) | microk8s node |
-| srvk8s4 | 916 | pve | 8 | 20 GiB | 20G + 80G + 100G (`zpool5`) | microk8s node, the only `interactive` VM |
-| srvk8sdev | 919 | pve | 4 | 8 GiB | 60G + 20G + 20G | single-node dev k8s + dev Ceph (**currently stopped**) |
+| srvk8s4 | 916 | pve | 8 | 32 GiB | 20G + 80G + 100G (`zpool5`) | microk8s node, the only `interactive` VM |
+| srvk8sdev | 919 | pve | 4 | 8 GiB | 60G + 20G + 20G | single-node dev k8s + dev Ceph |
 | srvceph1 | 113 | pve1 | 3 | 10 GiB | 32G + 100G, 2 TB SSD passthrough | Ceph OSD/mon |
 | srvceph2 | 114 | pve2 | 3 | 10 GiB | 32G + 100G, 2 TB SSD passthrough | Ceph OSD/mon |
 | srvceph3 | 115 | pve | 3 | 10 GiB | 32G + 100G, 2 TB SSD passthrough | Ceph OSD/mon |

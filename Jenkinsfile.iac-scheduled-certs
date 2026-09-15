@@ -36,8 +36,9 @@
 
 library identifier: 'JenkinsPipelineUtils', changelog: false
 
-// srvk8sdev is powered off most of the time. Every dev stage in every
-// iac-* pipeline opens with this bounded SSH probe: `-T 5` caps the
+// srvk8sdev can be down: it starts with pve, but may be stopped by
+// hand. Every dev stage in every iac-* pipeline opens with this
+// bounded SSH probe: `-T 5` caps the
 // connect, so a down box costs seconds rather than a playbook's worth
 // of connection retries. A false result means "skip the stage and mark
 // the build UNSTABLE" — never FAILURE, and never a page.
@@ -114,14 +115,14 @@ pipeline {
             }
         }
 
-        // srvk8sdev is powered off most of the time. Same idiom as the
-        // other pipelines: skip the stage when the box is down, and
-        // downgrade a real failure to UNSTABLE, so a dev box never reds
-        // a build that renewed prod correctly.
+        // srvk8sdev can be down. Same idiom as the other pipelines:
+        // skip the stage when the box is down, and downgrade a real
+        // failure to UNSTABLE, so a dev box never reds a build that
+        // renewed prod correctly.
         //
         // A dev node that stays off past its 14-day window will lapse
         // and need reissue-host-cert.yml. That is the accepted cost of
-        // a box that is off more than it is on.
+        // letting a dev box be stopped.
         stage('Host certs (k8s dev)') {
             steps {
                 script {
