@@ -76,3 +76,8 @@ artifact. **The doc phase does not edit it.**
   does not already have — unless the slice created the thing being documented.
 - **Aspirational claims.** Every statement traces to code, inventory or a spec in the diff. If the
   slice left something owed to the operator, write that it is owed rather than that it is done.
+- **Tracker references.** No card or issue number, id or URL in a runbook, a `docs/` page or a
+  README: a tracker item is a working handle for transient material (slices, close-outs,
+  handovers, commits), and a permanent doc states the state of the world in its own words; a
+  follow-up that exists is found by searching the tracker for those words. Touching a page that
+  carries one, remove the reference and keep the fact it was attached to.

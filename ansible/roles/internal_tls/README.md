@@ -122,7 +122,7 @@ real, but only when someone starts it.
   enforce the `ansible-jwk` provisioner's `allow.dns` list in
   `ca.json`, so issuance succeeds for any `internal_tls_san_list`. The
   control is wanted and not in place — see
-  `docs/runbooks/step-ca-bootstrap.md` and Trello #993.
+  `docs/runbooks/step-ca-bootstrap.md`.
 
 ## Out of scope
 

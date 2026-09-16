@@ -16,7 +16,7 @@ Design context:
    initialized. The cluster-init signal is per-host but every host
    reaches the same answer (it polls the network, not local state),
    so a rebuilt bootstrap candidate doesn't re-init on top of a live
-   cluster — it falls through to the join path (card #9) instead.
+   cluster — it falls through to the join path instead.
 2. **Install** the pinned OpenBao `.deb` from GitHub releases, sha256-
    verified before `apt install`. The OpenBao project does not
    maintain an apt repository, so upgrades are Ansible-driven: bump
@@ -162,7 +162,7 @@ OIDC inputs (Keycloak-backed login — see §OIDC below):
 - `openbao_oidc_admin_redirect_uris` — defaults cover the UI callback
   and `bao login -method=oidc`'s localhost:8250.
 
-Backup pipeline inputs (card #12):
+Backup pipeline inputs:
 
 - `openbao_backup_server_url` — in-cluster backup-server base URL
   (default `https://backup-server.home`); the daily backup POSTs here.
@@ -325,7 +325,7 @@ First-apply procedure:
 Rotation: re-vault `openbao_oidc_client_secret` (after rotating in
 Keycloak) and re-apply. No flag required.
 
-## Backup pipeline (card #12)
+## Backup pipeline
 
 A daily systemd timer on each node runs a leader-guarded backup to
 the in-cluster backup-server — a `.tgz` bundling a native Raft

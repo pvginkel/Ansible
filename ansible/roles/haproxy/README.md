@@ -45,7 +45,7 @@ Optional:
 
 Every step is idempotent — a converged host reports `ok` throughout.
 
-## Example — OpenBao TCP pass-through (card #10)
+## Example — OpenBao TCP pass-through
 
 ```yaml
 - ansible.builtin.include_role:

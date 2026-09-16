@@ -189,7 +189,7 @@ Regenerate on the controller, paste into `/etc/iac/secrets.yaml`, `systemctl res
 
 ### `GIT_API_TOKEN` (GitHub PAT for `TerraformState`)
 
-Mint a new PAT (Trello card 20 has the scope), update `/etc/iac/secrets.yaml`. Now consumed by the terraform-backend-git daemon (as its `GITHUB_TOKEN`) to pull/push `TerraformState`. No restart needed; `iac-impl` reads the file at every invocation and starts the daemon fresh per run.
+Mint a new PAT with the same scopes as the current one, update `/etc/iac/secrets.yaml`. Now consumed by the terraform-backend-git daemon (as its `GITHUB_TOKEN`) to pull/push `TerraformState`. No restart needed; `iac-impl` reads the file at every invocation and starts the daemon fresh per run.
 
 ### `TF_VAR_proxmox_password`
 

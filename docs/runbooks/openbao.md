@@ -40,7 +40,7 @@ The IaC-agent escape hatch is [`iac-cold-boot.md`](iac-cold-boot.md).
   `roles/openbao/files/static.key`; its id is
   `openbao_seal_current_key_id` in
   `inventories/prd/group_vars/openbao.yml`.
-- **Root token**: retired (card #11). Mint a fresh one from the
+- **Root token**: retired. Mint a fresh one from the
   Shamir recovery keys with `bao operator generate-root` when an
   admin path outside the `openbao-admin` AppRole is needed.
 - **Convergence playbook**: `playbooks/site-openbao.yml` — runs
@@ -396,8 +396,8 @@ secret_ids live in Roboform under "OpenBao eso AppRole" and
 Timings from the recovery drills (cards #13 / #14):
 
 - **Single-node loss** — _TBD: record VM rebuild, converge, and
-  Raft-join durations from the card #13 drill._
-- **Whole-cluster loss** (card #14, 2026-05-23) — converge of a
+  Raft-join durations from the single-node-loss drill._
+- **Whole-cluster loss** (drill of 2026-05-23) — converge of a
   fresh empty cluster took 6m32s; snapshot restore plus end-to-end
   verification (peers, kv read) finished ~5 min after that. Terraform
   rebuild and snapshot fetch/decrypt durations weren't captured this

@@ -158,8 +158,7 @@ means updating this list and restarting step-ca.
 > remote-management API, which this estate does not use. The list
 > below is dead configuration and the provisioner signs any name —
 > OpenBao's listener leaf (`secrets.home`, `srvvault1.home`) is not on
-> it. The control is wanted and not in place; Trello #993 implements
-> it.
+> it. The control is wanted and not in place.
 
 ```json
 {

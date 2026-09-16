@@ -13,7 +13,7 @@ Design context: the `argo-cd/` document set in AnsibleSpecs —
 [`phases.md`](../../../AnsibleSpecs/argo-cd/phases.md). The bootstrap as it
 actually ran and the Phase A proof drill are recorded in slice 009's
 [`close-out.md`](../../../AnsibleSpecs/slices/completed/009_argocd_standup/close-out.md)
-(A1–A3) and on Trello #849.
+(A1–A3).
 
 ## Conventions
 
@@ -39,7 +39,7 @@ actually ran and the Phase A proof drill are recorded in slice 009's
 | --- | --- |
 | Namespaces | `argocd-prd` (Argo, the webhook relay), `argocd-hooks` (PreSync Jobs, the `tf-presync` ServiceAccount, `argocd-hook-credentials`) |
 | Helm release, Application, AppProject | `argocd-prd`, `argocd-prd`, `releases` |
-| UI | `https://argocd.home` — Keycloak SSO (realm `homelab`, client `argocd`); the bare `https://argocd` is broken (Trello #845) |
+| UI | `https://argocd.home` — Keycloak SSO (realm `homelab`, client `argocd`); the bare `https://argocd` is broken |
 | Deploy repo | `ArgoCDDeploy`: exact `argo-cd` pin in `chart/Chart.yaml`, stage values in `config/prd/values.yaml` |
 | Registry | HelmCharts `configs/prd/<app>/<stage>/release.yaml` carrying `reconciler: argo-cd` |
 | ApplicationSets | `releases-local`, `releases-upstream` (`missingkey=error`: one malformed entry fails the whole set) |
@@ -418,7 +418,7 @@ the recipient committed in `config/prd/values.yaml`.
   applied; only a hook failure leaves the cluster untouched.
 - **Alerts live five minutes.** `on-sync-failed` fires once per condition and
   the template sets no end time, so Alertmanager expires the alert while the app
-  is still failed (Trello #980).
+  is still failed.
 - **Hook Jobs accumulate** for an app's lifetime; the delete policy never
   matches a name carrying SHA and timestamp. They go with the Application.
 - **Rebuilds.** Argo runs on prd only and keeps no node-local state, so a prd

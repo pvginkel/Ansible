@@ -102,7 +102,7 @@ When handing a command to the operator, use this exact shape:
 ## Cluster access: `config-prd-write` is cluster-admin on prd
 
 `~/.kube/config-prd-write` is the `kubecoder-rw` identity, bound to `cluster-admin` since
-**2026-09-04** (Trello #725). It holds every verb on every resource of the prd cluster,
+**2026-09-04**. It holds every verb on every resource of the prd cluster,
 cluster-scoped included — Nodes, PersistentVolumes, namespaces, cluster RBAC. `kubectl cordon` /
 `uncordon` / `drain` work from this pod, as does everything else that used to need the SSH detour.
 
