@@ -24,8 +24,10 @@ The backup is HelmCharts `charts/youtrack/files/backup/backup.py`, run nightly b
 
 YouTrack writes the backup itself, while it runs: one `.tar.gz` of its embedded database, which
 holds the issues, their attachments and the built-in Hub (users, groups, tokens, the Keycloak auth
-module, the backup settings). `conf/` and `logs/` are not in it; the chart rewrites `conf/` on
-every start.
+module, the backup settings). `logs/` is not in it, and of `conf/` only YouTrack's internal part;
+the chart rewrites the rest on every start. The first one, on 2026-09-17, took 5 s: an 18.7 MB
+archive of 87 entries — `youtrack/` (the database files, and `blobs/` holding the attachments),
+`hub/` and `conf/internal/`.
 
 - The CronJob runs at 01:30 cluster-local time. It asks YouTrack for a backup over the REST API,
   as the `backup` service user, and POSTs the archive to `backup-server`.
@@ -249,6 +251,9 @@ changed as little as possible since.
   - `no new backup within 1200 s` — YouTrack finished, or never started, without writing a new
     archive.
   - `downloaded N bytes, but YouTrack lists … at M` — the download was cut short.
+  - `HTTP 403 from http://youtrack/api/admin/backups/…` — the download link was refused. YouTrack
+    signs a fresh link on every listing and honours each one once, so a link reused or taken
+    from an older listing gets 403.
   - `HTTP 500 from http://backup-server…` — `backup-server` could not encrypt or store it; read
     the `backup-server` pod's log in `storage-prd`.
   - A log that stops without `youtrack backed up` — the Job was killed, for instance at its 1 h
