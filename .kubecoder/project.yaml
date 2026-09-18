@@ -23,7 +23,8 @@ projects:
     # roles_path from ansible.cfg when it runs beside it, and without that
     # every `roles:` reference fails syntax-check. yamllint needs the root
     # .yamllint pointed at explicitly; ansible-lint finds both root configs
-    # itself, via the git root.
+    # itself, via the git root. Jenkinsfile.iac-on-push's Lint stage runs
+    # these same two commands, and the terraform one below; keep them in step.
     # test mirrors lint deliberately: there is no runnable suite here, and the
     # run loop gates on `test`, not `lint`. The anchor keeps the two from
     # drifting apart. Live verification stays the operator's keystroke.

@@ -19,11 +19,13 @@ See [`/work/AnsibleSpecs/phases/completed/iac-agent.md`](../../../AnsibleSpecs/p
 ### Routine: push to `main`, then apply
 
 **Pushing and applying are two acts.** A merge to `main` on `pvginkel/Ansible` triggers
-`iac-on-push`, which is read-only: it plan-checks `terraform/prd` and fails fast if the plan
-deletes or replaces any prd VM. Terraform refuses such a plan itself (`prevent_destroy` in the
-`managed-vm` module); `check-protected-vms.sh` fails it for a config without that line. Nothing
-converges. A red build means the commit would not apply cleanly; the estate
-is untouched either way.
+`iac-on-push`, which is read-only. It first runs the gates `kc project lint` runs —
+`terraform fmt -check`, yamllint, and ansible-lint in strict mode, whose syntax-check covers every
+playbook — and `terraform validate` on `terraform/prd` and `terraform/scratch`. Then it plan-checks
+`terraform/prd` and fails fast if the plan deletes or replaces any prd VM. Terraform refuses such
+a plan itself (`prevent_destroy` in the `managed-vm` module); `check-protected-vms.sh` fails it
+for a config without that line. Nothing converges. A red build means the commit fails a lint or
+validate gate or would not apply cleanly; the estate is untouched either way.
 
 Convergence is `iac-apply`, started by hand once the validation is green. The job, inside one
 `iac -c '…'` per stage:

@@ -52,9 +52,10 @@ plan in one shell — the verb is `deploy plan`, there is no bare `plan` script:
 Claude doesn't read on its own" — ask first. On srviac the equivalent is the `IAC_SETUP` prelude in
 HelmCharts' `Jenkinsfile`, then `/tmp/hcvenv/bin/deploy plan prd/<chart>`.
 
-**Linting is manual.** There is no pre-commit hook — it was removed because it was breaking
-commits. Run `kc project lint` before proposing a commit. For a single path, reach past it:
-`cexec iac poetry run ansible-lint <path>`.
+**Lint before you commit.** There is no pre-commit hook — it was removed because it was breaking
+commits. Run `kc project lint` before proposing a commit. `iac-on-push` runs the same ansible and
+`terraform fmt` gates, plus `terraform validate`, on every push to `main`, and a finding turns it
+red. For a single path, reach past it: `cexec iac poetry run ansible-lint <path>`.
 
 **`tools/ai_workflow/track_build.py` looks dead and is not.** Nothing in this repo calls it; it is
 on PATH in the KubeCoder environment, where it waits out a pushed Jenkins build and the pipeline
@@ -94,7 +95,7 @@ When handing a command to the operator, use this exact shape:
   `.kubecoder/config.yaml` and survives into the sidecar, so the vault unlocks automatically.
 - **Terraform:** `cd terraform/prd && cexec iac terraform apply`. It applies the working tree, so
   push first and state never runs ahead of `main`. A push to `main` does not apply: `iac-on-push`
-  only plans, and convergence is the manual `iac-apply` job. The srviac shape is
+  only lints, validates and plans; convergence is the manual `iac-apply` job. The srviac shape is
   `iac -c 'cd /work/Ansible/terraform/prd && terraform init -input=false && terraform apply'` — it
   applies pushed `main`, not the working tree, and it is the one that still works with Kubernetes
   down.

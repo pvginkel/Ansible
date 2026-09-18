@@ -26,7 +26,7 @@ Reporting is not one of them: jenkins-telegram-bot watches every build and
 reports FAILURE by itself, and where a job needs to say something the build
 result does not, it calls JenkinsPipelineUtils' `notify` var. Current jobs:
 
-- **`Jenkinsfile.iac-on-push`** — push to `main` on `pvginkel/Ansible`: read-only validation, `terraform plan` plus the protected-VM destroy check. It converges nothing.
+- **`Jenkinsfile.iac-on-push`** — push to `main` on `pvginkel/Ansible`: read-only validation. Lint gates first — `terraform fmt -check`, yamllint and ansible-lint in strict mode, which also syntax-checks every playbook — then `terraform validate` on both roots, then `terraform plan` plus the protected-VM destroy check. It converges nothing.
 - **`Jenkinsfile.iac-apply`** — the converging half, started by hand: plan, destroy check and apply of that saved plan in one `iac` call, then Ansible convergence across the `site*.yml` playbooks.
 - **`Jenkinsfile.iac-scheduled-update`** — weekly cron: OS-update / patch posture for the cluster class (drain → upgrade → reboot).
 - **`Jenkinsfile.iac-scheduled-drift`** — daily cron: terraform + Ansible `--check` drift across the same playbooks, plus the homelab CA root.

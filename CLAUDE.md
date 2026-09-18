@@ -41,8 +41,8 @@ The operator works in this same pod and sees the same `/work/<repo>` paths, so t
 **authority, not access**. It holds regardless: `changed=N>0` and terraform state mutations are the
 operator's keystroke.
 
-A push to `main` is safe — `iac-on-push` only plans and runs the destroy check. Convergence is the
-separate manual `iac-apply` job; never start it.
+A push to `main` is safe — `iac-on-push` only lints, validates, plans and runs the destroy check.
+Convergence is the separate manual `iac-apply` job; never start it.
 
 Mechanics — the toolchain, the canonical command shape, the cluster credentials (`config-prd-write`
 is cluster-admin on prd), and writing OpenBao secrets — are in [`docs/live-infra-access.md`](docs/live-infra-access.md).
@@ -61,9 +61,9 @@ is cluster-admin on prd), and writing OpenBao secrets — are in [`docs/live-inf
 
 The toolchain lives in the `iac` sidecar, not this container: `cexec iac <cmd>` for poetry,
 ansible, terraform, kubectl, helm, `bao`, `step`. Curated entry points are `kc project
-setup|lint|test`. **Linting is manual** — no pre-commit hook; run `kc project lint` before
-proposing a commit. Terraform `plan`/`apply` work here as well as on srviac, which Jenkins uses
-and which stays up when Kubernetes is down. Details in
+setup|lint|test`. **No pre-commit hook** — run `kc project lint` before proposing a commit;
+`iac-on-push` runs the same gates only after the push. Terraform `plan`/`apply` work here as well
+as on srviac, which Jenkins uses and which stays up when Kubernetes is down. Details in
 [`docs/live-infra-access.md`](docs/live-infra-access.md).
 
 ## Related repos on this machine

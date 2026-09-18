@@ -53,10 +53,10 @@ See [live-infra-access.md](live-infra-access.md) for the mechanics.
 
 Push what the slice committed — the driver checks for it and bails otherwise.
 
-**A push to `main` no longer converges anything.** It triggers `iac-on-push`, which runs
-`terraform plan` and the protected-VM destroy check and stops. That build going green is a real
-signal and worth recording: it means the commit would apply cleanly and destroys nothing
-protected. Wait for it and read it.
+**A push to `main` no longer converges anything.** It triggers `iac-on-push`, which runs the lint
+gates and `terraform validate`, then `terraform plan` and the protected-VM destroy check, and
+stops. That build going green is a real signal and worth recording: it means the commit passes
+the gates, would apply cleanly and destroys nothing protected. Wait for it and read it.
 
 Convergence is the separate `iac-apply` job. **Do not start it.** That is the operator gate, and
 it is the whole reason the pipeline was split.

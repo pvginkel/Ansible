@@ -33,7 +33,8 @@ For the physical layer — what the hardware actually is, how it is wired, and w
 └── .kubecoder/              # KubeCoder environment shape + curated build/lint entry points
 ```
 
-Linting is manual — there is no pre-commit hook. Run `kc project lint` before committing.
+There is no pre-commit hook: run `kc project lint` before committing. The push job, `iac-on-push`,
+runs the same gates and goes red on a finding.
 
 ## Prerequisites
 
