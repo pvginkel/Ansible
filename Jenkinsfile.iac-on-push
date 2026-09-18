@@ -1,6 +1,6 @@
 // iac-on-push — validates every push to main on pvginkel/Ansible.
-// Read-only: `terraform plan` plus the protected-VM destroy check. It
-// converges nothing.
+// Read-only: lint and validate gates, then `terraform plan` plus the
+// protected-VM destroy check. It converges nothing.
 //
 // The converging stages used to live here and fire on every push. They
 // are now Jenkinsfile.iac-apply, started by hand. The split exists so
@@ -8,9 +8,9 @@
 // production — an unattended agent pushing a branch must not be able to
 // roll the prd fleet. Whoever wants convergence starts iac-apply.
 //
-// A red build here means the commit on main would not apply cleanly, or
-// would destroy something protected. Nothing has happened to the estate
-// either way.
+// A red build here means the commit on main fails a lint or validate
+// gate, would not apply cleanly, or would destroy something protected.
+// Nothing has happened to the estate either way.
 //
 // Controller config:
 //   - SCM: pvginkel/Ansible, branch main
@@ -31,6 +31,45 @@ pipeline {
     }
 
     stages {
+        // The gates run cheapest first; a red gate stops the build before
+        // the plan. The ansible commands are the dev loop's gate
+        // (.kubecoder/project.yaml, project `ansible`) and must stay
+        // identical to it. ansible-lint takes strict mode and the
+        // mandatory-var placeholders from .ansible-lint, and its
+        // unskippable syntax-check rule runs `ansible-playbook
+        // --syntax-check` on every playbook.
+        stage('Lint') {
+            steps {
+                sh '''
+                    iac -c '
+                        set -euo pipefail
+                        cd /work/Ansible/terraform
+                        terraform fmt -check -recursive
+                        cd /work/Ansible/ansible
+                        yamllint -c ../.yamllint .
+                        ansible-lint
+                    '
+                '''
+            }
+        }
+
+        // -backend=false: validate reads no state, so this gate never
+        // touches the state backend or its lock.
+        stage('Terraform validate') {
+            steps {
+                sh '''
+                    iac -c '
+                        set -euo pipefail
+                        for root in prd scratch; do
+                            cd "/work/Ansible/terraform/$root"
+                            terraform init -backend=false -input=false -no-color
+                            terraform validate -no-color
+                        done
+                    '
+                '''
+            }
+        }
+
         stage('Plan + destroy check') {
             steps {
                 sh '''
