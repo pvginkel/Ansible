@@ -137,7 +137,8 @@ and the latest backup's Raft snapshot is restored into it.
 1. **Fetch and unpack the latest backup.** `backup-server` is
    upload-only — pull the object from the rclone destination it
    ships to (see the `storage` chart config in `/work/HelmCharts`).
-   The newest `openbao/` object is the one you want:
+   The newest `openbao/<ts>_openbao-backup.tgz.age` is the one you
+   want, not the `.metadata.json` file beside it:
 
    ```bash
    age -d -i <age-key-from-Roboform> \
@@ -410,10 +411,13 @@ Timings from the recovery drills (cards #13 / #14):
   is a leftover the live `backup` AppRole no longer accepts, and
   nothing was installed. Converge with
   `-e openbao_rotate_secret_ids=true`, at the cost §3 step 5 names.
-- **A nightly backup failed** — `journalctl -u openbao-backup` on the
-  node that was leader names the call that broke, with its HTTP status
-  and OpenBao's error text. `POST auth/approle/login failed: HTTP 400:
-  invalid role or secret ID` means the AppRole rejected the nodes'
+- **A nightly backup failed** — once two nights in a row have not
+  landed a backup, `BackupOverdue` fires for the `openbao` scope;
+  [`backup-freshness.md`](backup-freshness.md) §1 is its triage.
+  `journalctl -u openbao-backup` on the node that was leader names
+  the call that broke, with its HTTP status and OpenBao's error text.
+  `POST auth/approle/login failed: HTTP 400: invalid role or secret
+  ID` means the AppRole rejected the nodes'
   backup credentials: converge with the rotation flag, as above. An
   upload that fails with `HTTP 401` has a bad upload token: rotate it
   per §5.

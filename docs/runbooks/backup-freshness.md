@@ -39,7 +39,8 @@ DockerImages `backup-server/`, run as the `backup-server` Deployment in `storage
 - Every folder directly under `Homelab Backups` is a scope and is read, whether or not the scope
   still has a credential. Removing a credential does not stop the watching; §3 does.
 - `backup-server` reads every scope folder at start and then hourly: a **full read**. It also
-  re-reads a scope right after each upload to it. Each metadata file is read once and remembered.
+  re-reads a scope right after each upload to it. Of the metadata files it reads only each
+  stream's newest, and only when it does not remember it already.
   When a read fails, `backup-server` keeps publishing what it read last.
 - Pruning keeps each scope's newest `retention` backups (set per scope by
   `homelab_backup_credential`) and deletes a pruned backup's metadata file with it. A stream whose

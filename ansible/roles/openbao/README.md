@@ -405,6 +405,14 @@ or secret ID`). A call with no complete response logs curl's exit
 code, and the upload logs its URL and status alone. No response body,
 token or secret_id is logged.
 
+**Freshness.** The upload declares `valid_for=52h` (`UPLOAD_VALID_FOR`
+in the wrapper). `backup-server` records it beside the backup, and
+production Prometheus raises `BackupOverdue` once 52 h pass without a
+new `openbao` backup landing: one missed night stays quiet, two in a
+row alert. The alert watches what landed in cloud storage, not the
+nodes' unit status, so the followers' exit 0 hides nothing. Triage:
+[`backup-freshness.md`](../../../docs/runbooks/backup-freshness.md).
+
 ## Bootstrap procedure
 
 One-time, operator-driven, before this role's first apply. Mirrored in
