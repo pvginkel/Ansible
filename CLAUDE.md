@@ -27,8 +27,8 @@ authoring a slice is never permission to run it.
 **Otherwise — a quick fix, a diagnosis, a one-off command, a doc touch — just do it.** No slice, no
 ceremony. When unsure which side a request falls on, say which way you're leaning and ask.
 
-Owner tag on the boards is `Ansible`. A coordinated cross-repo change, or one whose context lives
-in AnsibleSpecs, is Ansible-led even when the code lands elsewhere.
+A coordinated cross-repo change, or one whose context lives in AnsibleSpecs, is Ansible-led even
+when the code lands elsewhere.
 
 ## Operator runs Terraform and Ansible — not Claude
 
