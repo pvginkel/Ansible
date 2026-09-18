@@ -42,17 +42,17 @@
   # rather than crashing the set_fact.
   ansible.builtin.set_fact:
     _microk8s_node_state: >-
-      {%- if microk8s_worker_only | bool -%}worker
-      {%- else -%}
-      {%- set s = (_microk8s_status_for_election.stdout | default('') | from_yaml) -%}
-      {%- if s is not mapping -%}down
-      {%- else -%}
+      {%- if microk8s_worker_only | bool -%}
+      worker{%- else -%}
+      {%- set s = _microk8s_status_for_election.stdout | default('') | from_yaml -%}
+      {%- if s is not mapping -%}
+      down{%- else -%}
       {%- set running = s.get('microk8s', {}).get('running', false) -%}
-      {%- set nodes = (s.get('high-availability', {}).get('nodes') or []) -%}
-      {%- if running and (nodes | length > 1) -%}in-cluster
-      {%- elif running -%}running-solo
-      {%- else -%}down
-      {%- endif -%}
+      {%- set nodes = s.get('high-availability', {}).get('nodes') or [] -%}
+      {%- if running and (nodes | length > 1) -%}
+      in-cluster{%- elif running -%}
+      running-solo{%- else -%}
+      down{%- endif -%}
       {%- endif -%}
       {%- endif -%}
 

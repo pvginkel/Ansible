@@ -17,5 +17,4 @@ extra_vars:
   rebuild_target: lint-placeholder
   reissue_target: lint-placeholder
 
-# Fail hard on warnings once roles stabilize; for now, warnings stay warnings.
-strict: false
+strict: true
