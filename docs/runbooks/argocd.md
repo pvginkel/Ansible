@@ -46,7 +46,7 @@ actually ran and the Phase A proof drill are recorded in slice 009's
 | Webhook edge | `https://deploy-hooks.webathome.org/api/webhook` → relay (2 replicas) → argocd-server and the applicationset-controller |
 | Hook image | `registry:5000/argocd-hook:<n>` from ArgoCDTools; default pin in the `homelab-shared` library chart |
 | Terraform state | `pvginkel/TerraformState`, `argocd/<repo>/<stage>/terraform.tfstate`, sops/age |
-| Notifications | Alertmanager `prometheus-prd-alertmanager.prometheus-prd:9093`; `ArgoCDSyncFailed`, `ArgoCDHealthDegraded` |
+| Notifications | Alertmanager `prometheus-prd-alertmanager.prometheus-prd:9093`, delivered to Telegram; `ArgoCDSyncFailed` (critical, with sound), `ArgoCDHealthDegraded` (warning, silent) |
 
 Every credential arrives through ESO from OpenBao (`kv/` mount), refreshed hourly:
 
@@ -418,7 +418,7 @@ the recipient committed in `config/prd/values.yaml`.
   applied; only a hook failure leaves the cluster untouched.
 - **Alerts live five minutes.** `on-sync-failed` fires once per condition and
   the template sets no end time, so Alertmanager expires the alert while the app
-  is still failed.
+  is still failed, and Telegram gets a `[RESOLVED]` notice for it.
 - **Hook Jobs accumulate** for an app's lifetime; the delete policy never
   matches a name carrying SHA and timestamp. They go with the Application.
 - **Rebuilds.** Argo runs on prd only and keeps no node-local state, so a prd

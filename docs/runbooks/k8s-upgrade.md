@@ -219,10 +219,9 @@ satisfied it too. Fixed 2026-06-14 by polling explicit Deployment state
 availableReplicas == spec.replicas`), 30 × 10s ≈ the same 5-minute cap.
 
 The fix has not yet run against a real multi-node hand-off. On the next roll,
-watch that task against both opt-in workloads — `keycloak`
-(`RollingUpdate maxSurge:1/maxUnavailable:0`) and `keycloak-db` (`Recreate`),
-the only two today — and confirm it blocks until each is genuinely Ready
-rather than returning immediately. Once seen, delete this subsection.
+watch that task against the one opt-in workload, `keycloak` (`Recreate`), and
+confirm it blocks until the new pod is genuinely Ready rather than returning
+immediately. Once seen, delete this subsection.
 
 Defense-in-depth, not a hard blocker: `kubectl drain` already refuses
 PDB-violating evictions and the cordon holds, so an unhealthy target blocks the

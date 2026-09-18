@@ -127,8 +127,8 @@
   # Gate on explicit Deployment state instead — the controller has
   # observed the new spec AND every replica is updated, ready, and
   # available. ~5 min cap (30 × 10s); exhausted retries fail the play
-  # before `kubectl drain` runs, so we never drain into an unhealthy
-  # surge target. If it fails, fix the workload, then re-run.
+  # before `kubectl drain` runs, so we never drain while the restarted
+  # workload is unhealthy. If it fails, fix the workload, then re-run.
   ansible.builtin.command:
     argv:
       - microk8s

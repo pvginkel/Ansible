@@ -12,7 +12,7 @@
 #      PVE [PENDING] and there's no kernel/snap work to do.
 #   1. Hand off opt-in workloads (cordon + rollout restart of any
 #      Deployment carrying iac.webathome.org/pre-drain=true) so they
-#      surge to a healthy peer before the drain. See
+#      move to a healthy peer before the drain. See
 #      tasks/pre-drain-handoff.yml.
 #   2. Drain via the cluster primary (skipped on single-node clusters).
 #   3. Refresh the microk8s snap to the channel pinned in group_vars
@@ -55,7 +55,7 @@
 - name: Preflight — every targeted node answers SSH + sudo
   # Ansible drops an unreachable host and rolls on by default; for a
   # serial: 1 roll that means draining the survivors of an already-
-  # degraded cluster — the maxSurge-starved state the cordon precheck
+  # degraded cluster — the no-healthy-peer state the cordon precheck
   # below frets about. any_errors_fatal turns the first unreachable
   # member into a clean whole-run abort here, before play 3 cordons a
   # node. The ping runs under become so a sudo failure (build #7) counts
@@ -98,10 +98,10 @@
   #     fast). Allow and continue.
   #
   #   - Cordoned node is OUTSIDE the target set → refuse. Re-running
-  #     blindly into that state breaks surge scheduling — a 3-node
-  #     cluster with 2 cordoned peers can't land keycloak's
-  #     RollingUpdate maxSurge=1 onto a healthy node, and the
-  #     resulting pod-sandbox errors are opaque. Fail fast instead.
+  #     blindly into that state breaks the hand-off — a 3-node
+  #     cluster with 2 cordoned peers has no healthy node to land
+  #     keycloak's restarted pod on, and the resulting pod-sandbox
+  #     errors are opaque. Fail fast instead.
   #
   # `kubectl get nodes` via the local apiserver is naturally scoped
   # to the host's cluster, so prd and dev are each checked against

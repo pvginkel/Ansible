@@ -31,7 +31,7 @@ Each rebuild's eviction (and every `update-k8s.yml` run) hands off opt-in worklo
 
 Today's opt-ins:
 
-- `keycloak` (Deployment, `RollingUpdate maxSurge:1 / maxUnavailable:0`). Two-pod window during surge — ~60s. No sticky sessions on the in-house ingress, so a mid-login request may re-auth. Accepted.
+- `keycloak` (Deployment, `Recreate`). The old pod stops before its replacement starts on a peer — Keycloak must not run beside another minor version against its database — so each hand-off is a sign-in gap of about 30s, Keycloak's start time: nothing can sign in or fetch a token for that window. Accepted.
 
 Keycloak's database is the CNPG `postgres-pas` cluster (reached through the `postgres-pooler-rw` pooler), which does not opt in; the former single-Postgres `keycloak-db` Deployment no longer exists.
 
