@@ -24,6 +24,10 @@ ROLE_ID_FILE="{{ openbao_config_dir }}/backup-role-id"
 SECRET_ID_FILE="{{ openbao_config_dir }}/backup-secret-id"
 UPLOAD_TOKEN_FILE="{{ openbao_config_dir }}/backup-token"
 UPLOAD_FILENAME="openbao-backup.tgz"
+# backup-server reports the backup overdue (BackupOverdue) once the
+# newest upload is older than this. One missed night of the timer must
+# stay inside it; two must not.
+UPLOAD_VALID_FOR="52h"
 
 log() { echo "openbao-backup: $*"; }
 
@@ -168,7 +172,7 @@ request "POST ${BACKUP_SERVER_URL}/upload" "${resp}" -X POST \
   -H "Authorization: Bearer $(< "${UPLOAD_TOKEN_FILE}")" \
   -H 'Content-Type: application/octet-stream' \
   --data-binary "@${work}/${UPLOAD_FILENAME}" \
-  "${BACKUP_SERVER_URL}/upload?filename=${UPLOAD_FILENAME}"
+  "${BACKUP_SERVER_URL}/upload?filename=${UPLOAD_FILENAME}&valid_for=${UPLOAD_VALID_FOR}"
 if [[ "${http}" != 2?? ]]; then
   log "POST ${BACKUP_SERVER_URL}/upload failed: HTTP ${http}" >&2
   exit 1
