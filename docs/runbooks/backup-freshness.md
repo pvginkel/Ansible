@@ -179,10 +179,13 @@ the 6 h passes a redeploy and three failed hourly reads.
    - `scope <scope>: <path>: …` about the file's content — a metadata file `backup-server` cannot
      parse, such as one edited by hand. Delete that one file (§3 step 3, its exact name as the
      `--include`); its backup stays and declares nothing.
-   - `context deadline exceeded` — a read ran past its 10-minute limit.
+   - `signal: killed` or `context deadline exceeded` in any of these lines — a read ran past its
+     10-minute limit: Drive answered too slowly, it did not refuse. The rclone call running at the
+     limit logs the first; one started after it logs the second.
 
 3. **Cleared** — at the first scrape that reports a successful full read. A restart reads at once.
-   Run it outside the nightly uploads (02:00–03:00): an upload fails while the pod restarts.
+   Run it outside the nightly uploads (01:30–03:00; YouTrack's starts at 01:30): an upload fails
+   while the pod restarts.
 
    ```bash
    kubectl --context prd -n storage-prd rollout restart deploy/backup-server
