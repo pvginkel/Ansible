@@ -45,7 +45,7 @@ vrrp_auth_password: !vault |
 # `ansible-jwk` provisioner. Fleet-wide secret — a leak lets an
 # attacker forge a cert for any name until the password is rotated:
 # the provisioner's SAN allow-list in ca.json is not enforced
-# (decisions.md "Internal TLS / homelab CA", Trello #993). Rotation procedure:
+# (decisions.md "Internal TLS / homelab CA"). Rotation procedure:
 # docs/runbooks/step-ca-bootstrap.md "JWK provisioner password rotation".
 #
 # ansible-vault'd with the fleet vault passphrase. To rotate, re-encrypt
