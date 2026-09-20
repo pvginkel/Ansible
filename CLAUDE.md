@@ -71,14 +71,16 @@ as on srviac, which Jenkins uses and which stays up when Kubernetes is down. Det
 All under `/work`, same paths for Claude and operator: `AnsibleSpecs` (decisions, slices — a
 separate git repo, commit there too), `HelmCharts`, `DockerImages`, `HomelabTerraformProvider`,
 `Charts` (the `homelab-shared` Helm library chart and the `https://charts.home` chart repository —
-see its README), `ArgoCDTools` (the Argo CD Terraform PreSync hook and its `argocd-hook` image —
-see its README), `ArgoCDDeploy` (Argo CD's own deploy repo — the wrapper chart, both
-ApplicationSets, the `releases` AppProject and the `argocd-hooks` namespace), `KubeCoderDeploy`
-(KubeCoder's deploy repo, the Argo CD pilot — see its README) and
+see its README), `ArgoCDTools` (two images: `argocd-hook`, the Argo CD Terraform PreSync hook, and
+`aac-tools`, the architecture-as-code commands a repo's checkout runs — see its README),
+`ArgoCDDeploy` (Argo CD's own deploy repo — the wrapper chart, both ApplicationSets, the `releases`
+AppProject and the `argocd-hooks` namespace), `KubeCoderDeploy` (KubeCoder's deploy repo, the Argo
+CD pilot — see its README), `Architecture` (the architecture-as-code contract:
+`pipeline-producers.yaml`, the element/relation schema and the producer manual) and
 `JenkinsPipelineUtils` (the shared library every Jenkinsfile in the estate loads). The set is
 declared in `.kubecoder/config.yaml`; adding one is an edit there plus `kc env restart`. The `iac`
-runner's tree lives in this repo at `support/iac-agent/` — that is the
-copy to edit and the one the `iac_agent` role installs. Older docs mention `/work/Obsidian` and
+runner's tree lives in this repo at `support/iac-agent/` — that is the copy to edit and the one the
+`iac_agent` role installs. Older docs mention `/work/Obsidian` and
 `/work/IaCAgent` — neither is cloned here any more, so treat those citations as historical
 provenance.
 
