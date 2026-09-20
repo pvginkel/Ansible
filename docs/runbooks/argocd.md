@@ -257,6 +257,14 @@ What the manifest cannot show:
 - **Never named `<app>-<stage>`.** The registry entry generates that name
   (above), and the ApplicationSet would take over an Application already
   holding it. Use `<app>-<stage>-preview`.
+- **`helm.releaseName` pinned back to `<app>-<stage>`.** Argo passes the
+  Application's name to `helm template` as the release name unless
+  `spec.source.helm.releaseName` overrides it, so a preview would render
+  `.Release.Name` as `<app>-<stage>-preview` where the generated Application
+  renders `<app>-<stage>`. A chart that reads `.Release.Name` would then show
+  differences its real first sync never makes. KubeCoder's chart reads only
+  `.Release.Namespace` and is unaffected; set it regardless, so the next
+  migration's preview is faithful without anyone having to notice.
 - **Never synced.** A sync runs the PreSync hook against
   `argocd/<repo>/<stage>/terraform.tfstate`, which holds nothing until the
   cutover's state surgery. That apply would try to create the live dataset, PV and
@@ -293,6 +301,9 @@ For KubeCoder's dev stage:
        targetRevision: main
        path: chart
        helm:
+         # The generated Application is named kubecoder-dev and renders that as
+         # the release name; the preview has to say so itself.
+         releaseName: kubecoder-dev
          valueFiles:
            - ../config/dev/values.yaml
          # All four, as releases-local passes them: the library chart
