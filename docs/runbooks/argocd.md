@@ -355,6 +355,65 @@ finding: another object, another field, or an object *Missing*. The exception is
 a difference that one of the HelmCharts commits from step 1 explains. That is
 the chart re-sync slice 012 owes before its own review, not a defect.
 
+## What a cutover does not change
+
+The preview above shows what the first sync *will* do. It cannot show what the
+sync leaves alone, and that set is not empty: **a field the old Helm chart set
+and the new render omits survives the cutover, at its Helm value, indefinitely.**
+
+Argo's default apply is client-side. To tell "a field I used to declare and have
+now dropped" from "a field the API server defaulted", it reads
+`kubectl.kubernetes.io/last-applied-configuration` — which Helm-created objects
+do not carry, because Helm applies server-side and writes none. Without it the
+three-way merge degrades to a two-way one whose delete bucket is always empty.
+Turning on server-side apply does not rescue it either: the field is owned by
+the field manager `helm`, and server-side apply deletes a field only when the
+manager that owns it stops declaring it.
+
+It is a one-time artifact. Argo's first apply writes the annotation itself, so
+every later chart change removes fields normally. Only what the *old* chart set
+and the new one never mentions stays frozen.
+
+**The pre-flight.** A field sticks exactly when `metadata.managedFields` says
+`helm` owns it and the render never declares it; an object Helm created that the
+render does not contain is never adopted and never pruned. Both are computable
+before the cutover, and should be, for every migrating app:
+
+```sh
+cexec iac helm template <ns> chart --namespace <ns> \
+  --values config/<stage>/values.yaml \
+  --set hook.repo=<repo>,hook.revision=<sha>,hook.stage=<stage>,hook.namespace=<ns> > /tmp/render.yaml
+cexec iac kubectl $KC get serviceaccount,configmap,secret,persistentvolumeclaim,service,\
+deployment,statefulset,daemonset,job,cronjob,ingress,networkpolicy,role,rolebinding,externalsecrets \
+  -n <ns> -o json --show-managed-fields > /tmp/live.json
+# cluster-scoped objects one at a time, passed as extra arguments
+python3 /work/AnsibleSpecs/handovers/argo-adoption-blind-spot/stuck_fields.py \
+  <ns> /tmp/render.yaml /tmp/live.json /tmp/ns.json /tmp/clusterrole.json
+```
+
+Read the two lists it prints. An object absent from the render is either
+something the deploy repo forgot, or output of another controller — ESO's
+materialised Secrets show up here and are not findings, since the render carries
+the `ExternalSecret` that produces them. A stuck field is a decision: declare it
+in the chart (which takes ownership, and is what makes it changeable afterwards),
+patch it out once at cutover, or accept it.
+
+For KubeCoder on 2026-09-20 the whole residue was three things: `imagePullPolicy`
+on five containers, a stale `deployment` annotation on bot and MCP, and — on
+every adopted object — `metadata.labels` and `metadata.annotations`, which the
+chart does not render at all, so `app.kubernetes.io/managed-by: Helm` and
+`meta.helm.sh/release-name` outlive the migration. That last one is inert in
+itself, but anything keyed on those labels keeps reading a migrated app as
+Helm-managed. Working notes, the probes behind the mechanism, and the full
+per-stage inventory:
+[`handovers/argo-adoption-blind-spot/`](../../../AnsibleSpecs/handovers/argo-adoption-blind-spot/findings-2026-09-20.md).
+
+The alternative to adopting in place is recreating: delete the namespace and let
+Argo build the release from nothing, which needs no enumeration because nothing
+is inherited. It costs an outage of everything in the stage and leaves the PV
+`Released` with a stale `claimRef` to clear, so it suits a stage with no live
+state to interrupt. Which of the two is the estate's default is not yet decided.
+
 ## Bootstrapping Argo from nothing
 
 As run on 2026-09-04. Only when the cluster, or the `argocd-prd` namespace, is
