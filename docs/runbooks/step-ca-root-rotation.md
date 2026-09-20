@@ -65,8 +65,8 @@ managed host, and the step-ca bootstrap ceremony exports it here (step 6 of
 and a rotation updates all nine. HelmCharts' `charts/jenkins/files/ca/` and
 `charts/kubecoder/files/ca/` reach the root through symlinks to that repo's
 root-level copy, so they are not copies of their own and a rotation does not
-touch them — a `find` that returns eleven paths is still this nine plus those
-two links.
+touch them — a `find` that returns twelve paths is still this nine, plus those
+two links and the canonical copy above.
 
 | Path | What consumes it |
 |---|---|
