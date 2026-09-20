@@ -102,6 +102,8 @@ tools:
   - use: iac
   # HomelabTerraformProvider
   - use: go
+  # AaC tools from ArgoCDTools
+  - use: aac-tools
 
 # No `setup:` here. Pod start already runs every checkout's project.yaml setup,
 # this repo's included; a `kc project setup` line only ran it a second time.
