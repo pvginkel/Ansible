@@ -76,7 +76,8 @@ see its README), `ArgoCDTools` (two images: `argocd-hook`, the Argo CD Terraform
 `ArgoCDDeploy` (Argo CD's own deploy repo — the wrapper chart, both ApplicationSets, the `releases`
 AppProject and the `argocd-hooks` namespace), `KubeCoderDeploy` (KubeCoder's deploy repo, the Argo
 CD pilot — see its README), `Architecture` (the architecture-as-code contract:
-`pipeline-producers.yaml`, the element/relation schema and the producer manual) and
+`pipeline-producers.yaml`, the element/relation schema and the producer manual — checked out
+but deliberately not declared, see the note in `.kubecoder/config.yaml`) and
 `JenkinsPipelineUtils` (the shared library every Jenkinsfile in the estate loads). The set is
 declared in `.kubecoder/config.yaml`; adding one is an edit there plus `kc env restart`. The `iac`
 runner's tree lives in this repo at `support/iac-agent/` — that is the copy to edit and the one the
