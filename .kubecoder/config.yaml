@@ -14,6 +14,11 @@ repos:
   - url: https://github.com/pvginkel/ArgoCDDeploy
   - url: https://github.com/pvginkel/ArgoCDTools
   - url: https://github.com/pvginkel/Charts
+  # The architecture-as-code contract repo: `pipeline-producers.yaml`, the
+  # element/relation schema and the producer manual. ArgoCDTools' `aac-tools`
+  # generator is written against it, and slice 014 registers the deploy-repo
+  # producer there.
+  - url: https://github.com/pvginkel/Architecture
 
 capabilities:
   github: rw

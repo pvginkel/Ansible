@@ -39,7 +39,7 @@ procedure's shape depends on how they land.
   the bundle carries two roots the two sides' ordering is no longer pinned and
   the stage fires on every run. It needs the fingerprint-set comparison
   `decisions.md` specifies first.
-- **The deduplication decision is open.** Six out-of-repo copies of the root
+- **The deduplication decision is open.** Nine out-of-repo copies of the root
   are maintained by hand (below). Whether they collapse to one source or stay
   copies changes what a rotation's change window contains.
 
@@ -61,15 +61,22 @@ It is public, PEM-armored, and committed. `baseline` distributes it to every
 managed host, and the step-ca bootstrap ceremony exports it here (step 6 of
 [`step-ca-bootstrap.md`](step-ca-bootstrap.md)).
 
-**Six out-of-repo copies are on this inventory**, all byte-identical to it,
-and a rotation updates all six.
+**Nine out-of-repo copies are on this inventory**, all byte-identical to it,
+and a rotation updates all nine. HelmCharts' `charts/jenkins/files/ca/` and
+`charts/kubecoder/files/ca/` reach the root through symlinks to that repo's
+root-level copy, so they are not copies of their own and a rotation does not
+touch them — a `find` that returns eleven paths is still this nine plus those
+two links.
 
 | Path | What consumes it |
 |---|---|
 | `/work/HelmCharts/homelab-root.crt` | The `external-secrets` chart's `post-rollout.sh` builds a `ca.crt` Secret from it. The `kubecoder` chart renders this same file into a ConfigMap — `charts/kubecoder/files/ca/homelab-root.crt` is a symlink to it — and mounts it into the controller pod, which is handed the mounted path in `KUBECODER_STEP_CA_ROOT` and passes it to `step --root` when it asks step-ca to sign an environment pod's SSH host certificate. The controller keeps no copy of its own: a chart deploy carries it, no image rebuild. |
 | `/work/HelmCharts/charts/nginx/files/ca/homelab-root.crt` | Mounted by the nginx manager Deployment and its renewal CronJob; the `certbot` image's `args.sh` bind-mounts this same file at run time. |
-| `/work/ArgoCDTools/image/homelab-root.crt` | Baked into the `argocd-hook` image's trust store — the Argo CD Terraform PreSync hook. |
+| `/work/ArgoCDTools/argocd-hook/image/homelab-root.crt` | Baked into the `argocd-hook` image's trust store — the Argo CD Terraform PreSync hook. |
+| `/work/ArgoCDTools/aac-tools/image/homelab-root.crt` | Baked into the `aac-tools` image's trust store — the architecture generator and `arch-validate`, which Jenkins pulls and KubeCoder offers as a toolchain. It is how a run reaches `https://charts.home` for the chart dependency and `https://architecture.webathome.org` for the dataset and the validator. |
 | `/work/DockerImages/kube-coder-dev-base/homelab-root.crt` | Baked into the KubeCoder dev base image's trust store, and pointed at by `NODE_EXTRA_CA_CERTS`. |
+| `/work/DockerImages/kube-coder-arm64-cross-toolchain/homelab-root.crt` | Baked into the arm64 cross toolchain sidecar's trust store, and pointed at by `REQUESTS_CA_BUNDLE`. Built on `dockcross/linux-arm64`, **not** on `kube-coder-dev-base`, so a rebuild of that base does not carry it. |
+| `/work/DockerImages/kube-coder-esp-idf-toolchain/homelab-root.crt` | The same, for the ESP-IDF toolchain sidecar, on `espressif/idf`. A matrix directory: every IDF version in `build-matrix.json` is rebuilt from this one copy. |
 | `/work/ArgoCDDeploy/chart/files/homelab-root.crt` | Rendered into a ConfigMap and mounted into Argo CD's repo-server at `/etc/ssl/certs/homelab-root.crt`, which is how `helm dependency build` comes to trust `https://charts.home`. Not an image copy: it lands on Argo's next sync of its own chart, which is manual (D3). |
 | `/work/KubeCoderDeploy/chart/files/ca/homelab-root.crt` | KubeCoder's Argo CD deploy repo's copy of the `kubecoder` chart: the same ConfigMap, controller mount and `step --root` use as the `/work/HelmCharts/homelab-root.crt` row. A real file, not a symlink — Argo's repo-server refuses a symlink that leaves the repository. Nothing deploys it until KubeCoder's cutover to Argo (slice 012); from then it is the copy the controller gets, landing on KubeCoder's next sync. |
 
@@ -84,11 +91,13 @@ edit, but they do need a rebuild:
   the copy above covers them.
 
 Editing a file in an image's build context is not the same as the change
-landing: the `argocd-hook`, `iac` and `kube-coder-dev-base` copies only take
-effect once their image is rebuilt **and** the workloads pulling it are
-restarted onto the new tag. The `ArgoCDDeploy` copy needs no rebuild, but it
-does need a sync — and Argo CD syncs itself only when the operator says so, so
-it is the one copy a rotation can leave behind without any pipeline noticing.
+landing: the five baked copies — `argocd-hook`, `aac-tools`,
+`kube-coder-dev-base` and the two KubeCoder toolchain sidecars — and the `iac`
+image that reads the canonical file directly only take effect once their image
+is rebuilt **and** the workloads pulling it are restarted onto the new tag. The
+`ArgoCDDeploy` copy needs no rebuild, but it does need a sync — and Argo CD
+syncs itself only when the operator says so, so it is the one copy a rotation
+can leave behind without any pipeline noticing.
 
 ## What a rotation breaks besides TLS: the provider mirror
 
@@ -106,7 +115,7 @@ a mirror readdressing touch the same rebuild set.
 - `/work/Ansible/support/iac-image/terraform.rc` — the `iac` image
 - `/work/DockerImages/modern-app-dev/terraform.rc` — the dev container
 - `/work/DockerImages/kube-coder-dev-base/terraform.rc` — the KubeCoder dev base image
-- `/work/ArgoCDTools/image/terraform.rc` — the Argo CD PreSync hook image
+- `/work/ArgoCDTools/argocd-hook/image/terraform.rc` — the Argo CD PreSync hook image
 
 Readdressing `tfmirror.home` on its own — no root change — is the same edit
 without the cert half; see the "Terraform `pvginkel/homelab` provider" section
@@ -129,7 +138,7 @@ from the repos and hosts after that.
 
 ## Verifying the inventory is still whole
 
-The seven paths are duplicates by convention, not by mechanism, so drift
+The ten paths are duplicates by convention, not by mechanism, so drift
 between them is silent. Check them against each other before and after any
 change window:
 
@@ -137,13 +146,16 @@ change window:
 md5sum /work/Ansible/ansible/roles/baseline/files/homelab-root.crt \
        /work/HelmCharts/homelab-root.crt \
        /work/HelmCharts/charts/nginx/files/ca/homelab-root.crt \
-       /work/ArgoCDTools/image/homelab-root.crt \
+       /work/ArgoCDTools/argocd-hook/image/homelab-root.crt \
+       /work/ArgoCDTools/aac-tools/image/homelab-root.crt \
        /work/DockerImages/kube-coder-dev-base/homelab-root.crt \
+       /work/DockerImages/kube-coder-arm64-cross-toolchain/homelab-root.crt \
+       /work/DockerImages/kube-coder-esp-idf-toolchain/homelab-root.crt \
        /work/ArgoCDDeploy/chart/files/homelab-root.crt \
        /work/KubeCoderDeploy/chart/files/ca/homelab-root.crt
 ```
 
-All seven hashes must match.
+All ten hashes must match.
 
 The same check for the provider mirror config:
 
@@ -151,7 +163,7 @@ The same check for the provider mirror config:
 md5sum /work/Ansible/support/iac-image/terraform.rc \
        /work/DockerImages/modern-app-dev/terraform.rc \
        /work/DockerImages/kube-coder-dev-base/terraform.rc \
-       /work/ArgoCDTools/image/terraform.rc
+       /work/ArgoCDTools/argocd-hook/image/terraform.rc
 ```
 
 And the live CA against the repo, which is what the scheduled drift stage does
