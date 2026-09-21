@@ -315,7 +315,8 @@ What a migration would otherwise get wrong:
   HelmCharts keeps publishing the app from its own copy until the flip, so the
   two copies coexist until then. Record the copied commit in the deploy repo's
   `README.md`, and replay any change to HelmCharts' copy. A new app takes the
-  date of its deploy repo's first commit.
+  date of the first commit that adds its deploy repo's `chart/`, as
+  ArgoCDDeploy's does.
 - **The producer id is `<app>-deploy`**, where `<app>` is `name:` in
   `chart/Chart.yaml`. The generator keys every id on the chart's name, while
   Argo names the Application after the registry directory `configs/prd/<app>/`.
