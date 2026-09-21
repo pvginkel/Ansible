@@ -3,8 +3,9 @@
 Day-to-day operation of the Argo CD instance on the prd cluster: reading its
 state without the CLI, diagnosing a failed sync, webhooks, rotating its tokens,
 upgrading it, getting in when SSO is broken, registering and removing an app,
-and rebuilding it from nothing. Read this when a sync fails, a token or secret
-changes, or Argo itself needs an upgrade or a bootstrap.
+giving an app its own architecture producer, and rebuilding Argo from nothing.
+Read this when a sync fails, a token or secret changes, or Argo itself needs an
+upgrade or a bootstrap.
 
 Design context: the `argo-cd/` document set in AnsibleSpecs —
 [`brief.md`](../../../AnsibleSpecs/argo-cd/brief.md),
@@ -227,6 +228,12 @@ No `chart:` key. HelmCharts' suite (`kc project test`) gates the shape, and the
 pipeline skips the release. Push; the ApplicationSet regenerates within seconds
 and the Application appears OutOfSync. The first sync is manual.
 
+An app that HelmCharts deploys today moves onto Argo when this entry replaces its
+`jenkins` one. A stage with no `release.yaml`, or with no `reconciler:` key, is
+`jenkins`'s. The same push drops the stage from HelmCharts' architecture
+artifact, so the app's own architecture producer is registered before it
+([Giving an app its own architecture producer](#giving-an-app-its-own-architecture-producer)).
+
 What a sync does, in order: Argo applies the chart's `sync-wave: "-1"` Namespace
 during its dry-run pass; the PreSync Job runs in `argocd-hooks` (clone at the
 synced SHA → terraform-backend-git → `terraform apply` with the stage tfvars →
@@ -242,6 +249,159 @@ the resources finalizer cascades — workloads, the `Prune=false` Namespace and
 the hook Jobs were all gone within 45 seconds on 2026-09-13. What stays: the
 state file in TerraformState (nothing prunes it until D28 is designed) and the
 deploy repo's GitHub webhook. **Unregister** is deleting the entry directory.
+
+## Giving an app its own architecture producer
+
+An app appears in the federated architecture model only while a registered
+producer publishes it. HelmCharts' `helm-charts` producer publishes each stage
+that is `jenkins`'s from the annotation file `charts/<app>/architecture.yaml`. It
+leaves a stage out once that stage's entry says `reconciler: argo-cd`. So a
+migrating app carries a producer of its own in its deploy repo, registered
+before that flip, or it drops out of the model. An app new to the estate carries
+one too. It has no current producer, so it has no flip to order against.
+
+The generator is `gen-architecture`, from ArgoCDTools' `aac-tools` image. It
+renders `chart/` with `config/<stage>/values.yaml` the way Argo renders it, reads
+the judgment layer, and writes `docs/architecture/<producer>.yaml`. Its ids are
+uuid5s of the same natural keys, under the same namespace constant, that
+HelmCharts' generator uses. So the new producer mints the ids `helm-charts`
+publishes today, and no other producer's edge into the app dangles across the
+handover.
+
+The worked examples, to copy from:
+
+| Deploy repo | Producer | Publishes | Case |
+| --- | --- | --- | --- |
+| `ArgoCDDeploy` | `argocd-deploy` | prd, from `main` | a new app: no current producer, no flip |
+| `KubeCoderDeploy` | `kubecoder-deploy` | prd, from `prd` | a handover from `helm-charts`; dev is not published |
+
+What the deploy repo carries:
+
+- **`architecture.yaml`** at the root: the judgment layer. Its schema is the
+  docstring of ArgoCDTools' `aac-tools/image/gen_architecture.py`.
+- **`Jenkinsfile.architecture`**: it clones the published branch. Then, in the
+  `aac-tools` container (`containerTemplates.aac_tools('aac-tools')`), it runs
+  `gen-architecture --stage <stage> --producer <app>-deploy` and `arch-validate
+  docs/architecture/*.yaml`, and it archives `docs/architecture/*.yaml`. The
+  collector copies only artifacts whose path contains an `architecture/`
+  directory.
+- **`.architecturerc`**: see below.
+- **`/docs/architecture/` in `.gitignore`**: the artifact is build output and is
+  never committed.
+- **`.kubecoder/project.yaml`**: `jenkins: AaC/<Repo>`. The last two `test`
+  statements are the pipeline's two commands: `cexec aac-tools gen-architecture
+  --stage <stage> --producer <app>-deploy` and `cexec aac-tools arch-validate
+  docs/architecture/<app>-deploy.yaml`.
+
+What a migration would otherwise get wrong:
+
+- **One pipeline publishes one stage, from one branch.** The artifact is
+  attached to the pipeline, so a pipeline that built two stages would publish
+  them alternately. `Jenkinsfile.architecture` names the branch Argo syncs the
+  stage from and passes that stage to `--stage`, which is required and takes one
+  value. That is the whole guard. The generator does not read the branch, and it
+  has no rule about which stages an app publishes. KubeCoder publishes prd only.
+- **The moved annotation file states `introduced:`.** HelmCharts derives the
+  date from the first commit that adds `charts/<app>`. A deploy repo's history
+  dates the repo, not the app, so the generator requires the key and has no
+  fallback. Copy the file verbatim and add HelmCharts' date. Every published
+  element of the app carries that date, so a different date keeps the ids but
+  changes every element:
+
+  ```sh
+  git -C /work/HelmCharts log --diff-filter=A --reverse --format=%ad --date=short -- charts/<app> | head -1
+  ```
+
+  HelmCharts keeps publishing the app from its own copy until the flip, so the
+  two copies coexist until then. Record the copied commit in the deploy repo's
+  `README.md`, and replay any change to HelmCharts' copy. A new app takes the
+  date of its deploy repo's first commit.
+- **The producer id is `<app>-deploy`**, where `<app>` is `name:` in
+  `chart/Chart.yaml`. The generator keys every id on the chart's name, while
+  Argo names the Application after the registry directory `configs/prd/<app>/`.
+  The two must be equal, and nothing checks that yet. The id is not the repo name
+  in kebab case, which would give `kube-coder-deploy`.
+- **`.architecturerc` names the real sources.** The default `sources`,
+  `:(glob)**/docs/architecture/**`, matches nothing at a deploy repo's head,
+  because the artifact is not committed. The central architecture update fails a
+  producer whose `sources` match nothing. The file carries these three keys and
+  no others, because any other key also fails the producer:
+
+  ```yaml
+  generated: true
+  sources:
+    - architecture.yaml
+    - chart/
+    - config/<stage>/
+  instructions: >
+    The artifact is build output; edit only the judgment layer, architecture.yaml.
+  ```
+
+- **An owned product is minted once.** A `products:` entry makes this producer
+  publish that «SoftwareProduct» element, and the element's id is a uuid5 of its
+  natural key. A second producer that declares the same product mints the same
+  id, and the collector then fails on the duplicate and publishes nothing. Search
+  the published dataset first. Map an image to a product that another producer
+  already publishes rather than owning it again. `argocd-deploy` owns
+  `ss:argo-cd` and `ss:redis`.
+- **Gaps are printed, not fatal.** When the render carries an image that
+  `images:` does not map, the generator prints `gap: <what>` and the build stays
+  green. The central architecture update reads those lines from the last green
+  build. Map the image, or know why it stays a gap.
+
+The order runs from a committed producer to a registered one. Steps 4 and 5 are
+the operator's:
+
+1. Commit the files. `kc project test` in the deploy repo generates and
+   validates the artifact. Two regenerations from the same commit must be
+   byte-identical. A difference means render-time randomness reaches an id or
+   an emitted field.
+2. At a handover, prove that the new producer's artifact equals what
+   `helm-charts` publishes for the stage. The check clones the checkout's HEAD,
+   so commit the judgment layer first:
+
+   ```sh
+   cd /work/ArgoCDTools
+   cexec iac python3 aac-tools/checks/handover_equality.py \
+     --deploy-repo /work/<Repo> --stage <stage> --producer <app>-deploy
+   ```
+
+   Exit 0 means the same element and relation ids, with every field equal except
+   those the check sets aside. ArgoCDTools' README (Gates) says how to read a
+   difference.
+3. Push the published branch. A promotion branch must exist and carry the
+   producer. KubeCoderDeploy's `prd` is created from `main` at its prd cutover.
+4. Create the Jenkins job `AaC/<Repo>` to run `Jenkinsfile.architecture`, and
+   build it. The first green build archives `docs/architecture/<app>-deploy.yaml`.
+5. Only after that green build, register the producer with a PR against
+   `pipeline-producers.yaml` in `pvginkel/Architecture`:
+
+   ```yaml
+   - id: <app>-deploy
+     repo: pvginkel/<Repo>
+     jenkinsJob: AaC/<Repo>
+   ```
+
+   A registered producer with no archived artifact fails the collector's
+   discovery, and a failed collector run publishes nothing. `repo:` enrols the
+   producer in the central architecture update.
+6. At a handover, flip the stage: push its registry entry
+   ([above](#registering-undeploying-and-unregistering-an-app)). From
+   registration until the flip, both producers declare the app's ids. The
+   collector fails on the duplicates, the Architecture job is red, and the
+   published model keeps the app as it was. The flip's HelmCharts architecture
+   build leaves the stage out, and the next collector run is green, with the new
+   producer owning the same ids. Flipping first would publish a green model
+   without the app. Each stage flips on its own: a stage that the new producer
+   does not publish leaves the model at its flip and needs no registration
+   first. A new app has no step 6.
+
+The central architecture update (`tooling/fleet.py` in `pvginkel/Architecture`)
+does not yet serve a producer correctly when that producer builds a promotion
+branch rather than the default branch. The update clones the `repo:` at its
+default branch and pushes its edits there. `kubecoder-deploy` builds `prd`, and
+its default branch is `main`. So what the update edits is not what the pipeline
+publishes until `prd` is promoted.
 
 ## Previewing a migrating app's diff before its cutover
 
