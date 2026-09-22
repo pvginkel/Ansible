@@ -920,7 +920,7 @@ cexec iac helm --kubeconfig $HOME/.kube/config-prd-write --kube-context prd list
 ```
 
 The first must list only `sh.helm.release.v1.kubecoder-<stage>.v…`, ten revisions per stage on
-2026-09-22. The last must print nothing.
+2026-09-22. The last must print only Helm's header row, `NAME  NAMESPACE  REVISION …`.
 
 ### X2: HelmCharts' copy and Terraform
 
