@@ -508,13 +508,20 @@ A sensible diff has these objects and these fields:
 | every object the chart renders | gains `argocd.argoproj.io/tracking-id` |
 | `Namespace/kubecoder-dev` | gains `argocd.argoproj.io/sync-wave: "-1"` and `argocd.argoproj.io/sync-options: Prune=false` |
 | `ConfigMap/kubecoder-controller-config` | the `worker` and `vsix` images: `dev-latest` → the pinned build |
-| `Deployment/kubecoder-controller` | `deployment` (a timestamp) and `checksum/config` → the new controllerConfig checksum; the controller, ingress and manual images: a digest → the pin; `tunnel-reclaim`'s: a digest → `:latest` |
-| `Deployment/kubecoder-bot`, `Deployment/kubecoder-mcp` | image: a digest → the pin |
+| `Deployment/kubecoder-controller` | `deployment` (a timestamp) and `checksum/config` → the new controllerConfig checksum; the controller, ingress and manual containers: image a digest → the pin, `imagePullPolicy` `Always` → `IfNotPresent`; `tunnel-reclaim`'s image: a digest → `:latest` |
+| `Deployment/kubecoder-bot`, `Deployment/kubecoder-mcp` | image: a digest → the pin; `imagePullPolicy`: `Always` → `IfNotPresent` |
 
 The PreSync Job is a hook, so the diff never lists it. Anything else is the
 finding: another object, another field, or an object *Missing*. The exception is
-a difference that one of the HelmCharts commits from step 1 explains. That is
-the chart re-sync slice 012 owes before its own review, not a defect.
+a difference that one of the HelmCharts commits from step 1 explains. That is a
+replay KubeCoderDeploy still owes, not a defect.
+
+prd's set has the same rows, with `kubecoder-prd` in place of `kubecoder-dev` and
+`prd-latest` in place of `dev-latest`. It has one more object:
+`Service/kubecoder-mcp-public`, which only prd's render carries, and which gains
+the tracking-id and nothing else. The cutover itself reviews the generated
+Application, not a preview:
+[`kubecoder-cutover.md`](kubecoder-cutover.md).
 
 ## What a cutover does not change
 
@@ -559,14 +566,19 @@ the `ExternalSecret` that produces them. A stuck field is a decision: declare it
 in the chart (which takes ownership, and is what makes it changeable afterwards),
 patch it out once at cutover, or accept it.
 
-For KubeCoder on 2026-09-20 the whole residue was three things: `imagePullPolicy`
-on five containers, a stale `deployment` annotation on bot and MCP, and — on
-every adopted object — `metadata.labels` and `metadata.annotations`, which the
-chart does not render at all, so `app.kubernetes.io/managed-by: Helm` and
-`meta.helm.sh/release-name` outlive the migration. That last one is inert in
-itself, but anything keyed on those labels keeps reading a migrated app as
-Helm-managed. Working notes, the probes behind the mechanism, and the full
-per-stage inventory:
+For KubeCoder the residue is two things. The first is a stale `deployment`
+annotation on the bot and MCP pod templates. The second, on every adopted object,
+is `metadata.labels` and `metadata.annotations`, which the chart does not render
+at all. So `app.kubernetes.io/managed-by: Helm` and `meta.helm.sh/release-name`
+outlive the migration. That last one is inert in itself, but anything keyed on
+those labels keeps reading a migrated app as Helm-managed.
+
+The five pinned containers' `imagePullPolicy`, which Helm set to `Always`, is not
+residue. KubeCoderDeploy's chart declares it `IfNotPresent`, so the first sync
+takes the field over, and the diff table above shows the change.
+
+Working notes, the probes behind the mechanism, and the full per-stage
+inventory, taken before the chart declared the pull policy:
 [`handovers/argo-adoption-blind-spot/`](../../../AnsibleSpecs/handovers/argo-adoption-blind-spot/findings-2026-09-20.md).
 
 The alternative to adopting in place is recreating: delete the namespace and let
