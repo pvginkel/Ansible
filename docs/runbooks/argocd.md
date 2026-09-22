@@ -554,11 +554,19 @@ cexec iac helm template <ns> chart --namespace <ns> \
   --set hook.repo=<repo>,hook.revision=<sha>,hook.stage=<stage>,hook.namespace=<ns> > /tmp/render.yaml
 cexec iac kubectl $KC get serviceaccount,configmap,secret,persistentvolumeclaim,service,\
 deployment,statefulset,daemonset,job,cronjob,ingress,networkpolicy,role,rolebinding,externalsecrets \
-  -n <ns> -o json --show-managed-fields > /tmp/live.json
+  -n <ns> -o json --show-managed-fields \
+  | jq '.items |= map(if .kind == "Secret" then del(.data, .stringData,
+      .metadata.annotations["kubectl.kubernetes.io/last-applied-configuration"]) else . end)' \
+  > /tmp/live.json
 # cluster-scoped objects one at a time, passed as extra arguments
 python3 /work/AnsibleSpecs/handovers/argo-adoption-blind-spot/stuck_fields.py \
   <ns> /tmp/render.yaml /tmp/live.json /tmp/ns.json /tmp/clusterrole.json
 ```
+
+The `jq` filter drops every Secret's values before the dump reaches disk: the
+test reads only `managedFields`, which names a Secret's keys but never holds its
+values, so nothing the output depends on is lost and no credential lands in
+`/tmp`.
 
 Read the two lists it prints. An object absent from the render is either
 something the deploy repo forgot, or output of another controller — ESO's

@@ -22,7 +22,8 @@ architecture-producer steps. Facts are as of 2026-09-22.
   the operator's confirmation.
 - **Claude reads no OpenBao value.** Only the no-destroy plan needs OpenBao-held credentials. It
   loads them inside the operator's own command, and the webhook secret stays a placeholder
-  there.
+  there. The pre-flight lists the stage's Secrets, which ESO fills from OpenBao, but its `jq`
+  filter drops their values before anything is written, so it is safe for the session to run.
 - **KubeCoder's Jenkinsfiles (D1).** The accompanying session writes both edits to
   `/work/KubeCoder` in this environment, at the step that calls for them. Each is checked with
   Jenkins' linter and pushed on the operator's confirmation. The steps state the outcome each
@@ -318,7 +319,8 @@ cexec iac kubectl $KC get clusterrole kubecoder-$STAGE-nodes -o json --show-mana
 cexec iac kubectl $KC get clusterrolebinding kubecoder-$STAGE-nodes -o json --show-managed-fields > /tmp/clusterrolebinding.json
 ```
 
-`live.json` holds the stage's Secrets in plaintext. Once the output is read, delete the files:
+`live.json` carries the stage's Secrets without their values, since argocd.md's `jq` filter strips
+them. Once the output is read, delete the files anyway:
 `rm /tmp/render.yaml /tmp/live.json /tmp/ns.json /tmp/clusterrole.json /tmp/clusterrolebinding.json`.
 
 The expected output is the
