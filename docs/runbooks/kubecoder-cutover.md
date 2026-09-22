@@ -145,6 +145,41 @@ The order rests on these constraints:
 - The chart replay check runs again just before each diff review. At prd, a replay reaches the
   Application only through a promotion.
 
+### Stopping points
+
+A sitting is planned around these. For scale, Build-Main takes about twelve minutes and
+`IaC/HelmCharts` about one: the dev half is about two hours in one sitting, the prd half three to
+three and a half in one afternoon, and X1–X3 half an hour whenever.
+
+**Stopping is safe after** these steps, because the stage keeps running as last deployed and
+nothing acts on it meanwhile:
+
+- D1. Build-Main deploys nothing, and its pin commits are inert while no Application exists. Dev
+  is frozen at its last Jenkins deploy.
+- D2, D3, D4 and D5–D7. Dev is flipped and refused by HelmCharts, the state is moved, nothing is
+  applied. The Application sits OutOfSync until it is synced.
+- D8's checks, D9 and D10. From D9, dev is in its target state.
+- P2. `prd` exists and `Deploy-PRD` still works.
+- P4 through P9, **but prd is frozen there**: no Jenkins deploy and no Argo sync reach it until
+  P10. Stop there only if a prd hotfix can wait; otherwise the way out is
+  [WB-2](#wb-2-hand-a-stage-back-to-jenkins).
+- P11 and P12. Promotion is the only path from here.
+
+**Do not stop inside** these:
+
+- The state surgery, steps 2–6: from `state rm module.namespace` to the second push and
+  `rm -rf $W/moves`. About ten minutes.
+- A sync and its checks (D8, P10). Read the result before leaving.
+- P3's merge to P4's push. The architecture collector is red in between.
+- P13's three syncs. One window, with no Build-Main landing between them. About an hour.
+- P2's first run if it goes red after `prd` moved: write `release-<m>` by hand first, or the
+  rerun refuses.
+
+**Before stepping away**, every time: the last step's output is read and its checks passed (a red
+Build-Main means no KubeCoder build lands until it is fixed); no plaintext state is left on the
+home volume (`$W/moves` after a surgery, `$W` after D8 and P10); and nothing is half-pushed in
+`/work/KubeCoder`, `/work/HelmCharts` or `/work/KubeCoderDeploy`.
+
 ## Per-stage procedures
 
 The dev and prd steps call these. First set the stage:
