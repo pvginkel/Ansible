@@ -65,7 +65,7 @@ architecture-producer steps. Facts are as of 2026-09-22.
 | --- | --- | --- |
 | Application, namespace | `kubecoder-dev` | `kubecoder-prd` |
 | KubeCoderDeploy branch Argo syncs (D34) | `main` | `prd`, created by the promote job's first run (P2) |
-| Build-Main's pins, in KubeCoderDeploy | `config/dev/values.yaml`, `<n>` | `config/prd/values.yaml`, `prd-<n>` |
+| Build-Main's pins, in KubeCoderDeploy | `config/dev/values.yaml`, `dev-<n>` | `config/prd/values.yaml`, `prd-<n>` |
 | HelmCharts registry entry | `configs/prd/kubecoder/dev/release.yaml` | `configs/prd/kubecoder/prd/release.yaml` |
 | State moved from (HelmCharts) | `helm-charts/prd/kubecoder/dev/infra.tfstate` | `helm-charts/prd/kubecoder/prd/infra.tfstate` |
 | State moved to (the hook's `argocd/<repo>/<stage>/terraform.tfstate`) | `argocd/KubeCoderDeploy/dev/terraform.tfstate` | `argocd/KubeCoderDeploy/prd/terraform.tfstate` |
@@ -87,13 +87,13 @@ architecture-producer steps. Facts are as of 2026-09-22.
     (`":524"`).
   - `controllerConfig.images.{worker,vsix}` are whole references
     (`registry:5000/kubecoder-worker:524`).
-  - `helmCharts.kaniko` takes one or two destinations: `latest` with `<n>`, or
-    `<prefix>-latest` with `<prefix>-<n>`.
-- **The bare `<n>` family is not empty.** `kubecoder-*:176 … 185` and `latest` come from the
-  retired `KubeCoder/KubeCoder` job (2026-07-21). The rewritten Build-Main's `:<n>` and `:latest`
-  join that family.
-- **The hook image** is `registry:5000/argocd-hook:1`, the `homelab-shared` 0.2.0 pin. It carries
-  Terraform v1.15.8. `argocd-hook:9` and the `iac` sidecar carry v1.16.3.
+- **Build-Main pushes `dev-<n>` and `dev-latest`** for all eight images, and keeps doing so
+  through and after the cutover. dev pins `dev-<n>`, and the promote job retags `dev-<n>` as
+  `prd-<n>` (ANS-99). Nothing uses the bare `<n>` family: `kubecoder-*:176 … 185` and `latest` are
+  left over from the retired `KubeCoder/KubeCoder` job (2026-07-21).
+- **The hook image** is `registry:5000/argocd-hook:10`, the `homelab-shared` 0.2.1 pin that
+  KubeCoderDeploy depends on. Terraform is pinned to the same version in the hook image and the
+  `iac` sidecar, v1.16.3 (ANS-98; AnsibleSpecs `decisions.md`, "Terraform version").
 - **KubeCoderDeploy has one GitHub webhook**, and it stays: Jenkins'
   (`683107093`, `https://jenkins.webathome.org/github-webhook/`, `push`).
 - **`IaC/HelmCharts` redeploys every Jenkins-owned kubecoder stage** on any change under
@@ -121,7 +121,7 @@ architecture-producer steps. Facts are as of 2026-09-22.
 16. **P7–P9.** the chart replay check, the pre-flight and the diff review.
 17. **P10.** prd's manual sync, by the operator alone.
 18. **P11.** prd's `autoSync: true`.
-19. **P12.** `Deploy-PRD` is deleted and `Build-Main`'s `dev-<n>` tag stops.
+19. **P12.** `Deploy-PRD` is deleted.
 20. **P13.** a promotion, a rollback and a roll-forward.
 21. **X1–X3, afterwards and unhurried.** the Helm release Secrets, HelmCharts' `_shared/` and
     `charts/kubecoder/`, and the KubeCoder task.
@@ -129,14 +129,14 @@ architecture-producer steps. Facts are as of 2026-09-22.
 
 The order rests on these constraints:
 
-- `Build-Main` is rewritten before dev's registry commit. The committed pins name build 523, whose
-  bare tags never existed, so the rewritten build has to run first for the first dev sync to name
-  a real build.
+- `Build-Main` is rewritten before dev's registry commit. The committed pins are hand-set to build
+  523, which the `dev-` family's cap reaps as builds land, so the rewritten build has to run first
+  for the first dev sync to name a build that exists.
 - Per stage, the registry commit comes before the state surgery. Once a stage is flipped,
   HelmCharts' deploy CLI refuses it, so no Jenkins deploy can run Terraform against a half-moved
   state. The flip itself runs no hook; only the manual sync does.
-- `Deploy-PRD` goes only after the promote job has retagged, and `Build-Main`'s `dev-<n>` tag stops
-  with it. Until then `Deploy-PRD` promotes prd from `dev-<n>`.
+- `Deploy-PRD` goes only after the promote job has retagged. Until then it promotes prd from
+  `dev-<n>`, the same tag dev pins and the promote job retags.
 - `configs/prd/kubecoder/_shared/` goes only after prd's state surgery. [WB-2](#wb-2-hand-a-stage-back-to-jenkins)
   needs it until then.
 - prd's registry commit waits on this chain: `prd` created (P2), then the producer green on it,
@@ -427,7 +427,7 @@ and exactly `["persistentvolumes"]` and `["secrets"]`. All three held on 2026-09
 the cutover stops, with nothing changed: sync Argo first, per argocd.md
 [Upgrading Argo CD](argocd.md#upgrading-argo-cd) steps 2–4.
 
-### B3: the hook's Terraform is not older than the sidecar's
+### B3: the hook's Terraform matches the sidecar's
 
 The surgery's states are written by the sidecar's Terraform, and the hook reads them at its first
 apply. Print both versions:
@@ -438,39 +438,30 @@ cd /work/KubeCoderDeploy && cexec iac helm template kubecoder-dev chart --values
 cexec iac kubectl -n development run hook-tf-version --rm -i --restart=Never --image=registry:5000/argocd-hook:<tag from the render> --command -- terraform version
 ```
 
-The hook's version must not be older than the sidecar's. The `development` namespace is where
-the default kubeconfig may create a throwaway pod.
+The render must name `argocd-hook:10`, and both must print the same version, v1.16.3: the pin
+both images share (ANS-98). The `development` namespace is where the default kubeconfig may create
+a throwaway pod.
 
-**On 2026-09-22 the hook's version is older:** `argocd-hook:1` carries v1.15.8 and the sidecar
-v1.16.3. The cutover stops here, with nothing changed, until the operator chooses one of these,
-and then this check runs again:
-
-- **A newer hook for KubeCoderDeploy.** `argocd-hook:9` carries v1.16.3. Pin it either through
-  the `homelab-shared` library chart's estate-wide `hook.imageTag` (a Charts release, then
-  KubeCoderDeploy's dependency bump) or through KubeCoderDeploy's own `hook.imageTag`. Read what
-  ArgoCDTools changed in the hook between the two images first.
-- **The older hook, accepted.** On 2026-09-22, v1.15.8 listed a state stamped v1.16.3 with
-  `terraform state list`, and the hook's first apply writes the state back under its own version.
+A different version means one side was rebuilt without the other. The cutover stops here, with
+nothing changed: bring the images back to one pin (AnsibleSpecs `decisions.md`, "Terraform
+version"), move `homelab-shared`'s `hook.imageTag` and KubeCoderDeploy's dependency if the hook
+was rebuilt, and run this check again.
 
 ## Dev
 
 ### D1: Build-Main rewritten and run
 
 R14, D47, D1. The accompanying session edits `/work/KubeCoder/Jenkinsfile`. After the edit,
-`Build-Main` does these five things:
+`Build-Main` does these four things:
 
 1. **Declares** `properties([disableConcurrentBuilds(abortPrevious: true), pipelineTriggers([githubPush()])])`.
    These are the job's two properties from its UI configuration. A `properties` step replaces
    them, so a bare `disableConcurrentBuilds()` would drop the push trigger.
-2. **Builds all eight images** with the two destinations
-   `registry:5000/kubecoder-<name>:${currentBuild.number}` and
-   `registry:5000/kubecoder-<name>:latest`. The stage prefix is dropped, `claude-shim` included.
-3. **Also tags each `:<n>` as `dev-<n>`, between the two cutovers only.** This runs once the eight
-   are pushed, in the `k8s` container:
-   `crane --insecure tag registry:5000/kubecoder-<name>:<n> dev-<n>`. It is a separate step
-   because the kaniko helper takes two destinations. `Deploy-PRD` keeps promoting prd from these
-   tags unchanged. `dev-latest` is not pushed.
-4. **Then calls the pin writer once**, in the `k8s` container, which carries `git`. The call
+2. **Builds all eight images to the destinations it has today,**
+   `registry:5000/kubecoder-<name>:dev-${currentBuild.number}` and
+   `registry:5000/kubecoder-<name>:dev-latest`. They are unchanged: dev pins `dev-<n>`, the
+   promote job retags it, and `Deploy-PRD` keeps promoting prd from it until P12.
+3. **Then calls the pin writer once**, in the `k8s` container, which carries `git`. The call
    makes one commit on KubeCoderDeploy's `main`. `prd-<n>` is a forward reference, which the
    promote job satisfies.
 
@@ -478,10 +469,10 @@ R14, D47, D1. The accompanying session edits `/work/KubeCoder/Jenkinsfile`. Afte
    String n = "${currentBuild.number}"
    cicd.writeVersionPins(repo: 'pvginkel/KubeCoderDeploy', message: "ci: image pins from KubeCoder/Build-Main #${n}", pins: [
        'config/dev/values.yaml': [
-           'images.controller': ":${n}", 'images.bot': ":${n}", 'images.mcp': ":${n}",
-           'images.ingress': ":${n}", 'images.manual': ":${n}",
-           'controllerConfig.images.worker': "registry:5000/kubecoder-worker:${n}",
-           'controllerConfig.images.vsix': "registry:5000/kubecoder-vsix:${n}"
+           'images.controller': ":dev-${n}", 'images.bot': ":dev-${n}", 'images.mcp': ":dev-${n}",
+           'images.ingress': ":dev-${n}", 'images.manual': ":dev-${n}",
+           'controllerConfig.images.worker': "registry:5000/kubecoder-worker:dev-${n}",
+           'controllerConfig.images.vsix': "registry:5000/kubecoder-vsix:dev-${n}"
        ],
        'config/prd/values.yaml': [
            'images.controller': ":prd-${n}", 'images.bot': ":prd-${n}", 'images.mcp': ":prd-${n}",
@@ -492,7 +483,7 @@ R14, D47, D1. The accompanying session edits `/work/KubeCoder/Jenkinsfile`. Afte
    ])
    ```
 
-5. **Deploys nothing.** The `Deploy Helm charts` stage is gone, and with it `cicd.helmDeploy()`.
+4. **Deploys nothing.** The `Deploy Helm charts` stage is gone, and with it `cicd.helmDeploy()`.
 
 Lint the file and push it on confirmation. The push starts Build-Main `#<n>`; Build-Main was at
 #524 on 2026-09-22. From here Build-Main no longer deploys dev, which stays at its last Jenkins
@@ -502,7 +493,7 @@ Check the build:
 
 ```sh
 N=<the build number>
-for i in controller worker vsix claude-shim bot mcp manual ingress; do echo "$i $(tags $i | grep -o "\"$N\"\|\"dev-$N\"" | tr '\n' ' ')"; done
+for i in controller worker vsix claude-shim bot mcp manual ingress; do echo "$i $(tags $i | grep -o "\"dev-$N\"")"; done
 git -C /work/KubeCoderDeploy pull --ff-only && git -C /work/KubeCoderDeploy show --stat --format='%h %s' HEAD && git -C /work/KubeCoderDeploy show HEAD | grep '^[-+] '
 cd /work/KubeCoderDeploy && kc project test
 curl -sg -u admin:$JENKINS_TOKEN https://jenkins.webathome.org/job/KubeCoder/job/Build-Main/config.xml | grep -o 'GitHubPushTrigger\|DisableConcurrentBuildsJobProperty' | sort -u
@@ -510,7 +501,7 @@ curl -sg -u admin:$JENKINS_TOKEN https://jenkins.webathome.org/job/KubeCoder/job
 
 It must show:
 
-- every image carrying `"<n>"` and `"dev-<n>"`;
+- every image carrying `"dev-<n>"`;
 - one commit, `ci: image pins from KubeCoder/Build-Main #<n>`, touching exactly
   `config/dev/values.yaml` and `config/prd/values.yaml`, seven pins each, old value out and new in;
 - the gate green;
@@ -662,7 +653,7 @@ If the policy does not appear, stop and look at the ApplicationSet (argocd.md). 
 R11. Start a build with *Build Now* on `KubeCoder/Build-Main`, or with a push to KubeCoder's
 `main`. Each link must show:
 
-1. **Image build.** Build-Main `#<n>` is green, and `tags <name>` shows `"<n>"` for all eight
+1. **Image build.** Build-Main `#<n>` is green, and `tags <name>` shows `"dev-<n>"` for all eight
    images.
 2. **Tags commit.**
    `git -C /work/KubeCoderDeploy fetch -q && git -C /work/KubeCoderDeploy log -1 --format='%H %s' origin/main`
@@ -672,7 +663,7 @@ R11. Start a build with *Build Now* on `KubeCoder/Build-Main`, or with a push to
    [Webhooks](argocd.md#webhooks) and
    [Reading Argo without the CLI](argocd.md#reading-argo-without-the-cli).
 4. **Auto-sync.** This must print the commit's SHA, `Succeeded` and `true`, and the controller
-   must be at `:<n>`:
+   must be at `:dev-<n>`:
 
    ```sh
    cexec iac kubectl $KC get application -n argocd-prd kubecoder-dev -o jsonpath='{.status.operationState.syncResult.revision} {.status.operationState.phase} {.status.operationState.operation.initiatedBy.automated}{"\n"}'
@@ -709,8 +700,8 @@ D2 and R14. Create the job in Jenkins:
 
 The job runs D47's order, each step only after the one before it succeeded:
 
-1. It retags each of the seven images the commit's `config/prd/values.yaml` pins, from `<n>` to
-   `prd-<n>`. An existing `prd-<n>` is left as it is.
+1. It retags each of the seven images the commit's `config/prd/values.yaml` pins, from `dev-<n>`
+   to `prd-<n>`. An existing `prd-<n>` is left as it is.
 2. It fast-forwards `prd` to the commit; the first run creates the branch.
 3. It writes and pushes the annotated tag `release-1`.
 
@@ -852,16 +843,13 @@ synced in part or failed. Way back: [WB-1](#wb-1-fix-forward).
 R10. Repeat D9 for prd's `release.yaml`. No prd redeploy follows now, since HelmCharts owns
 neither stage. The policy must read `{"prune":true,"selfHeal":false}`.
 
-### P12: Deploy-PRD deleted, and Build-Main's `dev-<n>` stopped
+### P12: Deploy-PRD deleted
 
 R14 and D35. This happens only now: the promote job has retagged (P2), and prd syncs from `prd`.
-The accompanying session makes the second KubeCoder edit, with two parts:
+The accompanying session makes the second KubeCoder edit: `Jenkinsfile.deploy-prd` is deleted.
+`Build-Main`'s `Jenkinsfile` is unchanged.
 
-- `Build-Main` stops tagging `dev-<n>`. After the edit it pushes `:<n>` and `:latest` for all
-  eight images and nothing else. Its properties and its pin call are unchanged.
-- `Jenkinsfile.deploy-prd` is deleted.
-
-Lint `Jenkinsfile` and push on confirmation. Then delete the job `KubeCoder/Deploy-PRD` in
+Push on confirmation. Then delete the job `KubeCoder/Deploy-PRD` in
 Jenkins, from the job's page with *Delete Pipeline*. The push runs Build-Main, and its build is
 P13's candidate. Check it:
 
@@ -870,7 +858,7 @@ tags controller
 curl -sg -u admin:$JENKINS_TOKEN 'https://jenkins.webathome.org/job/KubeCoder/api/json?tree=jobs[name]'
 ```
 
-The first must show the new `"<n>"` and no `"dev-<n>"`; the second, `Build-Main` and `Promote-PRD`
+The first must show the new `"dev-<n>"`; the second, `Build-Main` and `Promote-PRD`
 only. A red Build-Main stops the cutover; way back: [WB-1](#wb-1-fix-forward). Do not recreate
 `Deploy-PRD` to recover prd: promote instead.
 

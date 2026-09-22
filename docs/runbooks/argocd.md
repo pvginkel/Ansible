@@ -45,7 +45,7 @@ actually ran and the Phase A proof drill are recorded in slice 009's
 | Registry | HelmCharts `configs/prd/<app>/<stage>/release.yaml` carrying `reconciler: argo-cd` |
 | ApplicationSets | `releases-local`, `releases-upstream` (`missingkey=error`: one malformed entry fails the whole set) |
 | Webhook edge | `https://deploy-hooks.webathome.org/api/webhook` → relay (2 replicas) → argocd-server and the applicationset-controller |
-| Hook image | `registry:5000/argocd-hook:<n>` from ArgoCDTools; default pin in the `homelab-shared` library chart |
+| Hook image | `registry:5000/argocd-hook:<n>` from ArgoCDTools; default pin in the `homelab-shared` library chart. Its Terraform is pinned to the version the `iac` images carry (AnsibleSpecs `decisions.md`, "Terraform version") |
 | Terraform state | `pvginkel/TerraformState`, `argocd/<repo>/<stage>/terraform.tfstate`, sops/age |
 | Notifications | Alertmanager `prometheus-prd-alertmanager.prometheus-prd:9093`, delivered to Telegram; `ArgoCDSyncFailed` (critical, with sound), `ArgoCDHealthDegraded` (warning, silent) |
 
@@ -508,7 +508,7 @@ A sensible diff has these objects and these fields:
 | --- | --- |
 | every object the chart renders | gains `argocd.argoproj.io/tracking-id` |
 | `Namespace/kubecoder-dev` | gains `argocd.argoproj.io/sync-wave: "-1"` and `argocd.argoproj.io/sync-options: Prune=false` |
-| `ConfigMap/kubecoder-controller-config` | the `worker` and `vsix` images: `dev-latest` → the pinned build |
+| `ConfigMap/kubecoder-controller-config` | the `worker` and `vsix` images: `dev-latest` → the pinned build's `dev-<n>` |
 | `Deployment/kubecoder-controller` | `deployment` (a timestamp) and `checksum/config` → the new controllerConfig checksum; the controller, ingress and manual containers: image a digest → the pin, `imagePullPolicy` `Always` → `IfNotPresent`; `tunnel-reclaim`'s image: a digest → `:latest` |
 | `Deployment/kubecoder-bot`, `Deployment/kubecoder-mcp` | image: a digest → the pin; `imagePullPolicy`: `Always` → `IfNotPresent` |
 
@@ -517,8 +517,8 @@ finding: another object, another field, or an object *Missing*. The exception is
 a difference that one of the HelmCharts commits from step 1 explains. That is a
 replay KubeCoderDeploy still owes, not a defect.
 
-prd's set has the same rows, with `kubecoder-prd` in place of `kubecoder-dev` and
-`prd-latest` in place of `dev-latest`. It has one more object:
+prd's set has the same rows, with `kubecoder-prd` in place of `kubecoder-dev`, and
+`prd-latest` and `prd-<n>` in place of `dev-latest` and `dev-<n>`. It has one more object:
 `Service/kubecoder-mcp-public`, which only prd's render carries, and which gains
 the tracking-id and nothing else. The cutover itself reviews the generated
 Application, not a preview:
