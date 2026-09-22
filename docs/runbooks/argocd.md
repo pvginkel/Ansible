@@ -126,7 +126,7 @@ Any other deploy repo needs its webhook made by hand: payload URL
 `https://deploy-hooks.webathome.org/api/webhook`, content type
 `application/json`, the shared secret from
 `eso/prd/argocd/prd/webhook#github_secret`, just the push event. The pod's
-GitHub token can list hooks (`gh api repos/pvginkel/<repo>/hooks`) but not
+GitHub token can list hooks (`cexec iac gh api repos/pvginkel/<repo>/hooks`) but not
 create them, so creation is a GitHub UI keystroke.
 
 A delivery that worked leaves three traces: the relay logs `delivery <id>
@@ -371,7 +371,8 @@ the operator's:
    those the check sets aside. ArgoCDTools' README (Gates) says how to read a
    difference.
 3. Push the published branch. A promotion branch must exist and carry the
-   producer. KubeCoderDeploy's `prd` is created from `main` at its prd cutover.
+   producer. KubeCoderDeploy's `prd` is created from `main` by its promote job's
+   first run, at the prd cutover.
 4. Create the Jenkins job `AaC/<Repo>` to run `Jenkinsfile.architecture`, and
    build it. The first green build archives `docs/architecture/<app>-deploy.yaml`.
 5. Only after that green build, register the producer with a PR against

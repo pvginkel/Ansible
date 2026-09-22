@@ -403,11 +403,11 @@ R5. Argo, Build-Main's pin writes and the promote job all clone `origin`, never 
 cd /work/KubeCoderDeploy && git status -sb | head -1 && kc project test
 ```
 
-On 2026-09-22 `main` is three commits ahead of `origin/main`: slice 014's doc phase and slice
-012's P1 and P2. Push them on the operator's confirmation. Pushing is inert, because no
-Application syncs from KubeCoderDeploy before a registry commit names it. The status must read
-`## main...origin/main`, with nothing ahead, and the gate must be green. A red gate stops the
-cutover, with nothing changed.
+Push anything `main` carries past `origin/main` on the operator's confirmation. Pushing is inert,
+because no Application syncs from KubeCoderDeploy before a registry commit names it. A push starts
+`AaC/KubeCoderDeploy`, which fails on the missing `prd` branch until P2 creates it; that red build
+is expected. The status must read `## main...origin/main`, with nothing ahead, and the gate must
+be green. A red gate stops the cutover, with nothing changed.
 
 ### B2: Argo's own sync is done
 
@@ -738,11 +738,13 @@ Each stop is a red build:
 - **A failure before *Advancing prd*.** At most some new `prd-<n>` aliases exist. They are
   harmless; run again.
 - **A failure at *Recording the release*, after `prd` moved.** A rerun refuses with *nothing to
-  promote*, so write the tag by hand, on confirmation. `<m>` is the failed build's number. The
-  message is the job's: this line, a blank line, then the seven references from the build log.
+  promote*, so write the tag by hand, on confirmation. `<m>` is the failed build's number and
+  `<n>` the build `config/prd/values.yaml` pins at `<sha>`. The message is the job's: the first
+  line, a blank line, then the seven references in the job's order.
 
   ```sh
-  cd /work/KubeCoderDeploy && git tag -a release-<m> -m "release-<m>: <sha> promoted to prd by KubeCoder/Promote-PRD #<m>" <sha> && git push origin refs/tags/release-<m>
+  N=<n>
+  cd /work/KubeCoderDeploy && git tag -a release-<m> -m "release-<m>: <sha> promoted to prd by KubeCoder/Promote-PRD #<m>" -m "$(for i in controller bot mcp ingress manual worker vsix; do echo registry:5000/kubecoder-$i:prd-$N; done)" <sha> && git push origin refs/tags/release-<m>
   ```
 
 This run is the first check of the job's sandbox and its steps; the linter only parsed the file.
@@ -755,7 +757,9 @@ steps 2, 4 and 5, with `<Repo>` = `KubeCoderDeploy`, `<stage>` = `prd` and `<app
 `kubecoder-deploy`:
 
 1. **Step 2**, the handover equality check. Run it with `/work/KubeCoderDeploy` checked out at
-   `origin/prd`'s commit. It must exit 0.
+   `origin/prd`'s commit (`git -C /work/KubeCoderDeploy checkout -q origin/prd`). It must exit 0.
+   Then return the checkout to `main` (`git -C /work/KubeCoderDeploy checkout -q main`): the
+   no-destroy plan and the replay check pull `main`, and a detached checkout fails them.
 2. **Step 4.** `AaC/KubeCoderDeploy` already exists. Build it if the push that created `prd` did
    not start it. Its first green build archives `docs/architecture/kubecoder-deploy.yaml`.
 3. **Step 5.** Open the PR against `pipeline-producers.yaml` in `pvginkel/Architecture`; the
