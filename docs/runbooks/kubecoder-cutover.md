@@ -367,8 +367,11 @@ without its `imagePullPolicy` row, which the chart now declares:
   `kubecoder-github-token`, `kubecoder-mcp-auth-token`, `kubecoder-samba-credential`,
   `kubecoder-secret-catalog` and `kubecoder-step-ca-provisioner-password`.
 - **B.** `metadata.labels`, `metadata.annotations` and `spec.template.metadata.annotations`, and no
-  `imagePullPolicy`. The last row is the stale deploy timestamp on `kubecoder-bot` and
-  `kubecoder-mcp`.
+  `imagePullPolicy`. The `spec.template` row is the stale deploy timestamp on `kubecoder-bot` and
+  `kubecoder-mcp`. Two more rows, `metadata.annotations.meta.helm.sh/release-name` and
+  `…/release-namespace`, come from the ClusterRole and ClusterRoleBinding. They are the
+  inventory's "+2" and are expected. dev printed 22, 21, 2, 1 and 1: `TOTAL 47`, the inventory's
+  52 less its five `imagePullPolicy` rows (2026-09-23).
 
 This slice accepts those rather than fixing them: the Helm labels and annotations are inert, and
 the stale timestamp rolls nothing. Any other object in A, or any other field in B, stops the
