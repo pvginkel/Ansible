@@ -7,6 +7,7 @@ run record ANS-102). The steps, in order, are one subcommand each:
     scaffold   build /work/<Repo> from HelmCharts: chart, stage values, Terraform, producer files
     verify     the render must equal the live Helm release, object for object
     arch       the architecture producer handover: nothing helm-charts publishes may be lost
+    pins       DockerImages deploy-pins.json entries; lists app-built images for their Jenkinsfiles
     publish    create the GitHub repo and push main; create and build AaC/<Repo>
     register   add the producer to Architecture's pipeline-producers.yaml (commit only)
     flip       HelmCharts registry entry, autoSync false (commit only)
@@ -389,6 +390,69 @@ def pin_deployment_stamp(app: App, p: Path) -> str | None:
     return stamp
 
 
+SSE_TEMPLATE = """{{/*
+The SSE gateway's callback secret, generated once by ESO (refreshInterval 0) instead of
+`randAlphaNum` at render time: a random render leaves an Argo Application forever OutOfSync
+and rolls the pod on every sync (argo-cd bulk migration).
+*/}}
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: sse-callback
+spec:
+  length: 64
+  digits: 10
+  symbols: 0
+  noUpper: false
+  allowRepeat: true
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: sse-callback
+spec:
+  refreshInterval: "0"
+  target:
+    name: sse-callback
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: sse-callback
+"""
+
+SSE_DEF = re.compile(r"^\{\{-? \$sseCallbackSecret := randAlphaNum 64 -?\}\}\n", re.M)
+SSE_VALUE = re.compile(r"^( *)value: \{\{ \$sseCallbackSecret \| quote \}\}\n", re.M)
+SSE_URL = re.compile(r'^( *)- name: CALLBACK_URL\n( *)value: "(.*?)\{\{ \$sseCallbackSecret \}\}"\n', re.M)
+
+
+def fix_sse_secret(p: Path) -> bool:
+    """Rewrite the SSE gateway charts' render-time random callback secret. True if rewritten."""
+    hit = False
+    for t in (p / "chart/templates").glob("*.yaml"):
+        text = t.read_text()
+        if not SSE_DEF.search(text):
+            continue
+        if "$sseCallbackSecret" in SSE_DEF.sub("", text) and not (SSE_VALUE.search(text) or SSE_URL.search(text)):
+            raise Stop(f"{t.name}: sseCallbackSecret used in an unexpected shape")
+        text = SSE_DEF.sub("", text)
+        text = SSE_VALUE.sub(lambda m: (f"{m.group(1)}valueFrom:\n{m.group(1)}  secretKeyRef:\n"
+                                        f"{m.group(1)}    name: sse-callback\n{m.group(1)}    key: password\n"), text)
+        text = SSE_URL.sub(lambda m: (f"{m.group(1)}- name: SSE_CALLBACK_SECRET\n{m.group(2)}valueFrom:\n"
+                                      f"{m.group(2)}  secretKeyRef:\n{m.group(2)}    name: sse-callback\n"
+                                      f"{m.group(2)}    key: password\n"
+                                      f"{m.group(1)}- name: CALLBACK_URL\n"
+                                      f'{m.group(2)}value: "{m.group(3)}$(SSE_CALLBACK_SECRET)"\n'), text)
+        if "$sseCallbackSecret" in text:
+            raise Stop(f"{t.name}: sseCallbackSecret left after the rewrite")
+        t.write_text(text)
+        hit = True
+    if hit:
+        (p / "chart/templates/sse-callback-secret.yaml").write_text(SSE_TEMPLATE)
+    return hit
+
+
 def cmd_scaffold(app: App, args) -> None:
     if app.release.get("reconciler") == "argo-cd":
         raise Stop("already on Argo")
@@ -435,6 +499,7 @@ def cmd_scaffold(app: App, args) -> None:
             "# HelmCharts applied these with kubectl after the release (configs/prd/"
             f"{app.name}/{app.stage}/manifests.yaml); they are chart content now.\n" + text)
     stamp = pin_deployment_stamp(app, p)
+    sse = fix_sse_secret(p)
     schema = p / "chart/values.schema.json"
     if schema.exists():
         # A closed schema must admit the keys the deploy repo adds: the library's own block,
@@ -521,7 +586,7 @@ def cmd_scaffold(app: App, args) -> None:
     run(["git", "add", "-A"], cwd=p)
     run(["git", "commit", "-q", "-m",
          f"{app.name}: deploy repo, migrated from HelmCharts {sha[:7]} (argo-cd D51)"], cwd=p)
-    app.save_state(scaffolded=sha)
+    app.save_state(scaffolded=sha, sse=sse)
     log(f"scaffolded {p} from HelmCharts {sha[:7]}; modules: {', '.join(mods) or 'none'}")
 
 
@@ -547,6 +612,10 @@ def render(app: App, revision: str = "0123456789abcdef0123456789abcdef01234567")
     return r.stdout
 
 
+SSE_OK = re.compile(r"SSE_CALLBACK_SECRET|sse/callback|sse-callback|secretKeyRef:|valueFrom:|key: password|"
+                    r"^[+-]\s*value: [A-Za-z0-9]{64}$")
+
+
 def cmd_verify(app: App, args) -> None:
     rendered = {key(d): d for d in docs(render(app))}
     live_text = iac("helm", *HKC, "get", "manifest", app.ns, "-n", app.ns).stdout
@@ -556,6 +625,9 @@ def cmd_verify(app: App, args) -> None:
         for d in docs(manifests.read_text()):
             live[key(d)] = d
     expected_extra = {("Namespace", app.ns)}
+    sse = app.load_state().get("sse")
+    if sse:
+        expected_extra |= {("Password", "sse-callback"), ("ExternalSecret", "sse-callback")}
     extra = set(rendered) - set(live)
     hook = {k for k in extra if k[0] == "Job" and k[1].startswith("tf-presync")}
     extra -= hook | expected_extra
@@ -575,6 +647,11 @@ def cmd_verify(app: App, args) -> None:
         a = yaml.safe_dump(live[k], sort_keys=True).splitlines()
         b = yaml.safe_dump(rendered[k], sort_keys=True).splitlines()
         import difflib
+        changed = [l for l in difflib.unified_diff(a, b, lineterm="", n=0)
+                   if l[:1] in "+-" and not l.startswith(("+++", "---"))]
+        if sse and k[0] == "Deployment" and all(SSE_OK.search(l) for l in changed):
+            log(f"{k}: only the SSE callback secret changes (expected: this sync rolls it)")
+            continue
         problems.append(f"{k} differs:\n" + "\n".join(difflib.unified_diff(a, b, "live", "render", lineterm="", n=1)))
     if problems:
         raise Stop("render != live release:\n" + "\n".join(problems))
@@ -670,6 +747,35 @@ def cmd_arch(app: App, args) -> None:
     app.save_state(arch_added=added)
 
 
+IMAGE_REF = re.compile(r'image:\s*"?registry:5000/([\w.-]+)\{\{-?\s*\$?\.Values\.([\w.]+)\s*-?\}\}')
+
+
+def cmd_pins(app: App, args) -> None:
+    """Who writes each in-house image's pin (argo-cd D53). DockerImages' images get a
+    deploy-pins.json entry (committed locally); app-built images are listed for their
+    build's Jenkinsfile."""
+    found = set()
+    for t in (app.path / "chart/templates").rglob("*.yaml"):
+        found |= set(IMAGE_REF.findall(t.read_text()))
+    di = WORK / "DockerImages"
+    manual = []
+    for image, path in sorted(found):
+        entry = {"repo": f"pvginkel/{app.repo_name}", "file": f"config/{app.stage}/values.yaml", "path": path}
+        if (di / image / "Dockerfile").exists():
+            f = di / image / "deploy-pins.json"
+            entries = json.loads(f.read_text()) if f.exists() else []
+            if entry not in entries:
+                entries.append(entry)
+                f.write_text(json.dumps(entries, indent=2) + "\n")
+                run(["git", "add", str(f)], cwd=di)
+                run(["git", "commit", "-q", "-m", f"{image}: pin into {app.repo_name} (argo-cd D53)"], cwd=di)
+            log(f"{image} -> DockerImages/{image}/deploy-pins.json ({path})")
+        else:
+            manual.append((image, path))
+            log(f"{image} -> an app build writes {path} in config/{app.stage}/values.yaml")
+    app.save_state(pins_manual=manual)
+
+
 # ---------------------------------------------------------------------------------------------
 # register, flip, autosync: commits only
 
@@ -754,8 +860,6 @@ def cmd_surgery(app: App, args) -> None:
         if ns_addr not in addrs:
             raise Stop(f"source state lacks {ns_addr}: {addrs}")
         rest = [a for a in addrs if not a.startswith("module.namespace.")]
-        if any(not a.startswith("module.") for a in rest):
-            raise Stop(f"source state holds non-module addresses: {rest}")
         log(f"source state: {addrs}")
         tfinit(w / "dst", dst)
         pulled = json.loads(iac("terraform", "state", "pull", cwd=w / "dst").stdout or "{}")
@@ -766,7 +870,8 @@ def cmd_surgery(app: App, args) -> None:
             raise Stop(f"state rm: {r.stdout}")
         if rest:
             (w / "moves/src.tfstate").write_text(iac("terraform", "state", "pull", cwd=w / "src").stdout)
-            mods = sorted({".".join(a.split(".")[:2]) for a in rest})
+            # Modules move whole; a plain resource moves by its own address. Nothing is renamed.
+            mods = sorted({".".join(a.split(".")[:2]) if a.startswith("module.") else a for a in rest})
             for m in mods:
                 iac("terraform", "state", "mv", "-state=src.tfstate", "-state-out=dst.tfstate", m, m,
                     cwd=w / "moves")
@@ -825,12 +930,15 @@ def cmd_plan(app: App, args) -> None:
         raise Stop(f"plan failed:\n{out[-3000:]}")
     if "0 missing" not in out:
         raise Stop("setup-env did not export every credential")
-    want = "Plan: 1 to add, 0 to change, 0 to destroy."
+    # An `import` block adopts a live object the chart no longer renders; each is declared.
+    imports = sum(len(re.findall(r"^import\s*\{", f.read_text(), re.M)) for f in (app.path / "terraform").glob("*.tf"))
+    want = (f"Plan: {imports} to import, 1 to add, 0 to change, 0 to destroy." if imports
+            else "Plan: 1 to add, 0 to change, 0 to destroy.")
     adds = re.findall(r"# (\S+) will be created", out)
     if want not in out or adds != ["github_repository_webhook.argocd[0]"]:
         summary = [l for l in out.splitlines() if re.search(r"#.*will be|must be replaced|Plan:|No changes", l)]
         raise Stop("plan is not the webhook alone:\n" + "\n".join(summary))
-    log("plan: the webhook alone (1 to add, 0 to change, 0 to destroy)")
+    log(f"plan: {want}")
     app.save_state(planned=True)
 
 
@@ -1013,7 +1121,10 @@ def cmd_sync(app: App, args) -> None:
     problems = []
     if s["sync"]["status"] != "Synced" or s["health"]["status"] != "Healthy":
         problems.append(f"Application {s['sync']['status']} {s['health']['status']}")
-    if applied != ["Apply complete! Resources: 1 added, 0 changed, 0 destroyed."]:
+    imports = sum(len(re.findall(r"^import\s*\{", f.read_text(), re.M)) for f in (app.path / "terraform").glob("*.tf"))
+    want_apply = (f"Apply complete! Resources: {imports} imported, 1 added, 0 changed, 0 destroyed." if imports
+                  else "Apply complete! Resources: 1 added, 0 changed, 0 destroyed.")
+    if [a.strip() for a in applied] != [want_apply]:
         problems.append(f"hook: {applied or 'no apply line'}")
     if problems:
         raise Stop("sync checks:\n" + "\n".join(problems))
@@ -1025,7 +1136,7 @@ def cmd_sync(app: App, args) -> None:
 
 
 STEPS = {
-    "scaffold": cmd_scaffold, "verify": cmd_verify, "arch": cmd_arch, "publish": cmd_publish,
+    "scaffold": cmd_scaffold, "verify": cmd_verify, "arch": cmd_arch, "pins": cmd_pins, "publish": cmd_publish,
     "register": cmd_register, "flip": cmd_flip, "surgery": cmd_surgery, "plan": cmd_plan,
     "preflight": cmd_preflight, "sync": cmd_sync, "autosync": cmd_autosync,
 }
