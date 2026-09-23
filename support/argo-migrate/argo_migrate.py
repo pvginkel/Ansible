@@ -6,7 +6,8 @@ run record ANS-102). The steps, in order, are one subcommand each:
 
     scaffold   build /work/<Repo> from HelmCharts: chart, stage values, Terraform, producer files
     verify     the render must equal the live Helm release, object for object
-    arch       the architecture producer handover: nothing helm-charts publishes may be lost
+    arch       the architecture producer handover: nothing helm-charts publishes may be lost,
+               and HelmCharts still builds and draws its edges without the app
     pins       DockerImages deploy-pins.json entries; lists app-built images for their Jenkinsfiles
     publish    create the GitHub repo and push main; create and build AaC/<Repo>
     register   add the producer to Architecture's pipeline-producers.yaml (commit only)
@@ -37,6 +38,7 @@ import subprocess
 import sys
 import time
 import urllib.parse
+import urllib.request
 from pathlib import Path
 
 import yaml
@@ -52,6 +54,7 @@ LIB_VERSION = "0.3.0"
 JENKINS = "https://jenkins.webathome.org"
 GIT_CRED = "5f6fbd66-b41c-405f-b107-85ba6fd97f10"
 RELAY = "https://deploy-hooks.webathome.org/api/webhook"
+DATASET_URL = "https://architecture.webathome.org/data/v0.1/architecture.yaml"
 HOOK_PARAMS = "hook.repo={repo},hook.revision=0123456789abcdef0123456789abcdef01234567,hook.stage={stage},hook.namespace={ns}"
 
 
@@ -732,24 +735,96 @@ def aac_build(app: App) -> int:
     raise Stop(f"AaC/{app.repo_name} #{n} did not finish in 20 min")
 
 
+URL = re.compile(r"^[a-z][a-z0-9+.\-]*://")
+DRAWN = re.compile(r"^  drawn by (\S+): (\S+)$")
+ADDED = re.compile(r"^(element|relation) generated but not published: ")
+
+
+def dataset_snapshot(app: App, source: str) -> Path:
+    """The one dataset both halves read: a file as given, a URL fetched once.
+
+    Both halves read it in the iac sidecar, which sees /work and $HOME at the same paths.
+    """
+    if not URL.match(source):
+        return Path(source).resolve()
+    snap = HOME / "bulk-migration/logs" / f"{app.ns}.dataset.yaml"
+    with urllib.request.urlopen(source, timeout=60) as resp:
+        snap.write_bytes(resp.read())
+    return snap
+
+
+def hc_releases_without(app: App) -> list[str]:
+    """gen-architecture's names for every HelmCharts release but the app's stage.
+
+    The bare chart name is the only name of a chart's prd release, and it selects the chart's
+    other stages too, so a non-prd stage cannot be left out while its prd is rendered.
+    """
+    if app.stage != "prd" and (app.cfg / "prd").is_dir():
+        raise Stop(f"gen-architecture cannot render {app.name}'s prd release without its {app.stage} one")
+    names = []
+    for chart in sorted(p for p in (HC / "configs/prd").iterdir() if p.is_dir()):
+        for stage in sorted(p.name for p in chart.iterdir() if p.is_dir() and p.name != "_shared"):
+            if (chart.name, stage) != (app.name, app.stage):
+                names.append(chart.name if stage == "prd" else f"{chart.name}@{stage}")
+    return names
+
+
+def helm_charts_without(app: App, dataset: Path, edges: list[str], logfile: Path) -> list[str]:
+    """HelmCharts' half: rendering every release but the app's against `dataset`, nothing
+    overlaid, it must build and draw each of `edges` exactly as `dataset` publishes it."""
+    r = iac("env", f"ARCH_DATASET_URL={dataset}", "ARCH_DATASET_OVERLAY=", "poetry", "run",
+            "gen-architecture", *hc_releases_without(app), cwd=HC, check=False)
+    with logfile.open("a") as f:
+        f.write(f"\n# HelmCharts without {app.ns}\n{r.stdout}{r.stderr}")
+    if r.returncode != 0:
+        errors = [l for l in r.stderr.splitlines() if not l.startswith("gap: ")]
+        return [f"HelmCharts does not build without {app.ns}:", *errors[-15:]]
+    published = {x["id"]: x for x in yaml.safe_load(dataset.read_text())["relations"]}
+    artifact = yaml.safe_load((HC / "docs/architecture/helm-charts.yaml").read_text())
+    drawn = {x["id"]: x for x in artifact["relations"]}
+    lost = []
+    for rid in edges:
+        if rid not in drawn:
+            lost.append(f"helm-charts would no longer draw: {rid}")
+        elif drawn[rid] != published[rid]:
+            lost.append(f"helm-charts would redraw {rid}: published {published[rid]!r} "
+                        f"!= generated {drawn[rid]!r}")
+    return lost
+
+
 def cmd_arch(app: App, args) -> None:
-    """The producer handover (argo-cd D50): the new producer must publish every id helm-charts
-    publishes for the stage. Ids it adds are accepted; an id it would drop stops the app,
-    because the model would lose it at the flip (cross-app edges wait on slice 025, ANS-80)."""
+    """The producer handover (argo-cd D50), both halves, against one dataset snapshot with
+    nothing overlaid. The app's new producer must publish every id helm-charts publishes for the
+    stage, every field equal; ids it adds are accepted. HelmCharts, rendering every release but
+    the app's, must build and still draw every edge the check lists under helm-charts: from the
+    flip until HelmCharts' build clears the app's ids, the collector publishes nothing. Edges
+    other producers draw resolve against the kept ids, so they are reported, not gated."""
     if not run(["git", "remote"], cwd=app.path).stdout.strip():
         run(["git", "remote", "add", "origin", app.url], cwd=app.path)
+    dataset = dataset_snapshot(app, args.dataset)
     r = iac("python3", "aac-tools/checks/handover_equality.py", "--deploy-repo", str(app.path),
-            "--stage", app.stage, "--producer", app.producer, cwd=WORK / "ArgoCDTools", check=False)
+            "--stage", app.stage, "--producer", app.producer, "--dataset", str(dataset),
+            cwd=WORK / "ArgoCDTools", check=False)
     out = r.stdout + r.stderr
-    (HOME / "bulk-migration/logs" / f"{app.ns}.arch.txt").write_text(out)
+    logfile = HOME / "bulk-migration/logs" / f"{app.ns}.arch.txt"
+    logfile.write_text(out)
     if "Traceback" in out:
         last = [l for l in out.splitlines() if "gen-architecture:" in l][-3:]
         raise Stop("generator failed:\n" + "\n".join(last or out.splitlines()[-3:]))
-    lost = [l for l in out.splitlines() if "published but not generated" in l or "differs" in l]
-    added = [l for l in out.splitlines() if "generated but not published" in l]
+    lines = out.splitlines()
+    diffs = [l for l in lines if l.startswith(("element ", "relation "))]
+    added = [l for l in diffs if ADDED.match(l)]
+    lost = [l for l in diffs if not ADDED.match(l)]
+    drawn: dict[str, list[str]] = {}
+    for m in filter(None, map(DRAWN.match, lines)):
+        drawn.setdefault(m[1], []).append(m[2])
+    hc_edges = drawn.pop("helm-charts", [])
+    lost += helm_charts_without(app, dataset, hc_edges, logfile)
     if lost:
-        raise Stop("the model would lose:\n" + "\n".join(lost))
-    log(f"architecture handover holds ({len(added)} addition(s))")
+        raise Stop("the handover does not hold:\n" + "\n".join(lost))
+    elsewhere = ", ".join(f"{p} {len(ids)}" for p, ids in sorted(drawn.items())) or "none"
+    log(f"architecture handover holds ({len(added)} addition(s); HelmCharts without the app draws "
+        f"its {len(hc_edges)} edge(s); edges other producers draw: {elsewhere})")
     app.save_state(arch_added=added)
 
 
@@ -1154,6 +1229,8 @@ def main() -> int:
     ap.add_argument("apps", nargs="+")
     ap.add_argument("--stage", default="prd")
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--dataset", default=DATASET_URL,
+                    help="arch: the merged published dataset, a URL (fetched once) or a file")
     args = ap.parse_args()
     rc = 0
     for name in args.apps:
