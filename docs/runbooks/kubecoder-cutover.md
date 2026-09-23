@@ -371,7 +371,9 @@ without its `imagePullPolicy` row, which the chart now declares:
   `kubecoder-mcp`. Two more rows, `metadata.annotations.meta.helm.sh/release-name` and
   `…/release-namespace`, come from the ClusterRole and ClusterRoleBinding. They are the
   inventory's "+2" and are expected. dev printed 22, 21, 2, 1 and 1: `TOTAL 47`, the inventory's
-  52 less its five `imagePullPolicy` rows (2026-09-23).
+  52 less its five `imagePullPolicy` rows (2026-09-23). prd printed 23, 21, 2, 2 and 2: `TOTAL 50`,
+  the inventory's 55 less the same five. The extra label and release-name/-namespace pair are
+  `Service/kubecoder-mcp-public`'s, and its annotations are otherwise rendered (2026-09-23).
 
 This slice accepts those rather than fixing them: the Helm labels and annotations are inert, and
 the stale timestamp rolls nothing. Any other object in A, or any other field in B, stops the
