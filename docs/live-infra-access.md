@@ -108,7 +108,8 @@ cluster-scoped included — Nodes, PersistentVolumes, namespaces, cluster RBAC. 
 `uncordon` / `drain` work from this pod, as does everything else that used to need the SSH detour.
 
 **The base `~/.kube/config` is unchanged and stays narrow**: it is the separate `kubecoder-ro`
-identity — cluster-wide `view` (which excludes Secrets) plus `edit` in the `development` namespace.
+identity — cluster-wide `view` (which excludes Secrets), `edit` in the `development` namespace, and
+get/list/watch on Argo CD's Applications, ApplicationSets and AppProjects.
 It is also the *default* kubeconfig, so cluster-scoped work needs the flag spelled out:
 
 ```
