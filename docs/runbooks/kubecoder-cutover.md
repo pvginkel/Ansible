@@ -575,10 +575,12 @@ git rm -q configs/prd/kubecoder/dev/values.yaml && kc project test && git add co
   `syncPolicy` and no operation; the flip runs no hook.
 - HelmCharts refuses the dev stage from here on.
 - **`IaC/HelmCharts` redeploys `kubecoder-prd`**, which is still Jenkins'. That is R7:
-  `changed()` matches `configs/prd/kubecoder/.*`, not a single stage. It is harmless while the
-  shared chart is untouched. prd's release is upgraded in place, and its control-plane pods may
-  roll. Env pods are created by the controller and are not part of the release. Know it is
-  coming.
+  `changed()` matches `configs/prd/kubecoder/.*`, not a single stage. prd's release is upgraded in
+  place, and **every prd env pod restarts**, this session's included. The chart stamps each deploy
+  into `KUBECODER_DEPLOYMENT_ID`. The new controller's `upgrade_roll` then deletes and recomposes
+  every env pod composed under an older id. The env's `/work` survives. Seen at D2 on 2026-09-23
+  (`IaC/HelmCharts` #6670, `kubecoder-prd` revision 294). Push from a session you can lose, and
+  resume from ANS-102.
 
 Check the result:
 
@@ -669,8 +671,8 @@ R10, once D8's checks pass:
 cd /work/HelmCharts && git pull --ff-only && sed -i 's/^autoSync: false$/autoSync: true/' configs/prd/kubecoder/dev/release.yaml && git diff && kc project test && git add configs/prd/kubecoder/dev/release.yaml && git commit -m "kubecoder dev: Argo CD auto-syncs the stage (slice 012)"
 ```
 
-Push on confirmation. `IaC/HelmCharts` redeploys `kubecoder-prd` again, as in R7. Within about ten
-seconds:
+Push on confirmation. `IaC/HelmCharts` redeploys `kubecoder-prd` again, as in R7, and every prd env
+pod restarts again, as at D2. Within about ten seconds:
 
 ```sh
 cexec iac kubectl $KC get application -n argocd-prd kubecoder-dev -o jsonpath='{.spec.syncPolicy.automated}{"\n"}'
