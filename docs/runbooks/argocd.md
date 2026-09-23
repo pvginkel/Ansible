@@ -268,6 +268,16 @@ HelmCharts' generator uses. So the new producer mints the ids `helm-charts`
 publishes today, and no other producer's edge into the app dangles across the
 handover.
 
+A provider in another app resolves through the published set. Both generators
+publish each Service they place on its workloads as an interface at its
+in-cluster host, `<svc>.<ns>.svc`. They link every interface, exposed hosts
+included, to the instances serving behind it (D55). A host the render cannot
+place resolves to the instances that the published interfaces at that host
+link. A host that resolves nowhere fails the build, and no artifact is written.
+So a consumer builds only once its provider is published. Nothing re-runs the
+consumer when the provider first publishes, so a new app whose provider is not
+yet published is bootstrapped by hand.
+
 The worked examples, to copy from:
 
 | Deploy repo | Producer | Publishes | Case |
@@ -367,9 +377,17 @@ the operator's:
      --deploy-repo /work/<Repo> --stage <stage> --producer <app>-deploy
    ```
 
-   Exit 0 means the same element and relation ids, with every field equal except
-   those the check sets aside. ArgoCDTools' README (Gates) says how to read a
-   difference.
+   Exit 0 means the same element ids and the same ids for the relations the
+   app's producer draws, with every field equal except those the check sets
+   aside. ArgoCDTools' README (Gates) says how to read a difference. A relation
+   that another producer draws against the app, such as a Serving edge from a
+   consumer in another app, is listed as `drawn by <producer>: <id>` and is not
+   compared: it resolves against an id the move keeps. The edges listed under
+   `helm-charts` need the other half of the proof. HelmCharts, rendering every
+   release but the app's, must still build and must draw each of them exactly
+   as published. `argo_migrate.py arch`, the bulk migration's tool in
+   `support/argo-migrate/`, runs both halves against one snapshot of the
+   published set.
 3. Push the published branch. A promotion branch must exist and carry the
    producer. KubeCoderDeploy's `prd` is created from `main` by its promote job's
    first run, at the prd cutover.
