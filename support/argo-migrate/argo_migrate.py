@@ -16,6 +16,7 @@ run record ANS-102). The steps, in order, are one subcommand each:
     plan       the no-destroy plan: only the webhook may be created
     preflight  stuck fields, and a server-side diff of the render against live
     sync       the manual sync, and its checks
+    unreplace  after the first sync, drop the SSE rewrite's Replace=true from the Deployment (pushed)
     autosync   HelmCharts registry entry, autoSync true (commit only)
 
 Every step checks what it needs and exits non-zero with a STOP line when anything differs
@@ -396,12 +397,15 @@ def pin_deployment_stamp(app: App, p: Path) -> str | None:
 SSE_TEMPLATE = """{{/*
 The SSE gateway's callback secret, generated once by ESO (refreshInterval 0) instead of
 `randAlphaNum` at render time: a random render leaves an Argo Application forever OutOfSync
-and rolls the pod on every sync (argo-cd bulk migration).
+and rolls the pod on every sync (argo-cd bulk migration). Wave -1, so the Secret exists
+before the Deployment that reads it is replaced.
 */}}
 apiVersion: generators.external-secrets.io/v1alpha1
 kind: Password
 metadata:
   name: sse-callback
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
 spec:
   length: 64
   digits: 10
@@ -413,6 +417,8 @@ apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: sse-callback
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
 spec:
   refreshInterval: "0"
   target:
@@ -424,6 +430,43 @@ spec:
           kind: Password
           name: sse-callback
 """
+
+# The first sync replaces the Deployment the SSE rewrite changed: Helm owns the old
+# `env[SSE_CALLBACK_SECRET].value`, and neither client-side nor server-side apply removes another
+# manager's field, so an apply leaves it beside the new `valueFrom` and the API server rejects
+# both. `unreplace` drops the annotation once the first sync is through.
+REPLACE_NOTE = "    # First sync only (argo-cd bulk migration): replace, so Helm's SSE_CALLBACK_SECRET value goes.\n"
+REPLACE_LINE = "    argocd.argoproj.io/sync-options: Replace=true\n"
+DEPLOYMENT_HEAD = re.compile(r"^(kind: Deployment\nmetadata:\n  name: [^\n]+\n)(?!  annotations:)", re.M)
+
+
+def mark_replace(name: str, text: str) -> str:
+    new, n = DEPLOYMENT_HEAD.subn(lambda m: m.group(1) + "  annotations:\n" + REPLACE_NOTE + REPLACE_LINE, text)
+    if n != 1:
+        raise Stop(f"{name}: expected one Deployment head without annotations, found {n}")
+    return new
+
+
+def cmd_unreplace(app: App, args) -> None:
+    """Drop the first-sync Replace=true once the sync is through, and push."""
+    if "synced" not in app.load_state():
+        raise Stop("not synced: the Replace annotation is for the first sync")
+    block = "  annotations:\n" + REPLACE_NOTE + REPLACE_LINE
+    hit = []
+    for t in (app.path / "chart/templates").glob("*.yaml"):
+        text = t.read_text()
+        if block in text:
+            t.write_text(text.replace(block, ""))
+            hit.append(t.name)
+    if not hit:
+        log("no Replace annotation left")
+        return
+    run(["git", "add", "-A"], cwd=app.path)
+    run(["git", "commit", "-q", "-m", "chart: the Deployment's first sync is through; drop Replace=true (argo-cd bulk migration)"],
+        cwd=app.path)
+    run(["git", "push", "-q"], cwd=app.path)
+    log(f"Replace=true dropped from {', '.join(hit)}; pushed")
+
 
 SSE_DEF = re.compile(r"^\{\{-? \$sseCallbackSecret := randAlphaNum 64 -?\}\}\n", re.M)
 SSE_VALUE = re.compile(r"^( *)value: \{\{ \$sseCallbackSecret \| quote \}\}\n", re.M)
@@ -449,6 +492,7 @@ def fix_sse_secret(p: Path) -> bool:
                                       f'{m.group(2)}value: "{m.group(3)}$(SSE_CALLBACK_SECRET)"\n'), text)
         if "$sseCallbackSecret" in text:
             raise Stop(f"{t.name}: sseCallbackSecret left after the rewrite")
+        text = mark_replace(t.name, text)
         t.write_text(text)
         hit = True
     if hit:
@@ -621,7 +665,7 @@ def render(app: App, revision: str = "0123456789abcdef0123456789abcdef01234567")
 
 
 SSE_OK = re.compile(r"SSE_CALLBACK_SECRET|sse/callback|sse-callback|secretKeyRef:|valueFrom:|key: password|"
-                    r"^[+-]\s*value: [A-Za-z0-9]{64}$")
+                    r"^[+-]\s*value: [A-Za-z0-9]{64}$|^\+\s*annotations:$|^\+\s*argocd\.argoproj\.io/sync-options: Replace=true$")
 
 
 def cmd_verify(app: App, args) -> None:
@@ -1074,9 +1118,17 @@ def cmd_preflight(app: App, args) -> None:
                  app.ns, str(tmp / "render.yaml"), str(tmp / "live.json"), *extras], check=False)
         out = r.stdout + r.stderr
         (HOME / "bulk-migration/logs" / f"{app.ns}.preflight.txt").write_text(out)
-        problems = preflight_problems(out, app)
-        # Server-side diff of the render against live: what the sync would change.
         objs = [d for d in docs(rtext) if not is_hook(d)]
+        replaced = [d for d in objs if "Replace=true" in
+                    ((d["metadata"].get("annotations") or {}).get("argocd.argoproj.io/sync-options") or "")]
+        problems = preflight_problems(out, app, replaced)
+        problems += replace_problems(app, replaced, tmp)
+        objs = [d for d in objs if d not in replaced]
+        # The SSE rewrite's generator and ExternalSecret are new by design (verify accepts them);
+        # kubectl diff shows a new object whole.
+        if app.load_state().get("sse"):
+            objs = [d for d in objs if key(d) not in (("Password", "sse-callback"), ("ExternalSecret", "sse-callback"))]
+        # Server-side diff of the render against live: what the sync would change.
         (tmp / "apply.yaml").write_text(yaml.safe_dump_all(objs))
         d = iac("kubectl", *KC, "diff", "-n", app.ns, "--server-side=false", "-f", str(tmp / "apply.yaml"),
                 check=False)
@@ -1102,8 +1154,45 @@ def eso_targets(app: App) -> set[str]:
     return out
 
 
-def preflight_problems(out: str, app: App) -> list[str]:
+# What a replace also resets, harmlessly, on a Deployment the SSE rewrite rolls anyway: the pull
+# policy the API server defaulted to Always when the image was a `:latest` tag (a digest defaults
+# to IfNotPresent, as KubeCoderDeploy declares), and a `kubectl rollout restart` stamp.
+REPLACE_OK = re.compile(r"^-\s*imagePullPolicy: Always$|^\+\s*imagePullPolicy: IfNotPresent$|"
+                        r"^-\s*kubectl\.kubernetes\.io/restartedAt: ")
+
+
+def replace_problems(app: App, replaced: list[dict], tmp: Path) -> list[str]:
+    """What replacing each Replace=true object changes: a server-side dry run, and the spec it
+    would leave against the live one. Only the SSE callback secret may move."""
+    import difflib
     problems = []
+    for d in replaced:
+        f = tmp / f"replace-{d['kind']}-{d['metadata']['name']}.yaml"
+        f.write_text(yaml.safe_dump(d))
+        r = iac("kubectl", *KC, "replace", "-n", app.ns, "--dry-run=server", "-o", "json", "-f", str(f),
+                check=False)
+        if r.returncode != 0:
+            problems.append(f"replace {d['kind']}/{d['metadata']['name']} dry run: {r.stderr.strip()[-400:]}")
+            continue
+        live = json.loads(iac("kubectl", *KC, "get", d["kind"].lower(), d["metadata"]["name"], "-n", app.ns,
+                              "-o", "json").stdout)
+        a = yaml.safe_dump(live["spec"], sort_keys=True).splitlines()
+        b = yaml.safe_dump(json.loads(r.stdout)["spec"], sort_keys=True).splitlines()
+        changed = [l for l in difflib.unified_diff(a, b, lineterm="", n=0)
+                   if l[:1] in "+-" and not l.startswith(("+++", "---"))]
+        (HOME / "bulk-migration/logs" / f"{app.ns}.replace.txt").write_text("\n".join(changed) + "\n")
+        bad = [l for l in changed if not (SSE_OK.search(l) or REPLACE_OK.search(l))]
+        if bad:
+            problems += [f"replace {d['kind']}/{d['metadata']['name']}: {l[:200]}" for l in bad[:20]]
+        else:
+            log(f"replace {d['kind']}/{d['metadata']['name']}: only the SSE callback secret changes")
+    return problems
+
+
+def preflight_problems(out: str, app: App, replaced: list[dict] = ()) -> list[str]:
+    problems = []
+    # A replaced object loses every field its render lacks, so Helm's SSE value is no residue there.
+    replaced_names = {d["metadata"]["name"] for d in replaced}
     targets = None
     # stuck_fields prints "A." objects Helm made that the render lacks, "B." stuck fields.
     section = None
@@ -1126,6 +1215,8 @@ def preflight_problems(out: str, app: App) -> list[str]:
             problems.append(f"object not in the render: {s}")
         elif section == "B" and s:
             field = s.split()[0] if s.split() else ""
+            if replaced_names and ".env[name=SSE_CALLBACK_SECRET].value" in field:
+                continue
             if not any(field.startswith(f) for f in EXPECTED_STUCK):
                 problems.append(f"stuck field: {s}")
     return problems
@@ -1222,7 +1313,7 @@ def cmd_sync(app: App, args) -> None:
 STEPS = {
     "scaffold": cmd_scaffold, "verify": cmd_verify, "arch": cmd_arch, "pins": cmd_pins, "publish": cmd_publish,
     "register": cmd_register, "flip": cmd_flip, "surgery": cmd_surgery, "plan": cmd_plan,
-    "preflight": cmd_preflight, "sync": cmd_sync, "autosync": cmd_autosync,
+    "preflight": cmd_preflight, "sync": cmd_sync, "unreplace": cmd_unreplace, "autosync": cmd_autosync,
 }
 
 
