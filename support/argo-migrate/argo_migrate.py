@@ -6,6 +6,7 @@ run record ANS-102). The steps, in order, are one subcommand each:
 
     scaffold   build /work/<Repo> from HelmCharts: chart, stage values, Terraform, producer files
     verify     the render must equal the live Helm release, object for object
+    arch       the architecture producer handover: nothing helm-charts publishes may be lost
     publish    create the GitHub repo and push main; create and build AaC/<Repo>
     register   add the producer to Architecture's pipeline-producers.yaml (commit only)
     flip       HelmCharts registry entry, autoSync false (commit only)
@@ -361,25 +362,31 @@ STAMP_DEFINE = re.compile(r'(\{\{-? define "deployment\.timestamp" -?\}\}\n)depl
 
 
 def pin_deployment_stamp(app: App, p: Path) -> str | None:
-    """Replace the shared helper's render-time timestamp with a value from the stage config.
+    """Replace the shared helper's render-time timestamp with the live release's stamp, literal.
 
-    Returns the live release's stamp, which must be the same on every pod template."""
+    A render-time timestamp leaves an Argo Application forever OutOfSync. The literal keeps the
+    first sync from restarting anything; pods roll when their spec changes (an image pin), and
+    editing the literal forces a restart. It is a literal rather than a value because templates
+    include the helper from inside `range`, where the root values are out of reach."""
     helpers = [f for f in (p / "chart/templates").glob("*.tpl") if "deployment.timestamp" in f.read_text()]
     used = any("deployment.timestamp" in f.read_text() for f in (p / "chart/templates").rglob("*.yaml"))
     if not used:
         return None
     if len(helpers) != 1:
         raise Stop(f"deployment.timestamp defined in {len(helpers)} helper files")
-    text = helpers[0].read_text()
-    new, n = STAMP_DEFINE.subn(r'\1deployment: {{ required "deploymentStamp" .Values.deploymentStamp | quote -}}\n', text)
-    if n != 1:
-        raise Stop("deployment.timestamp helper not in the expected shape")
-    helpers[0].write_text(new)
     manifest = iac("helm", *HKC, "get", "manifest", app.ns, "-n", app.ns).stdout
     stamps = set(re.findall(r"^\s+deployment: ['\"]([^'\"]+)['\"]$", manifest, re.M))
     if len(stamps) != 1:
         raise Stop(f"live deployment stamps: {sorted(stamps)}")
-    return stamps.pop()
+    stamp = stamps.pop()
+    text = helpers[0].read_text()
+    new, n = STAMP_DEFINE.subn(
+        lambda m: m.group(1) + "{{- /* Fixed at HelmCharts' last deploy (argo-cd bulk migration): edit to roll the pods. */ -}}\n"
+        + f'deployment: {json.dumps(stamp)}' + " -}}\n".replace(" -}}", ""), text)
+    if n != 1:
+        raise Stop("deployment.timestamp helper not in the expected shape")
+    helpers[0].write_text(new)
+    return stamp
 
 
 def cmd_scaffold(app: App, args) -> None:
@@ -428,6 +435,15 @@ def cmd_scaffold(app: App, args) -> None:
             "# HelmCharts applied these with kubectl after the release (configs/prd/"
             f"{app.name}/{app.stage}/manifests.yaml); they are chart content now.\n" + text)
     stamp = pin_deployment_stamp(app, p)
+    schema = p / "chart/values.schema.json"
+    if schema.exists():
+        # A closed schema must admit the keys the deploy repo adds: the library's own block,
+        # the ApplicationSet's hook parameters and the pinned stamp.
+        sj = json.loads(schema.read_text())
+        props = sj.setdefault("properties", {})
+        props.setdefault("homelab-shared", {"type": "object"})
+        props.setdefault("hook", {"type": "object"})
+        schema.write_text(json.dumps(sj, indent=2) + "\n")
     chart_yaml = (p / "chart/Chart.yaml").read_text()
     if "dependencies:" in chart_yaml:
         raise Stop("chart already has dependencies")
@@ -447,12 +463,6 @@ def cmd_scaffold(app: App, args) -> None:
     cdir.mkdir(parents=True)
     live = helm_values(app)
     values_text = compose_values(app, live)
-    if stamp:
-        values_text = values_text.rstrip("\n") + (
-            "\n\n# The pod-template `deployment` annotation, fixed at the value HelmCharts' last deploy\n"
-            "# stamped: a render-time timestamp would leave the Application forever OutOfSync. Pods\n"
-            "# roll when their spec changes (an image pin); bump this to force a restart.\n"
-            f"deploymentStamp: {stamp!r}\n")
     (cdir / "values.yaml").write_text(values_text)
     for tv in app.stage_dir.glob("*.tfvars"):
         shutil.copy2(tv, cdir / tv.name)
@@ -581,7 +591,7 @@ def jenkins(method: str, path: str, data: bytes | None = None, ctype: str = "app
            f"admin:{os.environ['JENKINS_TOKEN']}", "-X", method, f"{JENKINS}{path}"]
     if data is not None:
         cmd += ["-H", f"Content-Type: {ctype}", "--data-binary", "@-"]
-    r = subprocess.run(cmd, input=data.decode() if data else None, text=True, capture_output=True)
+    r = subprocess.run(cmd, input=data.decode() if data is not None else None, text=True, capture_output=True)
     return r.stdout.strip(), r.stderr
 
 
@@ -594,7 +604,7 @@ def cmd_publish(app: App, args) -> None:
              "--description", f"{app.name}'s deploy repository: Argo CD syncs it (argo-cd D51)."])
     if not run(["git", "remote"], cwd=p).stdout.strip():
         run(["git", "remote", "add", "origin", app.url], cwd=p)
-    run(["git", "push", "-q", "-u", "origin", "main"], cwd=p)
+    run(["git", "push", "-q", "-u", *(["--force"] if args.force else []), "origin", "main"], cwd=p)
     # AaC/<Repo>, from AaC/KubeCoderDeploy's config.
     code, _ = jenkins("GET", f"/job/AaC/job/{app.repo_name}/api/json")
     if code != "200":
@@ -637,6 +647,27 @@ def aac_build(app: App) -> int:
                 raise Stop(f"AaC/{app.repo_name} #{n}: {b['result']}")
             return n
     raise Stop(f"AaC/{app.repo_name} #{n} did not finish in 20 min")
+
+
+def cmd_arch(app: App, args) -> None:
+    """The producer handover (argo-cd D50): the new producer must publish every id helm-charts
+    publishes for the stage. Ids it adds are accepted; an id it would drop stops the app,
+    because the model would lose it at the flip (cross-app edges wait on slice 025, ANS-80)."""
+    if not run(["git", "remote"], cwd=app.path).stdout.strip():
+        run(["git", "remote", "add", "origin", app.url], cwd=app.path)
+    r = iac("python3", "aac-tools/checks/handover_equality.py", "--deploy-repo", str(app.path),
+            "--stage", app.stage, "--producer", app.producer, cwd=WORK / "ArgoCDTools", check=False)
+    out = r.stdout + r.stderr
+    (HOME / "bulk-migration/logs" / f"{app.ns}.arch.txt").write_text(out)
+    if "Traceback" in out:
+        last = [l for l in out.splitlines() if "gen-architecture:" in l][-3:]
+        raise Stop("generator failed:\n" + "\n".join(last or out.splitlines()[-3:]))
+    lost = [l for l in out.splitlines() if "published but not generated" in l or "differs" in l]
+    added = [l for l in out.splitlines() if "generated but not published" in l]
+    if lost:
+        raise Stop("the model would lose:\n" + "\n".join(lost))
+    log(f"architecture handover holds ({len(added)} addition(s))")
+    app.save_state(arch_added=added)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -855,7 +886,7 @@ def cmd_preflight(app: App, args) -> None:
         # Server-side diff of the render against live: what the sync would change.
         objs = [d for d in docs(rtext) if not (d["kind"] == "Job" and key(d)[1].startswith("tf-presync"))]
         (tmp / "apply.yaml").write_text(yaml.safe_dump_all(objs))
-        d = iac("kubectl", *KC, "diff", "--server-side=false", "-f", str(tmp / "apply.yaml"),
+        d = iac("kubectl", *KC, "diff", "-n", app.ns, "--server-side=false", "-f", str(tmp / "apply.yaml"),
                 check=False)
         (HOME / "bulk-migration/logs" / f"{app.ns}.diff.txt").write_text(d.stdout + d.stderr)
         changed = diff_problems(d.stdout)
@@ -870,23 +901,40 @@ def cmd_preflight(app: App, args) -> None:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def eso_targets(app: App) -> set[str]:
+    """Names of the Secrets the render's ExternalSecrets materialise."""
+    out = set()
+    for d in docs(render(app)):
+        if d.get("kind") == "ExternalSecret":
+            out.add(d["spec"].get("target", {}).get("name") or d["metadata"]["name"])
+    return out
+
+
 def preflight_problems(out: str, app: App) -> list[str]:
     problems = []
+    targets = None
     # stuck_fields prints "A." objects Helm made that the render lacks, "B." stuck fields.
     section = None
     for line in out.splitlines():
         s = line.strip()
-        if s.startswith("A.") or s.lower().startswith("objects"):
+        if s.startswith("A."):
             section = "A"
+            inline = s.split(":", 1)[1].strip() if ":" in s else ""
+            for obj in [o.strip() for o in inline.split(",") if o.strip() and o.strip() != "none"]:
+                # ESO-materialised Secrets are expected: the render carries their ExternalSecret.
+                if obj.startswith("Secret/") and targets is None:
+                    targets = eso_targets(app)
+                if not (obj.startswith("Secret/") and obj[7:] in targets):
+                    problems.append(f"object not in the render: {obj}")
         elif s.startswith("B.") or s.lower().startswith("stuck"):
             section = "B"
         elif s.startswith("TOTAL"):
             section = None
-        elif section == "A" and s and not s.startswith("(") and "Secret/" not in s:
+        elif section == "A" and s:
             problems.append(f"object not in the render: {s}")
         elif section == "B" and s:
-            field = s.split()[-1] if s.split() else ""
-            if not any(field.startswith(f) or f in s for f in EXPECTED_STUCK):
+            field = s.split()[0] if s.split() else ""
+            if not any(field.startswith(f) for f in EXPECTED_STUCK):
                 problems.append(f"stuck field: {s}")
     return problems
 
@@ -960,6 +1008,7 @@ def cmd_sync(app: App, args) -> None:
         logs = iac("kubectl", *KC, "logs", "-n", "argocd-hooks", f"job/{hook[-1]['metadata']['name']}",
                    check=False).stdout
     (HOME / "bulk-migration/logs" / f"{app.ns}.hook.txt").write_text(logs)
+    logs = re.sub(r"\x1b\[[0-9;]*m", "", logs)
     applied = re.findall(r"Apply complete! Resources: .*", logs)
     problems = []
     if s["sync"]["status"] != "Synced" or s["health"]["status"] != "Healthy":
@@ -976,7 +1025,7 @@ def cmd_sync(app: App, args) -> None:
 
 
 STEPS = {
-    "scaffold": cmd_scaffold, "verify": cmd_verify, "publish": cmd_publish,
+    "scaffold": cmd_scaffold, "verify": cmd_verify, "arch": cmd_arch, "publish": cmd_publish,
     "register": cmd_register, "flip": cmd_flip, "surgery": cmd_surgery, "plan": cmd_plan,
     "preflight": cmd_preflight, "sync": cmd_sync, "autosync": cmd_autosync,
 }
