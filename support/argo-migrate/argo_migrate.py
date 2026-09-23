@@ -748,8 +748,11 @@ def dataset_snapshot(app: App, source: str) -> Path:
     if not URL.match(source):
         return Path(source).resolve()
     snap = HOME / "bulk-migration/logs" / f"{app.ns}.dataset.yaml"
-    with urllib.request.urlopen(source, timeout=60) as resp:
-        snap.write_bytes(resp.read())
+    try:
+        with urllib.request.urlopen(source, timeout=60) as resp:
+            snap.write_bytes(resp.read())
+    except OSError as e:  # URLError, HTTPError and a timeout are all OSError
+        raise Stop(f"dataset fetch failed: {source}: {e}") from e
     return snap
 
 
@@ -823,8 +826,8 @@ def cmd_arch(app: App, args) -> None:
     if lost:
         raise Stop("the handover does not hold:\n" + "\n".join(lost))
     elsewhere = ", ".join(f"{p} {len(ids)}" for p, ids in sorted(drawn.items())) or "none"
-    log(f"architecture handover holds ({len(added)} addition(s); HelmCharts without the app draws "
-        f"its {len(hc_edges)} edge(s); edges other producers draw: {elsewhere})")
+    log(f"{app.ns}: architecture handover holds ({len(added)} addition(s); HelmCharts without the "
+        f"app draws its {len(hc_edges)} edge(s); edges other producers draw: {elsewhere})")
     app.save_state(arch_added=added)
 
 
