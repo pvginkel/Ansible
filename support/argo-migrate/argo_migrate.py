@@ -48,7 +48,7 @@ KC = ["--kubeconfig", str(HOME / ".kube/config-prd-write"), "--context", "prd"]
 HKC = ["--kubeconfig", str(HOME / ".kube/config-prd-write"), "--kube-context", "prd"]
 TFB = ("http://127.0.0.1:6061/?type=git&repository=https%3A%2F%2Fgithub.com%2Fpvginkel%2F"
        "TerraformState&ref=main&state=")
-LIB_VERSION = "0.2.1"
+LIB_VERSION = "0.3.0"
 JENKINS = "https://jenkins.webathome.org"
 GIT_CRED = "5f6fbd66-b41c-405f-b107-85ba6fd97f10"
 RELAY = "https://deploy-hooks.webathome.org/api/webhook"
@@ -603,6 +603,11 @@ def key(d: dict) -> tuple:
     return (d.get("kind"), m.get("name") or m.get("generateName"))
 
 
+def is_hook(d: dict) -> bool:
+    """Argo's own sync hooks: the PreSync Job and, since homelab-shared 0.3.0, its RoleBinding."""
+    return "argocd.argoproj.io/hook" in (d["metadata"].get("annotations") or {})
+
+
 def render(app: App, revision: str = "0123456789abcdef0123456789abcdef01234567") -> str:
     iac("tests/build-deps.sh", cwd=app.path)
     hook = HOOK_PARAMS.replace("0123456789abcdef0123456789abcdef01234567", revision).format(
@@ -617,7 +622,9 @@ SSE_OK = re.compile(r"SSE_CALLBACK_SECRET|sse/callback|sse-callback|secretKeyRef
 
 
 def cmd_verify(app: App, args) -> None:
-    rendered = {key(d): d for d in docs(render(app))}
+    everything = docs(render(app))
+    rendered = {key(d): d for d in everything if not is_hook(d)}
+    hook = {key(d) for d in everything if is_hook(d)}
     live_text = iac("helm", *HKC, "get", "manifest", app.ns, "-n", app.ns).stdout
     live = {key(d): d for d in docs(live_text)}
     manifests = app.stage_dir / "manifests.yaml"
@@ -629,15 +636,14 @@ def cmd_verify(app: App, args) -> None:
     if sse:
         expected_extra |= {("Password", "sse-callback"), ("ExternalSecret", "sse-callback")}
     extra = set(rendered) - set(live)
-    hook = {k for k in extra if k[0] == "Job" and k[1].startswith("tf-presync")}
-    extra -= hook | expected_extra
+    extra -= expected_extra
     missing = set(live) - set(rendered)
     diffs = []
     for k in set(rendered) & set(live):
         if rendered[k] != live[k]:
             diffs.append(k)
     problems = []
-    if not hook:
+    if not any(k[0] == "Job" and k[1].startswith("tf-presync") for k in hook):
         problems.append("no tf-presync hook Job rendered")
     if extra:
         problems.append(f"objects only in the render: {sorted(extra)}")
@@ -655,7 +661,7 @@ def cmd_verify(app: App, args) -> None:
         problems.append(f"{k} differs:\n" + "\n".join(difflib.unified_diff(a, b, "live", "render", lineterm="", n=1)))
     if problems:
         raise Stop("render != live release:\n" + "\n".join(problems))
-    log(f"render equals the live release: {len(live)} objects, plus the Namespace and the hook Job")
+    log(f"render equals the live release: {len(live)} objects, plus the Namespace and the hooks")
     app.save_state(verified=True)
 
 
@@ -992,7 +998,7 @@ def cmd_preflight(app: App, args) -> None:
         (HOME / "bulk-migration/logs" / f"{app.ns}.preflight.txt").write_text(out)
         problems = preflight_problems(out, app)
         # Server-side diff of the render against live: what the sync would change.
-        objs = [d for d in docs(rtext) if not (d["kind"] == "Job" and key(d)[1].startswith("tf-presync"))]
+        objs = [d for d in docs(rtext) if not is_hook(d)]
         (tmp / "apply.yaml").write_text(yaml.safe_dump_all(objs))
         d = iac("kubectl", *KC, "diff", "-n", app.ns, "--server-side=false", "-f", str(tmp / "apply.yaml"),
                 check=False)
