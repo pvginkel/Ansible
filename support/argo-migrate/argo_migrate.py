@@ -324,6 +324,88 @@ def pascal_hook(app: App) -> str:
     return HOOK_PARAMS.format(repo=app.url, stage=app.stage, ns=app.ns)
 
 
+def dependency_repos(p: Path) -> list[tuple[str, str]]:
+    """The chart's remote dependency repositories other than charts.home, for helm repo add."""
+    meta = yaml.safe_load((p / "chart/Chart.yaml").read_text())
+    out = []
+    for d in meta.get("dependencies") or []:
+        url = d.get("repository") or ""
+        if url.startswith("https://") and url != "https://charts.home":
+            out.append((re.sub(r"[^a-z0-9]+", "-", url.split("://", 1)[1].lower()).strip("-"), url))
+    return sorted(set(out))
+
+
+CLEARTEXT = re.compile(r"^ *# [\w-]+: [A-Za-z0-9]{40,}\n", re.M)
+
+
+def strip_cleartext_passwords(text: str) -> str:
+    """mosquitto's values file lists its users' cleartext passwords in a comment beside the
+    bcrypt entries; the deploy repo carries the entries alone."""
+    new, n = CLEARTEXT.subn("", text)
+    if n:
+        new = new.replace("  # /mosquitto/pw -h bcrypt -p <password>\n",
+                          "  # /mosquitto/pw -h bcrypt -p <password>\n"
+                          "  # (The cleartext passwords HelmCharts kept here were not copied.)\n", 1)
+    return new
+
+
+CA_TEMPLATE = """{{/*
+The homelab root CA, which ESO needs to verify OpenBao's step-ca-issued listener
+(argo-cd D59; HelmCharts' post-rollout.sh applied it on every deploy). Rotate it with
+the other copies: Ansible roles/baseline/files/homelab-root.crt is the source.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: homelab-root-ca
+  namespace: {{ .Release.Namespace }}
+data:
+  ca.crt: |
+{{ .Files.Get "files/homelab-root.crt" | indent 4 }}
+"""
+
+
+def write_extra(app: App, p: Path, extra: str) -> None:
+    tdir = p / "chart/templates"
+    if extra == "homelab-root-ca":
+        (p / "chart/files").mkdir(parents=True, exist_ok=True)
+        shutil.copy2(HC / "homelab-root.crt", p / "chart/files/homelab-root.crt")
+        (tdir / "homelab-root-ca.yaml").write_text(CA_TEMPLATE)
+    elif extra == "post-rollout-manifests":
+        body = ""
+        for m in app.release.get("post_rollout_manifests") or []:
+            text = (app.stage_dir / m).read_text()
+            if "{{" in text:
+                raise Stop(f"{m} contains template syntax")
+            body += (f"# HelmCharts applied configs/prd/{app.name}/{app.stage}/{m} after ESO's rollout gate; wave 1\n"
+                     "# waits for the chart's wave-0 webhook to be healthy (argo-cd D59).\n")
+            out = []
+            for d in docs(text):
+                d["metadata"].setdefault("annotations", {})["argocd.argoproj.io/sync-wave"] = "1"
+                out.append(yaml.safe_dump(d, sort_keys=False))
+            body += "---\n".join(out)
+        (tdir / "post-rollout-manifests.yaml").write_text(body)
+    else:
+        raise Stop(f"unknown D59 extra {extra}")
+
+
+def extra_live(app: App) -> list[dict]:
+    """HelmCharts' live copies of a D59 app's companion extras, which verify compares against."""
+    out = []
+    for extra in D59.get(app.name, {}).get("extras", []):
+        if extra == "homelab-root-ca":
+            live = json.loads(iac("kubectl", *KC, "get", "configmap", "homelab-root-ca", "-n", app.ns, "-o",
+                                  "json").stdout)
+            out.append({"apiVersion": "v1", "kind": "ConfigMap",
+                        "metadata": {"name": "homelab-root-ca", "namespace": app.ns}, "data": live["data"]})
+        elif extra == "post-rollout-manifests":
+            for m in app.release.get("post_rollout_manifests") or []:
+                for d in docs((app.stage_dir / m).read_text()):
+                    d["metadata"].setdefault("annotations", {})["argocd.argoproj.io/sync-wave"] = "1"
+                    out.append(d)
+    return out
+
+
 def live_upstream(app: App) -> dict:
     """The upstream chart the live release runs, in the registry's shape (argo-cd D57).
 
@@ -606,6 +688,123 @@ def fix_sse_secret(p: Path) -> bool:
     return hit
 
 
+# argo-cd D59: the chart hook scripts are replaced, not carried. Per app:
+#   scripts  the HelmCharts hook scripts the replacement covers (never copied);
+#   values   exact text edits to the stage values, each (old, new), each applied exactly once;
+#   drops    fields the script wrote into a live object that the render no longer carries,
+#            as (kind, name, path). Argo's client-side apply leaves a field that neither the
+#            render nor last-applied-configuration names, so the live value stays; verify
+#            compares without them and preflight's diff shows them unchanged;
+#   extras   companion templates for what the script applied, beside HelmCharts' `live`
+#            copies verify compares them to.
+D59 = {
+    "mosquitto": {
+        # The post-render stamped the t3n subchart's Deployment, which has no pod-annotation
+        # value; the checksum annotation still rolls the pod when the config changes.
+        "scripts": ["post-render.sh"],
+        "drops": [("Deployment", "mosquitto", ("spec", "template", "metadata", "annotations", "deployment"))],
+    },
+    "grafana": {
+        "scripts": ["post-render.sh", "post-install.sh"],
+        "values": [("  storageClassName: csi-rbd-sc\n",
+                    "  # The claim binds the Terraform PV by name (argo-cd D59; HelmCharts' post-render.sh\n"
+                    "  # set it, and an empty storageClassName this chart cannot render: the live claim\n"
+                    "  # keeps that).\n"
+                    "  volumeName: grafana-pv\n")],
+        "drops": [("PersistentVolumeClaim", "grafana", ("spec", "storageClassName"))],
+    },
+    "prometheus": {
+        "scripts": ["post-render.sh", "post-install.sh"],
+        "values": [("    storageClass: csi-cephfs-sc\n",
+                    "    # No class, so the claim binds the Terraform PV (argo-cd D59). HelmCharts'\n"
+                    "    # post-render.sh also named the volume, which this chart cannot: the live\n"
+                    "    # StatefulSet's claim template keeps its volumeName.\n"
+                    "    storageClass: \"-\"\n")],
+        "drops": [("StatefulSet", "prometheus-prd-alertmanager",
+                   ("spec", "volumeClaimTemplates", 0, "spec", "volumeName"))],
+    },
+    "nginx": {
+        # It annotated the microk8s addon's kubernetes-dashboard Service in kube-system; the
+        # annotations are live and survive an addon re-apply (README).
+        "scripts": ["post-install.sh"],
+        "readme": """
+## kubernetes.home
+
+HelmCharts' `charts/nginx/post-install.sh` annotated the microk8s addon's
+`kubernetes-dashboard` Service in `kube-system` on every deploy, so nginx routes
+`kubernetes.home` to it. Argo CD does not carry that script (argo-cd D59): the Service is the
+addon's, not this chart's. The annotations are live and survive an addon re-apply, since they
+are not in its last-applied configuration. After a cluster rebuild, re-add them by hand:
+
+```sh
+kubectl patch service kubernetes-dashboard -n kube-system --patch '{"metadata": {"annotations": {
+  "nginx.webathome.org/server-name": "kubernetes.home, kubernetes",
+  "nginx.webathome.org/enable-ssl": "yes",
+  "nginx.webathome.org/target-port": "443/ssl"}}}'
+```
+""",
+    },
+    "external-secrets": {
+        # post-rollout.sh made the homelab-root-ca ConfigMap; the ClusterSecretStore waited for
+        # ESO's webhook. Both are companion content now, the store a wave after the chart.
+        "scripts": ["post-rollout.sh"],
+        "extras": ["homelab-root-ca", "post-rollout-manifests"],
+    },
+}
+
+HELM_TEST_HOOKS = {"test", "test-success", "test-failure"}
+
+
+def helm_hooks(d: dict) -> set[str]:
+    value = (d["metadata"].get("annotations") or {}).get("helm.sh/hook") or ""
+    return {v.strip() for v in value.split(",") if v.strip()} - {"crd-install"}
+
+
+def helm_test(d: dict) -> bool:
+    """A Helm test hook: Argo CD never runs one, and `helm get manifest` never lists it."""
+    return bool(helm_hooks(d)) and helm_hooks(d) <= HELM_TEST_HOOKS
+
+
+def drop_path(obj: dict, path: tuple) -> None:
+    *head, last = path
+    for k in head:
+        try:
+            obj = obj[k]
+        except (KeyError, IndexError, TypeError):
+            return
+    if isinstance(obj, dict):
+        obj.pop(last, None)
+
+
+# A Job named with `randAlphaNum` renders a new name on every render: an Argo Application stays
+# OutOfSync and runs a new Job on every sync. The deploy repo names it after a hash of its image
+# pin instead, stable between syncs and new when the image changes, as HelmCharts' every deploy
+# re-ran it. The generator strips a 5-character Job suffix, so the element ids hold.
+RANDOM_JOB_NAME = re.compile(r"^(  name: [\w-]+-)\{\{ randAlphaNum 5 \| lower \}\}$", re.M)
+JOB_IMAGE_VALUE = re.compile(r"image: [^\n]*\{\{-?\s*(\.Values\.[\w.]+)\s*-?\}\}")
+
+
+def fix_random_job_names(p: Path) -> list[str]:
+    hit = []
+    for t in (p / "chart/templates").glob("*.yaml"):
+        text = t.read_text()
+        if not RANDOM_JOB_NAME.search(text):
+            continue
+        if not re.search(r"^kind: Job$", text, re.M) or text.count("\n---") > 0:
+            raise Stop(f"{t.name}: randAlphaNum name outside a single-Job template")
+        images = set(JOB_IMAGE_VALUE.findall(text))
+        if len(images) != 1:
+            raise Stop(f"{t.name}: the Job's image pin is not one .Values expression: {sorted(images)}")
+        value = images.pop()
+        text = RANDOM_JOB_NAME.sub(
+            lambda m: ("  # Named after its image pin (argo-cd bulk migration): stable between syncs, new, and\n"
+                       "  # so re-run, when the image changes.\n"
+                       f"{m.group(1)}{{{{ {value} | sha256sum | trunc 5 }}}}"), text)
+        t.write_text(text)
+        hit.append(t.name)
+    return hit
+
+
 # Charts HelmCharts named other than their app. The deploy repo's copy takes the app's name:
 # gen-architecture derives the namespace, and so every element id, from Chart.yaml's name.
 CHART_RENAMES = {"iot": "iotsupport"}
@@ -621,9 +820,12 @@ def cmd_scaffold(app: App, args) -> None:
         raise Stop(f"no local chart at {app.chart_src}")
     if upstream and (app.chart_src / "Chart.yaml").exists():
         raise Stop(f"upstream app with a local chart at {app.chart_src}")
+    profile = D59.get(app.name, {})
     for h in ("post-render.sh", "post-install.sh", "post-rollout.sh", "pre-install.sh"):
-        if (app.chart_src / h).exists():
-            raise Stop(f"chart has {h}: late-migration set (D18)")
+        if (app.chart_src / h).exists() and h not in profile.get("scripts", []):
+            raise Stop(f"chart has {h}: late-migration set (D18) with no D59 replacement")
+    if app.release.get("post_rollout_manifests") and "post-rollout-manifests" not in profile.get("extras", []):
+        raise Stop("post_rollout_manifests with no D59 replacement")
     stage_tf = [p for p in app.stage_dir.glob("*.tf")]
     if stage_tf:
         raise Stop(f"stage-level Terraform: {stage_tf}")
@@ -641,7 +843,7 @@ def cmd_scaffold(app: App, args) -> None:
     else:
         # The chart, minus HelmCharts-only files.
         for item in app.chart_src.iterdir():
-            if item.name in ("architecture.yaml", "resources-entry-map.json"):
+            if item.name in ("architecture.yaml", "resources-entry-map.json", *profile.get("scripts", [])):
                 continue
             dst = p / "chart" / item.name
             (shutil.copytree if item.is_dir() else shutil.copy2)(item, dst)
@@ -663,6 +865,9 @@ def cmd_scaffold(app: App, args) -> None:
             f"{app.name}/{app.stage}/manifests.yaml); they are chart content now.\n" + text)
     stamp = pin_deployment_stamp(app, p)
     sse = fix_sse_secret(p)
+    renamed_jobs = fix_random_job_names(p)
+    for extra in profile.get("extras", []):
+        write_extra(app, p, extra)
     schema = p / "chart/values.schema.json"
     if schema.exists():
         # A closed schema must admit the keys the deploy repo adds: the library's own block,
@@ -682,14 +887,28 @@ def cmd_scaffold(app: App, args) -> None:
             raise Stop(f"Chart.yaml does not name the chart {old_name}")
         if any(".Chart.Name" in t.read_text() for t in (p / "chart/templates").rglob("*") if t.is_file()):
             raise Stop("a template reads .Chart.Name: the rename would change the render")
-    if "dependencies:" in chart_yaml:
-        raise Stop("chart already has dependencies")
-    chart_yaml = chart_yaml.rstrip("\n") + (
-        "\ndependencies:\n"
+    library = (
         "  # Exact, not a range (D17): the hook Job this chart renders moves on a deliberate commit.\n"
         "  - name: homelab-shared\n"
         f"    version: \"{LIB_VERSION}\"\n"
         "    repository: https://charts.home\n")
+    if "dependencies:" in chart_yaml:
+        # A wrapper chart: its own dependencies stay, each pinned at what HelmCharts' Chart.lock
+        # resolved, so the render is the one the live release came from.
+        meta = yaml.safe_load(chart_yaml)
+        if list(meta)[-1] != "dependencies" or not re.search(r"^dependencies:$", chart_yaml, re.M):
+            raise Stop("Chart.yaml: dependencies is not its last key")
+        lock = yaml.safe_load((app.chart_src / "Chart.lock").read_text())
+        locked = {d["name"]: d["version"] for d in lock["dependencies"]}
+        for dep in meta["dependencies"]:
+            chart_yaml, n = re.subn(rf'(\n  - name: {re.escape(dep["name"])}\n    version: )"?{re.escape(str(dep["version"]))}"?\n',
+                                    lambda m: f'{m.group(1)}"{locked[dep["name"]]}"\n', chart_yaml)
+            if n != 1:
+                raise Stop(f"Chart.yaml: cannot pin dependency {dep['name']}")
+        chart_yaml = chart_yaml.rstrip("\n") + "\n" + library
+        (p / "chart/Chart.lock").unlink(missing_ok=True)
+    else:
+        chart_yaml = chart_yaml.rstrip("\n") + "\ndependencies:\n" + library
     (p / "chart/Chart.yaml").write_text(chart_yaml)
     name_in_chart = yaml.safe_load(chart_yaml)["name"]
     if name_in_chart != app.name:
@@ -700,6 +919,12 @@ def cmd_scaffold(app: App, args) -> None:
     cdir.mkdir(parents=True)
     live = helm_values(app)
     values_text = compose_values(app, live)
+    for old, new in profile.get("values", []):
+        if values_text.count(old) != 1:
+            raise Stop(f"values: D59 edit expects one {old!r}")
+        values_text = values_text.replace(old, new)
+    if app.name == "mosquitto":
+        values_text = strip_cleartext_passwords(values_text)
     (cdir / "values.yaml").write_text(values_text)
     for tv in app.stage_dir.glob("*.tfvars"):
         shutil.copy2(tv, cdir / tv.name)
@@ -756,17 +981,24 @@ def cmd_scaffold(app: App, args) -> None:
         (p / "tests" / n).chmod(0o755)
     (p / "README.md").write_text((UPSTREAM_README if upstream else README).format(
         repo=app.repo_name, app=app.name, ns=app.ns, stage=app.stage, producer=app.producer,
-        sha=sha[:7], chart=app.chart_name, **up_fmt(upstream)))
+        sha=sha[:7], chart=app.chart_name, **up_fmt(upstream)) + profile.get("readme", ""))
 
     # Chart.lock, then the gates.
+    repos = dependency_repos(p)
+    if repos:
+        body = BUILD_DEPS.replace("helm dependency build chart\n", "".join(
+            f"helm repo add {n} {u} --force-update >/dev/null\n" for n, u in repos) + "helm dependency build chart\n")
+        (p / "tests/build-deps.sh").write_text(body)
     iac("helm", "repo", "add", "charts-home", "https://charts.home", "--force-update", cwd=p)
+    for n, u in repos:
+        iac("helm", "repo", "add", n, u, "--force-update", cwd=p)
     iac("helm", "dependency", "update", "chart", cwd=p)
     iac("terraform", "fmt", "-recursive", cwd=p)
     run(["git", "init", "-q", "-b", "main"], cwd=p)
     run(["git", "add", "-A"], cwd=p)
     run(["git", "commit", "-q", "-m",
          f"{app.name}: deploy repo, migrated from HelmCharts {sha[:7]} (argo-cd D51)"], cwd=p)
-    app.save_state(scaffolded=sha, sse=sse, upstream=upstream)
+    app.save_state(scaffolded=sha, sse=sse, upstream=upstream, renamed_jobs=renamed_jobs)
     log(f"scaffolded {p} from HelmCharts {sha[:7]}; modules: {', '.join(mods) or 'none'}")
 
 
@@ -774,8 +1006,13 @@ def cmd_scaffold(app: App, args) -> None:
 # verify: the render equals the live release
 
 
+TRAILING_TABS = re.compile(r"\t+$", re.M)
+
+
 def docs(text: str) -> list[dict]:
-    return [d for d in yaml.safe_load_all(text) if d]
+    # A trailing tab is YAML Go parses and PyYAML refuses (prometheus' alertmanager subchart
+    # renders `- apiVersion: v1<TAB>`); Argo reads the render with Go's parser.
+    return [d for d in yaml.safe_load_all(TRAILING_TABS.sub("", text)) if d]
 
 
 def key(d: dict) -> tuple:
@@ -809,20 +1046,72 @@ SSE_OK = re.compile(r"SSE_CALLBACK_SECRET|sse/callback|sse-callback|secretKeyRef
                     r"^[+-]\s*value: [A-Za-z0-9]{64}$|^\+\s*annotations:$|^\+\s*argocd\.argoproj\.io/sync-options: Replace=true$")
 
 
+def reserialized(d: dict) -> dict:
+    """An object as a Helm post-renderer's re-serialisation stores it: empty metadata maps
+    dropped and a ConfigMap value's final newlines trimmed. `helm get manifest` of a
+    post-rendered release holds that form; the render Argo applies holds the chart's."""
+    import copy
+    d = copy.deepcopy(d)
+    meta = d.get("metadata") or {}
+    for field in ("annotations", "labels"):
+        if meta.get(field) == {}:
+            meta.pop(field)
+    if d.get("kind") == "ConfigMap" and isinstance(d.get("data"), dict):
+        d["data"] = {k: v.rstrip("\n") if isinstance(v, str) else v for k, v in d["data"].items()}
+    return d
+
+
+def redact(d: dict) -> dict:
+    """A Secret's values never reach a diff this tool prints or logs: each is replaced by a
+    digest, so a changed value still shows as changed."""
+    if d.get("kind") != "Secret":
+        return d
+    import hashlib
+    out = dict(d)
+    for field in ("data", "stringData"):
+        if isinstance(d.get(field), dict):
+            out[field] = {k: "<redacted sha256:" + hashlib.sha256(str(v).encode()).hexdigest()[:12] + ">"
+                          for k, v in d[field].items()}
+    return out
+
+
 def cmd_verify(app: App, args) -> None:
     up = repo_upstream(app)
     if up and app.release.get("reconciler") != "argo-cd" and live_upstream(app) != up:
         raise Stop(f"the live release runs {live_upstream(app)}, the deploy repo pins {up}")
     check_upstream_pin(app)
     everything = docs(render(app))
+    tests = [key(d) for d in everything if helm_test(d)]
+    if tests:
+        log(f"Helm test hooks, which Argo never runs: {tests}")
+    helm_run = [(key(d), sorted(helm_hooks(d))) for d in everything if helm_hooks(d) and not helm_test(d)]
+    everything = [d for d in everything if not helm_test(d)]
     rendered = {key(d): d for d in everything if not is_hook(d)}
     hook = {key(d) for d in everything if is_hook(d)}
     live_text = iac("helm", *HKC, "get", "manifest", app.ns, "-n", app.ns).stdout
     live = {key(d): d for d in docs(live_text)}
     manifests = app.stage_dir / "manifests.yaml"
-    if manifests.exists():
+    if manifests.exists() and app.release.get("reconciler") != "argo-cd":
         for d in docs(manifests.read_text()):
             live[key(d)] = d
+    if app.release.get("reconciler") != "argo-cd":
+        for d in extra_live(app):
+            live[key(d)] = d
+    for kind, name, path in D59.get(app.name, {}).get("drops", []):
+        if (kind, name) not in live:
+            raise Stop(f"D59 drop names {kind}/{name}, which the live release lacks")
+        drop_path(live[(kind, name)], path)
+    # A Job renamed from randAlphaNum pairs with the live Job of the same prefix.
+    for t in app.load_state().get("renamed_jobs") or []:
+        new = [k for k in rendered if k[0] == "Job" and k not in live]
+        old = [k for k in live if k[0] == "Job" and k not in rendered]
+        pairs = [(n, o) for n in new for o in old if n[1][:-5] == o[1][:-5]]
+        if len(pairs) != 1:
+            raise Stop(f"{t}: no single live Job to pair the renamed one with: new {new}, old {old}")
+        n, o = pairs[0]
+        old_job = live.pop(o)
+        live[n] = dict(old_job, metadata=dict(old_job["metadata"], name=n[1]))
+        log(f"Job {o[1]} is {n[1]} in the render: the first sync runs it once, and {o[1]} is left for the cleanup")
     expected_extra = {("Namespace", app.ns)}
     sse = app.load_state().get("sse")
     if sse:
@@ -831,10 +1120,13 @@ def cmd_verify(app: App, args) -> None:
     extra -= expected_extra
     missing = set(live) - set(rendered)
     diffs = []
+    post_rendered = "post-render.sh" in D59.get(app.name, {}).get("scripts", [])
     for k in set(rendered) & set(live):
         if rendered[k] != live[k]:
+            if post_rendered and reserialized(rendered[k]) == reserialized(live[k]):
+                continue
             diffs.append(k)
-    problems = []
+    problems = [f"Helm {', '.join(h)} hook {k}: Argo runs it on every sync" for k, h in helm_run]
     if not any(k[0] == "Job" and k[1].startswith("tf-presync") for k in hook):
         problems.append("no tf-presync hook Job rendered")
     if extra:
@@ -842,8 +1134,8 @@ def cmd_verify(app: App, args) -> None:
     if missing:
         problems.append(f"objects only in the live release: {sorted(missing)}")
     for k in diffs:
-        a = yaml.safe_dump(live[k], sort_keys=True).splitlines()
-        b = yaml.safe_dump(rendered[k], sort_keys=True).splitlines()
+        a = yaml.safe_dump(redact(live[k]), sort_keys=True).splitlines()
+        b = yaml.safe_dump(redact(rendered[k]), sort_keys=True).splitlines()
         import difflib
         changed = [l for l in difflib.unified_diff(a, b, lineterm="", n=0)
                    if l[:1] in "+-" and not l.startswith(("+++", "---"))]
@@ -1271,7 +1563,10 @@ def cmd_preflight(app: App, args) -> None:
                  app.ns, str(tmp / "render.yaml"), str(tmp / "live.json"), *extras], check=False)
         out = r.stdout + r.stderr
         (HOME / "bulk-migration/logs" / f"{app.ns}.preflight.txt").write_text(out)
-        objs = [d for d in docs(rtext) if not is_hook(d)]
+        objs = [d for d in docs(rtext) if not is_hook(d) and not helm_test(d)]
+        # A Job renamed from randAlphaNum is new by design: kubectl diff shows it whole.
+        renamed = new_jobs(app, objs)
+        objs = [d for d in objs if key(d) not in renamed]
         replaced = [d for d in objs if "Replace=true" in
                     ((d["metadata"].get("annotations") or {}).get("argocd.argoproj.io/sync-options") or "")]
         problems = preflight_problems(out, app, replaced)
@@ -1342,8 +1637,31 @@ def replace_problems(app: App, replaced: list[dict], tmp: Path) -> list[str]:
     return problems
 
 
+def new_jobs(app: App, objs: list[dict]) -> set[tuple]:
+    """The render's Jobs a randAlphaNum rename made (verify paired each with a live one)."""
+    if not app.load_state().get("renamed_jobs"):
+        return set()
+    live = {i["metadata"]["name"] for i in json.loads(iac("kubectl", *KC, "get", "jobs", "-n", app.ns, "-o",
+                                                          "json").stdout)["items"]}
+    return {key(d) for d in objs if d["kind"] == "Job" and d["metadata"]["name"] not in live}
+
+
+def dotted(path: tuple) -> str:
+    """A D59 drop's path as stuck_fields prints it, up to the first list index."""
+    out = []
+    for k in path:
+        if isinstance(k, int):
+            break
+        out.append(k)
+    return ".".join(out)
+
+
 def preflight_problems(out: str, app: App, replaced: list[dict] = ()) -> list[str]:
     problems = []
+    drops = [dotted(p) for _, _, p in D59.get(app.name, {}).get("drops", [])]
+    renamed_prefixes: set[str] = set()
+    if app.load_state().get("renamed_jobs"):
+        renamed_prefixes = {d["metadata"]["name"][:-5] for d in docs(render(app)) if d["kind"] == "Job"}
     # A replaced object loses every field its render lacks, so Helm's SSE value is no residue there.
     replaced_names = {d["metadata"]["name"] for d in replaced}
     targets = None
@@ -1358,6 +1676,9 @@ def preflight_problems(out: str, app: App, replaced: list[dict] = ()) -> list[st
                 # ESO-materialised Secrets are expected: the render carries their ExternalSecret.
                 if obj.startswith("Secret/") and targets is None:
                     targets = eso_targets(app)
+                if obj.startswith("Job/") and obj[4:-5] in renamed_prefixes:
+                    log(f"{obj}: the Helm-made run of a renamed Job, left for the cleanup")
+                    continue
                 if not (obj.startswith("Secret/") and obj[7:] in targets):
                     problems.append(f"object not in the render: {obj}")
         elif s.startswith("B.") or s.lower().startswith("stuck"):
@@ -1369,6 +1690,9 @@ def preflight_problems(out: str, app: App, replaced: list[dict] = ()) -> list[st
         elif section == "B" and s:
             field = s.split()[0] if s.split() else ""
             if replaced_names and ".env[name=SSE_CALLBACK_SECRET].value" in field:
+                continue
+            if any(d and field.startswith(d) for d in drops):
+                log(f"stuck field {field}: a D59 drop, which the live object keeps")
                 continue
             if not any(field.startswith(f) for f in EXPECTED_STUCK):
                 problems.append(f"stuck field: {s}")
