@@ -606,6 +606,11 @@ def fix_sse_secret(p: Path) -> bool:
     return hit
 
 
+# Charts HelmCharts named other than their app. The deploy repo's copy takes the app's name:
+# gen-architecture derives the namespace, and so every element id, from Chart.yaml's name.
+CHART_RENAMES = {"iot": "iotsupport"}
+
+
 def cmd_scaffold(app: App, args) -> None:
     if app.release.get("reconciler") == "argo-cd":
         raise Stop("already on Argo")
@@ -668,6 +673,15 @@ def cmd_scaffold(app: App, args) -> None:
         props.setdefault("hook", {"type": "object"})
         schema.write_text(json.dumps(sj, indent=2) + "\n")
     chart_yaml = (p / "chart/Chart.yaml").read_text()
+    if app.name in CHART_RENAMES:
+        old_name = CHART_RENAMES[app.name]
+        chart_yaml, n = re.subn(rf"^name: {re.escape(old_name)}$",
+                                f"# HelmCharts named this chart {old_name}; the producer ids need it named after the app.\n"
+                                f"name: {app.name}", chart_yaml, flags=re.M)
+        if n != 1:
+            raise Stop(f"Chart.yaml does not name the chart {old_name}")
+        if any(".Chart.Name" in t.read_text() for t in (p / "chart/templates").rglob("*") if t.is_file()):
+            raise Stop("a template reads .Chart.Name: the rename would change the render")
     if "dependencies:" in chart_yaml:
         raise Stop("chart already has dependencies")
     chart_yaml = chart_yaml.rstrip("\n") + (
