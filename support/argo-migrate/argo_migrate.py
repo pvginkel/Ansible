@@ -1888,7 +1888,15 @@ def cmd_sync(app: App, args) -> None:
     before = {p["metadata"]["name"] for p in json.loads(iac(
         "kubectl", *KC, "get", "pods", "-n", app.ns, "-o", "json").stdout)["items"]}
     sync = {"revisions": want, "sourcePositions": [1, 2, 3]} if up else {"revision": rev}
+    # A manual operation does not inherit the Application's sync options: without them here, an
+    # app on ServerSideApply=true (D62) applies client-side and its large CRDs are refused.
+    options = (a["spec"].get("syncPolicy") or {}).get("syncOptions")
+    if options:
+        sync["syncOptions"] = options
     patch = {"operation": {"initiatedBy": {"username": "claude-bulk-migration"}, "sync": sync}}
+    # The previous operation stays in status until the new one replaces it, and it can carry the
+    # same revision: only an operation started after this patch is this sync's.
+    previous = (a["status"].get("operationState") or {}).get("startedAt")
     iac("kubectl", *KC, "patch", "application", "-n", "argocd-prd", app.ns, "--type", "merge",
         "-p", json.dumps(patch))
     log(f"sync started at {rev[:7]}")
@@ -1897,6 +1905,8 @@ def cmd_sync(app: App, args) -> None:
         time.sleep(10)
         a = app_status(app)
         op = a.get("status", {}).get("operationState", {})
+        if op.get("startedAt") == previous:
+            continue
         if op.get("syncResult", {}).get(field) == want and op.get("phase") in ("Succeeded", "Failed", "Error"):
             phase = op["phase"]
             break
@@ -1931,7 +1941,9 @@ def cmd_sync(app: App, args) -> None:
     added = int(owns_webhook(app))
     want_apply = (f"Apply complete! Resources: {imports} imported, {added} added, 0 changed, 0 destroyed." if imports
                   else f"Apply complete! Resources: {added} added, 0 changed, 0 destroyed.")
-    if [a.strip() for a in applied] != [want_apply]:
+    # A re-sync after a sync-phase failure finds the webhook the first hook already made.
+    again = want_apply.replace(f" {added} added,", " 0 added,")
+    if [a.strip() for a in applied] not in ([want_apply], [again]):
         problems.append(f"hook: {applied or 'no apply line'}")
     if problems:
         raise Stop("sync checks:\n" + "\n".join(problems))
