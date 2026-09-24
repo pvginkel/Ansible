@@ -100,7 +100,11 @@ class App:
         self.repo_name = "".join(p.capitalize() for p in name.split("-")) + "Deploy"
         self.path = WORK / self.repo_name
         self.url = f"https://github.com/pvginkel/{self.repo_name}.git"
-        self.producer = f"{name}-deploy"
+        # One pipeline publishes one stage (D50): prd keeps the plain names, another stage of the
+        # same deploy repo gets its own producer, AaC job and Jenkinsfile.
+        self.producer = f"{name}-deploy" if stage == "prd" else f"{name}-{stage}-deploy"
+        self.aac_job = self.repo_name if stage == "prd" else f"{self.repo_name}-{stage}"
+        self.arch_file = "Jenkinsfile.architecture" if stage == "prd" else f"Jenkinsfile.architecture-{stage}"
 
     @property
     def chart_src(self) -> Path:
@@ -810,6 +814,85 @@ def fix_random_job_names(p: Path) -> list[str]:
 CHART_RENAMES = {"iot": "iotsupport"}
 
 
+STAMP_LITERAL = re.compile(r'^deployment: ("[^"\n]+")$', re.M)
+
+
+def add_stage(app: App, args) -> None:
+    """A further stage of an app whose deploy repo exists: its values, tfvars and producer files.
+
+    The chart is the repo's, which must be the one this stage's HelmCharts release renders. A
+    deploy stamp the first stage pinned as a literal becomes a per-stage value, since the stages
+    were deployed at different times."""
+    p = app.path
+    if not (p / ".git").exists():
+        raise Stop(f"{p} is not a deploy repo")
+    if (p / "config" / app.stage).exists():
+        raise Stop(f"config/{app.stage} exists")
+    first = App(app.name, "prd").load_state()
+    if not first.get("scaffolded"):
+        raise Stop("the prd stage was not scaffolded by this tool")
+    moved = run(["git", "-C", str(HC), "diff", "--stat", first["scaffolded"], "HEAD", "--",
+                 f"charts/{app.chart_name}"]).stdout.strip()
+    if moved:
+        raise Stop(f"charts/{app.chart_name} moved since the repo was scaffolded:\n{moved}")
+    live = helm_values(app)
+    values_text = compose_values(app, live)
+    helpers = [f for f in (p / "chart/templates").glob("*.tpl") if STAMP_LITERAL.search(f.read_text())]
+    stamp = None
+    if helpers:
+        if len(helpers) != 1:
+            raise Stop("deployment stamp literal in several helpers")
+        manifest = iac("helm", *HKC, "get", "manifest", app.ns, "-n", app.ns).stdout
+        stamps = set(re.findall(r"^\s+deployment: ['\"]([^'\"]+)['\"]$", manifest, re.M))
+        if len(stamps) != 1:
+            raise Stop(f"live deployment stamps: {sorted(stamps)}")
+        stamp = stamps.pop()
+        text = helpers[0].read_text()
+        literal = STAMP_LITERAL.search(text).group(1)
+        text = text.replace(
+            "{{- /* Fixed at HelmCharts' last deploy (argo-cd bulk migration): edit to roll the pods. */ -}}",
+            "{{- /* Each stage's HelmCharts deploy time, pinned in its values (argo-cd bulk migration): edit to roll\n"
+            "the pods. Included from the root context only, where the values are reachable. */ -}}")
+        text = STAMP_LITERAL.sub("deployment: {{ required \"deploymentStamp\" .Values.deploymentStamp | quote }}", text)
+        helpers[0].write_text(text)
+        for cfg in sorted((p / "config").glob("*/values.yaml")):
+            cfg.write_text(cfg.read_text().rstrip("\n") + (
+                "\n\n# The deploy stamp HelmCharts last set; edit it to roll the pods.\n"
+                f"deploymentStamp: {literal}\n"))
+        values_text = values_text.rstrip("\n") + (
+            "\n\n# The deploy stamp HelmCharts last set; edit it to roll the pods.\n"
+            f"deploymentStamp: {json.dumps(stamp)}\n")
+        schema = p / "chart/values.schema.json"
+        if schema.exists():
+            sj = json.loads(schema.read_text())
+            sj.setdefault("properties", {}).setdefault("deploymentStamp", {"type": "string"})
+            schema.write_text(json.dumps(sj, indent=2) + "\n")
+    cdir = p / "config" / app.stage
+    cdir.mkdir(parents=True)
+    (cdir / "values.yaml").write_text(values_text)
+    for tv in app.stage_dir.glob("*.tfvars"):
+        shutil.copy2(tv, cdir / tv.name)
+    (cdir / "terraform.tfvars").write_text(
+        "# The prd stage owns the repository's webhook; this one does not.\nmanage_webhook = false\n")
+    (p / app.arch_file).write_text(JENKINSFILE_ARCH.format(
+        app=app.name, stage=app.stage, producer=app.producer, cred=GIT_CRED, url=app.url))
+    rc = (p / ".architecturerc").read_text()
+    rc = rc.replace("  - config/prd/\n", f"  - config/prd/\n  - config/{app.stage}/\n", 1)
+    (p / ".architecturerc").write_text(rc)
+    (p / "README.md").write_text((p / "README.md").read_text().rstrip("\n") + (
+        f"\n\n## The {app.stage} stage\n\n"
+        f"Argo CD syncs `{app.ns}` from `main` too, with `config/{app.stage}/values.yaml`; every stage follows\n"
+        f"`main` (argo-cd D53). Its state is `argocd/{app.repo_name}/{app.stage}/terraform.tfstate`, and\n"
+        f"`{app.arch_file}` publishes it as producer `{app.producer}` (D50).\n"))
+    sha = run(["git", "-C", str(HC), "rev-parse", "HEAD"]).stdout.strip()
+    run(["git", "add", "-A"], cwd=p)
+    run(["git", "commit", "-q", "-m", f"{app.name}: the {app.stage} stage, migrated from HelmCharts {sha[:7]} (argo-cd D51)"],
+        cwd=p)
+    app.save_state(scaffolded=sha, sse=first.get("sse"), upstream=first.get("upstream"),
+                   renamed_jobs=first.get("renamed_jobs"), stamp=stamp)
+    log(f"added stage {app.stage} to {p} from HelmCharts {sha[:7]}" + (f"; stamps per stage now" if stamp else ""))
+
+
 def cmd_scaffold(app: App, args) -> None:
     if app.release.get("reconciler") == "argo-cd":
         raise Stop("already on Argo")
@@ -829,6 +912,8 @@ def cmd_scaffold(app: App, args) -> None:
     stage_tf = [p for p in app.stage_dir.glob("*.tf")]
     if stage_tf:
         raise Stop(f"stage-level Terraform: {stage_tf}")
+    if getattr(args, "add_stage", False):
+        return add_stage(app, args)
     if app.path.exists() and not args.force:
         raise Stop(f"{app.path} exists (use --force to rebuild it)")
     if app.path.exists():
@@ -1075,6 +1160,11 @@ def redact(d: dict) -> dict:
     return out
 
 
+# The API server's cap on all of an object's annotations; client-side apply writes the whole
+# object into last-applied-configuration (D62).
+LAST_APPLIED_LIMIT = 262144
+
+
 def cmd_verify(app: App, args) -> None:
     up = repo_upstream(app)
     if up and app.release.get("reconciler") != "argo-cd" and live_upstream(app) != up:
@@ -1146,7 +1236,11 @@ def cmd_verify(app: App, args) -> None:
     if problems:
         raise Stop("render != live release:\n" + "\n".join(problems))
     log(f"render equals the live release: {len(live)} objects, plus the Namespace and the hooks")
-    app.save_state(verified=True)
+    oversized = [f"{k[0]}/{k[1]}" for k, d in rendered.items()
+                 if len(json.dumps(d, separators=(",", ":"))) > LAST_APPLIED_LIMIT]
+    if oversized:
+        log(f"over the last-applied limit, so the app syncs server-side (D62): {oversized}")
+    app.save_state(verified=True, ssa=bool(oversized))
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1173,7 +1267,7 @@ def cmd_publish(app: App, args) -> None:
         run(["git", "remote", "add", "origin", app.url], cwd=p)
     run(["git", "push", "-q", "-u", *(["--force"] if args.force else []), "origin", "main"], cwd=p)
     # AaC/<Repo>, from AaC/KubeCoderDeploy's config.
-    code, _ = jenkins("GET", f"/job/AaC/job/{app.repo_name}/api/json")
+    code, _ = jenkins("GET", f"/job/AaC/job/{app.aac_job}/api/json")
     if code != "200":
         tpl = subprocess.run(["curl", "-sS", "-g", "-u", f"admin:{os.environ['JENKINS_TOKEN']}",
                               f"{JENKINS}/job/AaC/job/KubeCoderDeploy/config.xml"],
@@ -1181,25 +1275,27 @@ def cmd_publish(app: App, args) -> None:
         if "KubeCoderDeploy.git" not in tpl:
             raise Stop("could not read AaC/KubeCoderDeploy's config.xml")
         cfg = tpl.replace("KubeCoderDeploy", app.repo_name).replace("*/prd", "*/main")
+        cfg = cfg.replace("<scriptPath>Jenkinsfile.architecture</scriptPath>",
+                          f"<scriptPath>{app.arch_file}</scriptPath>")
         cfg = re.sub(r"<description>.*?</description>",
                      f"<description>Architecture producer {app.producer}</description>", cfg, flags=re.S)
-        code, err = jenkins("POST", f"/job/AaC/createItem?name={app.repo_name}", cfg.encode())
+        code, err = jenkins("POST", f"/job/AaC/createItem?name={app.aac_job}", cfg.encode())
         if code not in ("200", "302"):
-            raise Stop(f"createItem AaC/{app.repo_name}: HTTP {code} {err[:300]}")
+            raise Stop(f"createItem AaC/{app.aac_job}: HTTP {code} {err[:300]}")
     build = aac_build(app)
     app.save_state(published=True, aac_build=build)
-    log(f"{app.url} pushed; AaC/{app.repo_name} #{build} green")
+    log(f"{app.url} pushed; AaC/{app.aac_job} #{build} green")
 
 
 def aac_build(app: App) -> int:
-    job = f"/job/AaC/job/{app.repo_name}"
+    job = f"/job/AaC/job/{app.aac_job}"
     before = json.loads(subprocess.run(
         ["curl", "-sS", "-g", "-u", f"admin:{os.environ['JENKINS_TOKEN']}",
          f"{JENKINS}{job}/api/json?tree=nextBuildNumber"], text=True, capture_output=True).stdout)
     n = before["nextBuildNumber"]
     code, err = jenkins("POST", f"{job}/build", b"", "application/x-www-form-urlencoded")
     if code not in ("200", "201", "302"):
-        raise Stop(f"build AaC/{app.repo_name}: HTTP {code} {err[:300]}")
+        raise Stop(f"build AaC/{app.aac_job}: HTTP {code} {err[:300]}")
     for _ in range(120):
         time.sleep(10)
         r = subprocess.run(["curl", "-sS", "-g", "-u", f"admin:{os.environ['JENKINS_TOKEN']}",
@@ -1211,9 +1307,9 @@ def aac_build(app: App) -> int:
             continue
         if not b.get("building") and b.get("result"):
             if b["result"] != "SUCCESS":
-                raise Stop(f"AaC/{app.repo_name} #{n}: {b['result']}")
+                raise Stop(f"AaC/{app.aac_job} #{n}: {b['result']}")
             return n
-    raise Stop(f"AaC/{app.repo_name} #{n} did not finish in 20 min")
+    raise Stop(f"AaC/{app.aac_job} #{n} did not finish in 20 min")
 
 
 URL = re.compile(r"^[a-z][a-z0-9+.\-]*://")
@@ -1243,12 +1339,19 @@ def hc_releases_without(app: App) -> list[str]:
     The bare chart name is the only name of a chart's prd release, and it selects the chart's
     other stages too, so a non-prd stage cannot be left out while its prd is rendered.
     """
-    if app.stage != "prd" and (app.cfg / "prd").is_dir():
-        raise Stop(f"gen-architecture cannot render {app.name}'s prd release without its {app.stage} one")
+    def flipped(chart: Path, stage: str) -> bool:
+        rel = chart / stage / "release.yaml"
+        return rel.exists() and (yaml.safe_load(rel.read_text()) or {}).get("reconciler") == "argo-cd"
+
+    if app.stage != "prd" and (app.cfg / "prd").is_dir() and not flipped(app.cfg, "prd"):
+        raise Stop(f"gen-architecture cannot render {app.name}'s prd release without its {app.stage} one: "
+                   f"flip prd first (HC-16)")
     names = []
     for chart in sorted(p for p in (HC / "configs/prd").iterdir() if p.is_dir()):
         for stage in sorted(p.name for p in chart.iterdir() if p.is_dir() and p.name != "_shared"):
-            if (chart.name, stage) != (app.name, app.stage):
+            # A flipped stage renders nothing in HelmCharts; naming it would select the chart's
+            # other stages too, the moving one among them.
+            if (chart.name, stage) != (app.name, app.stage) and not flipped(chart, stage):
                 names.append(chart.name if stage == "prd" else f"{chart.name}@{stage}")
     return names
 
@@ -1353,7 +1456,7 @@ def cmd_register(app: App, args) -> None:
         log("producer already registered")
         return
     text = text.rstrip("\n") + (f"\n  - id: {app.producer}\n    repo: pvginkel/{app.repo_name}\n"
-                                f"    jenkinsJob: AaC/{app.repo_name}\n")
+                                f"    jenkinsJob: AaC/{app.aac_job}\n")
     f.write_text(text)
     run(["git", "add", "pipeline-producers.yaml"], cwd=arch)
     run(["git", "commit", "-q", "-m", f"Registry: the {app.producer} producer"], cwd=arch)
@@ -1364,6 +1467,9 @@ def registry_entry(app: App, auto: bool) -> str:
     text = ("reconciler: argo-cd\ndeployed: true\n"
             f"autoSync: {'true' if auto else 'false'}\n"
             f"repo: {app.url}\ntargetRevision: main\n")
+    if app.load_state().get("ssa"):
+        # Objects over the last-applied limit: the Application applies server-side (D62).
+        text += "syncOptions:\n  - ServerSideApply=true\n"
     up = repo_upstream(app)
     if up:
         # The chart releases-upstream renders; the deploy repo's architecture.yaml pins the same
@@ -1504,14 +1610,22 @@ def cmd_plan(app: App, args) -> None:
         raise Stop("setup-env did not export every credential")
     # An `import` block adopts a live object the chart no longer renders; each is declared.
     imports = sum(len(re.findall(r"^import\s*\{", f.read_text(), re.M)) for f in (app.path / "terraform").glob("*.tf"))
-    want = (f"Plan: {imports} to import, 1 to add, 0 to change, 0 to destroy." if imports
-            else "Plan: 1 to add, 0 to change, 0 to destroy.")
+    hooked = owns_webhook(app)
+    want = (f"Plan: {imports} to import, {int(hooked)} to add, 0 to change, 0 to destroy." if imports
+            else "Plan: 1 to add, 0 to change, 0 to destroy." if hooked
+            else "No changes. Your infrastructure matches the configuration.")
     adds = re.findall(r"# (\S+) will be created", out)
-    if want not in out or adds != ["github_repository_webhook.argocd[0]"]:
+    if want not in out or adds != (["github_repository_webhook.argocd[0]"] if hooked else []):
         summary = [l for l in out.splitlines() if re.search(r"#.*will be|must be replaced|Plan:|No changes", l)]
         raise Stop("plan is not the webhook alone:\n" + "\n".join(summary))
     log(f"plan: {want}")
     app.save_state(planned=True)
+
+
+def owns_webhook(app: App) -> bool:
+    """Whether this stage's state owns the repository's webhook: true in exactly one stage."""
+    f = app.path / "config" / app.stage / "terraform.tfvars"
+    return bool(re.search(r"^manage_webhook\s*=\s*true", f.read_text(), re.M)) if f.exists() else False
 
 
 def shlex_quote(s: str) -> str:
@@ -1578,8 +1692,9 @@ def cmd_preflight(app: App, args) -> None:
             objs = [d for d in objs if key(d) not in (("Password", "sse-callback"), ("ExternalSecret", "sse-callback"))]
         # Server-side diff of the render against live: what the sync would change.
         (tmp / "apply.yaml").write_text(yaml.safe_dump_all(objs))
-        d = iac("kubectl", *KC, "diff", "-n", app.ns, "--server-side=false", "-f", str(tmp / "apply.yaml"),
-                check=False)
+        side = (["--server-side", "--field-manager=argocd-controller", "--force-conflicts"]
+                if app.load_state().get("ssa") else ["--server-side=false"])
+        d = iac("kubectl", *KC, "diff", "-n", app.ns, *side, "-f", str(tmp / "apply.yaml"), check=False)
         (HOME / "bulk-migration/logs" / f"{app.ns}.diff.txt").write_text(d.stdout + d.stderr)
         changed = diff_problems(d.stdout)
         if d.returncode not in (0, 1):
@@ -1782,8 +1897,9 @@ def cmd_sync(app: App, args) -> None:
     if s["sync"]["status"] != "Synced" or s["health"]["status"] != "Healthy":
         problems.append(f"Application {s['sync']['status']} {s['health']['status']}")
     imports = sum(len(re.findall(r"^import\s*\{", f.read_text(), re.M)) for f in (app.path / "terraform").glob("*.tf"))
-    want_apply = (f"Apply complete! Resources: {imports} imported, 1 added, 0 changed, 0 destroyed." if imports
-                  else "Apply complete! Resources: 1 added, 0 changed, 0 destroyed.")
+    added = int(owns_webhook(app))
+    want_apply = (f"Apply complete! Resources: {imports} imported, {added} added, 0 changed, 0 destroyed." if imports
+                  else f"Apply complete! Resources: {added} added, 0 changed, 0 destroyed.")
     if [a.strip() for a in applied] != [want_apply]:
         problems.append(f"hook: {applied or 'no apply line'}")
     if problems:
@@ -1808,6 +1924,8 @@ def main() -> int:
     ap.add_argument("apps", nargs="+")
     ap.add_argument("--stage", default="prd")
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--add-stage", action="store_true",
+                    help="scaffold: add --stage to the app's existing deploy repo")
     ap.add_argument("--dataset", default=DATASET_URL,
                     help="arch: the merged published dataset, a URL (fetched once) or a file")
     args = ap.parse_args()
