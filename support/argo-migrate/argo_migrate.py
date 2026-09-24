@@ -1934,7 +1934,7 @@ def cmd_sync(app: App, args) -> None:
         problems.append(f"hook: {applied or 'no apply line'}")
     if problems:
         raise Stop("sync checks:\n" + "\n".join(problems))
-    log(f"synced {rev[:7]}: Synced Healthy; hook 1 added (webhook)")
+    log(f"synced {rev[:7]}: Synced Healthy; hook: {want_apply}")
     app.save_state(synced=rev)
 
 
