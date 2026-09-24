@@ -778,6 +778,11 @@ ACCEPTED = {
         "changed": {("Deployment", "grafana")},
         "lines": re.compile(r"^[+-]\s*name: grafana(-admin)?$|^-\s*checksum/secret: [0-9a-f]{64}$"),
     },
+    # HelmCharts' post-render trimmed the server ConfigMap's empty `rules` file to `{}`; the render
+    # ends it with a newline. The same YAML: the config-reload sidecar reloads, the pod stays.
+    "prometheus": {
+        "lines": re.compile(r"^-\s*rules: '\{\}'$|^\+\s*rules: \|$|^\+\s*\{\}$"),
+    },
 }
 
 # StatefulSets whose claim template changes (ANS-103). The list is atomic, so apply replaces it
