@@ -1146,17 +1146,39 @@ def reserialized(d: dict) -> dict:
     return d
 
 
+SECRET_ENV = re.compile(r"SECRET|PASSWORD|TOKEN|KEY|CREDENTIAL", re.I)
+SECRET_QUERY = re.compile(r"([?&](?:secret|token|password|key)=)([^&$\s]+)", re.I)
+
+
 def redact(d: dict) -> dict:
-    """A Secret's values never reach a diff this tool prints or logs: each is replaced by a
-    digest, so a changed value still shows as changed."""
-    if d.get("kind") != "Secret":
-        return d
+    """A secret never reaches a diff this tool prints or logs: a Secret's values, and a
+    container env value whose name says secret, are replaced by a digest, so a changed value
+    still shows as changed."""
+    import copy
     import hashlib
-    out = dict(d)
-    for field in ("data", "stringData"):
-        if isinstance(d.get(field), dict):
-            out[field] = {k: "<redacted sha256:" + hashlib.sha256(str(v).encode()).hexdigest()[:12] + ">"
-                          for k, v in d[field].items()}
+
+    def digest(v) -> str:
+        return "<redacted sha256:" + hashlib.sha256(str(v).encode()).hexdigest()[:12] + ">"
+
+    out = copy.deepcopy(d)
+    if d.get("kind") == "Secret":
+        for field in ("data", "stringData"):
+            if isinstance(out.get(field), dict):
+                out[field] = {k: digest(v) for k, v in out[field].items()}
+        return out
+
+    def walk(node):
+        if isinstance(node, dict):
+            if isinstance(node.get("name"), str) and "value" in node and SECRET_ENV.search(node["name"]):
+                node["value"] = digest(node["value"])
+            elif isinstance(node.get("value"), str) and SECRET_QUERY.search(node["value"]):
+                node["value"] = SECRET_QUERY.sub(lambda m: m.group(1) + digest(m.group(2)), node["value"])
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+    walk(out)
     return out
 
 
@@ -1224,14 +1246,17 @@ def cmd_verify(app: App, args) -> None:
     if missing:
         problems.append(f"objects only in the live release: {sorted(missing)}")
     for k in diffs:
-        a = yaml.safe_dump(redact(live[k]), sort_keys=True).splitlines()
-        b = yaml.safe_dump(redact(rendered[k]), sort_keys=True).splitlines()
         import difflib
-        changed = [l for l in difflib.unified_diff(a, b, lineterm="", n=0)
+        # Judged on the objects themselves; only the printed diff is redacted.
+        raw_a = yaml.safe_dump(live[k], sort_keys=True).splitlines()
+        raw_b = yaml.safe_dump(rendered[k], sort_keys=True).splitlines()
+        changed = [l for l in difflib.unified_diff(raw_a, raw_b, lineterm="", n=0)
                    if l[:1] in "+-" and not l.startswith(("+++", "---"))]
         if sse and k[0] == "Deployment" and all(SSE_OK.search(l) for l in changed):
             log(f"{k}: only the SSE callback secret changes (expected: this sync rolls it)")
             continue
+        a = yaml.safe_dump(redact(live[k]), sort_keys=True).splitlines()
+        b = yaml.safe_dump(redact(rendered[k]), sort_keys=True).splitlines()
         problems.append(f"{k} differs:\n" + "\n".join(difflib.unified_diff(a, b, "live", "render", lineterm="", n=1)))
     if problems:
         raise Stop("render != live release:\n" + "\n".join(problems))
@@ -1743,10 +1768,15 @@ def replace_problems(app: App, replaced: list[dict], tmp: Path) -> list[str]:
         b = yaml.safe_dump(json.loads(r.stdout)["spec"], sort_keys=True).splitlines()
         changed = [l for l in difflib.unified_diff(a, b, lineterm="", n=0)
                    if l[:1] in "+-" and not l.startswith(("+++", "---"))]
-        (HOME / "bulk-migration/logs" / f"{app.ns}.replace.txt").write_text("\n".join(changed) + "\n")
+        shown = [l for l in difflib.unified_diff(
+            yaml.safe_dump(redact({"spec": live["spec"]}), sort_keys=True).splitlines(),
+            yaml.safe_dump(redact({"spec": json.loads(r.stdout)["spec"]}), sort_keys=True).splitlines(),
+            lineterm="", n=0) if l[:1] in "+-" and not l.startswith(("+++", "---"))]
+        (HOME / "bulk-migration/logs" / f"{app.ns}.replace.txt").write_text("\n".join(shown) + "\n")
         bad = [l for l in changed if not (SSE_OK.search(l) or REPLACE_OK.search(l))]
         if bad:
-            problems += [f"replace {d['kind']}/{d['metadata']['name']}: {l[:200]}" for l in bad[:20]]
+            problems.append(f"replace {d['kind']}/{d['metadata']['name']} changes more than the SSE secret: "
+                            f"see {app.ns}.replace.txt")
         else:
             log(f"replace {d['kind']}/{d['metadata']['name']}: only the SSE callback secret changes")
     return problems
