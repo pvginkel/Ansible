@@ -1806,7 +1806,8 @@ def preflight_problems(out: str, app: App, replaced: list[dict] = ()) -> list[st
     drops = [dotted(p) for _, _, p in D59.get(app.name, {}).get("drops", [])]
     renamed_prefixes: set[str] = set()
     if app.load_state().get("renamed_jobs"):
-        renamed_prefixes = {d["metadata"]["name"][:-5] for d in docs(render(app)) if d["kind"] == "Job"}
+        renamed_prefixes = {d["metadata"]["name"][:-5] for d in docs(render(app))
+                            if d["kind"] == "Job" and not is_hook(d)}
     # A replaced object loses every field its render lacks, so Helm's SSE value is no residue there.
     replaced_names = {d["metadata"]["name"] for d in replaced}
     targets = None
