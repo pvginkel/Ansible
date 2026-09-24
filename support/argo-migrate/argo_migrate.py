@@ -763,6 +763,20 @@ RENDER_ONLY = {
     "step-ca": {("Role", "step-ca-config"), ("RoleBinding", "step-ca-config"), ("ServiceAccount", "step-ca-config")},
 }
 
+# Changes the operator accepted for an app's first sync (ANS-103), per app: the live objects the
+# render drops, the objects only the render carries, and a regex every changed line of the named
+# objects must match. grafana's chart generated its admin password with `lookup`, empty under
+# Argo, so each render made a new one; the password is in OpenBao now, read by an ExternalSecret,
+# and the first sync rolls the pod once. Helm's `grafana` Secret is left for the cleanup.
+ACCEPTED = {
+    "grafana": {
+        "live_only": {("Secret", "grafana")},
+        "render_only": {("ExternalSecret", "grafana-admin")},
+        "changed": {("Deployment", "grafana")},
+        "lines": re.compile(r"^[+-]\s*name: grafana(-admin)?$|^-\s*checksum/secret: [0-9a-f]{64}$"),
+    },
+}
+
 HELM_TEST_HOOKS = {"test", "test-success", "test-failure"}
 
 
@@ -1231,13 +1245,16 @@ def cmd_verify(app: App, args) -> None:
         old_job = live.pop(o)
         live[n] = dict(old_job, metadata=dict(old_job["metadata"], name=n[1]))
         log(f"Job {o[1]} is {n[1]} in the render: the first sync runs it once, and {o[1]} is left for the cleanup")
-    expected_extra = {("Namespace", app.ns)} | RENDER_ONLY.get(app.name, set())
+    accepted = ACCEPTED.get(app.name, {})
+    expected_extra = {("Namespace", app.ns)} | RENDER_ONLY.get(app.name, set()) | accepted.get("render_only", set())
     sse = app.load_state().get("sse")
     if sse:
         expected_extra |= {("Password", "sse-callback"), ("ExternalSecret", "sse-callback")}
     extra = set(rendered) - set(live)
     extra -= expected_extra
-    missing = set(live) - set(rendered)
+    missing = set(live) - set(rendered) - accepted.get("live_only", set())
+    for k in sorted(accepted.get("live_only", set()) & set(live)):
+        log(f"{k}: dropped from the render (accepted, ANS-103); left for the cleanup")
     diffs = []
     post_rendered = "post-render.sh" in D59.get(app.name, {}).get("scripts", [])
     for k in set(rendered) & set(live):
@@ -1261,6 +1278,9 @@ def cmd_verify(app: App, args) -> None:
                    if l[:1] in "+-" and not l.startswith(("+++", "---"))]
         if sse and k[0] == "Deployment" and all(SSE_OK.search(l) for l in changed):
             log(f"{k}: only the SSE callback secret changes (expected: this sync rolls it)")
+            continue
+        if k in accepted.get("changed", set()) and all(accepted["lines"].search(l) for l in changed):
+            log(f"{k}: only the accepted change (ANS-103; this sync rolls it)")
             continue
         a = yaml.safe_dump(redact(live[k]), sort_keys=True).splitlines()
         b = yaml.safe_dump(redact(rendered[k]), sort_keys=True).splitlines()
@@ -1711,7 +1731,8 @@ def cmd_preflight(app: App, args) -> None:
         (HOME / "bulk-migration/logs" / f"{app.ns}.preflight.txt").write_text(out)
         objs = [d for d in docs(rtext) if not is_hook(d) and not helm_test(d)]
         # A Job renamed from randAlphaNum is new by design: kubectl diff shows it whole.
-        renamed = new_jobs(app, objs) | RENDER_ONLY.get(app.name, set())
+        renamed = (new_jobs(app, objs) | RENDER_ONLY.get(app.name, set())
+                   | ACCEPTED.get(app.name, {}).get("render_only", set()))
         objs = [d for d in objs if key(d) not in renamed]
         replaced = [d for d in objs if "Replace=true" in
                     ((d["metadata"].get("annotations") or {}).get("argocd.argoproj.io/sync-options") or "")]
@@ -1728,7 +1749,7 @@ def cmd_preflight(app: App, args) -> None:
                 if app.load_state().get("ssa") else ["--server-side=false"])
         d = iac("kubectl", *KC, "diff", "-n", app.ns, *side, "-f", str(tmp / "apply.yaml"), check=False)
         (HOME / "bulk-migration/logs" / f"{app.ns}.diff.txt").write_text(d.stdout + d.stderr)
-        changed = diff_problems(d.stdout)
+        changed = diff_problems(d.stdout, ACCEPTED.get(app.name, {}).get("lines"))
         if d.returncode not in (0, 1):
             problems.append(f"kubectl diff failed: {d.stderr[-500:]}")
         problems += changed
@@ -1832,6 +1853,9 @@ def preflight_problems(out: str, app: App, replaced: list[dict] = ()) -> list[st
                 if obj.startswith("Job/") and obj[4:-5] in renamed_prefixes:
                     log(f"{obj}: the Helm-made run of a renamed Job, left for the cleanup")
                     continue
+                if tuple(obj.split("/", 1)) in ACCEPTED.get(app.name, {}).get("live_only", set()):
+                    log(f"{obj}: dropped from the render (accepted, ANS-103); left for the cleanup")
+                    continue
                 if not (obj.startswith("Secret/") and obj[7:] in targets):
                     problems.append(f"object not in the render: {obj}")
         elif s.startswith("B.") or s.lower().startswith("stuck"):
@@ -1852,8 +1876,8 @@ def preflight_problems(out: str, app: App, replaced: list[dict] = ()) -> list[st
     return problems
 
 
-def diff_problems(diff: str) -> list[str]:
-    """Changed lines in `kubectl diff` other than metadata bookkeeping."""
+def diff_problems(diff: str, accepted: re.Pattern | None = None) -> list[str]:
+    """Changed lines in `kubectl diff` other than metadata bookkeeping and an app's accepted change."""
     ok = re.compile(r"^[+-]\s*(generation:|resourceVersion:|kubectl\.kubernetes\.io/last-applied-configuration|"
                     r"\{\"apiVersion\"|argocd\.argoproj\.io/|annotations:\s*$|managedFields|"
                     r"- apiVersion:|fieldsType:|fieldsV1:|f:|manager:|operation:|time:|\.:\s*\{\}|"
@@ -1862,7 +1886,7 @@ def diff_problems(diff: str) -> list[str]:
     for line in diff.splitlines():
         if line.startswith(("+++", "---", "diff ")):
             continue
-        if line.startswith(("+", "-")) and not ok.match(line):
+        if line.startswith(("+", "-")) and not ok.match(line) and not (accepted and accepted.search(line)):
             bad.append(f"diff: {line[:200]}")
     return bad[:40]
 
