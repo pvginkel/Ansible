@@ -756,6 +756,13 @@ kubectl patch service kubernetes-dashboard -n kube-system --patch '{"metadata": 
     },
 }
 
+# Objects only Argo's render carries, accepted by the operator (ANS-103, 2026-09-24): step-ca's
+# chart renders its bootstrap RBAC on `.Release.IsInstall`, which `helm template` always is, and
+# Helm dropped it after the install. Unused while bootstrap is off. The first sync creates them.
+RENDER_ONLY = {
+    "step-ca": {("Role", "step-ca-config"), ("RoleBinding", "step-ca-config"), ("ServiceAccount", "step-ca-config")},
+}
+
 HELM_TEST_HOOKS = {"test", "test-success", "test-failure"}
 
 
@@ -1224,7 +1231,7 @@ def cmd_verify(app: App, args) -> None:
         old_job = live.pop(o)
         live[n] = dict(old_job, metadata=dict(old_job["metadata"], name=n[1]))
         log(f"Job {o[1]} is {n[1]} in the render: the first sync runs it once, and {o[1]} is left for the cleanup")
-    expected_extra = {("Namespace", app.ns)}
+    expected_extra = {("Namespace", app.ns)} | RENDER_ONLY.get(app.name, set())
     sse = app.load_state().get("sse")
     if sse:
         expected_extra |= {("Password", "sse-callback"), ("ExternalSecret", "sse-callback")}
@@ -1704,7 +1711,7 @@ def cmd_preflight(app: App, args) -> None:
         (HOME / "bulk-migration/logs" / f"{app.ns}.preflight.txt").write_text(out)
         objs = [d for d in docs(rtext) if not is_hook(d) and not helm_test(d)]
         # A Job renamed from randAlphaNum is new by design: kubectl diff shows it whole.
-        renamed = new_jobs(app, objs)
+        renamed = new_jobs(app, objs) | RENDER_ONLY.get(app.name, set())
         objs = [d for d in objs if key(d) not in renamed]
         replaced = [d for d in objs if "Replace=true" in
                     ((d["metadata"].get("annotations") or {}).get("argocd.argoproj.io/sync-options") or "")]
