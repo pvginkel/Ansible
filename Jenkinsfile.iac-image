@@ -2,6 +2,17 @@ import org.jenkinsci.plugins.pipeline.modeldefinition.Utils
 
 library identifier: 'JenkinsPipelineUtils', changelog: false
 
+// The version poller replays the params label kaniko2 stamps ([image: 'iac']) as
+// build parameters, so its weekly rebuild names the image, as DockerImages' does.
+// `all` or a comma-separated list containing `iac` forces the build. Only this
+// property is set here: the push trigger and the concurrency setting stay with
+// the job's own configuration.
+properties([
+    parameters([
+        string(name: 'image', defaultValue: '')
+    ])
+])
+
 podTemplate(inheritFrom: 'jenkins-agent kaniko') {
     node(POD_LABEL) {
         stage('Cloning repo') {
@@ -13,10 +24,15 @@ podTemplate(inheritFrom: 'jenkins-agent kaniko') {
         stage('Building iac image') {
             if (imageBuildRequired()) {
                 container('kaniko') {
-                    helmCharts.kaniko('support/iac-image/Dockerfile', '.', [
-                        "registry:5000/iac:${currentBuild.number}",
-                        "registry:5000/iac:latest"
-                    ])
+                    helmCharts.kaniko2(
+                        dockerfile: 'support/iac-image/Dockerfile',
+                        context: '.',
+                        destinations: [
+                            "registry:5000/iac:${currentBuild.number}",
+                            "registry:5000/iac:latest"
+                        ],
+                        params: [image: 'iac']
+                    )
                 }
             } else {
                 Utils.markStageSkippedForConditional('Building iac image')
@@ -26,18 +42,16 @@ podTemplate(inheritFrom: 'jenkins-agent kaniko') {
 }
 
 def imageBuildRequired() {
-    // A build whose changeset holds no file at all was not started by a push. In
-    // practice that is the version poller's weekly rebuild, which triggers this job
-    // with no commits and no parameters (the positional helmCharts.kaniko cannot
-    // stamp the poller's params label); a hand-started build with no new commits
-    // since the last one lands here too, and rebuilding is the wanted answer for
-    // both. Only a push of the image advances its
-    // org.webathome.poller.rebuild-at label, and the poller neither re-fires while
-    // that value is unchanged nor triggers at all once it goes stale — so a rebuild
-    // skipped here is never retried, and the image's floating ubuntu/apt/helm layers
-    // stop being patched.
-    if (!utils.hasChanges('.*')) {
+    // A build that names the image builds it whatever its changeset holds: the
+    // version poller's weekly rebuild, or Build with Parameters with image=iac.
+    if (params.image == 'all') {
         return true
+    }
+    if (params.image) {
+        def forced = params.image.split(',').collect { it.trim() }
+        if ('iac' in forced) {
+            return true
+        }
     }
 
     // Everything support/iac-image/Dockerfile builds from: the build context under

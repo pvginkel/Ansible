@@ -62,17 +62,18 @@ root `pyproject.toml` or `poetry.lock` whose venv is baked in,
 other push reports the `Building iac image` stage as *skipped for conditional* and pushes no tag;
 `registry:5000/iac:latest` stays where it was.
 
-The gate reads the build's own changeset (`utils.hasChanges`), which has two consequences worth
-knowing:
+The gate reads the build's own changeset (`utils.hasChanges`), so a build that **fails** on an
+image-input push is not retried by the next unrelated push: the input no longer appears in that
+build's changeset. Restart the failed build with `image=iac`, or push again.
 
-- A build that **fails** on an image-input push is not retried by the next unrelated push — the
-  input no longer appears in that build's changeset. Restart the failed build, or push again.
-- A build whose changeset is **empty** always builds. That is deliberate: it is how a rebuild
-  started with no new commits — by hand, or automatically to refresh the image's floating base
-  layers — still gets through.
+The job takes an optional `image` parameter, as DockerImages does: `all`, or a comma-separated list
+of image names. A build whose list contains `iac` builds whatever its changeset holds. The build
+stamps `image=iac` in the image's `org.webathome.poller.params` label, and the version poller
+passes it back as the build parameter when it starts the weekly rebuild. So that rebuild still
+builds when its changeset carries unrelated commits.
 
-So: to force a rebuild, push a trivial change under `support/iac-image/`, or start the job by hand
-when there are no new commits since its last build. There is no force parameter.
+So: to force a rebuild, start the job with **Build with Parameters** and `image=iac`. A plain
+replay, or a build with no image-input change, skips.
 
 ### Routine: manual run from `srviac`
 
