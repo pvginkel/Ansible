@@ -767,10 +767,13 @@ RENDER_ONLY = {
 # render drops, the objects only the render carries, and a regex every changed line of the named
 # objects must match. grafana's chart generated its admin password with `lookup`, empty under
 # Argo, so each render made a new one; the password is in OpenBao now, read by an ExternalSecret,
-# and the first sync rolls the pod once. Helm's `grafana` Secret is left for the cleanup.
+# and the first sync rolls the pod once. Helm's `grafana` Secret is left for the cleanup, and
+# its checksum annotation stays on the pod template as a stuck field (removing it by hand would
+# roll the pod again).
 ACCEPTED = {
     "grafana": {
         "live_only": {("Secret", "grafana")},
+        "stuck": ["spec.template.metadata.annotations.checksum/secret"],
         "render_only": {("ExternalSecret", "grafana-admin")},
         "changed": {("Deployment", "grafana")},
         "lines": re.compile(r"^[+-]\s*name: grafana(-admin)?$|^-\s*checksum/secret: [0-9a-f]{64}$"),
@@ -1867,6 +1870,9 @@ def preflight_problems(out: str, app: App, replaced: list[dict] = ()) -> list[st
         elif section == "B" and s:
             field = s.split()[0] if s.split() else ""
             if replaced_names and ".env[name=SSE_CALLBACK_SECRET].value" in field:
+                continue
+            if any(field.startswith(f) for f in ACCEPTED.get(app.name, {}).get("stuck", [])):
+                log(f"stuck field {field}: accepted (ANS-103), which the live object keeps")
                 continue
             if any(d and field.startswith(d) for d in drops):
                 log(f"stuck field {field}: a D59 drop, which the live object keeps")
