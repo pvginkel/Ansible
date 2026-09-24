@@ -1394,12 +1394,17 @@ def cmd_sync(app: App, args) -> None:
     if not a:
         raise Stop("no Application")
     rev = st["preflight"]
-    if a["status"].get("sync", {}).get("revision") != rev:
-        raise Stop(f"Application compares {a['status'].get('sync', {}).get('revision')}, not {rev}")
+    # A multi-source Application (an upstream app) reports one revision per source: the chart
+    # version, then the deploy repo twice (the values ref and the companion).
+    up = repo_upstream(app)
+    want = [up["version"], rev, rev] if up else rev
+    field = "revisions" if up else "revision"
+    if a["status"].get("sync", {}).get(field) != want:
+        raise Stop(f"Application compares {a['status'].get('sync', {}).get(field)}, not {want}")
     before = {p["metadata"]["name"] for p in json.loads(iac(
         "kubectl", *KC, "get", "pods", "-n", app.ns, "-o", "json").stdout)["items"]}
-    patch = {"operation": {"initiatedBy": {"username": "claude-bulk-migration"},
-                           "sync": {"revision": rev}}}
+    sync = {"revisions": want, "sourcePositions": [1, 2, 3]} if up else {"revision": rev}
+    patch = {"operation": {"initiatedBy": {"username": "claude-bulk-migration"}, "sync": sync}}
     iac("kubectl", *KC, "patch", "application", "-n", "argocd-prd", app.ns, "--type", "merge",
         "-p", json.dumps(patch))
     log(f"sync started at {rev[:7]}")
@@ -1408,7 +1413,7 @@ def cmd_sync(app: App, args) -> None:
         time.sleep(10)
         a = app_status(app)
         op = a.get("status", {}).get("operationState", {})
-        if op.get("syncResult", {}).get("revision") == rev and op.get("phase") in ("Succeeded", "Failed", "Error"):
+        if op.get("syncResult", {}).get(field) == want and op.get("phase") in ("Succeeded", "Failed", "Error"):
             phase = op["phase"]
             break
     if phase != "Succeeded":
@@ -1422,9 +1427,12 @@ def cmd_sync(app: App, args) -> None:
         time.sleep(10)
     s = a["status"]
     jobs = json.loads(iac("kubectl", *KC, "get", "jobs", "-n", "argocd-hooks", "-o", "json").stdout)["items"]
-    hook = [j for j in jobs if j["metadata"]["name"].startswith(f"tf-presync-{rev[:7]}")
-            and any(a2.get("value") == app.ns for c in j["spec"]["template"]["spec"]["containers"]
-                    for a2 in [{"value": x} for x in c.get("args", [])])]
+    # Found by its arguments, not its name: Argo names a generateName hook after the
+    # Application's short revision, which a multi-source (upstream) Application does not have
+    # (`tf-presync--presync-<ts>`). The hook's own `hook.revision` argument is the full SHA.
+    jobs.sort(key=lambda j: j["metadata"]["creationTimestamp"])
+    hook = [j for j in jobs if any({app.ns, rev} <= set(c.get("args", []))
+                                   for c in j["spec"]["template"]["spec"]["containers"])]
     logs = ""
     if hook:
         logs = iac("kubectl", *KC, "logs", "-n", "argocd-hooks", f"job/{hook[-1]['metadata']['name']}",
