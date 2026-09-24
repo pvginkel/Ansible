@@ -94,6 +94,9 @@ class App:
         self.release = yaml.safe_load(rel.read_text()) if rel.exists() else {}
         self.release = self.release or {}
         self.chart_name = self.release.get("chart") or name
+        # HelmCharts' shape before the flip ({repo_name, repo_url, chart: <repo>/<chart>}),
+        # the registry's after it ({repo, chart, version}).
+        self.upstream = self.release.get("upstream")
         self.repo_name = "".join(p.capitalize() for p in name.split("-")) + "Deploy"
         self.path = WORK / self.repo_name
         self.url = f"https://github.com/pvginkel/{self.repo_name}.git"
@@ -254,8 +257,111 @@ from HelmCharts `{sha}`: `charts/{chart}`, `configs/prd/{app}/{stage}`,
 """
 
 
+COMPANION_CHART = """apiVersion: v2
+name: {app}
+description: >-
+  {app}'s companion chart (argo-cd D56): the stage Namespace, the Terraform PreSync hook and the
+  manifests HelmCharts applied beside the release. The app itself is the upstream chart
+  {up_chart} {up_version} from {up_repo}, which Argo CD renders as a separate source; this chart never
+  depends on it.
+type: application
+version: 0.1.0
+"""
+
+UPSTREAM_PROJECT_YAML = """# Curated entry points for {repo}. Helm and Terraform live in the `iac` toolchain sidecar.
+projects:
+  root:
+    description: >-
+      {app}'s deploy repo: the stage values for the upstream chart {up_chart} {up_version}, the
+      companion chart (the Namespace, the PreSync hook on the homelab-shared library and the
+      estate's own manifests), the Terraform the hook applies, and the judgment layer of the
+      `{producer}` architecture producer. There is no deploy pipeline: Argo deploys it
+      (argo-cd D51, D56).
+    jenkins: AaC/{repo}
+    lint:
+      - cexec iac tests/build-deps.sh
+      - cexec iac helm lint chart --namespace {ns} --set {hook}
+      - cexec iac terraform fmt -check -diff -recursive
+    test:
+      - cexec iac tests/build-deps.sh
+      - >-
+        cexec iac helm template {ns} {up_chart} --repo {up_repo} --version {up_version}
+        --namespace {ns} --values config/{stage}/values.yaml
+      - cexec iac helm template {ns} chart --namespace {ns} --set {hook}
+      - cexec iac tests/terraform.sh
+      - cexec aac-tools gen-architecture --stage {stage} --producer {producer}
+      - cexec aac-tools arch-validate docs/architecture/{producer}.yaml
+"""
+
+UPSTREAM_README = """# {repo}
+
+{app}'s deploy repository. Argo CD syncs the `{ns}` Application from three sources
+(argo-cd D18, D56): the upstream chart `{up_chart}` {up_version} from {up_repo} with
+`config/{stage}/values.yaml`, this repository for those values, and `chart/`, the companion.
+The PreSync hook applies `terraform/` with `config/{stage}/*.tfvars` against
+`argocd/{repo}/{stage}/terraform.tfstate`.
+
+- **The chart version** is pinned in two places that must agree: this app's registry entry
+  (HelmCharts `configs/prd/{app}/{stage}/release.yaml`, `upstream.version`), which Argo
+  renders, and `architecture.yaml`'s `upstream:` block, which the architecture generator
+  renders (D57). Bump both in one change.
+- **The companion** `chart/` renders only estate content: the Namespace (D25), the hook
+  include, and what HelmCharts applied as `manifests.yaml`. It takes the hook parameters and
+  no values file.
+- **Terraform**: `terraform/webhook.tf` owns this repository's GitHub webhook to the relay.
+  The namespace is the companion's (`templates/namespace.yaml`), never Terraform's.
+- **Architecture**: `Jenkinsfile.architecture` publishes producer `{producer}` (D50).
+
+## Copied from HelmCharts
+
+Migrated by the bulk migration (AnsibleSpecs `argo-cd/bulk-migration.md`, run record ANS-103)
+from HelmCharts `{sha}`: `charts/{app}/architecture.yaml`, `configs/prd/{app}/{stage}` and
+`configs/prd/{app}/_shared`. HelmCharts no longer deploys this stage.
+"""
+
+
 def pascal_hook(app: App) -> str:
     return HOOK_PARAMS.format(repo=app.url, stage=app.stage, ns=app.ns)
+
+
+def live_upstream(app: App) -> dict:
+    """The upstream chart the live release runs, in the registry's shape (argo-cd D57).
+
+    HelmCharts' release.yaml names the chart unversioned, so each deploy took the newest; the
+    version is what the release last installed, read off `helm list`."""
+    up = app.upstream or {}
+    if "repo_url" not in up:
+        raise Stop(f"release.yaml upstream is not HelmCharts' shape: {up}")
+    chart = up["chart"].split("/", 1)[-1]
+    rel = [r for r in json.loads(iac("helm", *HKC, "list", "-n", app.ns, "-o", "json").stdout)
+           if r["name"] == app.ns]
+    if len(rel) != 1:
+        raise Stop(f"helm list -n {app.ns}: {len(rel)} release(s) named {app.ns}")
+    m = re.fullmatch(re.escape(chart) + r"-(v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)", rel[0]["chart"])
+    if not m:
+        raise Stop(f"live chart {rel[0]['chart']!r} is not {chart}-<version>")
+    return {"repo": up["repo_url"], "chart": chart, "version": m[1]}
+
+
+def repo_upstream(app: App) -> dict | None:
+    """The deploy repo's `upstream:` block, which the generator renders from (D57)."""
+    f = app.path / "architecture.yaml"
+    ann = yaml.safe_load(f.read_text()) if f.exists() else {}
+    up = (ann or {}).get("upstream")
+    return {k: str(v) for k, v in up.items()} if up else None
+
+
+def up_fmt(upstream: dict | None) -> dict:
+    return {f"up_{k}": v for k, v in (upstream or {}).items()}
+
+
+def check_upstream_pin(app: App) -> None:
+    """D57: the version lives twice, in the deploy repo and in the registry. Once flipped, the
+    two must be one."""
+    mine = repo_upstream(app)
+    reg = app.upstream if app.release.get("reconciler") == "argo-cd" else None
+    if reg is not None and mine != {k: str(v) for k, v in reg.items()}:
+        raise Stop(f"registry upstream {reg} != the deploy repo's architecture.yaml {mine}")
 
 
 # HelmCharts' Jenkinsfile hands every release its clone PAT (`--set-file gitToken=`); only
@@ -505,10 +611,11 @@ def cmd_scaffold(app: App, args) -> None:
         raise Stop("already on Argo")
     if app.release.get("disabled"):
         raise Stop("disabled in HelmCharts")
-    if app.release.get("upstream"):
-        raise Stop("upstream chart: not handled by this tool yet")
-    if not (app.chart_src / "Chart.yaml").exists():
+    upstream = live_upstream(app) if app.upstream else None
+    if not upstream and not (app.chart_src / "Chart.yaml").exists():
         raise Stop(f"no local chart at {app.chart_src}")
+    if upstream and (app.chart_src / "Chart.yaml").exists():
+        raise Stop(f"upstream app with a local chart at {app.chart_src}")
     for h in ("post-render.sh", "post-install.sh", "post-rollout.sh", "pre-install.sh"):
         if (app.chart_src / h).exists():
             raise Stop(f"chart has {h}: late-migration set (D18)")
@@ -523,12 +630,16 @@ def cmd_scaffold(app: App, args) -> None:
     sha = run(["git", "-C", str(HC), "rev-parse", "HEAD"]).stdout.strip()
     p = app.path
     (p / "chart").mkdir(parents=True)
-    # The chart, minus HelmCharts-only files.
-    for item in app.chart_src.iterdir():
-        if item.name in ("architecture.yaml", "resources-entry-map.json"):
-            continue
-        dst = p / "chart" / item.name
-        (shutil.copytree if item.is_dir() else shutil.copy2)(item, dst)
+    if upstream:
+        # The companion (argo-cd D56): estate content only, never a wrapper of the upstream chart.
+        (p / "chart/Chart.yaml").write_text(COMPANION_CHART.format(app=app.name, **up_fmt(upstream)))
+    else:
+        # The chart, minus HelmCharts-only files.
+        for item in app.chart_src.iterdir():
+            if item.name in ("architecture.yaml", "resources-entry-map.json"):
+                continue
+            dst = p / "chart" / item.name
+            (shutil.copytree if item.is_dir() else shutil.copy2)(item, dst)
     tdir = p / "chart/templates"
     tdir.mkdir(exist_ok=True)
     for t in tdir.iterdir():
@@ -602,28 +713,36 @@ def cmd_scaffold(app: App, args) -> None:
     atext = arch.read_text() if arch.exists() else ""
     if re.search(r"^introduced:", atext, re.M):
         raise Stop("architecture.yaml already states introduced:")
+    up_text = ""
+    if upstream:
+        if re.search(r"^upstream:", atext, re.M):
+            raise Stop("architecture.yaml already states upstream:")
+        up_text = (
+            "# The chart Argo CD renders as source 0 (argo-cd D57). The version is the one this app's\n"
+            "# registry entry pins (HelmCharts configs/prd/<app>/<stage>/release.yaml): bump both.\n"
+            + yaml.safe_dump({"upstream": upstream}, sort_keys=False) + "\n")
     (p / "architecture.yaml").write_text(
         "# The judgment layer the aac-tools generator reads (Jenkinsfile.architecture); copied\n"
         f"# verbatim from HelmCharts' charts/{app.chart_name}/architecture.yaml.\n\n"
         "# The date HelmCharts derives from the first commit adding the chart, which every\n"
         "# published element carries.\n"
-        f"introduced: '{introduced}'\n\n" + atext)
+        f"introduced: '{introduced}'\n\n" + up_text + atext)
     (p / "Jenkinsfile.architecture").write_text(JENKINSFILE_ARCH.format(
         app=app.name, stage=app.stage, producer=app.producer, cred=GIT_CRED, url=app.url))
     (p / ".architecturerc").write_text(ARCHITECTURERC.format(
         stage=app.stage, producer=app.producer, repo=app.repo_name))
     (p / ".gitignore").write_text(GITIGNORE)
     (p / ".kubecoder").mkdir()
-    (p / ".kubecoder/project.yaml").write_text(PROJECT_YAML.format(
+    (p / ".kubecoder/project.yaml").write_text((UPSTREAM_PROJECT_YAML if upstream else PROJECT_YAML).format(
         repo=app.repo_name, app=app.name, producer=app.producer, ns=app.ns, stage=app.stage,
-        hook=pascal_hook(app)))
+        hook=pascal_hook(app), **up_fmt(upstream)))
     (p / "tests").mkdir()
     for n, body in (("build-deps.sh", BUILD_DEPS), ("terraform.sh", TERRAFORM_SH)):
         (p / "tests" / n).write_text(body)
         (p / "tests" / n).chmod(0o755)
-    (p / "README.md").write_text(README.format(
+    (p / "README.md").write_text((UPSTREAM_README if upstream else README).format(
         repo=app.repo_name, app=app.name, ns=app.ns, stage=app.stage, producer=app.producer,
-        sha=sha[:7], chart=app.chart_name))
+        sha=sha[:7], chart=app.chart_name, **up_fmt(upstream)))
 
     # Chart.lock, then the gates.
     iac("helm", "repo", "add", "charts-home", "https://charts.home", "--force-update", cwd=p)
@@ -633,7 +752,7 @@ def cmd_scaffold(app: App, args) -> None:
     run(["git", "add", "-A"], cwd=p)
     run(["git", "commit", "-q", "-m",
          f"{app.name}: deploy repo, migrated from HelmCharts {sha[:7]} (argo-cd D51)"], cwd=p)
-    app.save_state(scaffolded=sha, sse=sse)
+    app.save_state(scaffolded=sha, sse=sse, upstream=upstream)
     log(f"scaffolded {p} from HelmCharts {sha[:7]}; modules: {', '.join(mods) or 'none'}")
 
 
@@ -656,12 +775,20 @@ def is_hook(d: dict) -> bool:
 
 
 def render(app: App, revision: str = "0123456789abcdef0123456789abcdef01234567") -> str:
+    """What Argo renders: the chart with the stage values, or for an upstream app the upstream
+    chart with the stage values followed by the companion with the hook parameters alone."""
     iac("tests/build-deps.sh", cwd=app.path)
     hook = HOOK_PARAMS.replace("0123456789abcdef0123456789abcdef01234567", revision).format(
         repo=app.url, stage=app.stage, ns=app.ns)
-    r = iac("helm", "template", app.ns, "chart", "--namespace", app.ns, "--values",
-            f"config/{app.stage}/values.yaml", "--set", hook, cwd=app.path)
-    return r.stdout
+    up = repo_upstream(app)
+    if not up:
+        r = iac("helm", "template", app.ns, "chart", "--namespace", app.ns, "--values",
+                f"config/{app.stage}/values.yaml", "--set", hook, cwd=app.path)
+        return r.stdout
+    u = iac("helm", "template", app.ns, up["chart"], "--repo", up["repo"], "--version", up["version"],
+            "--namespace", app.ns, "--values", f"config/{app.stage}/values.yaml", cwd=app.path)
+    c = iac("helm", "template", app.ns, "chart", "--namespace", app.ns, "--set", hook, cwd=app.path)
+    return u.stdout + "\n---\n" + c.stdout
 
 
 SSE_OK = re.compile(r"SSE_CALLBACK_SECRET|sse/callback|sse-callback|secretKeyRef:|valueFrom:|key: password|"
@@ -669,6 +796,10 @@ SSE_OK = re.compile(r"SSE_CALLBACK_SECRET|sse/callback|sse-callback|secretKeyRef
 
 
 def cmd_verify(app: App, args) -> None:
+    up = repo_upstream(app)
+    if up and app.release.get("reconciler") != "argo-cd" and live_upstream(app) != up:
+        raise Stop(f"the live release runs {live_upstream(app)}, the deploy repo pins {up}")
+    check_upstream_pin(app)
     everything = docs(render(app))
     rendered = {key(d): d for d in everything if not is_hook(d)}
     hook = {key(d) for d in everything if is_hook(d)}
@@ -924,9 +1055,15 @@ def cmd_register(app: App, args) -> None:
 
 
 def registry_entry(app: App, auto: bool) -> str:
-    return ("reconciler: argo-cd\ndeployed: true\n"
+    text = ("reconciler: argo-cd\ndeployed: true\n"
             f"autoSync: {'true' if auto else 'false'}\n"
             f"repo: {app.url}\ntargetRevision: main\n")
+    up = repo_upstream(app)
+    if up:
+        # The chart releases-upstream renders; the deploy repo's architecture.yaml pins the same
+        # version for the generator (argo-cd D57): bump both.
+        text += yaml.safe_dump({"upstream": up}, sort_keys=False)
+    return text
 
 
 def cmd_flip(app: App, args) -> None:
@@ -943,6 +1080,7 @@ def cmd_flip(app: App, args) -> None:
 
 
 def cmd_autosync(app: App, args) -> None:
+    check_upstream_pin(app)
     (app.stage_dir / "release.yaml").write_text(registry_entry(app, True))
     run(["git", "add", str(app.stage_dir)], cwd=HC)
     run(["git", "commit", "-q", "-m", f"{app.name} {app.stage}: Argo CD auto-syncs the stage (argo-cd D51)"], cwd=HC)
@@ -1084,6 +1222,7 @@ EXPECTED_STUCK = {"metadata.labels", "metadata.annotations"}
 
 def cmd_preflight(app: App, args) -> None:
     run(["git", "pull", "-q", "--ff-only"], cwd=app.path, check=False)
+    check_upstream_pin(app)
     sha = run(["git", "rev-parse", "origin/main"], cwd=app.path).stdout.strip()
     rtext = render(app, sha)
     tmp = HOME / "bulk-migration/tmp" / app.ns
