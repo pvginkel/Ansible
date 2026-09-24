@@ -720,9 +720,9 @@ D59 = {
     "prometheus": {
         "scripts": ["post-render.sh", "post-install.sh"],
         "values": [("    storageClass: csi-cephfs-sc\n",
-                    "    # No class, so the claim binds the Terraform PV (argo-cd D59). HelmCharts'\n"
-                    "    # post-render.sh also named the volume, which this chart cannot: the live\n"
-                    "    # StatefulSet's claim template keeps its volumeName.\n"
+                    "    # No class, so the claim binds the Terraform PV, which is pre-bound to it by\n"
+                    "    # claimRef (argo-cd D59). HelmCharts' post-render.sh also named the volume,\n"
+                    "    # which this chart cannot; the first sync recreated the StatefulSet without it.\n"
                     "    storageClass: \"-\"\n")],
         "drops": [("StatefulSet", "prometheus-prd-alertmanager",
                    ("spec", "volumeClaimTemplates", 0, "spec", "volumeName"))],
@@ -778,6 +778,16 @@ ACCEPTED = {
         "changed": {("Deployment", "grafana")},
         "lines": re.compile(r"^[+-]\s*name: grafana(-admin)?$|^-\s*checksum/secret: [0-9a-f]{64}$"),
     },
+}
+
+# StatefulSets whose claim template changes (ANS-103). The list is atomic, so apply replaces it
+# whole, and the API server refuses any claim-template change: preflight's diff leaves them out,
+# and the sync deletes each with --cascade=orphan just before it starts, so Argo creates it
+# afresh. Its pod and PVC keep running, and the new StatefulSet adopts them; the pod template is
+# unchanged (verify), so the pod keeps its revision. prometheus's alertmanager claim loses the
+# volumeName HelmCharts' post-render set: the PV is pre-bound to the claim by claimRef.
+RECREATE = {
+    "prometheus": {("StatefulSet", "prometheus-prd-alertmanager")},
 }
 
 HELM_TEST_HOOKS = {"test", "test-success", "test-failure"}
@@ -1746,6 +1756,9 @@ def cmd_preflight(app: App, args) -> None:
         # kubectl diff shows a new object whole.
         if app.load_state().get("sse"):
             objs = [d for d in objs if key(d) not in (("Password", "sse-callback"), ("ExternalSecret", "sse-callback"))]
+        for k in sorted(RECREATE.get(app.name, set())):
+            log(f"{k[0]}/{k[1]}: left out of the diff; the sync recreates it (claim template)")
+        objs = [d for d in objs if key(d) not in RECREATE.get(app.name, set())]
         # Server-side diff of the render against live: what the sync would change.
         (tmp / "apply.yaml").write_text(yaml.safe_dump_all(objs))
         side = (["--server-side", "--field-manager=argocd-controller", "--force-conflicts"]
@@ -1930,6 +1943,12 @@ def cmd_sync(app: App, args) -> None:
     options = (a["spec"].get("syncPolicy") or {}).get("syncOptions")
     if options:
         sync["syncOptions"] = options
+    for kind, name in sorted(RECREATE.get(app.name, set())):
+        r = iac("kubectl", *KC, "delete", kind.lower(), name, "-n", app.ns, "--cascade=orphan",
+                "--ignore-not-found", check=False)
+        if r.returncode != 0:
+            raise Stop(f"orphan delete of {kind}/{name}: {r.stderr.strip()[-300:]}")
+        log(f"{kind}/{name} deleted with --cascade=orphan ({r.stdout.strip() or 'already gone'}); the sync creates it")
     patch = {"operation": {"initiatedBy": {"username": "claude-bulk-migration"}, "sync": sync}}
     # The previous operation stays in status until the new one replaces it, and it can carry the
     # same revision: only an operation started after this patch is this sync's.
