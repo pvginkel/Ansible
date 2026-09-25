@@ -86,11 +86,20 @@ so a rebuilt PVE node needs its bridges configured by hand.
 
 ### Addressing and naming
 
-- DNS search domain is `.home`; DHCP and DNS are served by **dnsmasq running as an in-cluster
-  Kubernetes pod** (2-replica StatefulSet). Consequence: bootstrap-critical hosts (k8s nodes,
-  Ceph nodes, OpenBao nodes) must not resolve through it, and carry static netplan plus
-  external resolvers instead. This is the single most important circular-dependency rule in
-  the estate — see `AnsibleSpecs/decisions.md`, "DNS and hostnames".
+- DNS search domain is `.home`. DNS and DHCP are served by **dnsmasq running in-cluster**
+  (DnsmasqDeploy): DNS by a 2-replica StatefulSet on MetalLB `10.2.1.2` / `10.2.1.3`, DHCP by
+  the single-replica `dhcp` Deployment on MetalLB `10.2.1.10`, which the UDM relays to (see
+  below). Consequence: bootstrap-critical hosts must neither take their address from it nor
+  resolve through it. They carry static addresses and external resolvers instead. This is the
+  single most important circular-dependency rule in the estate; see `AnsibleSpecs/decisions.md`,
+  "DNS and hostnames".
+  - All four prd k8s nodes, the OpenBao nodes and srviac: static netplan from their host_vars.
+    srvk8s4 and srviac took their vmbr0 address from dnsmasq reservations until the
+    2026-09-25 outage, when neither had one for 2h45m (ANS-132).
+  - Ceph nodes: static too, but set by hand in the guest. Their host_vars carry no addresses,
+    because the Ceph fleet isn't Ansible-managed yet (§4).
+  - Every static host's name lives in DnsmasqDeploy's static-hosts
+    (`chart/templates/stage-manifests.yaml`). Only the other VMs go through the reservation API.
 - **MAC scheme**: rebuilt VMs get deterministic locally-administered MACs, `02:A7:F3:<vmid
   hi>:<vmid lo>:<nic index>`. Legacy pre-rebuild VMs (the three Ceph nodes) keep their
   Proxmox-generated `BC:24:11:…` MACs verbatim.
@@ -118,18 +127,22 @@ no config export in git — but it is reachable over SSH as `root` with the
 
 **Networks defined on the router** — note the DHCP column, which is the important one:
 
-| Name | VLAN | Subnet | Gateway | DHCP server on UDM |
-|---|---|---|---|---|
-| Intranet | untagged (1) | 10.1.0.0/16 | 10.1.0.1 | **disabled** |
-| Kubernetes | 2 | 10.2.0.0/16 | 10.2.0.1 | **disabled** |
-| IoT | 3 | 10.3.0.0/16 | 10.3.0.1 | **disabled** |
-| Guest | 4 | 10.4.0.0/16 | 10.4.0.1 | **disabled** |
-| One-Click VPN | — | 192.168.12.0/24 | 192.168.12.1 (`wgsrv1`) | WireGuard remote access |
+| Name | VLAN | Subnet | Gateway | DHCP on UDM | IPv6 |
+|---|---|---|---|---|---|
+| Intranet | untagged (1) | 10.1.0.0/16 | 10.1.0.1 | **relay → 10.2.1.10** | RA only |
+| Kubernetes | 2 | 10.2.0.0/16 | 10.2.0.1 | none | RA only |
+| IoT | 3 | 10.3.0.0/16 | 10.3.0.1 | **relay → 10.2.1.10** | RA only |
+| Guest | 4 | 10.4.0.0/16 | 10.4.0.1 | **relay → 10.2.1.10** | none |
+| One-Click VPN | — | 192.168.12.0/24 | 192.168.12.1 (`wgsrv1`) | WireGuard remote access | |
 
-The router's stored (inactive) DHCP settings for Intranet and IoT name resolvers
-**10.2.1.2 and 10.2.1.3** — the two dnsmasq replicas' MetalLB addresses, inside the
-`10.2.1.1-10.2.1.199` pool on the Kubernetes VLAN. That confirms the intended design from
-the router's side, and see §6 for why the disabled DHCP server matters.
+**DHCP is relayed, not served.** Read live on 2026-09-25 from `/run/dnsmasq.dhcp.conf.d/`:
+UniFi's own dnsmasq runs with `dhcp-relay=<gateway>,10.2.1.10` on `br0` (Intranet), `br3`
+(IoT) and `br4` (Guest), and no `dhcp-range` for IPv4 anywhere. The in-cluster dnsmasq
+picks the range from the relay's gateway address. Its lease file holds only 10.1.x leases,
+so IoT and Guest are relayed but have no DHCP clients today. IPv6 is SLAAC from router
+advertisements, with no DHCPv6. The router's stored DHCP settings for Intranet and IoT name
+resolvers **10.2.1.2 and 10.2.1.3**, the two dnsmasq replicas' MetalLB addresses. See §6 for
+why the missing fallback matters.
 
 **Physical topology.** The UDM Pro is the only switch in the estate that this documentation
 can see, plus one downstream switch it cannot:
@@ -268,16 +281,19 @@ tunes `vm.dirty_bytes`/`vm.dirty_background_bytes` down — dumping to a slow ta
 pushing the host into swap.
 
 **The whole house's DHCP and DNS live inside the Kubernetes cluster, with no fallback on the
-router.** Every LAN network on the UDM Pro has its DHCP server **disabled** (§3) — the
-dnsmasq pods are the only DHCP authority on the wire, and they reach clients as MetalLB
-addresses `10.2.1.2` / `10.2.1.3`. The repo already treats this as a hazard for
-*bootstrap-critical hosts*, which is why the Ceph, k8s and OpenBao nodes carry static netplan
-and external resolvers. What that mitigation does **not** cover is everything else: with the
-cluster down, no laptop, phone, AP or IoT device can obtain or renew a lease. Existing leases
-carry the estate for their remaining lifetime, so the failure is delayed rather than
-immediate — which makes it easy to miss during a short outage and hard to diagnose during a
-long one. Re-enabling a minimal DHCP scope on the UDM as a cold-start floor is the obvious
-mitigation and is not currently in place.
+router.** The UDM Pro serves no DHCP; it relays every LAN's requests to the in-cluster `dhcp`
+Service on `10.2.1.10` (§3). DNS is the dnsmasq pair on `10.2.1.2` / `10.2.1.3`. The repo
+treats this as a hazard for *bootstrap-critical hosts*: the Ceph, k8s and OpenBao nodes and
+srviac carry static addresses and external resolvers. What that does **not** cover is
+everything else. With the cluster down, or with only the `dhcp` pod not-Ready (MetalLB then
+withdraws `10.2.1.10`), no laptop, phone, AP or IoT device can obtain or renew a lease.
+Existing leases (1 day, renewed at 12 h) carry the estate for their remaining lifetime, so the
+failure is delayed rather than immediate.
+
+That happened on 2026-09-25. After a power cut, the `dhcp` pod stayed not-Ready and there was no
+DHCP for 2h45m (AnsibleSpecs `handovers/dhcp-outage-2026-09-25/`). A minimal DHCP floor outside
+the cluster is the open mitigation (ANS-128). The recovery checks and break-glass are in
+[`runbooks/cold-boot.md`](runbooks/cold-boot.md).
 
 ### Current headroom warnings
 
@@ -293,8 +309,6 @@ mitigation and is not currently in place.
   a standing "audit that vmbr1 actually carries the traffic it's meant to" item, so the
   figure is most likely aspirational rather than regressed — but anything sized against
   10 Gb is sized wrong.
-- The NIC-shape table in that section lists "everything else: vmbr0 only". In practice
-  `srvk8sdev` and `srviac` also carry a `vmbr1` interface.
 - `ansible/inventories/prd/hosts.yml` says the `pve_vms` group is "read by the `proxmox_host`
   role … for affinity reconciliation". It is not — affinity is written by Terraform via the
   `bpg/proxmox` provider. The group's real consumer is `terraform/prd/vms.tf`.
