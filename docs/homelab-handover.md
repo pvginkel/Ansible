@@ -93,9 +93,13 @@ so a rebuilt PVE node needs its bridges configured by hand.
   resolve through it. They carry static addresses and external resolvers instead. This is the
   single most important circular-dependency rule in the estate; see `AnsibleSpecs/decisions.md`,
   "DNS and hostnames".
-  - All four prd k8s nodes, the OpenBao nodes and srviac: static netplan from their host_vars.
-    srvk8s4 and srviac took their vmbr0 address from dnsmasq reservations until the
-    2026-09-25 outage, when neither had one for 2h45m.
+  - srvk8s1–3, the OpenBao nodes and srviac: static netplan from their host_vars. srviac
+    took its vmbr0 address from a dnsmasq reservation until the 2026-09-25 outage, when it had
+    none for 2h45m.
+  - **srvk8s4 is the exception.** Its vmbr0 address still comes from a reservation, so it
+    drops off the LAN whenever the in-cluster DHCP is down, as it did on 2026-09-25. Making it
+    static needs a worker re-join, because its kubelet serving cert names the old address
+    (`runbooks/static-address.md`).
   - Ceph nodes: static too, but set by hand in the guest. Their host_vars carry no addresses,
     because the Ceph fleet isn't Ansible-managed yet (§4).
   - Every static host's name lives in DnsmasqDeploy's static-hosts
@@ -284,7 +288,7 @@ pushing the host into swap.
 router.** The UDM Pro serves no DHCP; it relays every LAN's requests to the in-cluster `dhcp`
 Service on `10.2.1.10` (§3). DNS is the dnsmasq pair on `10.2.1.2` / `10.2.1.3`. The repo
 treats this as a hazard for *bootstrap-critical hosts*: the Ceph, k8s and OpenBao nodes and
-srviac carry static addresses and external resolvers. What that does **not** cover is
+srviac carry static addresses and external resolvers, with srvk8s4 still the exception (§3). What that does **not** cover is
 everything else. With the cluster down, or with only the `dhcp` pod not-Ready (MetalLB then
 withdraws `10.2.1.10`), no laptop, phone, AP or IoT device can obtain or renew a lease.
 Existing leases (1 day, renewed at 12 h) carry the estate for their remaining lifetime, so the

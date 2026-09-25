@@ -70,11 +70,12 @@ locals {
       # role from srvk8s1 and hosts the KubeCoder controller + env pods.
       workload_class = "interactive"
       from_scratch   = true
-      # Static like srvk8s1/2/3: every prd k8s node is bring-up tier,
-      # whether or not it hosts bring-up pods. A node that gets its
-      # address from the in-cluster DHCP stays off the LAN whenever that
-      # DHCP is down, as srvk8s4 did for 2h45m on 2026-09-25.
-      static_ip   = true
+      # Still DHCP on the vmbr0 primary (no static_ip): the dnsmasq
+      # reservation registers srvk8s4.home. It belongs static like
+      # srvk8s1/2/3; every prd k8s node is bring-up tier, whether or
+      # not it hosts bring-up pods, and on 2026-09-25 srvk8s4 stayed off
+      # the LAN for 2h45m while the in-cluster DHCP was down. Moving it
+      # needs a worker re-join (host_vars/srvk8s4.yml).
       description = "microk8s worker node — KubeCoder high-performance node, carries zpool5. Worker-only: outside the dqlite control-plane quorum. OS managed by Ansible (k8s_prd group)."
       tags        = ["ansible-managed", "terraform", "k8s"]
       bios        = "ovmf"

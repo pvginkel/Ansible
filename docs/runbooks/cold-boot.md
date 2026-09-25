@@ -17,8 +17,9 @@ at 15:03 UTC and pods were starting at 15:11. Everything recovered unaided excep
   `dhcpapp-app` crash-looped on OIDC discovery and held the `dhcp` pod not-Ready, so there was
   no DHCP for 2h45m. DHCPApp has been out of the dhcp pod since (DnsmasqDeploy `ca30bbe`), and
   registry-cleanup is suspended until it stops deleting digests that deploy repos pin.
-- **srvk8s4.** It took its address from the in-cluster DHCP and stayed off the LAN.
-  srvk8s4 and srviac are static now ([`static-address.md`](static-address.md)).
+- **srvk8s4.** It takes its address from the in-cluster DHCP and stayed off the LAN until
+  DHCP was back. It still does; srviac, which had the same problem, is static now
+  ([`static-address.md`](static-address.md)). Expect srvk8s4 NotReady until DHCP answers.
 
 So the job is mostly to watch, top to bottom, and step in at the first layer that doesn't come up.
 
@@ -37,8 +38,9 @@ The kubectl lines work from KubeCoder (`cexec iac kubectl --kubeconfig ~/.kube/c
 3. **OpenBao**: srvvault1–3 at 10.1.0.40–42, VIP `secrets.home` 10.1.0.39. The seal is static
    auto-unseal, so the nodes unseal themselves.
    `curl -sk https://10.1.0.39:8200/v1/sys/health` should show `"sealed":false`.
-4. **Kubernetes**: srvk8s1–3 at 10.1.0.27–29 and srvk8s4 at 10.1.0.44. The apiserver VIP is
-   10.1.0.37:16443. `kubectl get nodes` should show all four Ready. Check that the Ceph CSI
+4. **Kubernetes**: srvk8s1–3 at 10.1.0.27–29; srvk8s4 is 10.1.3.5 from a DHCP reservation,
+   so it joins only after step 6. The apiserver VIP is
+   10.1.0.37:16443. `kubectl get nodes` should show srvk8s1–3 Ready. Check that the Ceph CSI
    nodeplugins are Running (`-n ceph-csi-rbd-prd`, `-n ceph-csi-cephfs-prd`): without them no PV
    mounts.
 5. **Registry**: `registry-prd`, LB 10.2.1.9, ClusterIP 172.17.0.3. The nodes pin that ClusterIP
@@ -111,6 +113,6 @@ ssh -o UserKnownHostsFile=files/known_hosts.d/homelab -o GlobalKnownHostsFile=/d
 
 PVE hosts and the UDM (`root@10.1.0.1`) take `root` with `id_ed25519_pve`. Address list:
 router 10.1.0.1; pve/pve1/pve2 .20–.22; srvceph1–3 .24–.26; srvk8s1–3 .27–.29;
-`kubernetes-api` .37; `ceph` .38; `secrets` .39; srvvault1–3 .40–.42; srvk8s4 .44;
-srviac .45. The static-hosts list in DnsmasqDeploy `chart/templates/stage-manifests.yaml` is
-authoritative.
+`kubernetes-api` .37; `ceph` .38; `secrets` .39; srvvault1–3 .40–.42; srviac .45; srvk8s4
+10.1.3.5 (a reservation, so only while DHCP is up). The static-hosts list in DnsmasqDeploy
+`chart/templates/stage-manifests.yaml` is authoritative.
