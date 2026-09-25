@@ -45,6 +45,8 @@ Pick a free address first: grep static-hosts, then ping it and check `ip neigh` 
 cd ansible && cexec iac poetry run ansible-playbook playbooks/site.yml --limit <host> --tags cloud_init
 ```
 
+For a k8s node, use `playbooks/site-k8s.yml` here and in 3b. `site.yml` skips the k8s groups.
+
 ### 2. Push Ansible, then the static-hosts commit
 
 Push the Ansible commit first. `iac -c` on srviac runs pushed `main`, and the scheduled drift
@@ -80,7 +82,7 @@ above.
 sudo iac -c 'cd /work/Ansible/ansible && ansible-playbook playbooks/evict-k8s.yml -e evict_target=<node>'
 sudo iac -c 'cd /work/Ansible/ansible && ansible <node> -m command -a "microk8s leave" --become'
 sudo iac -c 'cd /work/Ansible/ansible && ansible srvk8s1 -m command -a "microk8s remove-node <node>" --become'
-sudo iac -c 'cd /work/Ansible/ansible && ansible-playbook playbooks/site.yml --limit <node> --tags netplan -e baseline_netplan_apply=false'
+sudo iac -c 'cd /work/Ansible/ansible && ansible-playbook playbooks/site-k8s.yml --limit <node> --tags netplan -e baseline_netplan_apply=false'
 sudo iac -c 'cd /work/Ansible/ansible && ansible <node> -m ansible.builtin.reboot --become'
 sudo iac -c 'cd /work/Ansible/ansible && ansible-playbook playbooks/rebuild-k8s.yml -e rebuild_target=<node>'
 ```
@@ -117,4 +119,4 @@ ssh root@pve 'qm cloudinit update <vmid> && qm pending <vmid> | grep ipconfig'
   annotation matches.
 - srviac: the Jenkins agent is online, and `sudo iac -c 'getent hosts dns srvk8s1'` resolves
   both inside the container.
-- `site.yml --limit <host> --check`: `changed=0`.
+- `site.yml --limit <host> --check` (`site-k8s.yml` for a k8s node): `changed=0`.
