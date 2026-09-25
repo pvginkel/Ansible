@@ -63,30 +63,11 @@
   when: _baseline_cloud_init_dir.stat.exists
   tags: [cloud_init]
 
-# The same churn re-runs cloud-init's network stage, which renders
-# /etc/netplan/50-cloud-init.yaml from Proxmox's network-data. That
-# carries net0 alone (ipconfig0), with the PVE host's resolvers. So the
-# churned boot brings a multi-NIC host up with its VLAN-2 and vmbr1 NICs
-# unconfigured and DNS on the in-cluster dnsmasq. write_files then lays
-# the full render over the file, which heals the *next* boot, and the
-# netplan task below sees no drift to apply. Changing ipconfig0 in
-# Terraform, as a static-address change does, is such a churn. After
-# first boot the netplan is Ansible's, so switch the network stage off.
-# A rebuild is unaffected: the drop-in dies with the old disk.
-- name: Keep cloud-init from re-rendering the network on re-provision
-  ansible.builtin.copy:
-    dest: /etc/cloud/cloud.cfg.d/99-homelab-network.cfg
-    content: |
-      # Managed by Ansible (baseline role). See tasks/main.yml for the why:
-      # after first boot the netplan is Ansible's, and Proxmox's network-data
-      # describes net0 only.
-      network:
-        config: disabled
-    owner: root
-    group: root
-    mode: "0644"
-  when: _baseline_cloud_init_dir.stat.exists
-  tags: [cloud_init]
+# The same churn re-runs cloud-init's network stage, which re-renders netplan
+# from Proxmox's network-data (net0 only). Don't switch that stage off with
+# `network: {config: disabled}`: it is also what renames the primary NIC to
+# eth0 on every boot, and keepalived and Calico on the k8s nodes are bound to
+# that name. With it off, the NIC comes back as enp6s18.
 
 # Tagged `os_update` so the scheduled drift pipeline can skip them:
 # pending upstream packages are patch posture, not infrastructure drift.
