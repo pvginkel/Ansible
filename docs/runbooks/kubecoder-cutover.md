@@ -172,8 +172,8 @@ nothing acts on it meanwhile:
 - A sync and its checks (D8, P10). Read the result before leaving.
 - P3's merge to P4's push. The architecture collector is red in between.
 - P13's three syncs. One window, with no Build-Main landing between them. About an hour.
-- P2's first run if it goes red after `prd` moved: write `release-<m>` by hand first, or the
-  rerun refuses.
+- P2's first run if it goes red after `prd` moved: re-run it with `commit` set to that commit,
+  which records the release (P2, its red builds).
 
 **Before stepping away**, every time: the last step's output is read and its checks passed (a red
 Build-Main means no KubeCoder build lands until it is fixed); no plaintext state is left on the
@@ -767,15 +767,23 @@ it after P4.
 
 Each stop is a red build:
 
-- **A refusal before the registry.** The commit is not on `main`, the job reports *nothing to
-  promote*, the move is not a fast-forward, `release-<m>` already exists on origin, or a pin is
-  not `registry:5000/kubecoder-<name>:prd-<n>`. Nothing changed; fix the cause and run again.
+- **A refusal before the registry.** The commit is not on `main`, it is on `prd` already with a
+  `release-*` tag (*nothing to promote*), the move is not a fast-forward, `release-<m>` already
+  exists on origin, or a pin is not `registry:5000/kubecoder-<name>:prd-<n>`. Nothing changed;
+  fix the cause and run again.
 - **A failure before *Advancing prd*.** At most some new `prd-<n>` aliases exist. They are
   harmless; run again.
-- **A failure at *Recording the release*, after `prd` moved.** A rerun refuses with *nothing to
-  promote*, so write the tag by hand, on confirmation. `<m>` is the failed build's number and
-  `<n>` the build `config/prd/values.yaml` pins at `<sha>`. The message is the job's: the first
-  line, a blank line, then the seven references in the job's order.
+- **A failure at *Recording the release*, after `prd` moved.** Run again with `commit` set to
+  `<sha>`, the commit the failed build names. `prd` is already there and no `release-*` tag
+  points at it, so the job runs only *Resolving the commit* and *Recording the release*: it tags
+  `<sha>` `release-<m>`, `<m>` the new build's number, with the first line `release-<m>: <sha>
+  was already on prd; recorded by KubeCoder/Promote-PRD #<m>`. Leave `commit` empty and the run
+  promotes whatever `main` holds by then, which Build-Main moves several times a day, and `<sha>`
+  is never recorded.
+
+  When the re-run cannot record it, write the tag by hand, on confirmation. `<m>` is the failed
+  build's number and `<n>` the build `config/prd/values.yaml` pins at `<sha>`. The message is the
+  job's: the first line, a blank line, then the seven references in the job's order.
 
   ```sh
   N=<n>

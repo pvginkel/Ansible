@@ -40,14 +40,15 @@ actually ran and the Phase A proof drill are recorded in slice 009's
 | --- | --- |
 | Namespaces | `argocd-prd` (Argo, the webhook relay), `argocd-hooks` (PreSync Jobs, the `tf-presync` ServiceAccount, `argocd-hook-credentials`) |
 | Helm release, Application, AppProject | `argocd-prd`, `argocd-prd`, `releases` |
-| UI | `https://argocd.home` — Keycloak SSO (realm `homelab`, client `argocd`); the bare `https://argocd` is broken |
+| UI | `https://argocd.home`, or the bare `https://argocd` — Keycloak SSO (realm `homelab`, client `argocd`) |
 | Deploy repo | `ArgoCDDeploy`: exact `argo-cd` pin in `chart/Chart.yaml`, stage values in `config/prd/values.yaml` |
 | Registry | HelmCharts `configs/prd/<app>/<stage>/release.yaml` carrying `reconciler: argo-cd` |
 | ApplicationSets | `releases-local`, `releases-upstream` (`missingkey=error`: one malformed entry fails the whole set) |
 | Webhook edge | `https://deploy-hooks.webathome.org/api/webhook` → relay (2 replicas) → argocd-server and the applicationset-controller |
 | Hook image | `registry:5000/argocd-hook:<n>` from ArgoCDTools; default pin in the `homelab-shared` library chart. Its Terraform is pinned to the version the `iac` images carry (AnsibleSpecs `decisions.md`, "Terraform version") |
 | Terraform state | `pvginkel/TerraformState`, `argocd/<repo>/<stage>/terraform.tfstate`, sops/age |
-| Notifications | Alertmanager `prometheus-prd-alertmanager.prometheus-prd:9093`, delivered to Telegram; `ArgoCDSyncFailed` (critical, with sound), `ArgoCDHealthDegraded` (warning, silent) |
+| Notifications | Alertmanager `prometheus-prd-alertmanager.prometheus-prd:9093`, delivered to Telegram with no "resolved"; `ArgoCDSyncFailed` (critical, with sound), `ArgoCDHealthDegraded` (warning, silent) |
+| Standing alerts | PrometheusDeploy's rule group `argocd`, over the application controller's metrics (Service `argocd-prd-application-controller-metrics`); `ArgoCDSyncStillFailed` (critical), `ArgoCDHealthStillDegraded` and `ArgoCDAlertsBlind` (warning) |
 
 Every credential arrives through ESO from OpenBao (`kv/` mount), refreshed hourly:
 
@@ -70,6 +71,9 @@ cexec iac kubectl $KC get applications.argoproj.io -A
 # The last operation: phase and message
 cexec iac kubectl $KC get application -n argocd-prd <app> \
   -o jsonpath='{.status.operationState.phase}{"\n"}{.status.operationState.message}{"\n"}'
+# The app's conditions: a SyncError says why Argo stopped auto-syncing it
+cexec iac kubectl $KC get application -n argocd-prd <app> \
+  -o jsonpath='{range .status.conditions[*]}{.type}: {.message}{"\n"}{end}'
 # Per-resource results of that operation (hooks included)
 cexec iac kubectl $KC get application -n argocd-prd <app> \
   -o jsonpath='{range .status.operationState.syncResult.resources[*]}{.kind}/{.name} {.hookPhase}{.status}: {.message}{"\n"}{end}'
@@ -457,8 +461,9 @@ What the manifest cannot show:
 - **Applying and deleting it are the operator's keystrokes**, both with the
   prd-write kubeconfig (Conventions).
 - The notification subscription covers every Application, this one included.
-  It never syncs, so only `ArgoCDHealthDegraded` can fire, and that reports the
-  live release's health.
+  It never syncs, so only `ArgoCDHealthDegraded` and, fifteen minutes on,
+  `ArgoCDHealthStillDegraded` can fire, and they report the live release's
+  health.
 
 For KubeCoder's dev stage:
 
@@ -623,8 +628,9 @@ Before anything: `ArgoCDDeploy` pushed — the first self-sync clones
 `origin/main`, so any bootstrap-time fix left unpushed is reverted by it; the
 three leaves under `eso/prd/argocd/prd/` and the hook's under
 `eso/prd/argocd-hooks/` written; the Keycloak client `argocd` present
-(confidential, redirect URIs `https://argocd.home/auth/callback` and
-`http://localhost:8085/auth/callback`); and the age keypair checked once —
+(confidential, redirect URIs `https://argocd.home/auth/callback`,
+`https://argocd/auth/callback` and `http://localhost:8085/auth/callback`); and
+the age keypair checked once —
 `bao kv get -field=age_secret_key kv/iac/tf-backend | age-keygen -y` must print
 the recipient committed in `config/prd/values.yaml`.
 
@@ -686,9 +692,20 @@ the recipient committed in `config/prd/values.yaml`.
   ahead of the PreSync phase. App Terraform that creates it fails.
 - **Sync-phase failures are not atomic.** Valid objects in the same wave are
   applied; only a hook failure leaves the cluster untouched.
-- **Alerts live five minutes.** `on-sync-failed` fires once per condition and
-  the template sets no end time, so Alertmanager expires the alert while the app
-  is still failed, and Telegram gets a `[RESOLVED]` notice for it.
+- **A failure alerts twice: the event, then the state.** `on-sync-failed`, with
+  Argo's error text, and `on-health-degraded` fire once per condition. The
+  templates set no end time, so Alertmanager expires the event after its
+  five-minute resolve timeout, failed app or not, and its receivers send no
+  "resolved". The state is PrometheusDeploy's: `ArgoCDSyncStillFailed` fires ten
+  minutes after Argo sets `SyncError` on an app and stops auto-syncing it, as
+  when its retries are spent on a revision it will not try again on its own, or
+  its prune guard refuses a sync that would delete every resource;
+  `ArgoCDHealthStillDegraded` fires after fifteen minutes Degraded. Each stays
+  up until the app recovers, for a failed sync a new commit or a manual sync
+  that succeeds, then resolves. An app Argo does not auto-sync, its own among
+  them, gets no standing sync alert: its failed sync is the event alone.
+  `ArgoCDAlertsBlind` fires when Prometheus has had no application metrics from
+  the controller for fifteen minutes, which leaves both blind.
 - **Hook Jobs accumulate** for an app's lifetime; the delete policy never
   matches a name carrying SHA and timestamp. They go with the Application.
 - **Rebuilds.** Argo runs on prd only and keeps no node-local state, so a prd
