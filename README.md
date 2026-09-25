@@ -11,6 +11,10 @@ See [`/work/AnsibleSpecs/decisions.md`](../AnsibleSpecs/decisions.md) for the fu
 
 For the physical layer — what the hardware actually is, how it is wired, and what the estate can and cannot survive — see [`docs/homelab-handover.md`](docs/homelab-handover.md). It is the only written record of the hardware; nothing regenerates it.
 
+## When the estate is down
+
+After a power cut, or when DNS, DHCP or Keycloak are down, start at [`docs/runbooks/cold-boot.md`](docs/runbooks/cold-boot.md): the bring-up order, what to check at each layer, and the break-glass steps (DHCP, Argo CD without Keycloak, a static desktop address, SSH by IP).
+
 ## Layout
 
 ```
