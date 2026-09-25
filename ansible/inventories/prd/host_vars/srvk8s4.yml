@@ -45,13 +45,23 @@ zfs_pools:
 
 # Per-VM NIC config — the single source of truth, read by both
 # terraform/prd/vms.tf (via yamldecode) and the baseline netplan task.
-# NIC order is load-bearing: [0] is the vmbr0 primary. Hybrid like
-# srvk8sdev: vmbr0 is DHCP via the dnsmasq reservation (auto-registers
-# srvk8s4.home); the vlan-2 services NIC and the vmbr1 backplane carry
-# hand-curated static addresses (no IPAM on those segments).
+# NIC order is load-bearing: [0] is the vmbr0 primary. Static on every
+# NIC, as on srvk8s1–3: a prd k8s node is bring-up tier (decisions.md
+# "Ceph nodes and prd k8s nodes are static infrastructure"). vmbr0 was
+# DHCP via the dnsmasq reservation until the 2026-09-25 outage, when
+# srvk8s4 could not get an address and stayed NotReady for 2h45m.
+# The srvk8s4.home record is in DnsmasqDeploy's static-hosts.
 network_devices:
   - bridge: vmbr0
     mac_address: "02:A7:F3:03:94:00"
+    addresses:
+      - 10.1.0.44/16
+      - 2a10:3781:16a9:1::44/64
+    gateway: 10.1.0.1
+    accept_ra: false
+    nameservers:
+      - 8.8.8.8
+      - 8.8.4.4
   - bridge: vmbr0
     mac_address: "02:A7:F3:03:94:01"
     vlan_id: 2

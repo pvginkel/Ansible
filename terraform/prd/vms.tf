@@ -70,10 +70,11 @@ locals {
       # role from srvk8s1 and hosts the KubeCoder controller + env pods.
       workload_class = "interactive"
       from_scratch   = true
-      # DHCP on the vmbr0 primary (no static_ip): auto-registers
-      # srvk8s4.home via the dnsmasq reservation. srvk8s4 hosts no
-      # bring-up-tier pods, so the cold-boot constraint that pins
-      # srvk8s1/2/3 static doesn't apply. Same shape as srvk8sdev.
+      # Static like srvk8s1/2/3: every prd k8s node is bring-up tier,
+      # whether or not it hosts bring-up pods. A node that gets its
+      # address from the in-cluster DHCP stays off the LAN whenever that
+      # DHCP is down, as srvk8s4 did for 2h45m on 2026-09-25.
+      static_ip   = true
       description = "microk8s worker node — KubeCoder high-performance node, carries zpool5. Worker-only: outside the dqlite control-plane quorum. OS managed by Ansible (k8s_prd group)."
       tags        = ["ansible-managed", "terraform", "k8s"]
       bios        = "ovmf"
@@ -137,10 +138,13 @@ locals {
       pve_node       = "pve"
       workload_class = "background"
       from_scratch   = true
-      description    = "IaC orchestrator VM — runs Terraform + Ansible against the homelab. Phase 1 (iac-agent). OS managed by Ansible (iac_agent group)."
-      tags           = ["ansible-managed", "terraform", "iac"]
-      bios           = "ovmf"
-      machine        = "q35"
+      # Static: the break-glass runner must hold its address while the
+      # in-cluster DHCP is down. decisions.md "MAC addressing".
+      static_ip   = true
+      description = "IaC orchestrator VM — runs Terraform + Ansible against the homelab. Phase 1 (iac-agent). OS managed by Ansible (iac_agent group)."
+      tags        = ["ansible-managed", "terraform", "iac"]
+      bios        = "ovmf"
+      machine     = "q35"
 
       cpu_cores   = 2
       cpu_sockets = 1

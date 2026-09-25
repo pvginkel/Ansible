@@ -5,11 +5,25 @@ workload_class: background
 
 # Per-VM NIC config — the single source of truth, read by both
 # terraform/prd/vms.tf (via yamldecode) and the baseline netplan task.
-# srviac is hybrid: vmbr0 dynamic (DHCP via dnsmasq reservation),
-# vmbr1 hand-curated on the 10 Gb backplane.
+# Static on both NICs, shaped like srvk8s1–3's vmbr0: srviac is the
+# break-glass runner, so it is bring-up tier and must hold its address
+# while the in-cluster DHCP is down (it got none for 2h45m on
+# 2026-09-25). Public resolvers plus baseline's home-routing drop-in:
+# the `iac` container reads /run/systemd/resolve/resolv.conf, which
+# lists the dnsmasq pair first and carries `search home`, so bare
+# names like `dns` and `srvk8s1` keep resolving inside it. The
+# srviac.home record is in DnsmasqDeploy's static-hosts.
 network_devices:
   - bridge: vmbr0
     mac_address: "02:A7:F3:03:98:00"
+    addresses:
+      - 10.1.0.45/16
+      - 2a10:3781:16a9:1::45/64
+    gateway: 10.1.0.1
+    accept_ra: false
+    nameservers:
+      - 8.8.8.8
+      - 8.8.4.4
   - bridge: vmbr1
     mac_address: "02:A7:F3:03:98:01"
     addresses:

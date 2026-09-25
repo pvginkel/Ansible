@@ -141,7 +141,7 @@ resource "proxmox_virtual_environment_file" "cloud_init" {
         }
       ]
       # Skip the netplan write entirely when no NIC declares addresses
-      # (all-DHCP hosts: srviac today; cloud-init's auto-generated
+      # (all-DHCP hosts, none in prd today; cloud-init's auto-generated
       # netplan handles them via the dnsmasq reservation).
       has_static_nic = length([for n in each.value.network_devices : n if length(try(n.addresses, [])) > 0]) > 0
     })
