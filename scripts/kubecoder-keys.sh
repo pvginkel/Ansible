@@ -81,3 +81,29 @@ write_secret() {
 write_secret ANSIBLE_VAULT_PASSWORD "${ANSIBLE_VAULT_PASSWORD_FILE:-$HOME/.ansible/vault-pass}"
 write_secret SSH_KEY_ANSIBLE "$HOME/.ssh/id_ed25519_ansible" newline
 write_secret SSH_KEY_PVE     "$HOME/.ssh/id_ed25519_pve"     newline
+
+# The bpg/proxmox provider uploads cloud-init snippets over SSH with Go's
+# x/crypto/ssh, which reads ~/.ssh/known_hosts and honours no
+# UserKnownHostsFile. The PVE nodes present step-ca host certificates, so
+# without the homelab CA line there a snippet upload fails with "ssh: no
+# authorities for hostname: pve.home:22", and a snippet replace has by then
+# already deleted the old file. The iac image bakes the same line into root's
+# known_hosts (support/iac-image/Dockerfile); this is the environment's half.
+ensure_host_ca() {
+    local src dest=$HOME/.ssh/known_hosts line
+    src=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)/ansible/files/known_hosts.d/homelab
+    mkdir -p -- "$HOME/.ssh"
+    chmod 700 -- "$HOME/.ssh"
+    touch -- "$dest"
+    while IFS= read -r line; do
+        case "$line" in '@cert-authority '*) ;; *) continue ;; esac
+        if grep -qxF -- "$line" "$dest"; then
+            printf 'keys: homelab host CA already in %s\n' "$dest" >&2
+        else
+            printf '%s\n' "$line" >>"$dest"
+            printf 'keys: added the homelab host CA to %s\n' "$dest" >&2
+        fi
+    done <"$src"
+}
+
+ensure_host_ca

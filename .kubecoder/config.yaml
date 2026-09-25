@@ -56,7 +56,9 @@ secrets:
 #
 # Applying from here additionally needs the ssh-agent that providers.tf's
 # `ssh { agent = true }` requires for snippet uploads: `. ~/.ssh/agent-env`
-# before terraform, with id_ed25519_pve loaded.
+# before terraform, with id_ed25519_pve loaded. The upload also needs the
+# homelab host CA in ~/.ssh/known_hosts, which scripts/kubecoder-keys.sh
+# installs.
 env:
   # Ansible resolves the vault passphrase from this path. Inside the .ansible
   # overlay, not the repo tree and not the bare home — see homeOverlays below.

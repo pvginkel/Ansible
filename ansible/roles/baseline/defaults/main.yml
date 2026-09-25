@@ -64,7 +64,8 @@ baseline_etc_hosts_entries: []
 # `-e baseline_netplan_apply=false` when the change moves the address
 # Ansible is connected on: `netplan apply` would cut that connection
 # mid-handler and hang the run. The render then waits on disk for a
-# reboot. docs/runbooks/static-address.md has the flow.
+# reboot. (docs/runbooks/static-address.md moves an address through
+# cloud-init instead, and doesn't need this.)
 baseline_netplan_apply: true
 
 # Routing-domain resolvers for *.home queries on hosts that resolve
