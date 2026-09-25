@@ -95,7 +95,7 @@ so a rebuilt PVE node needs its bridges configured by hand.
   "DNS and hostnames".
   - All four prd k8s nodes, the OpenBao nodes and srviac: static netplan from their host_vars.
     srvk8s4 and srviac took their vmbr0 address from dnsmasq reservations until the
-    2026-09-25 outage, when neither had one for 2h45m (ANS-132).
+    2026-09-25 outage, when neither had one for 2h45m.
   - Ceph nodes: static too, but set by hand in the guest. Their host_vars carry no addresses,
     because the Ceph fleet isn't Ansible-managed yet (§4).
   - Every static host's name lives in DnsmasqDeploy's static-hosts
@@ -292,7 +292,7 @@ failure is delayed rather than immediate.
 
 That happened on 2026-09-25. After a power cut, the `dhcp` pod stayed not-Ready and there was no
 DHCP for 2h45m (AnsibleSpecs `handovers/dhcp-outage-2026-09-25/`). A minimal DHCP floor outside
-the cluster is the open mitigation (ANS-128). The recovery checks and break-glass are in
+the cluster is the open mitigation. The recovery checks and break-glass are in
 [`runbooks/cold-boot.md`](runbooks/cold-boot.md).
 
 ### Current headroom warnings

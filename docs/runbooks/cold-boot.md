@@ -2,7 +2,7 @@
 
 When to use this runbook: the whole estate restarted at once. A power cut takes all three PVE
 hosts down together, as on 2026-09-25 (report and follow-up: AnsibleSpecs
-`handovers/dhcp-outage-2026-09-25/`, EPIC-5). It gives the order things come back in, a check
+`handovers/dhcp-outage-2026-09-25/`). It gives the order things come back in, a check
 per layer, and the break-glass moves for when a layer doesn't come back. When OpenBao is the
 layer that's down and srviac has to run without it, the escape hatch is
 [`iac-cold-boot.md`](iac-cold-boot.md).
@@ -16,7 +16,7 @@ at 15:03 UTC and pods were starting at 15:11. Everything recovered unaided excep
 - **Keycloak.** Its pinned image digest had been garbage-collected from the registry.
   `dhcpapp-app` crash-looped on OIDC discovery and held the `dhcp` pod not-Ready, so there was
   no DHCP for 2h45m. DHCPApp has been out of the dhcp pod since (DnsmasqDeploy `ca30bbe`), and
-  registry-cleanup is suspended until DI-8.
+  registry-cleanup is suspended until it stops deleting digests that deploy repos pin.
 - **srvk8s4.** It took its address from the in-cluster DHCP and stayed off the LAN.
   srvk8s4 and srviac are static now ([`static-address.md`](static-address.md)).
 
@@ -59,7 +59,7 @@ The kubectl lines work from KubeCoder (`cexec iac kubectl --kubeconfig ~/.kube/c
 7. **Postgres, then Keycloak**: `postgres-pas-prd`, then `keycloak-prd`, which reaches its
    database through `postgres-pooler-rw`. `curl -s -o /dev/null -w '%{http_code}\n'
    https://auth.ginbov.nl/realms/homelab/.well-known/openid-configuration` returns 200. Until it
-   does, apps that discover OIDC at startup crash-loop (MAT-3), and so do Argo CD's and Jenkins's
+   does, apps that discover OIDC at startup crash-loop, and so do Argo CD's and Jenkins's
    SSO logins.
 8. **Apps**: `kubectl get pods -A | grep -vE 'Running|Completed'` is short and shrinking, and
    `kubectl -n argocd-prd get applications` shows everything Synced/Healthy.
@@ -84,8 +84,8 @@ as KeycloakDeploy `075184c` did.
 **Argo CD without Keycloak.** The local admin account is enabled (`admin.enabled: true` in
 `argocd-cm`). `kubectl` with `config-prd-write` works as well.
 
-**One push that syncs two stages of the same deploy repo fails the second on a hook-name clash**
-(ANS-124). Delete the other stage's finished `tf-presync-<rev>-presync-<ts>` Job in
+**One push that syncs two stages of the same deploy repo fails the second on a hook-name
+clash.** Delete the other stage's finished `tf-presync-<rev>-presync-<ts>` Job in
 `argocd-hooks`; Argo's retry then goes through.
 
 **The operator desktop without DHCP.** Set a static address on "Ethernet 2". The LAN is a

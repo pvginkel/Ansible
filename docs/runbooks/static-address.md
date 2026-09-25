@@ -2,7 +2,7 @@
 
 When to use this runbook: a Terraform-managed VM leaves the dnsmasq reservation API for a static
 address on its vmbr0 NIC, or a static host's vmbr0 address changes. The first use was srvk8s4 and
-srviac after the 2026-09-25 DHCP outage (ANS-132). Doctrine: `decisions.md` "MAC addressing for
+srviac after the 2026-09-25 DHCP outage. Doctrine: `decisions.md` "MAC addressing for
 managed VMs" (the bring-up tier) and "Cloud-init is a first-boot artefact".
 
 ## Why it is more than a host_vars edit
