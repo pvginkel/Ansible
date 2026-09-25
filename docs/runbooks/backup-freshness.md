@@ -6,9 +6,10 @@ or when a database is dropped from `postgres-pas`.
 
 Design context: "OpenBao backup / DR" and §"Backup" in
 [`../../../AnsibleSpecs/decisions.md`](../../../AnsibleSpecs/decisions.md). `backup-server` is
-DockerImages `backup-server/`, run as the `backup-server` Deployment in `storage-prd` (HelmCharts
-`charts/storage`). Both rules are in the `backup-freshness` group of HelmCharts
-`configs/prd/prometheus/prd/values.yaml`. Restoring OpenBao from its backup is
+DockerImages `backup-server/`, run as the `backup-server` Deployment in `storage-prd` (StorageDeploy
+`chart/`). Both rules are in the `backup-freshness` group of PrometheusDeploy
+`config/prd/values.yaml`, and its `kc project test` unit-tests them
+(`tests/alert-rules/backup-freshness.yml`). Restoring OpenBao from its backup is
 [`openbao.md`](openbao.md) §3.
 
 ## Conventions
@@ -160,8 +161,8 @@ the 6 h passes a redeploy and three failed hourly reads.
    - No pod, one not ready, or restarts climbing — `kubectl describe` the pod and read
      `kubectl logs --previous`.
    - `up` returns nothing — Prometheus has no target: the `backup-server` Service lost its
-     `prometheus.io/*` annotations or its endpoints (HelmCharts
-     `charts/storage/templates/backup-server-service.yaml`).
+     `prometheus.io/*` annotations or its endpoints (StorageDeploy
+     `chart/templates/backup-server-service.yaml`).
    - `up` is `0` — the target is there but its scrape fails. The `curl … localhost:8081/metrics`
      view under "How the watching works" shows whether the pod serves the metrics at all.
 
