@@ -11,7 +11,7 @@ the deploy path of that time. [WB-2](#wb-2-hand-a-stage-back-to-jenkins) can no 
 Helm release Secrets and HelmCharts' `configs/prd/kubecoder/_shared/` and `charts/kubecoder/` are
 gone (X1, X2; argo-cd D61).
 
-Context: slice 012's [`plan.md`](../../../AnsibleSpecs/slices/012_kubecoder_argo_cutover/plan.md),
+Context: slice 012's [`plan.md`](../../../AnsibleSpecs/slices/completed/012_kubecoder_argo_cutover/plan.md),
 whose rulings are behind every step; the `argo-cd/` set:
 [`design.md`](../../../AnsibleSpecs/argo-cd/design.md),
 [`decisions.md`](../../../AnsibleSpecs/argo-cd/decisions.md) (cited as `Dn`) and
@@ -803,7 +803,8 @@ This run is the first check of the job's sandbox and its steps; the linter only 
 This is slice 014's ordering. Follow argocd.md
 [Giving an app its own architecture producer](argocd.md#giving-an-app-its-own-architecture-producer),
 steps 2, 4 and 5, with `<Repo>` = `KubeCoderDeploy`, `<stage>` = `prd` and `<app>-deploy` =
-`kubecoder-deploy`:
+`kubecoder-deploy`. The step numbers are that section's at the time of this run; slice 029 removed
+its handover proof and flip and renumbered the rest.
 
 1. **Step 2**, the handover equality check. Run it with `/work/KubeCoderDeploy` checked out at
    `origin/prd`'s commit (`git -C /work/KubeCoderDeploy checkout -q origin/prd`). It must exit 0.

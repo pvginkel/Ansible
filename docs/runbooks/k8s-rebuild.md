@@ -255,6 +255,6 @@ Verify `site.yml --check` reports zero changes against the rebuild target before
 ## What this runbook does not cover
 
 - Microceph rebuilds (Phase 5).
-- Redeploying charts on `srvk8sdev` after a rebuild — no workflow is settled since HelmCharts' `configs/dev` tree went into its archive (argo-cd D65).
+- Redeploying charts on `srvk8sdev` after a rebuild — no workflow is settled, and HelmCharts' `configs/dev` tree goes into its archive with the repo (argo-cd D65).
 - Re-minting KubeCoder's cluster identities after `srvk8sdev` is replaced, or after any full cluster loss — see the KubeCoder repo's `docs/operations/cluster-identity-remint.md`.
 - Recovering from a corrupted dqlite database — `microk8s reset` is the reset hammer; deeper recovery is per microk8s upstream docs.
