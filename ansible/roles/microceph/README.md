@@ -2,7 +2,7 @@
 
 Installs and configures [microceph](https://documentation.ubuntu.com/canonical-microceph/) on an Ubuntu host: the snap pinned to a Ceph-release channel, a single-node cluster bootstrap, a raw-disk OSD, single-node pool sizing, daemon memory caps, and the RGW / CephFS / RBD capabilities.
 
-Today it drives the **single-node dev cluster** co-located on `srvk8sdev` (`ceph_dev`), standing up isolated dev storage so HelmCharts iteration stops churning RBD images / RGW users on the prod Ceph cluster. The 3-node prd fleet (`srvceph1/2/3`) comes under it in **Phase 5** with `serial: 1` + drain hooks — the multi-node join path is intentionally not built yet.
+Today it drives the **single-node dev cluster** co-located on `srvk8sdev` (`ceph_dev`), standing up isolated dev storage so iteration on the dev cluster and the homelab Terraform provider stops churning RBD images / RGW users on the prod Ceph cluster. The 3-node prd fleet (`srvceph1/2/3`) comes under it in **Phase 5** with `serial: 1` + drain hooks — the multi-node join path is intentionally not built yet.
 
 ## Mental model
 

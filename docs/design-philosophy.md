@@ -56,10 +56,11 @@ document down to what remains operationally useful.
 
 ## What "tested" means here
 
-There is no runnable test suite. `kc project test` runs yamllint, ansible-lint and
-`terraform fmt -check` — that is a syntax and style gate, and passing it proves nothing about
-behaviour. Behaviour is proven by the operator applying the change against real infrastructure and
-reporting the output back. Never describe a change as verified on the strength of a green lint.
+The Ansible roles and the Terraform have no runnable test suite. `kc project test` runs yamllint,
+ansible-lint and `terraform fmt -check` over them — that is a syntax and style gate, and passing it
+proves nothing about behaviour. Only the Python tools under `support/` carry unit tests, which the
+root component's `test` runs. Behaviour is proven by the operator applying the change against real
+infrastructure and reporting the output back. Never describe a change as verified on the strength of a green lint.
 
 The full picture is in [slice-testing-strategy.md](slice-testing-strategy.md).
 
@@ -71,7 +72,7 @@ playbook — commit it before starting the next. When in doubt, commit.
 
 Commit straight to the working branch (usually `main`) as you go — no topic/feature branches. This
 is single-person homelab territory; there's no one to open a PR against, and a branch just adds a
-merge step. Same rule in the sibling repos (HelmCharts, DockerImages).
+merge step. Same rule in the sibling repos (the deploy repos, DockerImages).
 
 `/work/AnsibleSpecs` is a separate git repo with its own history — commit there too, and stage by
 name: it is a shared working tree and parallel sessions live in it.

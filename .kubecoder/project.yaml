@@ -3,8 +3,8 @@ projects:
     description: >-
       Ansible + Terraform managing the homelab infrastructure: Proxmox hosts,
       the microk8s and microceph VMs on top, and the Linux dev box baseline.
-      Jenkins runs the deploys through the IaC/* pipelines; Helm owns the
-      Kubernetes workloads in the HelmCharts repo.
+      Jenkins runs its deploys through the IaC/* pipelines; Argo CD deploys
+      the Kubernetes workloads from per-app deploy repos.
     jenkins: IaC/Deploy
     setup:
       # Not cexec-prefixed: the catalog secrets are projected into the dev

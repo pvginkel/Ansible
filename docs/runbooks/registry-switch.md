@@ -435,6 +435,8 @@ For the follow-up. Removing any of these changes nothing in the render.
   - `tools/registry-equivalence.py`. From the switch, `releases`' own sync status answers its
     question, and it counts `releases` itself as `ONLY LIVE`.
   - Ansible's `support/registry-switch-rehearsal/`, whose only reader is step 1.
+  - [argocd.md](argocd.md)'s "Restarting the applicationset-controller", which serves only the
+    ApplicationSets.
 - **Serving nothing any more:**
   - HelmCharts' relay webhook.
   - The relay's applicationset-controller leg.

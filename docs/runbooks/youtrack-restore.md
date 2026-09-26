@@ -5,8 +5,9 @@ and the restore drill. Read this when YouTrack's database is lost or corrupted, 
 is gone, or when `YouTrackBackupStale` fires (What can go wrong).
 
 Design context: §"Backup" in [`../../../AnsibleSpecs/decisions.md`](../../../AnsibleSpecs/decisions.md).
-The backup is HelmCharts `charts/youtrack/files/backup/backup.py`, run nightly by the
-`youtrack-backup` CronJob in `youtrack-prd` and enabled only in `configs/prd/youtrack/prd/values.yaml`.
+The backup is YoutrackDeploy's `chart/files/backup/backup.py`, run nightly by the
+`youtrack-backup` CronJob in `youtrack-prd` and enabled only in `config/prd/values.yaml`
+(`backup.enabled`).
 
 ## Conventions
 
@@ -36,8 +37,9 @@ archive of 87 entries — `youtrack/` (the database files, and `blobs/` holding 
   upload's time in UTC. The 30 newest objects are kept.
 - YouTrack also keeps its 3 newest archives in `backups/` on its own volume, named
   `<YYYY-MM-DD-HH-MM-SS>.tar.gz`. They die with the volume.
-- A backup restores only into the same or a newer YouTrack version. Use the image tag production
-  runs, from HelmCharts `charts/youtrack/values.yaml`.
+- A backup restores only into the same or a newer YouTrack version. Use the image production
+  runs: YoutrackDeploy's `config/prd/values.yaml` pins it by digest (`images.youtrack`), so where
+  a step below says production's tag, run `jetbrains/youtrack@sha256:…` with that digest.
 
 ## Credentials
 

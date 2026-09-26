@@ -6,8 +6,9 @@ objects, when an earlier version of an object is needed, when the whole site is 
 `S3MirrorStale` fires (What can go wrong).
 
 Design context: §"Backup" in [`../../../AnsibleSpecs/decisions.md`](../../../AnsibleSpecs/decisions.md).
-The mirror is HelmCharts `charts/storage/files/s3-mirror/s3_mirror.py`, run nightly by the
-`s3-mirror` CronJob in `storage-prd` and enabled only in `configs/prd/storage/prd/values.yaml`.
+The mirror is StorageDeploy's `chart/files/s3-mirror/s3_mirror.py`, run nightly by the
+`s3-mirror` CronJob in `storage-prd` and enabled only in `config/prd/values.yaml`
+(`s3Mirror.enabled`).
 
 ## Conventions
 
@@ -44,8 +45,8 @@ archive/<bucket>/<YYYYMMDDTHHMMSSZ>/<object key>   what the run started at that 
 
 | Credential | Where it lives | Used in |
 |---|---|---|
-| App key pair (read-write) | Secret `s3-credentials` in the app's namespace, written by the release's Terraform (HelmCharts `terraform-modules/s3-storage/main.tf`). No OpenBao or Roboform copy. | §2, §3 — writing into a production bucket |
-| `backup-reader` key (read-only) | Secret `backup-reader-credentials` in `storage-prd`, written by the storage release's Terraform (HelmCharts `configs/prd/storage/_shared/infrastructure.tf`) | §5 — reading the live bucket |
+| App key pair (read-write) | Secret `s3-credentials` in the app's namespace, written by the app's Terraform (its deploy repo's `terraform/modules/s3-storage/main.tf`). No OpenBao or Roboform copy. | §2, §3 — writing into a production bucket |
+| `backup-reader` key (read-only) | Secret `backup-reader-credentials` in `storage-prd`, written by the storage app's Terraform (StorageDeploy `terraform/main.tf`) | §5 — reading the live bucket |
 | Crypt password and salt | OpenBao, mount `kv`, path `eso/prd/storage/prd/s3-mirror` (fields `password`, `salt`); Roboform, next to the age key | every section |
 | Drive login | The Google account that owns `Homelab Backups` | every section |
 | Scratch user key | Created on dev Ceph by §5 step 4, removed by its step 8 | §5 |
@@ -69,7 +70,7 @@ A release's RGW user is named after its namespace, and today every bucket name s
    (<https://rclone.org/remote_setup/>).
 
 2. **The mirror.** The settings must match the mirror job's
-   (HelmCharts `charts/storage/templates/s3-mirror-cronjob.yaml`); any difference decrypts nothing.
+   (StorageDeploy `chart/templates/s3-mirror-cronjob.yaml`); any difference decrypts nothing.
    The password and salt are the values from Roboform (OpenBao holds the same pair), put through
    `rclone obscure` as the job does:
 

@@ -380,7 +380,7 @@ systemSoftware:
 
   - id: ss:microceph-dev,b82bb4f6-27c6-4b0b-8554-e2d8a16cd253
     label: microceph (dev)
-    summary: Single-node microceph co-located on srvk8sdev. Isolated dev storage with size-1 pools — block (RBD), file (CephFS), and object (RGW/S3) — so HelmCharts iteration stops churning the prod Ceph cluster. Channel squid/stable (Ceph 19), a release ahead of prd's reef.
+    summary: Single-node microceph co-located on srvk8sdev. Isolated dev storage with size-1 pools — block (RBD), file (CephFS), and object (RGW/S3) — so iteration on the dev cluster and the homelab Terraform provider stops churning the prod Ceph cluster. Channel squid/stable (Ceph 19), a release ahead of prd's reef.
     introduced: 2026-06-09
     lifecycle: active
     logo: ceph
@@ -463,7 +463,7 @@ systemSoftware:
 
   - id: ss:jenkins-inbound-agent-srviac,220788bb-ca5d-497c-bf83-38211b7d6d12
     label: Jenkins inbound agent on srviac
-    summary: Generic Jenkins inbound-agent systemd unit on srviac. Provides Jenkins the means to schedule pipelines onto this node; the work itself runs via the iac shim. No Specialization edge today — the ss:jenkins-agent catalog entry will land with HelmCharts.
+    summary: Generic Jenkins inbound-agent systemd unit on srviac. Provides Jenkins the means to schedule pipelines onto this node; the work itself runs via the iac shim. No Specialization edge, since no producer publishes an ss:jenkins-agent catalog entry.
     introduced: 2026-05-28
     lifecycle: active
     logo: jenkins
@@ -471,7 +471,7 @@ systemSoftware:
 
   - id: ss:metallb-prd,02b1bffa-b296-428e-b6ba-be2a957285b5
     label: MetalLB (prd)
-    summary: MetalLB addon on the k8s-prd cluster, configured in L2 mode. Allocates LoadBalancer IPs from the pool below and announces them via gratuitous ARP. HelmCharts attaches per-LB interfaces on its consumers.
+    summary: MetalLB addon on the k8s-prd cluster, configured in L2 mode. Allocates LoadBalancer IPs from the pool below and announces them via gratuitous ARP. The LoadBalancer Services it serves are declared in the apps' deploy repos.
     introduced: 2026-05-28
     lifecycle: active
     logo: metallb
@@ -616,7 +616,7 @@ technologyServices:
 
   - id: svc:ceph-rgw-dev,bb4a95c3-c8f4-4069-9aef-0746420a4eb8
     label: Ceph RGW/S3 (dev)
-    summary: RADOS Gateway S3 object-storage surface of the single-node dev microceph on srvk8sdev. Consumed by HelmCharts / homelab-provider iteration as isolated dev object storage.
+    summary: RADOS Gateway S3 object-storage surface of the single-node dev microceph on srvk8sdev. Consumed by dev-cluster and homelab Terraform provider iteration as isolated dev object storage.
     introduced: 2026-06-09
     lifecycle: active
     logo: ceph

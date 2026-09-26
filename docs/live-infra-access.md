@@ -41,16 +41,13 @@ cd ansible && ssh <options> ansible@srviac \
   "sudo iac -c 'cd /work/Ansible/terraform/prd && terraform init -input=false && terraform plan'"
 ```
 
-A **HelmCharts release's** Terraform also needs OpenBao-held provider credentials. Load them and
-plan in one shell — the verb is `deploy plan`, there is no bare `plan` script:
-
-```
-. scripts/bao-login.sh && cd /work/HelmCharts && . scripts/setup-env.sh prd && cexec iac poetry run deploy plan prd/<chart>
-```
-
-`setup-env.sh` reads OpenBao values into the environment, so it falls under `CLAUDE.md`'s "What
-Claude doesn't read on its own" — ask first. On srviac the equivalent is the `IAC_SETUP` prelude in
-HelmCharts' `Jenkinsfile`, then `/tmp/hcvenv/bin/deploy plan prd/<chart>`.
+A **deploy repo's** Terraform is applied by Argo CD's PreSync hook on each sync of its stage
+([argocd.md](runbooks/argocd.md)), and the hook has no plan step. Planning it from here takes the
+hook's inputs plus the OpenBao-held provider credentials, which HelmCharts' `scripts/setup-env.sh
+prd` loads. [kubecoder-cutover.md](runbooks/kubecoder-cutover.md)'s "The no-destroy plan" is the
+command written out, and `argo_migrate.py plan` in `support/argo-migrate/` runs it for a migrating
+app-stage. `setup-env.sh` reads OpenBao values into the environment, so it falls under
+`CLAUDE.md`'s "What Claude doesn't read on its own" — ask first.
 
 **Lint before you commit.** There is no pre-commit hook — it was removed because it was breaking
 commits. Run `kc project lint` before proposing a commit. `iac-on-push` runs the same ansible and

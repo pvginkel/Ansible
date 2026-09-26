@@ -1,9 +1,9 @@
 # CLAUDE.md
 
 Ansible + Terraform managing the homelab infrastructure: Proxmox hosts, the k8s and Ceph VMs and
-clusters on top, and the Linux dev box baseline. Helm owns the Kubernetes workloads (in
-`/work/HelmCharts`); Jenkins runs the deploys. Components are `ansible/`, `terraform/` and the
-architecture artifact — `kc project list` is authoritative.
+clusters on top, and the Linux dev box baseline. Argo CD deploys the Kubernetes workloads from
+per-app deploy repos; Jenkins runs this repo's deploys. Components are `ansible/`, `terraform/`
+and the architecture artifact — `kc project list` is authoritative.
 
 **Before proposing changes, read** [`/work/AnsibleSpecs/decisions.md`](../AnsibleSpecs/decisions.md)
 — homelab doctrine: tool split, secrets, networking, MAC scheme, OS update policy — and the
@@ -19,7 +19,7 @@ operator command. Do that directly and frictionlessly. You are a helpful infrast
 a gatekeeper.
 
 Before acting, make one determination: **is this a managed change to an infrastructure repo** (an
-Ansible role/playbook, a Terraform module, a HelmCharts chart, a DockerImages image) **substantial
+Ansible role/playbook, a Terraform module, a deploy repo, a DockerImages image) **substantial
 enough to warrant a tracked slice?** Then push back on doing it ad hoc and route it through
 `/dev:triage` → `/dev:plan-slice` → `/dev:run-slice`. Each is a separate, explicit operator step;
 authoring a slice is never permission to run it.
@@ -69,15 +69,19 @@ as on srviac, which Jenkins uses and which stays up when Kubernetes is down. Det
 ## Related repos on this machine
 
 All under `/work`, same paths for Claude and operator: `AnsibleSpecs` (decisions, slices — a
-separate git repo, commit there too), `HelmCharts`, `DockerImages`, `HomelabTerraformProvider`,
+separate git repo, commit there too), `HelmCharts` (the deploy path before Argo CD; its archive
+is ANS-122), `DockerImages`, `HomelabTerraformProvider`,
 `Charts` (the `homelab-shared` Helm library chart and the `https://charts.home` chart repository —
 see its README), `ArgoCDTools` (two images: `argocd-hook`, the Argo CD Terraform PreSync hook, and
 `aac-tools`, the architecture-as-code commands a repo's checkout runs — see its README),
-`ArgoCDDeploy` (Argo CD's own deploy repo — the wrapper chart, both ApplicationSets, the `releases`
-AppProject and the `argocd-hooks` namespace), `KubeCoderDeploy` (KubeCoder's deploy repo, the Argo
-CD pilot — see its README), `Architecture` (the architecture-as-code contract:
-`pipeline-producers.yaml`, the element/relation schema and the producer manual — checked out
-but deliberately not declared, see the note in `.kubecoder/config.yaml`) and
+`ArgoCDDeploy` (Argo CD's own deploy repo — the wrapper chart, the registry chart `releases/`,
+the `releases` AppProject and the `argocd-hooks` namespace),
+`KubeCoderDeploy` (KubeCoder's deploy repo, the Argo CD pilot — see its README), `Architecture`
+(the architecture-as-code contract: `pipeline-producers.yaml`, the element/relation schema, the
+shared product catalog and the producer manual — deliberately not declared, see the note in
+`.kubecoder/config.yaml`, so the environment does not clone it: clone it by hand
+(`git clone https://github.com/pvginkel/Architecture /work/Architecture`) and run
+`kc project setup` there before working in it) and
 `JenkinsPipelineUtils` (the shared library every Jenkinsfile in the estate loads). The set is
 declared in `.kubecoder/config.yaml`; adding one is an edit there plus `kc env restart`. The `iac`
 runner's tree lives in this repo at `support/iac-agent/` — that is the copy to edit and the one the

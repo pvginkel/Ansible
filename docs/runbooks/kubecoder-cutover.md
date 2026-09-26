@@ -5,6 +5,12 @@ cluster, off HelmCharts' Jenkins deploy and onto Argo CD, which syncs them from 
 Dev goes end to end first, then it sits, then prd follows. The operator executes every step. This
 file gives the order, the exact commands, what each must show, and what stops the cutover.
 
+**This cutover has run.** Both stages were registered on Argo CD on 2026-09-23 and have deployed
+from KubeCoderDeploy since. The file stays as the record of how, so its HelmCharts steps describe
+the deploy path of that time. [WB-2](#wb-2-hand-a-stage-back-to-jenkins) can no longer run: the
+Helm release Secrets and HelmCharts' `configs/prd/kubecoder/_shared/` and `charts/kubecoder/` are
+gone (X1, X2; argo-cd D61).
+
 Context: slice 012's [`plan.md`](../../../AnsibleSpecs/slices/012_kubecoder_argo_cutover/plan.md),
 whose rulings are behind every step; the `argo-cd/` set:
 [`design.md`](../../../AnsibleSpecs/argo-cd/design.md),

@@ -115,17 +115,6 @@ deliberate defense-in-depth net. Check the bundled Calico version with
 `microk8s kubectl -n kube-system get ds calico-node -o jsonpath='{.spec.template.spec.containers[0].image}'`
 and cross-reference the issue.
 
-## Move the HelmCharts chart gate to prd's new minor
-
-When prd's channel moves (`microk8s_channel` in `group_vars/k8s_prd.yml`),
-set `KUBE_VERSION` in HelmCharts' `Jenkinsfile` to the new minor (e.g.
-`1.36.0`). The pipeline's `Gate releases` stage lints and renders every
-release it is about to deploy for that version, and kubeconform validates
-each render against that version's schemas. Left on the old minor, the gate
-checks prd's releases against an API prd no longer serves: an API version
-the new minor removed still passes. The gate covers only the prd releases
-the pipeline deploys, so a dev channel bump needs nothing here.
-
 ## Drain blocked by a PodDisruptionBudget
 
 Drain uses `kubectl drain --ignore-daemonsets --delete-emptydir-data --timeout=300s`, which honours PodDisruptionBudgets. A PDB that can't be satisfied (e.g. a single-replica Deployment with `minAvailable: 1`, where evicting the only pod would violate the budget) blocks drain indefinitely; after the 5-minute timeout the playbook fails and the node stays cordoned.
@@ -147,7 +136,7 @@ poetry run ansible-playbook playbooks/update-k8s.yml \
 
 The force-delete bypasses the PDB by skipping the eviction API entirely. The Deployment recreates the pod on a still-schedulable node.
 
-Long-term fix: audit `HelmCharts` for charts whose PDB blocks drain. For single-replica services, drop the PDB or switch from `minAvailable: 1` to `maxUnavailable: 1` (allows the one pod to be unavailable during a drain — same effect as no PDB during scheduled maintenance, but still protects against accidental concurrent disruption).
+Long-term fix: audit the deploy repos' charts for any whose PDB blocks drain. For single-replica services, drop the PDB or switch from `minAvailable: 1` to `maxUnavailable: 1` (allows the one pod to be unavailable during a drain — same effect as no PDB during scheduled maintenance, but still protects against accidental concurrent disruption).
 
 ## Drain that succeeds and takes a service down anyway
 
@@ -173,7 +162,7 @@ microk8s kubectl -n kube-system scale deployment/coredns --replicas=2
 
 This is undeclared drift — `refresh-k8s-addons.yml` deletes and recreates the Deployment, which resets it to one replica. The durable fix is to declare the replica count, anti-affinity, and a PDB in the `microk8s` role; that is tracked as its own change and not yet done.
 
-When auditing for others in this class, note that the "audit `HelmCharts`" pointer above is not enough on its own — CoreDNS is a kube-system addon, not a chart, and the same is true of anything else the addons install.
+When auditing for others in this class, note that the "audit the deploy repos' charts" pointer above is not enough on its own — CoreDNS is a kube-system addon, not a chart, and the same is true of anything else the addons install.
 
 ## Workstation DNS during a roll
 

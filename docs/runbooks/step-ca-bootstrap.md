@@ -36,7 +36,7 @@ This runbook is the *operational* path; it doesn't re-justify decisions.
   Each secret gets its own entry with a descriptive name; copy-paste,
   don't screenshot.
 - Working directory during the ceremony is a fresh `mktemp -d`, not the
-  Ansible or HelmCharts checkouts. Nothing the ceremony produces should
+  Ansible or deploy repo checkouts. Nothing the ceremony produces should
   end up in git except the public root cert.
 
 ---
@@ -242,27 +242,25 @@ exactly as exported.
 
 ### 7. Hand the encrypted intermediate to the chart
 
-The HelmCharts `step-ca` deployment expects two pieces in a regular
-k8s Secret named `step-ca-intermediate` in the chart's namespace:
+StepCaDeploy runs the upstream `step-certificates` chart in
+`existingSecrets` mode (`config/prd/values.yaml`). The chart reads the
+CA's material from these Secrets in `step-ca-prd`:
 
-| Secret key | Source |
+| Secret | Keys |
 |---|---|
-| `intermediate_ca.key` | `.step/secrets/intermediate_ca_key` (encrypted PEM) |
-| `password`            | `homelab-ca intermediate key passphrase` from Roboform |
+| `step-ca-certs` | `root_ca.crt`, `intermediate_ca.crt`, `ssh_host_ca_key.pub` |
+| `step-ca-secrets` | `intermediate_ca_key` (`.step/secrets/intermediate_ca_key`, encrypted PEM), `ssh_host_ca_key` |
+| `step-ca-ca-password` | `password`: `homelab-ca intermediate key passphrase` from Roboform |
+| `step-ca-config` | `ca.json`, `defaults.json` |
 
-Create the Secret **before** the chart is first installed, in the
-target cluster (`dev` first, then `prd`):
+Today StepCaDeploy's `chart/templates/stage-manifests.yaml` renders all
+four, every value base64-encoded, so the key and its passphrase are in
+git despite the Conventions above. AnsibleSpecs `decisions.md`
+("Intermediate key + passphrase") tracks moving them out.
 
-```sh
-kubectl -n step-ca-prd create secret generic step-ca-intermediate \
-  --from-file=intermediate_ca.key=.step/secrets/intermediate_ca_key \
-  --from-literal=password='<paste intermediate passphrase>'
-```
-
-After the chart deploys and the pod confirms the intermediate
-decrypts (look for `Serving HTTPS on :8443` in the pod logs), the
-local `intermediate_ca_key` file is no longer needed — Roboform holds
-the passphrase, the cluster holds the encrypted key.
+Once Argo has synced `step-ca-prd` and the pod confirms the
+intermediate decrypts (look for `Serving HTTPS on :8443` in the pod
+logs), the local `intermediate_ca_key` file is no longer needed.
 
 ### 8. Encrypt the JWK provisioner password for Ansible
 
@@ -337,23 +335,20 @@ of the day-zero ceremony).
 
 ### 2. Hand the SSH host CA key to the chart
 
-The `step-ca` release in HelmCharts runs in `existingSecrets` mode.
+StepCaDeploy's chart runs in `existingSecrets` mode (day-zero step 7).
 Enabling the SSH host CA there:
 
-- `configs/<env>/step-ca-values.yaml` — flip
-  `existingSecrets.sshHostCa: true`.
-- `configs/<env>/step-ca.yaml` — add the Secret the chart's
-  `sshHostCa` mode consumes, carrying the `ssh_host_ca` private key
-  and its passphrase. Confirm the Secret name and key names against
-  the upstream `step-certificates` chart (`charts/step-ca/args.sh`
-  pins the source).
-
-Both the `dev` and `prd` step-ca releases.
+- `config/prd/values.yaml` — set `existingSecrets.sshHostCa: true`.
+- `chart/templates/stage-manifests.yaml` — the `ssh_host_ca` private
+  key as `step-ca-secrets`' `ssh_host_ca_key`, its passphrase as
+  `step-ca-ssh-host-ca-password`'s `password`, and `ssh_host_ca.pub`
+  as `step-ca-certs`' `ssh_host_ca_key.pub`, each base64-encoded.
 
 ### 3. Add the `ssh` block and host policy to `ca.json`
 
 `ca.json` is the base64 `ca.json` value in the `step-ca-config`
-Secret (`configs/<env>/step-ca.yaml`). Decode, edit, re-encode.
+Secret (StepCaDeploy's `chart/templates/stage-manifests.yaml`).
+Decode, edit, re-encode.
 
 Add a top-level `ssh` block pointing at the mounted host CA key
 (confirm the path against the rendered pod):
@@ -390,9 +385,10 @@ Add SSH host durations to the provisioner's `claims`:
 `1128h = 47 days` — the same lifetime as the X.509 leaves; the
 `ssh_host_cert` role re-signs under a 14-day threshold.
 
-Validate the JSON (`jq . <file>`), re-encode to base64 and deploy.
-**The deploy is not what makes the edit live.** It applies the
-Secret and rolls nothing — the release runs the upstream
+Validate the JSON (`jq . <file>`), re-encode to base64, commit to
+StepCaDeploy and push; Argo syncs `step-ca-prd`. **The sync is not
+what makes the edit live.** It applies the Secret and rolls nothing —
+the app runs the upstream
 `smallstep/step-certificates` chart with no `checksum/config`
 annotation on its pod template, so a Secret-payload edit leaves the
 rendered workload unchanged — and step-ca reads `ca.json` at
@@ -407,10 +403,9 @@ kubectl -n step-ca-prd rollout status  statefulset step-ca
 Check that the restart took: `curl -sk https://ca.home/provisioners`
 lists the provisioner you edited.
 
-The workload is a StatefulSet, and the namespace is `step-ca-prd` on
-both clusters — the release has a single stage, `prd`, and each
-cluster's config declares that same namespace. Every `kubectl` in
-this runbook addresses it.
+The workload is a StatefulSet in `step-ca-prd`, the one stage Argo
+deploys from StepCaDeploy. Every `kubectl` in this runbook addresses
+it.
 
 ### 4. Verify SSH issuance
 
@@ -542,14 +537,16 @@ You will be prompted for:
   `homelab-ca intermediate key passphrase` (overwriting the old entry
   *after* step 4 succeeds).
 
-### 3. Replace the chart's Secret
+### 3. Replace the chart's Secrets
 
-```sh
-kubectl -n step-ca-prd create secret generic step-ca-intermediate \
-  --from-file=intermediate_ca.key=.step/secrets/intermediate_ca_key \
-  --from-literal=password='<new passphrase>' \
-  --dry-run=client -o yaml | kubectl apply -f -
-```
+In StepCaDeploy's `chart/templates/stage-manifests.yaml`, replace
+three values with the base64 of the new material: `step-ca-certs`'
+`intermediate_ca.crt` (`.step/certs/intermediate_ca.crt`),
+`step-ca-secrets`' `intermediate_ca_key`
+(`.step/secrets/intermediate_ca_key`) and `step-ca-ca-password`'s
+`password` (the new passphrase). Commit and push; Argo syncs
+`step-ca-prd`, and a `kubectl` edit to those Secrets would be undone
+by its next sync.
 
 Restart the step-ca StatefulSet to pick up the new intermediate:
 

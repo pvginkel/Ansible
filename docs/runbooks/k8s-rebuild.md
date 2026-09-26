@@ -4,7 +4,7 @@ End-to-end procedure for rebuilding `k8s_prd` and `k8s_dev` nodes from scratch. 
 
 This runbook is the orchestrator. Each step is operator-driven; nothing automates the full sequence. Per `decisions.md` "Terraform and Ansible are peer tools — neither invokes the other."
 
-**Networking shape**: prd k8s + Ceph nodes are bring-up tier — static IPs in `vms.tf`, hostname → IP triples curated by hand in HelmCharts `configs/prd/dnsmasq.yaml`. They opt out of the dynamic `homelab_dns_reservation` API via `static_ip = true` on the `managed-vm` module, because the dnsmasq sidecar runs in-cluster and the cluster nodes can't get their own DNS from a service they're required to bring up. srvk8sdev is dev-tier — single node, no in-cluster registry/dnsmasq dependency, dynamic reservation via the standard module path. See `decisions.md` "Ceph nodes and prd k8s nodes are static infrastructure".
+**Networking shape**: prd k8s + Ceph nodes are bring-up tier — static IPs in `vms.tf`, hostname → IP triples curated by hand in DnsmasqDeploy's `chart/templates/stage-manifests.yaml` (ConfigMap `static-hosts-config`). They opt out of the dynamic `homelab_dns_reservation` API via `static_ip = true` on the `managed-vm` module, because the dnsmasq sidecar runs in-cluster and the cluster nodes can't get their own DNS from a service they're required to bring up. srvk8sdev is dev-tier — single node, no in-cluster registry/dnsmasq dependency, dynamic reservation via the standard module path. See `decisions.md` "Ceph nodes and prd k8s nodes are static infrastructure".
 
 ## Order
 
@@ -90,7 +90,7 @@ Destroy is the standard — the same shape `srvk8s1` and `srvk8sdev` use. Nothin
 
 ### 3. (Static-hosts is hand-curated; no edit unless the IP changes)
 
-The target's entry in HelmCharts `configs/prd/dnsmasq.yaml` is operator-curated alongside Ceph + printers + IoT. As long as the rebuild keeps the same hostname → IP mapping (the typical case), no change is needed. If the IP changes, edit there and roll the dnsmasq StatefulSet before step 4.
+The target's entry in DnsmasqDeploy's `static-hosts-config` (`chart/templates/stage-manifests.yaml`) is operator-curated alongside Ceph + printers + IoT. As long as the rebuild keeps the same hostname → IP mapping (the typical case), no change is needed. If the IP changes, edit there and roll the dnsmasq StatefulSet before step 4.
 
 ### 4. `terraform apply` — create the new VM
 
@@ -163,7 +163,7 @@ This frees the NVMe (qemu releases the device on destroy; the ZFS pool's on-disk
 
 ### 4. (Static-hosts is hand-curated; no edit unless the IP changes)
 
-`srvk8s1`'s entry in HelmCharts `configs/prd/dnsmasq.yaml` is operator-curated alongside Ceph + printers + IoT. As long as the rebuild keeps the same hostname → IP mapping (the typical case), no change is needed. If the IP changes, edit there and roll the dnsmasq StatefulSet before step 6.
+`srvk8s1`'s entry in DnsmasqDeploy's `static-hosts-config` (`chart/templates/stage-manifests.yaml`) is operator-curated alongside Ceph + printers + IoT. As long as the rebuild keeps the same hostname → IP mapping (the typical case), no change is needed. If the IP changes, edit there and roll the dnsmasq StatefulSet before step 6.
 
 ### 5. (Inventory unchanged)
 
@@ -211,7 +211,7 @@ poetry run ansible-playbook playbooks/site.yml --limit srvk8s1 --check
 
 ## Rebuild — `srvk8sdev` (single-node dev)
 
-Different shape from prd: dev cluster is a single node, dev-tier networking (DHCP via the standard `homelab_dns_reservation`, not a static-hosts entry — see "Networking shape" at the top), no inter-node traffic, no zpool, no Ceph. The peer-count gate skips the eviction shape, so `evict-k8s.yml` is not part of this flow. The cluster gets fully replaced; HelmCharts deployments under `srvk8sdev` need re-deployment afterward (operator workflow, separate from this runbook). KubeCoder's cluster identities go with it too — the ServiceAccounts, bindings and token Secrets nothing reconciles — and are re-minted per the KubeCoder repo's `docs/operations/cluster-identity-remint.md`.
+Different shape from prd: dev cluster is a single node, dev-tier networking (DHCP via the standard `homelab_dns_reservation`, not a static-hosts entry — see "Networking shape" at the top), no inter-node traffic, no zpool, no Ceph. The peer-count gate skips the eviction shape, so `evict-k8s.yml` is not part of this flow. The cluster gets fully replaced, and nothing redeploys what ran on it: Argo CD deploys only into prd, and running a chart on `srvk8sdev` from a deploy repo is not yet settled (argo-cd D65). KubeCoder's cluster identities go with it too — the ServiceAccounts, bindings and token Secrets nothing reconciles — and are re-minted per the KubeCoder repo's `docs/operations/cluster-identity-remint.md`.
 
 ```sh
 # 1. Destroy the live VM:
@@ -255,6 +255,6 @@ Verify `site.yml --check` reports zero changes against the rebuild target before
 ## What this runbook does not cover
 
 - Microceph rebuilds (Phase 5).
-- HelmCharts redeploy on `srvk8sdev` after rebuild — operator workflow, see HelmCharts repo.
+- Redeploying charts on `srvk8sdev` after a rebuild — no workflow is settled since HelmCharts' `configs/dev` tree went into its archive (argo-cd D65).
 - Re-minting KubeCoder's cluster identities after `srvk8sdev` is replaced, or after any full cluster loss — see the KubeCoder repo's `docs/operations/cluster-identity-remint.md`.
 - Recovering from a corrupted dqlite database — `microk8s reset` is the reset hammer; deeper recovery is per microk8s upstream docs.

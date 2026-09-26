@@ -42,13 +42,15 @@ actually ran and the Phase A proof drill are recorded in slice 009's
 | Helm release, Application, AppProject | `argocd-prd`, `argocd-prd`, `releases` |
 | UI | `https://argocd.home`, or the bare `https://argocd` — Keycloak SSO (realm `homelab`, client `argocd`) |
 | Deploy repo | `ArgoCDDeploy`: exact `argo-cd` pin in `chart/Chart.yaml`, stage values in `config/prd/values.yaml` |
-| Registry | HelmCharts `configs/prd/<app>/<stage>/release.yaml` carrying `reconciler: argo-cd` |
-| ApplicationSets | `releases-local`, `releases-upstream` (`missingkey=error`: one malformed entry fails the whole set) |
+| Registry | ArgoCDDeploy `releases/values.yaml`: one entry per app, one Application per stage (D63); `releases/values.schema.json` refuses a malformed entry |
+| Registry Application | `releases`: syncs the registry chart `releases/` from ArgoCDDeploy `main`, automated without prune or self-heal |
 | Webhook edge | `https://deploy-hooks.webathome.org/api/webhook` → relay (2 replicas) → argocd-server and the applicationset-controller |
 | Hook image | `registry:5000/argocd-hook:<n>` from ArgoCDTools; default pin in the `homelab-shared` library chart. Its Terraform is pinned to the version the `iac` images carry (AnsibleSpecs `decisions.md`, "Terraform version") |
 | Terraform state | `pvginkel/TerraformState`, `argocd/<repo>/<stage>/terraform.tfstate`, sops/age |
 | Notifications | Alertmanager `prometheus-prd-alertmanager.prometheus-prd:9093`, delivered to Telegram with no "resolved"; `ArgoCDSyncFailed` (critical, with sound), `ArgoCDHealthDegraded` (warning, silent) |
 | Standing alerts | PrometheusDeploy's rule group `argocd`, over the application controller's metrics (Service `argocd-prd-application-controller-metrics`); `ArgoCDSyncStillFailed` (critical), `ArgoCDHealthStillDegraded` and `ArgoCDAlertsBlind` (warning) |
+
+> The two registry rows are owed until the registry switch has run ([registry-switch.md](registry-switch.md)): until then the ApplicationSets `releases-local` and `releases-upstream` generate the Applications from HelmCharts' `configs/prd/<app>/<stage>/release.yaml` files.
 
 Every credential arrives through ESO from OpenBao (`kv/` mount), refreshed hourly:
 
@@ -112,7 +114,10 @@ section. The resource tree only shows the refused object as *Missing*.
    followed by `helm repo add` and `helm dependency build` is Argo's normal
    first attempt, not a failure.
 4. **The Application does not appear, or does not refresh after a push.** The
-   webhook, or the applicationset-controller's one-shot handler — both below.
+   webhook (below). A registry entry reaches its Application only through
+   `releases`' sync, so read `releases`' last operation and conditions too.
+
+   > This item's `releases` half is owed until the registry switch has run ([registry-switch.md](registry-switch.md)): until then suspect the applicationset-controller's one-shot handler (below).
 
 Hook Jobs persist for the app's lifetime, one per sync (`backoffLimit: 0`, so a
 failed hook is exactly one pod), and are removed with the Application.
@@ -150,6 +155,9 @@ returns the previous value.
 
 ## Restarting the applicationset-controller
 
+It serves only the ApplicationSets `releases-local` and `releases-upstream`, which the registry
+switch deletes ([registry-switch.md](registry-switch.md), step 5).
+
 ```sh
 cexec iac kubectl $KC -n argocd-prd rollout restart deploy/argocd-prd-applicationset-controller
 ```
@@ -186,19 +194,17 @@ is unaffected — it watches its settings.
 
 1. In ArgoCDDeploy, bump the exact `argo-cd` version in `chart/Chart.yaml`,
    rebuild `Chart.lock`, run the repo's render gate, push.
-2. ArgoCDDeploy has no webhook, so refresh `argocd-prd` by hand after the push:
-
-   ```sh
-   cexec iac kubectl $KC annotate application -n argocd-prd argocd-prd argocd.argoproj.io/refresh=normal --overwrite
-   ```
-
-   It goes OutOfSync within seconds. Review the diff in the UI. The CRDs sync
+2. ArgoCDDeploy's relay webhook delivers the push, and `argocd-prd` goes
+   OutOfSync within seconds. Review the diff in the UI. The CRDs sync
    server-side (`ServerSideApply=true` on all three).
+
+   > Owed until the registry switch has run ([registry-switch.md](registry-switch.md)), whose step 2 adds that webhook: until then refresh `argocd-prd` by hand (Webhooks).
+
 3. Sync by hand at a chosen moment (D3). The controller and repo-server restart
    mid-sync, and every Application pauses with them.
 4. Verify: `argocd-prd` Synced and Healthy, every pod Running, the full
    Application list back, and a webhook delivery accepted by both receivers. If
-   Applications stop regenerating, restart the applicationset-controller.
+   the list does not come back, see item 4 of Diagnosing a failed sync.
 
 ## Break-glass: the local admin account (D9)
 
@@ -223,26 +229,30 @@ so any other identity gets nothing at all.
 
 ## Registering, undeploying and unregistering an app
 
-The entry, at HelmCharts `configs/prd/<app>/<stage>/release.yaml` — the path
-names the Application and its namespace `<app>-<stage>`:
+> This section is owed until the registry switch has run ([registry-switch.md](registry-switch.md)): until then an edit to ArgoCDDeploy's registry deploys nothing.
+
+The registry is ArgoCDDeploy's `releases/values.yaml` (D63). An app's entry sits
+under `apps:`, and each of its stages becomes one Application, named and
+namespaced `<app>-<stage>`:
 
 ```yaml
-reconciler: argo-cd
-deployed: true
-autoSync: false
-repo: https://github.com/pvginkel/<DeployRepo>
-targetRevision: main
+apps:
+  <app>:
+    repo: https://github.com/pvginkel/<DeployRepo>.git
+    stages:
+      prd:
+        autoSync: false
 ```
 
-No `chart:` key. HelmCharts' suite (`kc project test`) gates the shape, and the
-pipeline skips the release. Push; the ApplicationSet regenerates within seconds
-and the Application appears OutOfSync. The first sync is manual.
-
-An app that HelmCharts deploys today moves onto Argo when this entry replaces its
-`jenkins` one. A stage with no `release.yaml`, or with no `reconciler:` key, is
-`jenkins`'s. The same push drops the stage from HelmCharts' architecture
-artifact, so the app's own architecture producer is registered before it
-([Giving an app its own architecture producer](#giving-an-app-its-own-architecture-producer)).
+An app whose chart comes from a Helm repository adds `upstream: {repo, chart}`,
+and each of its stages pins the chart's `version`. A stage may set
+`targetRevision` (default `main`), and `syncOptions` is app-level: every stage's
+Application gets it (D62). The file's header comment names every key, and
+`releases/values.schema.json` refuses anything else. Keep entries alphabetical.
+`helm lint releases` checks an edit against the schema, and ArgoCDDeploy's
+`kc project test` runs the render test. Push; the relay webhook refreshes
+`releases`, whose sync creates the Application OutOfSync. The first sync is
+manual.
 
 What a sync does, in order: Argo applies the chart's `sync-wave: "-1"` Namespace
 during its dry-run pass; the PreSync Job runs in `argocd-hooks` (clone at the
@@ -250,37 +260,40 @@ synced SHA → terraform-backend-git → `terraform apply` with the stage tfvars
 PV reattach); then the Sync waves. The app's Terraform takes `var.namespace` as
 given and never creates it.
 
-`autoSync: true` generates `syncPolicy.automated` (`prune: true`, `selfHeal:
-false`) within about ten seconds and Argo syncs on its own; flipping it back
-removes the policy.
+A stage without `autoSync`, or with `autoSync: true`, gets `syncPolicy.automated`
+(`prune: true`, `selfHeal: false`) and D5's retry block, and Argo syncs it on its
+own; `autoSync: false` renders no policy. Either change reaches the Application
+with `releases`' sync of the push.
 
-**Undeploy** is `deployed: false`: the ApplicationSet deletes the Application and
-the resources finalizer cascades — workloads, the `Prune=false` Namespace and
-the hook Jobs were all gone within 45 seconds on 2026-09-13. What stays: the
-state file in TerraformState (nothing prunes it until D28 is designed) and the
-deploy repo's GitHub webhook. **Unregister** is deleting the entry directory.
+**Undeploy** a stage by deleting its entry. `releases` does not prune, so the
+Application stays, shown as requiring pruning, until the operator syncs
+`releases` with *Prune* ticked (D27 as amended). Then the resources finalizer
+cascades: workloads, the `Prune=false` Namespace and the hook Jobs were all gone
+within 45 seconds on 2026-09-13. What stays: the state file in TerraformState
+(nothing prunes it until D28 is designed) and the deploy repo's GitHub webhook.
+**Unregister** is deleting the app's whole entry, which undeploys each stage the
+same way.
 
 ## Giving an app its own architecture producer
 
 An app appears in the federated architecture model only while a registered
-producer publishes it. HelmCharts' `helm-charts` producer publishes each stage
-that is `jenkins`'s from the annotation file `charts/<app>/architecture.yaml`. It
-leaves a stage out once that stage's entry says `reconciler: argo-cd`. So a
-migrating app carries a producer of its own in its deploy repo, registered
-before that flip, or it drops out of the model. An app new to the estate carries
-one too. It has no current producer, so it has no flip to order against.
+producer publishes it, so every app on Argo carries a producer of its own in its
+deploy repo. During the migration, HelmCharts' `helm-charts` producer published
+each stage HelmCharts deployed, and each migrating app's producer took its stage
+over at a handover. That producer is retired from Architecture's
+`pipeline-producers.yaml` (slice 029), so an app that joins the model now has no
+current producer and nothing to hand over from.
 
 The generator is `gen-architecture`, from ArgoCDTools' `aac-tools` image. It
 renders `chart/` with `config/<stage>/values.yaml` the way Argo renders it, reads
 the judgment layer, and writes `docs/architecture/<producer>.yaml`. Its ids are
 uuid5s of the same natural keys, under the same namespace constant, that
-HelmCharts' generator uses. So the new producer mints the ids `helm-charts`
-publishes today, and no other producer's edge into the app dangles across the
+HelmCharts' generator used, so each migrated app kept its ids across its
 handover.
 
-A provider in another app resolves through the published set. Both generators
-publish each Service they place on its workloads as an interface at its
-in-cluster host, `<svc>.<ns>.svc`. They link every interface, exposed hosts
+A provider in another app resolves through the published set. The generator
+publishes each Service it places on its workloads as an interface at its
+in-cluster host, `<svc>.<ns>.svc`. It links every interface, exposed hosts
 included, to the instances serving behind it (D55). A host the render cannot
 place resolves to the instances that the published interfaces at that host
 link. A host that resolves nowhere fails the build, and no artifact is written.
@@ -292,7 +305,7 @@ The worked examples, to copy from:
 
 | Deploy repo | Producer | Publishes | Case |
 | --- | --- | --- | --- |
-| `ArgoCDDeploy` | `argocd-deploy` | prd, from `main` | a new app: no current producer, no flip |
+| `ArgoCDDeploy` | `argocd-deploy` | prd, from `main` | a new app: no current producer |
 | `KubeCoderDeploy` | `kubecoder-deploy` | prd, from `prd` | a handover from `helm-charts`; dev is not published |
 
 What the deploy repo carries:
@@ -313,7 +326,7 @@ What the deploy repo carries:
   --stage <stage> --producer <app>-deploy` and `cexec aac-tools arch-validate
   docs/architecture/<app>-deploy.yaml`.
 
-What a migration would otherwise get wrong:
+What a new producer would otherwise get wrong:
 
 - **One pipeline publishes one stage, from one branch.** The artifact is
   attached to the pipeline, so a pipeline that built two stages would publish
@@ -321,26 +334,21 @@ What a migration would otherwise get wrong:
   stage from and passes that stage to `--stage`, which is required and takes one
   value. That is the whole guard. The generator does not read the branch, and it
   has no rule about which stages an app publishes. KubeCoder publishes prd only.
-- **The moved annotation file states `introduced:`.** HelmCharts derives the
-  date from the first commit that adds `charts/<app>`. A deploy repo's history
-  dates the repo, not the app, so the generator requires the key and has no
-  fallback. Copy the file verbatim and add HelmCharts' date. Every published
-  element of the app carries that date, so a different date keeps the ids but
-  changes every element:
+- **The annotation file states `introduced:`.** A deploy repo's history dates
+  the repo, not the app, so the generator requires the key and has no fallback.
+  A new app takes the date of the first commit that adds its deploy repo's
+  `chart/`, as ArgoCDDeploy's does. An annotation file copied from HelmCharts'
+  `charts/<app>/architecture.yaml` keeps HelmCharts' date, the first commit that
+  adds `charts/<app>`. Every published element of the app carries that date:
 
   ```sh
   git -C /work/HelmCharts log --diff-filter=A --reverse --format=%ad --date=short -- charts/<app> | head -1
   ```
 
-  HelmCharts keeps publishing the app from its own copy until the flip, so the
-  two copies coexist until then. Record the copied commit in the deploy repo's
-  `README.md`, and replay any change to HelmCharts' copy. A new app takes the
-  date of the first commit that adds its deploy repo's `chart/`, as
-  ArgoCDDeploy's does.
 - **The producer id is `<app>-deploy`**, where `<app>` is `name:` in
   `chart/Chart.yaml`. The generator keys every id on the chart's name, while
-  Argo names the Application after the registry directory `configs/prd/<app>/`.
-  The two must be equal, and nothing checks that yet. The id is not the repo name
+  Argo names the Application after the app's registry entry. The two must be
+  equal, and nothing checks that yet. The id is not the repo name
   in kebab case, which would give `kube-coder-deploy`.
 - **`.architecturerc` names the real sources.** The default `sources`,
   `:(glob)**/docs/architecture/**`, matches nothing at a deploy repo's head,
@@ -370,40 +378,19 @@ What a migration would otherwise get wrong:
   green. The central architecture update reads those lines from the last green
   build. Map the image, or know why it stays a gap.
 
-The order runs from a committed producer to a registered one. Steps 4 and 5 are
+The order runs from a committed producer to a registered one. Steps 3 and 4 are
 the operator's:
 
 1. Commit the files. `kc project test` in the deploy repo generates and
    validates the artifact. Two regenerations from the same commit must be
    byte-identical. A difference means render-time randomness reaches an id or
    an emitted field.
-2. At a handover, prove that the new producer's artifact equals what
-   `helm-charts` publishes for the stage. The check clones the checkout's HEAD,
-   so commit the judgment layer first:
-
-   ```sh
-   cd /work/ArgoCDTools
-   cexec iac python3 aac-tools/checks/handover_equality.py \
-     --deploy-repo /work/<Repo> --stage <stage> --producer <app>-deploy
-   ```
-
-   Exit 0 means the same element ids and the same ids for the relations the
-   app's producer draws, with every field equal except those the check sets
-   aside. ArgoCDTools' README (Gates) says how to read a difference. A relation
-   that another producer draws against the app, such as a Serving edge from a
-   consumer in another app, is listed as `drawn by <producer>: <id>` and is not
-   compared: it resolves against an id the move keeps. The edges listed under
-   `helm-charts` need the other half of the proof. HelmCharts, rendering every
-   release but the app's, must still build and must draw each of them exactly
-   as published. `argo_migrate.py arch`, the bulk migration's tool in
-   `support/argo-migrate/`, runs both halves against one snapshot of the
-   published set.
-3. Push the published branch. A promotion branch must exist and carry the
+2. Push the published branch. A promotion branch must exist and carry the
    producer. KubeCoderDeploy's `prd` is created from `main` by its promote job's
    first run, at the prd cutover.
-4. Create the Jenkins job `AaC/<Repo>` to run `Jenkinsfile.architecture`, and
+3. Create the Jenkins job `AaC/<Repo>` to run `Jenkinsfile.architecture`, and
    build it. The first green build archives `docs/architecture/<app>-deploy.yaml`.
-5. Only after that green build, register the producer with a PR against
+4. Only after that green build, register the producer with a PR against
    `pipeline-producers.yaml` in `pvginkel/Architecture`:
 
    ```yaml
@@ -415,16 +402,10 @@ the operator's:
    A registered producer with no archived artifact fails the collector's
    discovery, and a failed collector run publishes nothing. `repo:` enrols the
    producer in the central architecture update.
-6. At a handover, flip the stage: push its registry entry
-   ([above](#registering-undeploying-and-unregistering-an-app)). From
-   registration until the flip, both producers declare the app's ids. The
-   collector fails on the duplicates, the Architecture job is red, and the
-   published model keeps the app as it was. The flip's HelmCharts architecture
-   build leaves the stage out, and the next collector run is green, with the new
-   producer owning the same ids. Flipping first would publish a green model
-   without the app. Each stage flips on its own: a stage that the new producer
-   does not publish leaves the model at its flip and needs no registration
-   first. A new app has no step 6.
+
+Registering the producer and adding the app's registry entry
+([above](#registering-undeploying-and-unregistering-an-app)) do not wait on each
+other.
 
 The central architecture update (`tooling/fleet.py` in `pvginkel/Architecture`)
 does not yet serve a producer correctly when that producer builds a promotion
@@ -445,8 +426,8 @@ stage is the first to run it.
 What the manifest cannot show:
 
 - **Never named `<app>-<stage>`.** The registry entry generates that name
-  (above), and the ApplicationSet would take over an Application already
-  holding it. Use `<app>-<stage>-preview`.
+  (above), and the registry would take over an Application already holding it.
+  Use `<app>-<stage>-preview`.
 - **`helm.releaseName` pinned back to `<app>-<stage>`.** Argo passes the
   Application's name to `helm template` as the release name unless
   `spec.source.helm.releaseName` overrides it, so a preview would render
@@ -497,7 +478,7 @@ For KubeCoder's dev stage:
          releaseName: kubecoder-dev
          valueFiles:
            - ../config/dev/values.yaml
-         # All four, as releases-local passes them: the library chart
+         # All four, as the registry passes them: the library chart
          # required-guards each, so a missing one fails the whole render.
          parameters:
            - name: hook.repo
@@ -615,9 +596,15 @@ The five pinned containers' `imagePullPolicy`, which Helm set to `Always`, is no
 residue. KubeCoderDeploy's chart declares it `IfNotPresent`, so the first sync
 takes the field over, and the diff table above shows the change.
 
-Working notes, the probes behind the mechanism, and the full per-stage
-inventory, taken before the chart declared the pull policy:
-[`handovers/argo-adoption-blind-spot/`](../../../AnsibleSpecs/handovers/argo-adoption-blind-spot/findings-2026-09-20.md).
+The mechanism was proven on 2026-09-20 on a throwaway ConfigMap: the field
+manager `helm` created it with two fields, and `argocd-controller` then applied
+it with one. The other field survived a client-side apply, a server-side apply
+with `--force-conflicts`, and a server-side re-apply after helm's
+`managedFields` entry had been deleted. It went only once `argocd-controller`
+had declared the field itself and a later apply dropped it. The pre-flight's
+first run that day, before KubeCoderDeploy's chart declared the pull policy,
+counted 52 stuck fields on `kubecoder-dev` and 55 on `kubecoder-prd`, every one
+of them the residue above or that pull policy.
 
 The alternative to adopting in place is recreating: delete the namespace and let
 Argo build the release from nothing, which needs no enumeration because nothing
@@ -627,8 +614,10 @@ state to interrupt. Which of the two is the estate's default is not yet decided.
 
 ## Bootstrapping Argo from nothing
 
-As run on 2026-09-04. Only when the cluster, or the `argocd-prd` namespace, is
-gone.
+Steps 1 to 3 are as run on 2026-09-04. Only when the cluster, or the
+`argocd-prd` namespace, is gone.
+
+> Steps 4 to 6 are owed until the registry switch has run ([registry-switch.md](registry-switch.md)): until then restart the applicationset-controller (above) in place of step 4, which then generates `argocd-prd` from HelmCharts' `configs/prd/argocd/prd/release.yaml`, and the registry webhook of step 6 is HelmCharts'.
 
 Before anything: `ArgoCDDeploy` pushed — the first self-sync clones
 `origin/main`, so any bootstrap-time fix left unpushed is reverted by it; the
@@ -679,18 +668,15 @@ the recipient committed in `config/prd/values.yaml`.
      helm install argocd-prd chart --namespace argocd-prd --values config/prd/values.yaml'
    ```
 
-4. Restart the applicationset-controller (above). Two startup races hit it on
-   2026-09-04: `failed to create webhook handler` (it reached its one-shot
-   settings read before argocd-server had generated `server.secretkey`), and a
-   single generation attempt against a repo-server not yet listening, which is
-   never retried. Both look like a healthy install with zero Applications.
-5. Argo's registry entry already exists (HelmCharts
-   `configs/prd/argocd/prd/release.yaml`); after the restart the `argocd-prd`
-   Application appears OutOfSync. Sync it once by hand — Argo has adopted itself.
-   Log in via SSO to confirm the client.
-6. The registry webhook on HelmCharts exists and survives a rebuild; GitHub's
-   creation ping, or a redelivery, should log "both receivers accepted" at the
-   relay.
+4. The install brings up `releases`, which syncs on its own and creates every
+   Application in the registry. Read it (Reading Argo without the CLI): Synced,
+   and the Application list back. If `releases` shows a `ComparisonError` or has
+   created nothing, refresh it by hand (Webhooks).
+5. Argo's registry entry already exists (ArgoCDDeploy `releases/values.yaml`,
+   `apps.argocd`), so the `argocd-prd` Application appears OutOfSync. Sync it
+   once by hand — Argo has adopted itself. Log in via SSO to confirm the client.
+6. ArgoCDDeploy's relay webhook exists and survives a rebuild; GitHub's creation
+   ping, or a redelivery, logs "both receivers accepted" at the relay.
 
 ## Known behaviours
 
@@ -714,6 +700,6 @@ the recipient committed in `config/prd/values.yaml`.
   the controller for fifteen minutes, which leaves both blind.
 - **Hook Jobs accumulate** for an app's lifetime; the delete policy never
   matches a name carrying SHA and timestamp. They go with the Application.
-- **Rebuilds.** Argo runs on prd only and keeps no node-local state, so a prd
-  node rebuild does not touch it. `k8s-rebuild.md`'s note that HelmCharts
-  releases on `srvk8sdev` need redeploying after a dev rebuild still holds.
+- **Rebuilds.** Argo runs on prd only, deploys only into prd (`in-cluster`) and
+  keeps no node-local state, so neither a prd node rebuild nor a `srvk8sdev`
+  rebuild touches it.

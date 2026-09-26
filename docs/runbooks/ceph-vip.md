@@ -163,8 +163,8 @@ After all three nodes are up:
 ## RGW S3 on the VIP (port 7480)
 
 The same VIP fronts the RGW S3 endpoint. Every S3 consumer targets
-`http://ceph:7480` (HelmCharts `configs/*/…-values.yaml`,
-`s3.endpointUrl`), and the VIP follows the active mgr — so it can land
+`http://ceph:7480` (each deploy repo's `config/prd/values.yaml`, as
+`s3.endpointUrl` or StorageDeploy's `s3Mirror.s3Endpoint`), and the VIP follows the active mgr — so it can land
 on **any** of the three nodes. **All three RGW daemons must therefore
 listen on 7480**, or S3 via the VIP goes dark whenever it sits on a
 node bound to a different port.
@@ -196,8 +196,8 @@ are converted.
 
 ## DNS
 
-`ceph.home → 10.1.0.38` is a dnsmasq static host entry in HelmCharts
-`configs/prd/dnsmasq.yaml` (`name: ceph`). No change needed here as
+`ceph.home → 10.1.0.38` is a dnsmasq static host entry in DnsmasqDeploy's
+`chart/templates/stage-manifests.yaml` (ConfigMap `static-hosts-config`, `name: ceph`). No change needed here as
 long as that entry is present.
 
 ## Phase 5 handoff

@@ -76,7 +76,7 @@ microk8s_metallb_advertisement_name: default-advertise-all-pools
 microk8s_metallb_pool_addresses: []
 
 # Memory requests for the addon-owned workloads (tasks/addon-resources.yml).
-# Values come from the same derivation HelmCharts' recommend-resources uses —
+# Values come from the same derivation support/recommend-resources uses —
 # p90 of the container's max working set over Prometheus history, rounded up
 # to the next quarter-power-of-two. Re-derive them when a channel bump moves
 # a component's footprint. An `addon:` key restricts an entry to clusters
