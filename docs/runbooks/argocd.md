@@ -588,7 +588,7 @@ deployment,statefulset,daemonset,job,cronjob,ingress,networkpolicy,role,rolebind
       .metadata.annotations["kubectl.kubernetes.io/last-applied-configuration"]) else . end)' \
   > /tmp/live.json
 # cluster-scoped objects one at a time, passed as extra arguments
-python3 /work/AnsibleSpecs/handovers/argo-adoption-blind-spot/stuck_fields.py \
+python3 /work/Ansible/support/argo-migrate/stuck_fields.py \
   <ns> /tmp/render.yaml /tmp/live.json /tmp/ns.json /tmp/clusterrole.json
 ```
 

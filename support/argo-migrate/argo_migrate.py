@@ -11,18 +11,26 @@ run record ANS-102). The steps, in order, are one subcommand each:
     pins       DockerImages deploy-pins.json entries; lists app-built images for their Jenkinsfiles
     publish    create the GitHub repo and push main; create and build AaC/<Repo>
     register   add the producer to Architecture's pipeline-producers.yaml (commit only)
-    flip       HelmCharts registry entry, autoSync false (commit only)
+    flip       the stage's registry entry, autoSync false (commit only)
     surgery    move the stage's Terraform state from HelmCharts' key to the hook's
     plan       the no-destroy plan: only the webhook may be created
     preflight  stuck fields, and a server-side diff of the render against live
     sync       the manual sync, and its checks
     unreplace  after the first sync, drop the SSE rewrite's Replace=true from the Deployment (pushed)
-    autosync   HelmCharts registry entry, autoSync true (commit only)
+    autosync   the stage's registry entry, autoSync true (commit only)
 
 Every step checks what it needs and exits non-zero with a STOP line when anything differs
 from the expected. A stopped app is parked: it keeps running as last deployed.
 
-Pushes to HelmCharts and Architecture are left to the caller, so several apps can go in one push.
+The registry is ArgoCDDeploy's releases/values.yaml (argo-cd D63). Whether a stage is on Argo,
+its upstream pin and its syncOptions are read there. flip and autosync edit it in place, keeping
+its comments, and `helm lint releases` checks each edit against the registry's schema.
+
+flip and autosync are owed until the registry switch has run (docs/runbooks/registry-switch.md):
+until then Argo reads HelmCharts' release.yaml files, not this registry.
+
+Pushes to ArgoCDDeploy, Architecture and DockerImages are left to the caller, so several apps can
+go in one push.
 
 Run from the dev container; helm, kubectl and terraform run in the `iac` sidecar via cexec.
 """
@@ -46,6 +54,9 @@ import yaml
 
 HC = Path("/work/HelmCharts")
 WORK = Path("/work")
+ARGOCD_DEPLOY = WORK / "ArgoCDDeploy"
+REGISTRY = "releases/values.yaml"
+STUCK_FIELDS = Path(__file__).resolve().parent / "stuck_fields.py"
 HOME = Path.home()
 KC = ["--kubeconfig", str(HOME / ".kube/config-prd-write"), "--context", "prd"]
 HKC = ["--kubeconfig", str(HOME / ".kube/config-prd-write"), "--kube-context", "prd"]
@@ -94,8 +105,8 @@ class App:
         self.release = yaml.safe_load(rel.read_text()) if rel.exists() else {}
         self.release = self.release or {}
         self.chart_name = self.release.get("chart") or name
-        # HelmCharts' shape before the flip ({repo_name, repo_url, chart: <repo>/<chart>}),
-        # the registry's after it ({repo, chart, version}).
+        # HelmCharts' shape ({repo_name, repo_url, chart: <repo>/<chart>}) for a stage not yet
+        # migrated.
         self.upstream = self.release.get("upstream")
         self.repo_name = "".join(p.capitalize() for p in name.split("-")) + "Deploy"
         self.path = WORK / self.repo_name
@@ -109,6 +120,16 @@ class App:
     @property
     def chart_src(self) -> Path:
         return HC / "charts" / self.chart_name
+
+    @property
+    def entry(self) -> dict:
+        """The app's registry entry, {} when it has none."""
+        return registry_apps().get(self.name) or {}
+
+    @property
+    def on_argo(self) -> bool:
+        """A stage is on Argo by having an entry in the registry (argo-cd D63)."""
+        return self.stage in self.entry.get("stages", {})
 
     def load_state(self) -> dict:
         p = self.state_file
@@ -306,7 +327,7 @@ The PreSync hook applies `terraform/` with `config/{stage}/*.tfvars` against
 `argocd/{repo}/{stage}/terraform.tfstate`.
 
 - **The chart version** is pinned in two places that must agree: this app's registry entry
-  (HelmCharts `configs/prd/{app}/{stage}/release.yaml`, `upstream.version`), which Argo
+  (ArgoCDDeploy `releases/values.yaml`, `apps.{app}.stages.{stage}.version`), which Argo
   renders, and `architecture.yaml`'s `upstream:` block, which the architecture generator
   renders (D57). Bump both in one change.
 - **The companion** `chart/` renders only estate content: the Namespace (D25), the hook
@@ -411,7 +432,8 @@ def extra_live(app: App) -> list[dict]:
 
 
 def live_upstream(app: App) -> dict:
-    """The upstream chart the live release runs, in the registry's shape (argo-cd D57).
+    """The upstream chart the live release runs, in architecture.yaml's `upstream:` shape
+    (argo-cd D57).
 
     HelmCharts' release.yaml names the chart unversioned, so each deploy took the newest; the
     version is what the release last installed, read off `helm list`."""
@@ -441,12 +463,22 @@ def up_fmt(upstream: dict | None) -> dict:
     return {f"up_{k}": v for k, v in (upstream or {}).items()}
 
 
+def registry_upstream(app: App) -> dict | None:
+    """The stage's upstream chart as the registry pins it, in architecture.yaml's shape."""
+    e = app.entry
+    if "upstream" not in e or app.stage not in e["stages"]:
+        return None
+    return {**e["upstream"], "version": e["stages"][app.stage]["version"]}
+
+
 def check_upstream_pin(app: App) -> None:
     """D57: the version lives twice, in the deploy repo and in the registry. Once flipped, the
     two must be one."""
+    if not app.on_argo:
+        return
     mine = repo_upstream(app)
-    reg = app.upstream if app.release.get("reconciler") == "argo-cd" else None
-    if reg is not None and mine != {k: str(v) for k, v in reg.items()}:
+    reg = registry_upstream(app)
+    if mine != reg:
         raise Stop(f"registry upstream {reg} != the deploy repo's architecture.yaml {mine}")
 
 
@@ -933,7 +965,7 @@ def add_stage(app: App, args) -> None:
 
 
 def cmd_scaffold(app: App, args) -> None:
-    if app.release.get("reconciler") == "argo-cd":
+    if app.on_argo:
         raise Stop("already on Argo")
     if app.release.get("disabled"):
         raise Stop("disabled in HelmCharts")
@@ -995,7 +1027,7 @@ def cmd_scaffold(app: App, args) -> None:
     schema = p / "chart/values.schema.json"
     if schema.exists():
         # A closed schema must admit the keys the deploy repo adds: the library's own block,
-        # the ApplicationSet's hook parameters and the pinned stamp.
+        # the Application's hook parameters and the pinned stamp.
         sj = json.loads(schema.read_text())
         props = sj.setdefault("properties", {})
         props.setdefault("homelab-shared", {"type": "object"})
@@ -1082,7 +1114,7 @@ def cmd_scaffold(app: App, args) -> None:
             raise Stop("architecture.yaml already states upstream:")
         up_text = (
             "# The chart Argo CD renders as source 0 (argo-cd D57). The version is the one this app's\n"
-            "# registry entry pins (HelmCharts configs/prd/<app>/<stage>/release.yaml): bump both.\n"
+            "# registry entry pins (ArgoCDDeploy releases/values.yaml, the stage's version): bump both.\n"
             + yaml.safe_dump({"upstream": upstream}, sort_keys=False) + "\n")
     (p / "architecture.yaml").write_text(
         "# The judgment layer the aac-tools generator reads (Jenkinsfile.architecture); copied\n"
@@ -1228,7 +1260,8 @@ LAST_APPLIED_LIMIT = 262144
 
 def cmd_verify(app: App, args) -> None:
     up = repo_upstream(app)
-    if up and app.release.get("reconciler") != "argo-cd" and live_upstream(app) != up:
+    on_argo = app.on_argo
+    if up and not on_argo and live_upstream(app) != up:
         raise Stop(f"the live release runs {live_upstream(app)}, the deploy repo pins {up}")
     check_upstream_pin(app)
     everything = docs(render(app))
@@ -1242,10 +1275,10 @@ def cmd_verify(app: App, args) -> None:
     live_text = iac("helm", *HKC, "get", "manifest", app.ns, "-n", app.ns).stdout
     live = {key(d): d for d in docs(live_text)}
     manifests = app.stage_dir / "manifests.yaml"
-    if manifests.exists() and app.release.get("reconciler") != "argo-cd":
+    if manifests.exists() and not on_argo:
         for d in docs(manifests.read_text()):
             live[key(d)] = d
-    if app.release.get("reconciler") != "argo-cd":
+    if not on_argo:
         for d in extra_live(app):
             live[key(d)] = d
     for kind, name, path in D59.get(app.name, {}).get("drops", []):
@@ -1409,19 +1442,20 @@ def hc_releases_without(app: App) -> list[str]:
     The bare chart name is the only name of a chart's prd release, and it selects the chart's
     other stages too, so a non-prd stage cannot be left out while its prd is rendered.
     """
-    def flipped(chart: Path, stage: str) -> bool:
-        rel = chart / stage / "release.yaml"
-        return rel.exists() and (yaml.safe_load(rel.read_text()) or {}).get("reconciler") == "argo-cd"
+    apps = registry_apps()
 
-    if app.stage != "prd" and (app.cfg / "prd").is_dir() and not flipped(app.cfg, "prd"):
+    def flipped(name: str, stage: str) -> bool:
+        return stage in (apps.get(name) or {}).get("stages", {})
+
+    if app.stage != "prd" and (app.cfg / "prd").is_dir() and not flipped(app.name, "prd"):
         raise Stop(f"gen-architecture cannot render {app.name}'s prd release without its {app.stage} one: "
                    f"flip prd first (HC-16)")
     names = []
     for chart in sorted(p for p in (HC / "configs/prd").iterdir() if p.is_dir()):
         for stage in sorted(p.name for p in chart.iterdir() if p.is_dir() and p.name != "_shared"):
-            # A flipped stage renders nothing in HelmCharts; naming it would select the chart's
-            # other stages too, the moving one among them.
-            if (chart.name, stage) != (app.name, app.stage) and not flipped(chart, stage):
+            # A flipped stage publishes through its deploy repo's producer; naming it would
+            # select the chart's other stages too, the moving one among them.
+            if (chart.name, stage) != (app.name, app.stage) and not flipped(chart.name, stage):
                 names.append(chart.name if stage == "prd" else f"{chart.name}@{stage}")
     return names
 
@@ -1533,41 +1567,173 @@ def cmd_register(app: App, args) -> None:
     log(f"registered {app.producer} (Architecture, local commit)")
 
 
-def registry_entry(app: App, auto: bool) -> str:
-    text = ("reconciler: argo-cd\ndeployed: true\n"
-            f"autoSync: {'true' if auto else 'false'}\n"
-            f"repo: {app.url}\ntargetRevision: main\n")
-    if app.load_state().get("ssa"):
-        # Objects over the last-applied limit: the Application applies server-side (D62).
-        text += "syncOptions:\n  - ServerSideApply=true\n"
-    up = repo_upstream(app)
-    if up:
-        # The chart releases-upstream renders; the deploy repo's architecture.yaml pins the same
-        # version for the generator (argo-cd D57): bump both.
-        text += yaml.safe_dump({"upstream": up}, sort_keys=False)
+def registry_apps() -> dict:
+    """The registry's apps, read afresh: flip and autosync rewrite the file."""
+    return yaml.safe_load((ARGOCD_DEPLOY / REGISTRY).read_text())["apps"]
+
+
+APP_KEY = re.compile(r"^  ([a-z0-9-]+):")
+STAGE_KEY = re.compile(r"^      ([a-z0-9-]+):")
+
+
+def indent(line: str) -> int:
+    return len(line) - len(line.lstrip(" "))
+
+
+def block_end(lines: list[str], key: int) -> int:
+    """The end of the block keyed at lines[key]: the first later non-blank line, comments
+    included, indented no deeper than the key."""
+    return next((i for i in range(key + 1, len(lines))
+                 if lines[i].strip() and indent(lines[i]) <= indent(lines[key])), len(lines))
+
+
+def keys_in(lines: list[str], pattern: re.Pattern, start: int, end: int) -> dict[str, int]:
+    return {m[1]: i for i in range(start, end) if (m := pattern.match(lines[i]))}
+
+
+def insert_at(lines: list[str], keys: dict[str, int], name: str, end: int) -> int:
+    """Where key `name` goes, in name order: above the first greater key and the comments that
+    open it, else at `end`."""
+    i = next((i for k, i in keys.items() if k > name), end)
+    while i < end and lines[i - 1].lstrip().startswith("#") and indent(lines[i - 1]) == indent(lines[i]):
+        i -= 1
+    return i
+
+
+def stages_block(lines: list[str], name: str) -> tuple[int, int]:
+    """The line of app `name`'s `stages:` key and the end of its block."""
+    top = lines.index("apps:\n")
+    apps = keys_in(lines, APP_KEY, top + 1, block_end(lines, top))
+    at = apps[name]
+    st = next((i for i in range(at + 1, block_end(lines, at)) if lines[i] == "    stages:\n"), None)
+    if st is None:
+        raise Stop(f"registry: {name} has no block `stages:`")
+    return st, block_end(lines, st)
+
+
+def checked(doc: dict, lines: list[str]) -> str:
+    """The edited text, which must parse to `doc`: nothing but the intended entry changed."""
+    text = "".join(lines)
+    if yaml.safe_load(text) != doc:
+        raise Stop("registry: the edit does not parse to the intended registry")
     return text
 
 
+def flip_entry(app: App) -> tuple[dict, dict]:
+    """The app's registry entry, less its stages, and the stage's entry, as flip writes them."""
+    entry = {"repo": app.url}
+    up = repo_upstream(app)
+    if up:
+        entry["upstream"] = {"repo": up["repo"], "chart": up["chart"]}
+    if app.load_state().get("ssa"):
+        entry["syncOptions"] = ["ServerSideApply=true"]
+    stage = {"autoSync": False}
+    if up:
+        # The chart the Application renders; the deploy repo's architecture.yaml pins the same
+        # version for the generator (argo-cd D57): bump both.
+        stage["version"] = up["version"]
+    return entry, stage
+
+
+def stage_lines(stage: str, fields: dict) -> list[str]:
+    return [f"      {stage}:\n", *(f"        {k}: {json.dumps(v)}\n" for k, v in fields.items())]
+
+
+def registry_flip(text: str, name: str, stage: str, entry: dict, fields: dict) -> str:
+    """`text` with app `name`'s `stage` added: the app's entry is `entry` plus its stages, and the
+    stage's is `fields`. A stage of an app the registry has joins its stages; every other line
+    stays as it was."""
+    import copy
+    doc = yaml.safe_load(text)
+    have = doc["apps"].get(name)
+    if have and stage in have["stages"]:
+        raise Stop(f"registry: {name}-{stage} is there already")
+    if have:
+        differ = sorted(k for k in {*entry, *have} - {"stages"} if entry.get(k) != have.get(k))
+        if differ:
+            raise Stop(f"registry: {name}'s {', '.join(differ)} differ from what {stage} needs: "
+                       f"{ {k: have.get(k) for k in differ} } != { {k: entry.get(k) for k in differ} }")
+    want = copy.deepcopy(doc)
+    want["apps"].setdefault(name, {**entry, "stages": {}})["stages"][stage] = fields
+    lines = text.splitlines(keepends=True)
+    if have:
+        st, end = stages_block(lines, name)
+        at = insert_at(lines, keys_in(lines, STAGE_KEY, st + 1, end), stage, end)
+        lines[at:at] = stage_lines(stage, fields)
+        return checked(want, lines)
+    block = [f"  {name}:\n", f"    repo: {entry['repo']}\n"]
+    if "upstream" in entry:
+        block += ["    upstream:\n", f"      repo: {entry['upstream']['repo']}\n",
+                  f"      chart: {entry['upstream']['chart']}\n"]
+    if "syncOptions" in entry:
+        block += ["    # Its render holds objects over the 256 KiB `last-applied-configuration`\n",
+                  "    # annotation that client-side apply writes (D62).\n",
+                  "    syncOptions:\n", *(f"      - {o}\n" for o in entry["syncOptions"])]
+    block += ["    stages:\n", *stage_lines(stage, fields)]
+    top = lines.index("apps:\n")
+    end = block_end(lines, top)
+    at = insert_at(lines, keys_in(lines, APP_KEY, top + 1, end), name, end)
+    lines[at:at] = block
+    return checked(want, lines)
+
+
+def registry_autosync(text: str, name: str, stage: str) -> str:
+    """`text` with app `name`'s `stage` auto-syncing: its `autoSync: false` line goes, with the
+    comment lines just above it, since true is the default."""
+    import copy
+    doc = yaml.safe_load(text)
+    stages = (doc["apps"].get(name) or {}).get("stages", {})
+    if stage not in stages:
+        raise Stop(f"registry: no {name}-{stage}; flip comes first")
+    if stages[stage].get("autoSync", True):
+        raise Stop(f"registry: {name}-{stage} auto-syncs already")
+    want = copy.deepcopy(doc)
+    del want["apps"][name]["stages"][stage]["autoSync"]
+    lines = text.splitlines(keepends=True)
+    st, end = stages_block(lines, name)
+    at = keys_in(lines, STAGE_KEY, st + 1, end)[stage]
+    off = [i for i in range(at + 1, block_end(lines, at))
+           if lines[i].split("#")[0].rstrip() == "        autoSync: false"]
+    if len(off) != 1:
+        raise Stop(f"registry: {name}-{stage} has no line `autoSync: false` to drop")
+    first = off[0]
+    while lines[first - 1].lstrip().startswith("#") and indent(lines[first - 1]) == 8:
+        first -= 1
+    del lines[first:off[0] + 1]
+    if not any(l.strip() and not l.lstrip().startswith("#") for l in lines[at + 1:block_end(lines, at)]):
+        key, comment = re.fullmatch(r"( *[a-z0-9-]+:)(.*)\n", lines[at]).groups()
+        lines[at] = f"{key} {{}}{comment}\n"
+    return checked(want, lines)
+
+
+def registry_commit(edit, message: str) -> None:
+    """Rewrites the registry with `edit`, has Helm check it against the registry's schema, and
+    commits it."""
+    f = ARGOCD_DEPLOY / REGISTRY
+    old = f.read_text()
+    f.write_text(edit(old))
+    lint = iac("helm", "lint", "releases", cwd=ARGOCD_DEPLOY, check=False)
+    if lint.returncode != 0:
+        f.write_text(old)
+        raise Stop(f"helm lint releases refuses the edit:\n{lint.stdout}{lint.stderr}")
+    run(["git", "commit", "-q", "-m", message, "--", REGISTRY], cwd=ARGOCD_DEPLOY)
+
+
 def cmd_flip(app: App, args) -> None:
-    d = app.stage_dir
-    (d / "release.yaml").write_text(registry_entry(app, False))
-    for n in ("values.yaml", "manifests.yaml"):
-        if (d / n).exists():
-            run(["git", "rm", "-q", str(d / n)], cwd=HC)
-    run(["git", "add", str(d)], cwd=HC)
-    run(["git", "commit", "-q", "-m",
-         f"{app.name} {app.stage}: Argo CD reconciles the stage from {app.repo_name} (argo-cd D51)"], cwd=HC)
+    entry, fields = flip_entry(app)
+    registry_commit(lambda text: registry_flip(text, app.name, app.stage, entry, fields),
+                    f"{app.name} {app.stage}: Argo CD reconciles the stage from {app.repo_name} "
+                    "(argo-cd D51, D63)")
     app.save_state(flipped=True)
-    log("registry flipped, autoSync false (HelmCharts, local commit)")
+    log("registry flipped, autoSync false (ArgoCDDeploy, local commit)")
 
 
 def cmd_autosync(app: App, args) -> None:
     check_upstream_pin(app)
-    (app.stage_dir / "release.yaml").write_text(registry_entry(app, True))
-    run(["git", "add", str(app.stage_dir)], cwd=HC)
-    run(["git", "commit", "-q", "-m", f"{app.name} {app.stage}: Argo CD auto-syncs the stage (argo-cd D51)"], cwd=HC)
+    registry_commit(lambda text: registry_autosync(text, app.name, app.stage),
+                    f"{app.name} {app.stage}: Argo CD auto-syncs the stage (argo-cd D51, D63)")
     app.save_state(autosync=True)
-    log("autoSync true (HelmCharts, local commit)")
+    log("autoSync true (ArgoCDDeploy, local commit)")
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1711,6 +1877,8 @@ EXPECTED_STUCK = {"metadata.labels", "metadata.annotations"}
 
 
 def cmd_preflight(app: App, args) -> None:
+    if not app.on_argo:
+        raise Stop("not flipped: the registry entry's syncOptions decide how the sync applies (D62)")
     run(["git", "pull", "-q", "--ff-only"], cwd=app.path, check=False)
     check_upstream_pin(app)
     sha = run(["git", "rev-parse", "origin/main"], cwd=app.path).stdout.strip()
@@ -1743,8 +1911,7 @@ def cmd_preflight(app: App, args) -> None:
                 if r.returncode == 0:
                     f.write_text(r.stdout)
                     extras.append(str(f))
-        r = run(["python3", "/work/AnsibleSpecs/handovers/argo-adoption-blind-spot/stuck_fields.py",
-                 app.ns, str(tmp / "render.yaml"), str(tmp / "live.json"), *extras], check=False)
+        r = run(["python3", str(STUCK_FIELDS), app.ns, str(tmp / "render.yaml"), str(tmp / "live.json"), *extras], check=False)
         out = r.stdout + r.stderr
         (HOME / "bulk-migration/logs" / f"{app.ns}.preflight.txt").write_text(out)
         objs = [d for d in docs(rtext) if not is_hook(d) and not helm_test(d)]
@@ -1767,7 +1934,7 @@ def cmd_preflight(app: App, args) -> None:
         # Server-side diff of the render against live: what the sync would change.
         (tmp / "apply.yaml").write_text(yaml.safe_dump_all(objs))
         side = (["--server-side", "--field-manager=argocd-controller", "--force-conflicts"]
-                if app.load_state().get("ssa") else ["--server-side=false"])
+                if "ServerSideApply=true" in app.entry.get("syncOptions", []) else ["--server-side=false"])
         d = iac("kubectl", *KC, "diff", "-n", app.ns, *side, "-f", str(tmp / "apply.yaml"), check=False)
         (HOME / "bulk-migration/logs" / f"{app.ns}.diff.txt").write_text(d.stdout + d.stderr)
         changed = diff_problems(d.stdout, ACCEPTED.get(app.name, {}).get("lines"))
