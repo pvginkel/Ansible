@@ -28,9 +28,11 @@ The shorthands every step uses. The credentials are the ones
 
 ```sh
 KC="--kubeconfig $HOME/.kube/config-prd-write --context prd"
-# A manual sync without prune: the UI's Sync with Prune unticked
+# A manual sync without prune: the UI's Sync with Prune unticked. It returns once the sync has
+# finished, successfully or not: the controller clears .operation when the operation completes
 argosync() { cexec iac kubectl $KC patch application -n argocd-prd "$1" --type merge \
-  -p '{"operation":{"initiatedBy":{"username":"registry-switch"},"sync":{"syncStrategy":{"hook":{}}}}}'; }
+  -p '{"operation":{"initiatedBy":{"username":"registry-switch"},"sync":{"syncStrategy":{"hook":{}}}}}' \
+  && while [ -n "$(cexec iac kubectl $KC get application -n argocd-prd "$1" -o jsonpath='{.operation}')" ]; do sleep 5; done; }
 # Sync status, then the last operation's phase and message
 argostate() { cexec iac kubectl $KC get application -n argocd-prd "$1" \
   -o jsonpath='{.status.sync.status} {.status.operationState.phase}: {.status.operationState.message}{"\n"}'; }
@@ -221,6 +223,8 @@ without. Slice 029's push came before the webhook, so refresh by hand first:
 
 ```sh
 cexec iac kubectl $KC annotate application -n argocd-prd argocd-prd argocd.argoproj.io/refresh=normal --overwrite
+# The controller drops the annotation once it has refreshed
+while [ -n "$(cexec iac kubectl $KC get application -n argocd-prd argocd-prd -o jsonpath='{.metadata.annotations.argocd\.argoproj\.io/refresh}')" ]; do sleep 5; done
 outofsync argocd-prd
 ```
 
@@ -435,6 +439,8 @@ For the follow-up. Removing any of these changes nothing in the render.
   - `tools/registry-equivalence.py`. From the switch, `releases`' own sync status answers its
     question, and it counts `releases` itself as `ONLY LIVE`.
   - Ansible's `support/registry-switch-rehearsal/`, whose only reader is step 1.
+  - ArgoCDDeploy's `README.md` on `releases.owner` and the two ApplicationSets, and its pointer
+    to `tools/registry-equivalence.py`.
   - [argocd.md](argocd.md)'s "Restarting the applicationset-controller", which serves only the
     ApplicationSets.
 - **Serving nothing any more:**

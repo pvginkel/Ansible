@@ -69,8 +69,8 @@ as on srviac, which Jenkins uses and which stays up when Kubernetes is down. Det
 ## Related repos on this machine
 
 All under `/work`, same paths for Claude and operator: `AnsibleSpecs` (decisions, slices — a
-separate git repo, commit there too), `HelmCharts` (the deploy path before Argo CD; its archive
-is ANS-122), `DockerImages`, `HomelabTerraformProvider`,
+separate git repo, commit there too), `HelmCharts` (the deploy path before Argo CD, cloned
+until it is archived), `DockerImages`, `HomelabTerraformProvider`,
 `Charts` (the `homelab-shared` Helm library chart and the `https://charts.home` chart repository —
 see its README), `ArgoCDTools` (two images: `argocd-hook`, the Argo CD Terraform PreSync hook, and
 `aac-tools`, the architecture-as-code commands a repo's checkout runs — see its README),

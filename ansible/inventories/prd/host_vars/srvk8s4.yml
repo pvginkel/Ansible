@@ -19,7 +19,7 @@ microk8s_worker_only: true
 # datasets, including the controller chart's static-zfs-pv. Pods that must
 # run here (KubeCoder, and the DaemonSets srvk8s4 depends on — Ceph CSI,
 # iac-provisioner, node-exporter) carry a matching toleration; those live
-# with the workloads in HelmCharts.
+# with the workloads, in their deploy repos.
 #
 # The label + taint are reconciled by the elected primary. The role only
 # adds/updates them, never deletes: clearing the stale `performance: high`

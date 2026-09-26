@@ -240,7 +240,7 @@ This file is public; commit it alongside the `baseline` role change.
 Recipients trust the root by file content — keep the PEM-armored form
 exactly as exported.
 
-### 7. Hand the encrypted intermediate to the chart
+### 7. Hand the CA's material to the chart
 
 StepCaDeploy runs the upstream `step-certificates` chart in
 `existingSecrets` mode (`config/prd/values.yaml`). The chart reads the
@@ -249,18 +249,52 @@ CA's material from these Secrets in `step-ca-prd`:
 | Secret | Keys |
 |---|---|
 | `step-ca-certs` | `root_ca.crt`, `intermediate_ca.crt`, `ssh_host_ca_key.pub` |
-| `step-ca-secrets` | `intermediate_ca_key` (`.step/secrets/intermediate_ca_key`, encrypted PEM), `ssh_host_ca_key` |
-| `step-ca-ca-password` | `password`: `homelab-ca intermediate key passphrase` from Roboform |
+| `step-ca-secrets` | `intermediate_ca_key` (encrypted PEM), `ssh_host_ca_key` |
+| `step-ca-ca-password` | `password` |
+| `step-ca-ssh-host-ca-password` | `password` |
 | `step-ca-config` | `ca.json`, `defaults.json` |
 
-Today StepCaDeploy's `chart/templates/stage-manifests.yaml` renders all
-four, every value base64-encoded, so the key and its passphrase are in
-git despite the Conventions above. AnsibleSpecs `decisions.md`
-("Intermediate key + passphrase") tracks moving them out.
+StepCaDeploy's `chart/templates/stage-manifests.yaml` renders all five,
+every value base64-encoded, so the key and its passphrase are in git
+despite the Conventions above. AnsibleSpecs `decisions.md`
+("Intermediate key + passphrase") tracks moving them out. The SSH host
+CA's values (`ssh_host_ca_key.pub`, `ssh_host_ca_key` and
+`step-ca-ssh-host-ca-password`) belong to
+[Enabling the SSH host CA](#enabling-the-ssh-host-ca), not to this
+ceremony.
 
-Once Argo has synced `step-ca-prd` and the pod confirms the
-intermediate decrypts (look for `Serving HTTPS on :8443` in the pod
-logs), the local `intermediate_ca_key` file is no longer needed.
+In `stage-manifests.yaml`, replace these values with the base64 of
+this ceremony's material:
+
+- `step-ca-certs`' `root_ca.crt` (`.step/certs/root_ca.crt`) and
+  `intermediate_ca.crt` (`.step/certs/intermediate_ca.crt`);
+- `step-ca-secrets`' `intermediate_ca_key`
+  (`.step/secrets/intermediate_ca_key`);
+- `step-ca-ca-password`'s `password`: `homelab-ca intermediate key
+  passphrase` from Roboform;
+- `step-ca-config`'s `ca.json` and `defaults.json`: decode them and
+  bring in, from the ceremony's `.step/config/`, the `authority`
+  block's provisioners and claims (steps 1 and 3–5) and the new root's
+  `fingerprint`. Keep the chart's paths, which are the pod's
+  (`/home/step/certs/…`, `/home/step/secrets/intermediate_ca_key`,
+  `/home/step/db`, `/home/step/config/ca.json`) and not the ceremony
+  directory's, and keep `ca.json`'s `ssh` block.
+
+Commit and push; Argo syncs `step-ca-prd`. The sync rolls nothing
+([Enabling the SSH host CA](#enabling-the-ssh-host-ca), step 3), so
+restart the StatefulSet, then check that the cluster holds this
+ceremony's root:
+
+```sh
+kubectl -n step-ca-prd rollout restart statefulset step-ca
+kubectl -n step-ca-prd rollout status  statefulset step-ca
+kubectl -n step-ca-prd get secret step-ca-certs -o jsonpath='{.data.root_ca\.crt}' \
+  | base64 -d | diff - .step/certs/root_ca.crt
+```
+
+`diff` prints nothing. Once the pod confirms the intermediate decrypts
+(look for `Serving HTTPS on :8443` in its logs), the local
+`intermediate_ca_key` file is no longer needed.
 
 ### 8. Encrypt the JWK provisioner password for Ansible
 

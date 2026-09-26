@@ -5,8 +5,9 @@
 # node IP. Design: slices/internal-ha-vips.md.
 #
 # Each VIP is a static reservation outside the dnsmasq DHCP pool and
-# is pinned as a dnsmasq static host entry (HelmCharts
-# configs/prd/dnsmasq.yaml). `virtual_router_id` namespaces a
+# is pinned as a dnsmasq static host entry (DnsmasqDeploy's
+# static-hosts-config ConfigMap in chart/templates/stage-manifests.yaml).
+# `virtual_router_id` namespaces a
 # cluster's VRRP traffic on the shared LAN — it MUST be unique across
 # every VRRP group reachable on the LAN.
 homelab_vips:

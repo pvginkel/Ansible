@@ -38,7 +38,7 @@ variable "backup_server_url" {
 }
 
 variable "backup_server_token" {
-  description = "Management bearer token for the backup-server admin API; authorizes minting + destroying scope-bound upload credentials. Source: backupServer.managementToken in HelmCharts configs/prd/storage-values.yaml. Lives in terraform.tfvars (gitignored)."
+  description = "Management bearer token for the backup-server admin API; authorizes minting + destroying scope-bound upload credentials. The server reads it from OpenBao kv/eso/prd/storage/prd/backup-server (StorageDeploy's ExternalSecret); here it arrives as TF_VAR_backup_server_token or in terraform.tfvars (gitignored)."
   type        = string
   sensitive   = true
 }

@@ -21,8 +21,9 @@ actually ran and the Phase A proof drill are recorded in slice 009's
 - The operator's keystroke applies: every sync, every bootstrap command, every
   `bao kv put`, every deletion. Claude prepares and reads.
 - There is no `argocd` CLI in the `iac` sidecar and none is needed. Everything
-  below is `kubectl` with the prd-write kubeconfig; the read-only default
-  kubeconfig cannot list `argoproj.io` kinds. Shorthand used throughout:
+  below is `kubectl` with the prd-write kubeconfig. The read-only default
+  kubeconfig can list Applications, ApplicationSets and AppProjects, but not
+  patch or annotate them. Shorthand used throughout:
 
   ```sh
   KC="--kubeconfig $HOME/.kube/config-prd-write --context prd"

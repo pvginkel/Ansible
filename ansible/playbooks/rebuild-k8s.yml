@@ -153,7 +153,7 @@
       # speaker, node-exporter, SMB CSI follow) and recover on its own
       # — just more event-log noise. The race-free alternative is
       # `--register-with-taints` on kubelet, which requires explicit
-      # tolerations on every critical DaemonSet (HelmCharts territory).
+      # tolerations on every critical DaemonSet (the deploy repos' territory).
       # Retries cover the brief gap where kubelite may not have surfaced
       # the new node to the API yet.
       ansible.builtin.command:

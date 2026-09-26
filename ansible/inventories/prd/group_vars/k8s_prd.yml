@@ -119,8 +119,9 @@ baseline_etc_hosts_entries:
 # registry — Ceph addressing must therefore be resolvable from
 # inside the cluster without touching the LAN DNS path. Ceph IPs
 # are static infrastructure and never flow through the dynamic
-# reservation API; the same triples live in HelmCharts
-# configs/{prd,dev}/dnsmasq.yaml.
+# reservation API; the same triples live in DnsmasqDeploy's static
+# hosts (chart/templates/stage-manifests.yaml), and dev's in HelmCharts'
+# configs/dev/dnsmasq.yaml.
 microk8s_coredns_hosts:
   - { ip: 172.17.0.3, names: [registry, registry.home] }
   - { ip: 10.1.0.38, names: [ceph, ceph.home] }

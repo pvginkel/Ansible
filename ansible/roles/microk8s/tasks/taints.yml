@@ -13,8 +13,8 @@
 # A NoSchedule taint repels DaemonSets too, so any workload that must run
 # on a tainted node — the KubeCoder pods plus the cluster DaemonSets it
 # depends on (Ceph CSI, node-exporter, MetalLB speaker, …) — needs a
-# matching toleration. Those tolerations live with the workloads in
-# HelmCharts; see README "Node taints / dedicated nodes".
+# matching toleration. Those tolerations live with the workloads, in
+# their deploy repos; see README "Node taints / dedicated nodes".
 - name: Reconcile node taints (primary only)
   ansible.builtin.command:
     argv:
