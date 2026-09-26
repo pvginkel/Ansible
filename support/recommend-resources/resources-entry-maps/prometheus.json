@@ -1,0 +1,8 @@
+{
+    "prometheus-prd-server/prometheus-server": "server.resources.requests",
+    "prometheus-prd-alertmanager/alertmanager": "alertmanager.resources.requests",
+    "prometheus-prd-prometheus-pushgateway/pushgateway": "prometheus-pushgateway.resources.requests",
+    "prometheus-prd-prometheus-node/node-exporter": "prometheus-node-exporter.resources.requests",
+    "prometheus-prd-kube-state-metrics/kube-state-metrics": "kube-state-metrics.resources.requests",
+    "prometheus-prd-server/prometheus-server-configmap-reload": "configmapReload.prometheus.resources.requests"
+}

@@ -1,0 +1,4 @@
+{
+    "headlamp-prd/headlamp": "resources.requests",
+    "headlamp-prd/headlamp-plugin": "pluginsManager.resources.requests"
+}
