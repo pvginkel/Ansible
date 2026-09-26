@@ -1,0 +1,17 @@
+---
+# The rehearsal's app-of-apps, shaped like `releases` at the flip: no
+# finalizer and no sync policy. The operator applies it with kubectl.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: switch-rehearsal-parent
+  namespace: argocd-prd
+spec:
+  project: releases
+  source:
+    repoURL: https://github.com/pvginkel/Ansible.git
+    targetRevision: main
+    path: support/registry-switch-rehearsal/parent
+  destination:
+    name: in-cluster
+    namespace: argocd-prd

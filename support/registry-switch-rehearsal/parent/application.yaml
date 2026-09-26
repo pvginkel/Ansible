@@ -1,0 +1,29 @@
+---
+# What the rehearsal's app-of-apps renders: the Application
+# ../applicationset.yaml generates, spec for spec, as the registry chart renders
+# the Applications the two ApplicationSets generate.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: switch-rehearsal-tst
+  namespace: argocd-prd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: releases
+  source:
+    repoURL: https://github.com/pvginkel/Ansible.git
+    targetRevision: main
+    path: support/registry-switch-rehearsal/child
+  destination:
+    name: in-cluster
+    namespace: switch-rehearsal-tst
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: false
+    retry:
+      limit: 3
+      backoff:
+        duration: 30s
+        factor: 2

@@ -1,0 +1,39 @@
+---
+# The registry switch's rehearsal (docs/runbooks/registry-switch.md, step 1):
+# a throwaway ApplicationSet shaped like releases-local, generating one
+# throwaway Application. The operator applies it with kubectl.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: switch-rehearsal-set
+  namespace: argocd-prd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - list:
+        elements:
+          - stage: tst
+  template:
+    metadata:
+      name: 'switch-rehearsal-{{ .stage }}'
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: releases
+      source:
+        repoURL: https://github.com/pvginkel/Ansible.git
+        targetRevision: main
+        path: support/registry-switch-rehearsal/child
+      destination:
+        name: in-cluster
+        namespace: 'switch-rehearsal-{{ .stage }}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: false
+        retry:
+          limit: 3
+          backoff:
+            duration: 30s
+            factor: 2

@@ -1,0 +1,8 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: switch-rehearsal
+  namespace: switch-rehearsal-tst
+data:
+  purpose: the registry switch's rehearsal, docs/runbooks/registry-switch.md
