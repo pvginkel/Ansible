@@ -22,6 +22,8 @@ repos:
   - url: https://github.com/pvginkel/IoTSupport
   - url: https://github.com/pvginkel/ZigbeeControl
   - url: https://github.com/pvginkel/ModernAppFrontendTemplate
+  # Slice 031 (image pins by tag): the registry-cleanup CronJob's deploy repo.
+  - url: https://github.com/pvginkel/RegistryDeploy
 
 capabilities:
   github: rw
