@@ -14,6 +14,14 @@ repos:
   - url: https://github.com/pvginkel/ArgoCDDeploy
   - url: https://github.com/pvginkel/ArgoCDTools
   - url: https://github.com/pvginkel/Charts
+  # Slice 030 (modern-app-dev retirement): the image's consumer pipelines.
+  - url: https://github.com/pvginkel/KubeCoder
+  - url: https://github.com/pvginkel/FieldnotesApp
+  - url: https://github.com/pvginkel/DHCPApp
+  - url: https://github.com/pvginkel/ElectronicsInventory
+  - url: https://github.com/pvginkel/IoTSupport
+  - url: https://github.com/pvginkel/ZigbeeControl
+  - url: https://github.com/pvginkel/ModernAppFrontendTemplate
 
 capabilities:
   github: rw
