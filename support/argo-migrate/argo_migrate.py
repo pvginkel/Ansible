@@ -51,7 +51,7 @@ KC = ["--kubeconfig", str(HOME / ".kube/config-prd-write"), "--context", "prd"]
 HKC = ["--kubeconfig", str(HOME / ".kube/config-prd-write"), "--kube-context", "prd"]
 TFB = ("http://127.0.0.1:6061/?type=git&repository=https%3A%2F%2Fgithub.com%2Fpvginkel%2F"
        "TerraformState&ref=main&state=")
-LIB_VERSION = "0.3.0"
+LIB_VERSION = "0.3.1"
 JENKINS = "https://jenkins.webathome.org"
 GIT_CRED = "5f6fbd66-b41c-405f-b107-85ba6fd97f10"
 RELAY = "https://deploy-hooks.webathome.org/api/webhook"
@@ -1982,9 +1982,9 @@ def cmd_sync(app: App, args) -> None:
         time.sleep(10)
     s = a["status"]
     jobs = json.loads(iac("kubectl", *KC, "get", "jobs", "-n", "argocd-hooks", "-o", "json").stdout)["items"]
-    # Found by its arguments, not its name: Argo names a generateName hook after the
-    # Application's short revision, which a multi-source (upstream) Application does not have
-    # (`tf-presync--presync-<ts>`). The hook's own `hook.revision` argument is the full SHA.
+    # Found by its arguments, not its name: since homelab-shared 0.3.1 the Job is
+    # `tf-presync-<namespace>`, replaced on every sync, and the arguments are what tie a run to
+    # the revision just synced. The hook's own `hook.revision` argument is the full SHA.
     jobs.sort(key=lambda j: j["metadata"]["creationTimestamp"])
     hook = [j for j in jobs if any({app.ns, rev} <= set(c.get("args", []))
                                    for c in j["spec"]["template"]["spec"]["containers"])]

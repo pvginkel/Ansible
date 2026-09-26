@@ -86,9 +86,10 @@ as KeycloakDeploy `075184c` did.
 **Argo CD without Keycloak.** The local admin account is enabled (`admin.enabled: true` in
 `argocd-cm`). `kubectl` with `config-prd-write` works as well.
 
-**One push that syncs two stages of the same deploy repo fails the second on a hook-name
-clash.** Delete the other stage's finished `tf-presync-<rev>-presync-<ts>` Job in
-`argocd-hooks`; Argo's retry then goes through.
+**One push that syncs two stages of the same deploy repo no longer clashes on the hook name.**
+Since homelab-shared 0.3.1 (ANS-137) each app's Job is `tf-presync-<app>-<stage>`. A deploy
+repo still pinning an older version names its Jobs `tf-presync-<rev>-presync-<ts>`. There, delete
+the other stage's finished Job in `argocd-hooks`, and Argo's retry goes through.
 
 **The operator desktop without DHCP.** Set a static address on "Ethernet 2". The LAN is a
 **/16**. The 2026-09-25 attempt used 255.0.0.0, which treats all of 10/8 as on-link, so the

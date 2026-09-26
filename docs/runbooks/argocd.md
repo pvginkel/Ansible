@@ -77,9 +77,9 @@ cexec iac kubectl $KC get application -n argocd-prd <app> \
 # Per-resource results of that operation (hooks included)
 cexec iac kubectl $KC get application -n argocd-prd <app> \
   -o jsonpath='{range .status.operationState.syncResult.resources[*]}{.kind}/{.name} {.hookPhase}{.status}: {.message}{"\n"}{end}'
-# The hook Jobs and their logs
+# The hook Job and its logs: one per app, tf-presync-<app>-<stage>, holding its latest run
 cexec iac kubectl $KC get jobs,pods -n argocd-hooks
-cexec iac kubectl $KC logs -n argocd-hooks job/<tf-presync-...>
+cexec iac kubectl $KC logs -n argocd-hooks job/tf-presync-<app>-<stage>
 # Controller, repo-server, notifications, relay
 cexec iac kubectl $KC logs -n argocd-prd argocd-prd-application-controller-0 --since=15m | grep <app>
 cexec iac kubectl $KC logs -n argocd-prd deploy/argocd-prd-repo-server --since=15m
