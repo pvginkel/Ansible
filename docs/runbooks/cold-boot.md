@@ -112,7 +112,15 @@ ssh -o UserKnownHostsFile=files/known_hosts.d/homelab -o GlobalKnownHostsFile=/d
   -o HostKeyAlias=srvk8s1.home -i ~/.ssh/id_ed25519_ansible ansible@10.1.0.27
 ```
 
-PVE hosts and the UDM (`root@10.1.0.1`) take `root` with `id_ed25519_pve`. Address list:
+If the pod or the usual workstation is gone too, the ansible private key is in RoboForm under
+"Homelab SSH key > Private key for the ansible user"; save it as `~/.ssh/id_ed25519_ansible`
+(`chmod 600`). PVE hosts take `root` with `id_ed25519_pve`.
+
+The UDM is not estate-managed and has no homelab host certificate, so this recipe does not
+verify it. The operator reaches it with the credentials in RoboForm, and lends them to an agent
+only when needed.
+
+Address list:
 router 10.1.0.1; pve/pve1/pve2 .20–.22; srvceph1–3 .24–.26; srvk8s1–3 .27–.29;
 `kubernetes-api` .37; `ceph` .38; `secrets` .39; srvvault1–3 .40–.42; srviac .45; srvk8s4
 10.1.3.5 (a reservation, so only while DHCP is up). The static-hosts list in DnsmasqDeploy
