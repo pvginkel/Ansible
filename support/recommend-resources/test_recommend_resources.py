@@ -233,39 +233,42 @@ class RoundTrip(unittest.TestCase):
         self.addCleanup(sh, "rm", "-rf", str(self.tmp))
         origins = self.tmp / "origins"
         self.origins = {}
-        for name, chart_values, stage_values in (
-            ("AlphaDeploy", "resources:\n  alpha:\n    app: {}\n", "image: a\n"),
+        apps = {}
+        for name, chart_values, stages in (
+            ("AlphaDeploy", "resources:\n  alpha:\n    app: {}\n", {"prd": "image: a\n"}),
             ("BetaDeploy", "resources:\n  beta:\n    app: {}\n",
-             "resources:\n  beta:\n    app:\n      requests:\n        memory: 64Mi\n"),
-            ("GammaDeploy", "resources:\n  gamma:\n    app: {}\n", "image: g\n"),
+             {"prd": "resources:\n  beta:\n    app:\n      requests:\n        memory: 64Mi\n"}),
+            ("GammaDeploy", "resources:\n  gamma:\n    app: {}\n", {"dev": "image: g\n", "prd": "image: g\n"}),
             ("QuietDeploy", "resources:\n  quiet:\n    app: {}\n",
-             "resources:\n  quiet:\n    app:\n      requests:\n        cpu: 900m\n        memory: 4Gi\n"),
+             {"prd": "resources:\n  quiet:\n    app:\n      requests:\n        cpu: 900m\n        memory: 4Gi\n"}),
         ):
+            app = name.removesuffix("Deploy").lower()
             repo = origins / f"{name}.git"
             (repo / "chart").mkdir(parents=True)
-            (repo / "config/prd").mkdir(parents=True)
-            (repo / "chart/Chart.yaml").write_text(f"name: {name.removesuffix('Deploy').lower()}\n")
+            (repo / "chart/Chart.yaml").write_text(f"name: {app}\n")
             (repo / "chart/values.yaml").write_text(chart_values)
-            (repo / "config/prd/values.yaml").write_text(stage_values)
+            for stage, stage_values in stages.items():
+                (repo / "config" / stage).mkdir(parents=True)
+                (repo / "config" / stage / "values.yaml").write_text(stage_values)
             sh("git", "init", "-q", "-b", "main", cwd=repo)
             sh("git", "add", ".", cwd=repo)
             sh("git", "commit", "-q", "-m", "init", cwd=repo)
             self.origins[name] = repo
+            apps[app] = {"repo": f"file://{repo}", "stages": {stage: {} for stage in stages}}
         self.registry = self.tmp / "registry.yaml"
-        apps = {name.removesuffix("Deploy").lower(): {"repo": f"file://{repo}", "stages": {"prd": {}}}
-                for name, repo in self.origins.items()}
         apps["beta"]["stages"]["prd"]["targetRevision"] = "prd"
         self.registry.write_text(yaml.safe_dump({"apps": apps}))
         self.work = self.tmp / "work"
 
     def metrics(self, query, start, end, step="300s"):
-        def series(ns, pod, container, value):
+        def series(ns, pod, container, cpu=0.013, mem=100):
+            value = cpu if "cpu" in query else mem * 1024 * 1024
             return {"metric": {"namespace": ns, "pod": pod, "container": container}, "values": [[0, str(value)]]}
-        value = 0.013 if "cpu" in query else 100 * 1024 * 1024
         return [
-            *(series(f"{w}-prd", f"{w}-0", "app", value) for w in ("alpha", "beta", "gamma", "quiet")),
-            series("alpha-prd", "alpha-0", "sidecar", value),
-            series("elsewhere", "other-0", "app", value),
+            *(series(f"{w}-prd", f"{w}-0", "app") for w in ("alpha", "beta", "gamma", "quiet")),
+            series("gamma-dev", "gamma-0", "app", cpu=0.3, mem=300),
+            series("alpha-prd", "alpha-0", "sidecar"),
+            series("elsewhere", "other-0", "app"),
         ]
 
     def step(self, name, **kw):
@@ -305,6 +308,43 @@ class RoundTrip(unittest.TestCase):
 
         with self.assertRaisesRegex(rr.Stop, "apply ran already"):
             self.step("apply")
+
+    def test_each_stage_gets_its_own_values_file(self):
+        # Gamma's dev and prd share a workload key; dev measures higher.
+        self.step("report")
+        self.step("apply")
+        gamma = self.work / "repos/GammaDeploy"
+        self.assertEqual(yaml.safe_load((gamma / "config/dev/values.yaml").read_text())["resources"],
+                         {"gamma": {"app": {"requests": {"cpu": "300m", "memory": "320Mi"}}}})
+        self.assertEqual(yaml.safe_load((gamma / "config/prd/values.yaml").read_text())["resources"],
+                         {"gamma": {"app": {"requests": {"cpu": "20m", "memory": "112Mi"}}}})
+
+    def test_an_overrule_that_drops_a_line_applies(self):
+        # Dropping one `+` line leaves the hunk header's line count wrong.
+        self.step("report")
+        patch = self.work / "report/BetaDeploy.patch"
+        patch.write_text(patch.read_text().replace("+        cpu: 20m\n", ""))
+        self.step("apply")
+        self.assertEqual(yaml.safe_load((self.work / "repos/BetaDeploy/config/prd/values.yaml").read_text()),
+                         {"resources": {"beta": {"app": {"requests": {"memory": "112Mi"}}}}})
+
+    def test_an_overrule_back_to_the_current_values_leaves_that_repo_as_it_is(self):
+        self.step("report")
+        patch = self.work / "report/BetaDeploy.patch"
+        text = patch.read_text()
+        patch.write_text(text.replace("+        memory: 112Mi\n+        cpu: 20m\n", "+        memory: 64Mi\n"))
+        self.assertNotEqual(patch.read_text(), text)
+        out = self.step("apply")
+
+        beta = self.work / "repos/BetaDeploy"
+        self.assertEqual(sh("git", "status", "--porcelain", cwd=beta), "")
+        self.assertEqual(sh("git", "rev-list", "--count", "origin/main..main", cwd=beta), "0\n")
+        self.assertIn("BetaDeploy.patch changes nothing", out)
+        self.assertNotIn(f"git -C {beta} push", out)
+        for name in ("AlphaDeploy", "GammaDeploy"):
+            clone = self.work / "repos" / name
+            self.assertEqual(sh("git", "rev-list", "--count", "origin/main..main", cwd=clone), "1\n")
+            self.assertIn(f"git -C {clone} push", out)
 
     def test_a_broken_patch_applies_nothing(self):
         self.step("report")

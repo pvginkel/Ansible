@@ -623,10 +623,11 @@ def cmd_apply(args: argparse.Namespace) -> None:
 
     for patch, clone in clones.items():
         git(clone, "apply", "--index", "--recount", str(patch))
-    for patch, clone in clones.items():
-        for name in git(clone, "diff", "--cached", "--name-only").stdout.split():
+    staged = {patch: git(clone, "diff", "--cached", "--name-only").stdout.split() for patch, clone in clones.items()}
+    for patch, names in staged.items():
+        for name in names:
             try:
-                yaml.safe_load((clone / name).read_text())
+                yaml.safe_load((clones[patch] / name).read_text())
             except yaml.YAMLError as e:
                 problems.append(f"{patch.name}: {name} is not YAML after the patch: {e}")
     if problems:
@@ -634,12 +635,17 @@ def cmd_apply(args: argparse.Namespace) -> None:
             git(clone, "reset", "--hard", "--quiet", "HEAD")
         raise Stop("nothing committed; fix these patches:\n  " + "\n  ".join(problems))
 
+    committed = []
     for patch, clone in clones.items():
+        if not staged[patch]:
+            log(f"{patch.name} changes nothing; {clone.name} is left as it is")
+            continue
         git(clone, "commit", "--quiet", "-m", COMMIT_MESSAGE)
         log(f"{clone.name}:")
         print(git(clone, "--no-pager", "show", "--stat", "--patch", "--no-color", "HEAD").stdout, flush=True)
-    log(f"committed {len(clones)} deploy repos on {ENTRY_BRANCH}; nothing is pushed. To push them:")
-    for clone in clones.values():
+        committed.append(clone)
+    log(f"committed {len(committed)} deploy repos on {ENTRY_BRANCH}; nothing is pushed. To push them:")
+    for clone in committed:
         print(f"  git -C {clone} push origin {ENTRY_BRANCH}")
 
 
