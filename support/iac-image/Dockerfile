@@ -98,10 +98,10 @@ COPY support/iac-image/smallstep.sources /etc/apt/sources.list.d/smallstep.sourc
 # questing one was — same 1.15.8-1 — and the pin survives the next base-image bump too.
 #
 # Terraform is pinned, the same version in every image that installs it: ArgoCDTools'
-# argocd-hook, Ansible's support/iac-image, and DockerImages' kube-coder-iac-toolchain and
-# modern-app-dev. A state is stamped with the version that last wrote it, and the Argo CD hook
-# applies states the iac toolchain has written, so an unpinned rebuild could leave one side older
-# than the state it reads. Bump all four together (AnsibleSpecs decisions.md, "Terraform version").
+# argocd-hook, Ansible's support/iac-image, and DockerImages' kube-coder-iac-toolchain. A state is
+# stamped with the version that last wrote it, and the Argo CD hook applies states the iac
+# toolchain has written, so an unpinned rebuild could leave one side older than the state it
+# reads. Bump all three together (AnsibleSpecs decisions.md, "Terraform version").
 RUN set -o pipefail && \
     \
     curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-4 | bash && \

@@ -109,12 +109,11 @@ verify the mirror at all — and every deploy repo's Terraform declares that
 provider.
 
 The routing lives in `/etc/terraform.rc`, at `TF_CLI_CONFIG_FILE`, and there are
-**four byte-identical copies** of that file too. They matter here for the same
+**three byte-identical copies** of that file too. They matter here for the same
 reason the cert copies do: the same images are on both lists, so a rotation and
 a mirror readdressing touch the same rebuild set.
 
 - `/work/Ansible/support/iac-image/terraform.rc` — the `iac` image
-- `/work/DockerImages/modern-app-dev/terraform.rc` — the dev container
 - `/work/DockerImages/kube-coder-dev-base/terraform.rc` — the KubeCoder dev base image
 - `/work/ArgoCDTools/argocd-hook/image/terraform.rc` — the Argo CD PreSync hook image
 
@@ -164,7 +163,6 @@ The same check for the provider mirror config:
 
 ```sh
 md5sum /work/Ansible/support/iac-image/terraform.rc \
-       /work/DockerImages/modern-app-dev/terraform.rc \
        /work/DockerImages/kube-coder-dev-base/terraform.rc \
        /work/ArgoCDTools/argocd-hook/image/terraform.rc
 ```
