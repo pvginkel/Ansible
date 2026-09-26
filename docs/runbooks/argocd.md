@@ -186,8 +186,14 @@ is unaffected — it watches its settings.
 
 1. In ArgoCDDeploy, bump the exact `argo-cd` version in `chart/Chart.yaml`,
    rebuild `Chart.lock`, run the repo's render gate, push.
-2. The webhook refreshes `argocd-prd`; it goes OutOfSync. Review the diff in the
-   UI. The CRDs sync server-side (`ServerSideApply=true` on all three).
+2. ArgoCDDeploy has no webhook, so refresh `argocd-prd` by hand after the push:
+
+   ```sh
+   cexec iac kubectl $KC annotate application -n argocd-prd argocd-prd argocd.argoproj.io/refresh=normal --overwrite
+   ```
+
+   It goes OutOfSync within seconds. Review the diff in the UI. The CRDs sync
+   server-side (`ServerSideApply=true` on all three).
 3. Sync by hand at a chosen moment (D3). The controller and repo-server restart
    mid-sync, and every Application pauses with them.
 4. Verify: `argocd-prd` Synced and Healthy, every pod Running, the full
