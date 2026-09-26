@@ -124,6 +124,10 @@ tools:
   # undeclared, so pod start runs no setup for it; a phase that edits it runs
   # `kc project setup` there itself.
   - use: modern-app
+  # KubeCoder's and FieldnotesApp's project.yaml gates
+  - use: python
+  # KubeCoder's vscode-extension and vscode-desktop gates
+  - use: frontend
 
 # No `setup:` here. Pod start already runs every checkout's project.yaml setup,
 # this repo's included; a `kc project setup` line only ran it a second time.
