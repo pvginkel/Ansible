@@ -140,15 +140,16 @@ Besides step-ca and the `step` CLI, the controller needs two things:
 On srviac the SSH key is a `!bao` ref (`kv/iac/ansible-ssh-key#private`); the vault passphrase is a
 literal. Two controllers have both without asking OpenBao:
 
-**A KubeCoder environment for this repo whose keys are already on disk.** Its setup
-(`scripts/kubecoder-keys.sh`) wrote them to `~/.ssh/id_ed25519_ansible` and `~/.ansible/vault-pass`,
-and the environment points `ANSIBLE_VAULT_PASSWORD_FILE` at the second file. The KubeCoder secret
-catalog is itself filled from OpenBao (`kv/eso/prd/kubecoder/prd/catalog`, per
+**A KubeCoder environment for this repo whose keys are already in place.** Its setup
+(`scripts/kubecoder-keys.sh`) wrote the SSH key to `~/.ssh/id_ed25519_ansible`. KubeCoder mounts the
+vault passphrase at `/run/secrets/ansible-vault-password` (`secretFiles:` in
+`.kubecoder/config.yaml`), and the environment points `ANSIBLE_VAULT_PASSWORD_FILE` at it. The
+KubeCoder secret catalog is itself filled from OpenBao (`kv/eso/prd/kubecoder/prd/catalog`, per
 `.kubecoder/config.yaml`), so use an environment that already has both files. Don't set up a new one
 during the outage.
 
 ```sh
-ls ~/.ssh/id_ed25519_ansible ~/.ansible/vault-pass
+ls ~/.ssh/id_ed25519_ansible /run/secrets/ansible-vault-password
 cd ansible && cexec iac poetry run ansible-playbook playbooks/renew-internal-tls.yml --limit openbao
 ```
 

@@ -3,17 +3,16 @@
 # Materialise the KubeCoder catalog's key material into the files that
 # ansible.cfg and ssh expect. Driven from `kc project setup`.
 #
-# The catalog projects secrets as environment variables, but every consumer
-# here wants a path: ansible.cfg pins IdentityFile=~/.ssh/id_ed25519_ansible,
-# and ANSIBLE_VAULT_PASSWORD_FILE is a filename by definition. So the values
-# have to land on disk with tight modes before anything can use them.
+# The catalog projects secrets as environment variables, but ssh wants a path:
+# ansible.cfg pins IdentityFile=~/.ssh/id_ed25519_ansible. So the keys have to
+# land on disk with tight modes before anything can use them.
 #
 # WHERE they land matters as much as the modes. `/home/ubuntu` is a single host
 # directory mounted into *every* KubeCoder environment — it carries the Claude
 # credential, shell history and dotfiles — so a key written directly there is
 # readable from every other environment on the deployment. Each destination
-# below therefore sits inside a home *overlay* (`.ssh`, `.ansible`), which is
-# this environment's own dataset mounted over the shared home. The overlays are
+# below therefore sits inside a home *overlay* (`.ssh`), which is this
+# environment's own dataset mounted over the shared home. The overlays are
 # declared in .kubecoder/config.yaml; regular tool sidecars carry the home
 # stack, so the `iac` container sees these files too.
 #
@@ -33,13 +32,13 @@ set -euo pipefail
 
 umask 077
 
-# write_secret VAR DEST [trailing-newline]
+# write_secret VAR DEST
 #
 # Writes $VAR to DEST at mode 0600, via a temp file in the same directory so a
 # reader never observes a half-written key. Rewrites only when the content
 # actually differs, which keeps re-running setup quiet.
 write_secret() {
-    local var=$1 dest=$2 trailing=${3:-none}
+    local var=$1 dest=$2
     local value=${!var-}
     local dir
 
@@ -57,12 +56,8 @@ write_secret() {
     mkdir -p -- "$dir"
     chmod 700 -- "$dir"
 
-    # OpenSSH rejects a private key whose final line has no newline; the vault
-    # password is compared verbatim, so it must not gain one.
-    case "$trailing" in
-        newline) value=${value%$'\n'}$'\n' ;;
-        none)    value=${value%$'\n'} ;;
-    esac
+    # OpenSSH rejects a private key whose final line has no newline.
+    value=${value%$'\n'}$'\n'
 
     if [ -f "$dest" ] && [ "$(cat -- "$dest")" = "${value%$'\n'}" ]; then
         chmod 600 -- "$dest"
@@ -78,9 +73,8 @@ write_secret() {
     printf 'keys: wrote %s\n' "$dest" >&2
 }
 
-write_secret ANSIBLE_VAULT_PASSWORD "${ANSIBLE_VAULT_PASSWORD_FILE:-$HOME/.ansible/vault-pass}"
-write_secret SSH_KEY_ANSIBLE "$HOME/.ssh/id_ed25519_ansible" newline
-write_secret SSH_KEY_PVE     "$HOME/.ssh/id_ed25519_pve"     newline
+write_secret SSH_KEY_ANSIBLE "$HOME/.ssh/id_ed25519_ansible"
+write_secret SSH_KEY_PVE     "$HOME/.ssh/id_ed25519_pve"
 
 # The bpg/proxmox provider uploads cloud-init snippets over SSH with Go's
 # x/crypto/ssh, which reads ~/.ssh/known_hosts and honours no
