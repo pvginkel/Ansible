@@ -14,6 +14,10 @@ repos:
   - url: https://github.com/pvginkel/ArgoCDDeploy
   - url: https://github.com/pvginkel/ArgoCDTools
   - url: https://github.com/pvginkel/Charts
+  # The architecture-as-code contract repo: `pipeline-producers.yaml`, the
+  # element/relation schema, the shared product catalog and the producer manual.
+  # ArgoCDTools' `aac-tools` generator is written against it.
+  - url: https://github.com/pvginkel/Architecture
   # Slice 030 (modern-app-dev retirement): the image's consumer pipelines.
   - url: https://github.com/pvginkel/KubeCoder
   - url: https://github.com/pvginkel/FieldnotesApp
@@ -120,9 +124,7 @@ tools:
   - use: aac-tools
   # JenkinsPipelineUtils' test gate compiles vars/*.groovy against Jenkins' Groovy
   - use: java
-  # Architecture's gates (poetry and npm) run through it. Architecture stays
-  # undeclared, so pod start runs no setup for it; a phase that edits it runs
-  # `kc project setup` there itself.
+  # Architecture's setup and gates (poetry and npm) run through it
   - use: modern-app
   # KubeCoder's and FieldnotesApp's project.yaml gates
   - use: python

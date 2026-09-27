@@ -78,12 +78,13 @@ see its README), `ArgoCDTools` (two images: `argocd-hook`, the Argo CD Terraform
 the `releases` AppProject and the `argocd-hooks` namespace),
 `KubeCoderDeploy` (KubeCoder's deploy repo, the Argo CD pilot — see its README), `Architecture`
 (the architecture-as-code contract: `pipeline-producers.yaml`, the element/relation schema, the
-shared product catalog and the producer manual — deliberately not declared, see the note in
-`.kubecoder/config.yaml`, so the environment does not clone it: clone it by hand
-(`git clone https://github.com/pvginkel/Architecture /work/Architecture`) and run
-`kc project setup` there before working in it) and
+shared product catalog and the producer manual) and
 `JenkinsPipelineUtils` (the shared library every Jenkinsfile in the estate loads). The set is
-declared in `.kubecoder/config.yaml`; adding one is an edit there plus `kc env restart`. The `iac`
+declared in `.kubecoder/config.yaml`; adding an ordinary entry needs no restart — clone it to the
+path the entry resolves to, run `kc project setup` in it, and add it to `Ansible.code-workspace` in
+the same commit (a `shared: true` entry is mounted, so it takes `kc env restart` and is never
+cloned by hand). A repo needed only for the task at hand goes under `/work/scratch/<Repo>` with no
+entry. The `iac`
 runner's tree lives in this repo at `support/iac-agent/` — that is the copy to edit and the one the
 `iac_agent` role installs. Older docs mention `/work/Obsidian` and
 `/work/IaCAgent` — neither is cloned here any more, so treat those citations as historical

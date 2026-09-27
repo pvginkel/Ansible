@@ -26,6 +26,9 @@
 		},
 		{
 			"path": "../Charts"
+		},
+		{
+			"path": "../Architecture"
 		}
 	],
 	"settings": {}
