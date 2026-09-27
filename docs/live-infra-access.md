@@ -55,8 +55,9 @@ commits. Run `kc project lint` before proposing a commit. `iac-on-push` runs the
 red. For a single path, reach past it: `cexec iac poetry run ansible-lint <path>`.
 
 **`track_build.py` lives in DockerImages.** The script on PATH in every KubeCoder environment
-that waits out a pushed Jenkins build and the pipeline that build triggers is built into the dev
-image from DockerImages `kube-coder-dev-local-home/`, tests included. This repo keeps no copy.
+that waits out a pushed Jenkins build, the pipeline that build triggers and the Argo CD sync it
+hands off to ships in the local-home image, built from DockerImages `kube-coder-dev-local-home/`,
+where its tests live too. This repo keeps no copy.
 
 **Notifications are not a script.** `send_message.py` used to live in this repo and is gone: the
 `IaC/*` pipelines report through jenkins-telegram-bot, which watches every build, and raise
