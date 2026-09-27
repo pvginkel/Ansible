@@ -128,6 +128,20 @@ tools:
   - use: python
   # KubeCoder's vscode-extension and vscode-desktop gates
   - use: frontend
+  # DockerImages' document-conversion suite: the service needs pandoc and TeX,
+  # so it runs in its own deployed image, from the /work source. OS packages
+  # added to its Dockerfile reach this tool only after Jenkins rebuilds
+  # :latest and the environment restarts.
+  - name: document-conversion
+    image: registry:5000/document-conversion:latest
+    workingDir: /work
+    resources:
+      limits:
+        memory: 1Gi
+    instructions: |
+      The document-conversion image (pandoc, TeX), for DockerImages'
+      document-conversion suite: `kc project test document-conversion` in
+      /work/DockerImages starts the service from source here and runs it.
 
 # No `setup:` here. Pod start already runs every checkout's project.yaml setup,
 # this repo's included; a `kc project setup` line only ran it a second time.
