@@ -2,7 +2,7 @@
 
 Restoring the self-hosted YouTrack (`issues.webathome.org`) from its nightly backup on Google Drive,
 and the restore drill. Read this when YouTrack's database is lost or corrupted, when the whole site
-is gone, or when `YouTrackBackupStale` fires (What can go wrong).
+is gone, or when `BackupOverdue` fires for the `youtrack` scope (What can go wrong).
 
 Design context: §"Backup" in [`../../../AnsibleSpecs/decisions.md`](../../../AnsibleSpecs/decisions.md).
 The backup is YoutrackDeploy's `chart/files/backup/backup.py`, run nightly by the
@@ -241,9 +241,10 @@ changed as little as possible since.
 
 ## What can go wrong
 
-- **`YouTrackBackupStale` fires** — the `youtrack-backup` CronJob has not succeeded for 52 h, so
-  two nightly runs failed. The copies already on Drive stay restorable. Find the newest Job with
-  `kubectl --context prd -n youtrack-prd get jobs`, then read its log with
+- **`BackupOverdue` fires for `scope="youtrack"`** — no upload has landed on `backup-server` for
+  52 h, so two nightly runs failed. The copies already on Drive stay restorable. If
+  `BackupWatcherBlind` fires too, start at [`backup-freshness.md`](backup-freshness.md) §2. Find
+  the newest Job with `kubectl --context prd -n youtrack-prd get jobs`, then read its log with
   `kubectl --context prd -n youtrack-prd logs job/<name>`:
   - `HTTP 401` or `HTTP 403 from http://youtrack/...` — YouTrack refused the `backup` user's token:
     revoked, or the user lost Low-level Admin Read or Write. A new token goes into OpenBao at

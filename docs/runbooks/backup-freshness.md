@@ -58,10 +58,9 @@ Streams watched today:
 |---|---|---|---|---|---|
 | `openbao` | `openbao-backup.tgz` | `openbao-backup.timer` on each `srvvaultN`; only the Raft leader uploads | 02:00, plus up to 1 h random delay | 52 h | 14 |
 | `postgres-pas` | `<db>.dump`, one per database but `postgres` and `app` | `postgres-backup` CronJob in `postgres-pas-prd` | 02:00 | 52 h | 90 across all databases, about ten nights |
+| `youtrack` | `youtrack.tar.gz` | `youtrack-backup` CronJob in `youtrack-prd` | 01:30 | 52 h | 30 |
 
-With 52 h, one missed night stays quiet and two in a row alert. The `youtrack` scope's uploads
-declare nothing, so it is not watched; `YouTrackBackupStale` covers it
-([`youtrack-restore.md`](youtrack-restore.md)).
+With 52 h, one missed night stays quiet and two in a row alert.
 
 What Prometheus sees, what `backup-server` serves, and what is on Drive:
 
@@ -126,12 +125,20 @@ Telegram group.
      A database dropped on purpose stays overdue until pruning removes its last dump. §3 retires
      it sooner.
 
+   - **`youtrack`** — the newest Job's log, as for `postgres-pas` but in `youtrack-prd`.
+     [`youtrack-restore.md`](youtrack-restore.md) "What can go wrong" reads its errors. Once fixed,
+     run it now:
+
+     ```bash
+     kubectl --context prd -n youtrack-prd create job --from=cronjob/youtrack-backup youtrack-backup-manual
+     ```
+
    - **Any other scope** — that uploader's own log.
 
 4. **An upload `backup-server` answered with an error** — the uploader logs the status:
    - `401` — the upload token is wrong or revoked. OpenBao's is rotated per
-     [`openbao.md`](openbao.md) §5. `postgres-pas`'s is the `postgres-backup-upload` Secret, which
-     the release's Terraform writes.
+     [`openbao.md`](openbao.md) §5. `postgres-pas`'s is the `postgres-backup-upload` Secret, and
+     `youtrack`'s the `youtrack-backup-upload` Secret; each release's Terraform writes its own.
    - `400` — `backup-server` rejected the `filename` or the `valid_for`.
    - `413` — the body is over `backup-server`'s size limit.
    - `500` — `backup-server` could not encrypt or store it. Its log says why, on an
