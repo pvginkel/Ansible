@@ -84,7 +84,8 @@ declared in `.kubecoder/config.yaml`; adding an ordinary entry needs no restart 
 path the entry resolves to, run `kc project setup` in it, and add it to `Ansible.code-workspace` in
 the same commit (a `shared: true` entry is mounted, so it takes `kc env restart` and is never
 cloned by hand). A repo needed only for the task at hand goes under `/work/scratch/<Repo>` with no
-entry. The `iac`
+entry — including one a slice changes: its phases say `Target: ../scratch/<Repo>`, and the
+environment that runs the slice clones it there first. The `iac`
 runner's tree lives in this repo at `support/iac-agent/` — that is the copy to edit and the one the
 `iac_agent` role installs. Older docs mention `/work/Obsidian` and
 `/work/IaCAgent` — neither is cloned here any more, so treat those citations as historical
