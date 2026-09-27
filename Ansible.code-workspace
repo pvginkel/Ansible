@@ -29,6 +29,9 @@
 		},
 		{
 			"path": "../Architecture"
+		},
+		{
+			"path": "../RegistryDeploy"
 		}
 	],
 	"settings": {}
