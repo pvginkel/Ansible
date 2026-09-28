@@ -45,7 +45,7 @@ actually ran and the Phase A proof drill are recorded in slice 009's
 | Deploy repo | `ArgoCDDeploy`: exact `argo-cd` pin in `chart/Chart.yaml`, stage values in `config/prd/values.yaml` |
 | Registry | ArgoCDDeploy `releases/values.yaml`: one entry per app, one Application per stage (D63); `releases/values.schema.json` refuses a malformed entry |
 | Registry Application | `releases`: syncs the registry chart `releases/` from ArgoCDDeploy `main`, automated without prune or self-heal |
-| Webhook edge | `https://deploy-hooks.webathome.org/api/webhook` → relay (2 replicas) → argocd-server and the applicationset-controller |
+| Webhook edge | `https://deploy-hooks.webathome.org/api/webhook` → relay (2 replicas) → argocd-server |
 | Hook image | `registry:5000/argocd-hook:<n>` from ArgoCDTools; default pin in the `homelab-shared` library chart. Its Terraform is pinned to the version the `iac` images carry (AnsibleSpecs `decisions.md`, "Terraform version") |
 | Terraform state | `pvginkel/TerraformState`, `argocd/<repo>/<stage>/terraform.tfstate`, sops/age |
 | Notifications | Alertmanager `prometheus-prd-alertmanager.prometheus-prd:9093`, delivered to Telegram with no "resolved"; `ArgoCDSyncFailed` (critical, with sound), `ArgoCDHealthDegraded` (warning, silent) |
@@ -56,7 +56,7 @@ Every credential arrives through ESO from OpenBao (`kv/` mount), refreshed hourl
 | ExternalSecret | Leaf and property | Reader |
 | --- | --- | --- |
 | `argocd-prd/argocd-repo-creds-github` | `eso/prd/argocd/prd/git#token` | Argo's own repo clones (classic PAT, `repo`) |
-| `argocd-prd/argocd-webhook` | `eso/prd/argocd/prd/webhook#github_secret` | both receivers and the relay; the same value GitHub holds on every hook |
+| `argocd-prd/argocd-webhook` | `eso/prd/argocd/prd/webhook#github_secret` | argocd-server and the relay; the same value GitHub holds on every hook |
 | `argocd-prd/argocd-oidc` | `eso/prd/argocd/prd/oidc#client_secret` | SSO |
 | `argocd-hooks/argocd-hook-credentials` | `eso/prd/argocd-hooks/git#token` plus nine more leaves, 23 keys — `webhook#github_secret` above among them, as `TF_VAR_github_webhook_secret` | the PreSync hook: its clone, state pushes, provider credentials, the secret a deploy repo's webhook is signed with |
 
@@ -136,10 +136,10 @@ GitHub token can list hooks (`cexec iac gh api repos/pvginkel/<repo>/hooks`) but
 create them, so creation is a GitHub UI keystroke.
 
 A delivery that worked leaves three traces: the relay logs `delivery <id>
-event=push: both receivers accepted`; argocd-server logs `Received push event
+event=push: all 1 receivers accepted`; argocd-server logs `Received push event
 repo: … refreshing app from webhook`; the Application's `status.sync.revision`
 moves within about ten seconds. GitHub's *Recent Deliveries* shows the relay's
-response, and a `502` names the dead leg.
+response, and a `502` means argocd-server refused it or was unreachable.
 
 Without a webhook, refresh by hand — the UI's *Refresh* button, or:
 
@@ -149,22 +149,6 @@ cexec iac kubectl $KC annotate application -n argocd-prd <app> argocd.argoproj.i
 
 A hard refresh takes a few seconds; reading `status.sync.revision` immediately
 returns the previous value.
-
-## Restarting the applicationset-controller
-
-It serves only the ApplicationSets `releases-local` and `releases-upstream`, which the registry
-switch deletes ([registry-switch.md](registry-switch.md), step 5).
-
-```sh
-cexec iac kubectl $KC -n argocd-prd rollout restart deploy/argocd-prd-applicationset-controller
-```
-
-When: after every bootstrap, after the webhook secret changes, and whenever its
-log shows `failed to create webhook handler` or `error retrieving Git files: …
-connection refused` with no Applications generated. It builds its GitHub webhook
-handler once at startup from a one-shot settings read and subscribes to nothing,
-and with polling off a failed generation attempt is never retried. argocd-server
-is unaffected — it watches its settings.
 
 ## Rotating a token or secret
 
@@ -198,7 +182,7 @@ is unaffected — it watches its settings.
 3. Sync by hand at a chosen moment (D3). The controller and repo-server restart
    mid-sync, and every Application pauses with them.
 4. Verify: `argocd-prd` Synced and Healthy, every pod Running, the full
-   Application list back, and a webhook delivery accepted by both receivers. If
+   Application list back, and a webhook delivery accepted by the relay's receiver. If
    the list does not come back, see item 4 of Diagnosing a failed sync.
 
 ## Break-glass: the local admin account (D9)
@@ -667,10 +651,21 @@ the recipient committed in `config/prd/values.yaml`.
    `apps.argocd`), so the `argocd-prd` Application appears OutOfSync. Sync it
    once by hand — Argo has adopted itself. Log in via SSO to confirm the client.
 6. ArgoCDDeploy's relay webhook exists and survives a rebuild; GitHub's creation
-   ping, or a redelivery, logs "both receivers accepted" at the relay.
+   ping, or a redelivery, logs "all 1 receivers accepted" at the relay.
 
 ## Known behaviours
 
+- **A manual sync by `kubectl patch` inherits the last operation's fields.** A
+  patch that sets `.operation` without `sync.revision` or `sync.resources` does
+  not clear them: the controller keeps the previous operation's values in
+  `status.operationState.operation`. On an app with a PreSync hook (`argocd-prd`'s
+  redis-secret-init), it resumes from that copy after the hook, so the sync runs
+  at the old revision or on the old resource list, and still ends `Succeeded`
+  ("Partial sync operation", or `configured` with nothing written). Seen at the
+  registry switch on 2026-09-28. What worked there: set `sync.revision` to the
+  SHA and list `sync.resources` explicitly. Whether a full sync by patch can
+  shed an earlier partial one's list is untested; the UI's Sync is the
+  alternative. Check the objects afterwards, not only the phase.
 - **Namespace before hook.** The sync engine creates the destination Namespace
   ahead of the PreSync phase. App Terraform that creates it fails.
 - **Sync-phase failures are not atomic.** Valid objects in the same wave are

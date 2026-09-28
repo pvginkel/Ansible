@@ -5,6 +5,13 @@ ApplicationSets `releases-local` and `releases-upstream` read, to ArgoCDDeploy's
 the `releases` Application syncs. No Application is recreated, and none has its spec changed. It
 runs once.
 
+**This switch has run.** The operator ran it on 2026-09-28, and `releases` has owned the 50
+Applications since. The file stays as the record of how. Step 1's fixtures
+(`support/registry-switch-rehearsal/`), `tools/registry-equivalence.py` and the `releases.owner`
+setting are gone, so its steps can no longer run as written. Its `argosync` helper sets no
+revision and no resource list, and on `argocd-prd` that ran a stale operation: see
+[argocd.md](argocd.md), "Known behaviours", on a manual sync that inherits the last one's fields.
+
 Design context: AnsibleSpecs `argo-cd/decisions.md`
 ([D63](../../../AnsibleSpecs/argo-cd/decisions.md): the registry is ArgoCDDeploy's `releases/`
 chart, and its `values.yaml` is the registry; D64: this switch, what holds throughout it, and why
@@ -423,7 +430,8 @@ This run settles slice 029's V15 and V24 (its close-out's A1 and A2).
 
 ## Dead after the switch
 
-For the follow-up. Removing any of these changes nothing in the render.
+Removed on 2026-09-28, the relay leg with it (ArgoCDDeploy `1d6da09`, `a811fa5`). Kept as the
+list of what went.
 
 - **In ArgoCDDeploy's chart and render test:**
   - The ApplicationSet branch, `chart/templates/applicationsets.yaml`.
