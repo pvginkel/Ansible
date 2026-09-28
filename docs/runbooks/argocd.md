@@ -51,8 +51,6 @@ actually ran and the Phase A proof drill are recorded in slice 009's
 | Notifications | Alertmanager `prometheus-prd-alertmanager.prometheus-prd:9093`, delivered to Telegram with no "resolved"; `ArgoCDSyncFailed` (critical, with sound), `ArgoCDHealthDegraded` (warning, silent) |
 | Standing alerts | PrometheusDeploy's rule group `argocd`, over the application controller's metrics (Service `argocd-prd-application-controller-metrics`); `ArgoCDSyncStillFailed` (critical), `ArgoCDHealthStillDegraded` and `ArgoCDAlertsBlind` (warning) |
 
-> The two registry rows are owed until the registry switch has run ([registry-switch.md](registry-switch.md)): until then the ApplicationSets `releases-local` and `releases-upstream` generate the Applications from HelmCharts' `configs/prd/<app>/<stage>/release.yaml` files.
-
 Every credential arrives through ESO from OpenBao (`kv/` mount), refreshed hourly:
 
 | ExternalSecret | Leaf and property | Reader |
@@ -117,8 +115,6 @@ section. The resource tree only shows the refused object as *Missing*.
 4. **The Application does not appear, or does not refresh after a push.** The
    webhook (below). A registry entry reaches its Application only through
    `releases`' sync, so read `releases`' last operation and conditions too.
-
-   > This item's `releases` half is owed until the registry switch has run ([registry-switch.md](registry-switch.md)): until then suspect the applicationset-controller's one-shot handler (below).
 
 Hook Jobs persist for the app's lifetime, one per sync (`backoffLimit: 0`, so a
 failed hook is exactly one pod), and are removed with the Application.
@@ -199,8 +195,6 @@ is unaffected — it watches its settings.
    OutOfSync within seconds. Review the diff in the UI. The CRDs sync
    server-side (`ServerSideApply=true` on all three).
 
-   > Owed until the registry switch has run ([registry-switch.md](registry-switch.md)), whose step 2 adds that webhook: until then refresh `argocd-prd` by hand (Webhooks).
-
 3. Sync by hand at a chosen moment (D3). The controller and repo-server restart
    mid-sync, and every Application pauses with them.
 4. Verify: `argocd-prd` Synced and Healthy, every pod Running, the full
@@ -229,8 +223,6 @@ The SSO side maps `preferred_username` `pvginkel@gmail.com` to `role:admin` in
 so any other identity gets nothing at all.
 
 ## Registering, undeploying and unregistering an app
-
-> This section is owed until the registry switch has run ([registry-switch.md](registry-switch.md)): until then an edit to ArgoCDDeploy's registry deploys nothing.
 
 The registry is ArgoCDDeploy's `releases/values.yaml` (D63). An app's entry sits
 under `apps:`, and each of its stages becomes one Application, named and
@@ -617,8 +609,6 @@ state to interrupt. Which of the two is the estate's default is not yet decided.
 
 Steps 1 to 3 are as run on 2026-09-04. Only when the cluster, or the
 `argocd-prd` namespace, is gone.
-
-> Steps 4 to 6 are owed until the registry switch has run ([registry-switch.md](registry-switch.md)): until then restart the applicationset-controller (above) in place of step 4, which then generates `argocd-prd` from HelmCharts' `configs/prd/argocd/prd/release.yaml`, and the registry webhook of step 6 is HelmCharts'.
 
 Before anything: `ArgoCDDeploy` pushed — the first self-sync clones
 `origin/main`, so any bootstrap-time fix left unpushed is reverted by it; the

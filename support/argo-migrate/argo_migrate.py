@@ -26,9 +26,6 @@ The registry is ArgoCDDeploy's releases/values.yaml (argo-cd D63). Whether a sta
 its upstream pin and its syncOptions are read there. flip and autosync edit it in place, keeping
 its comments, and `helm lint releases` checks each edit against the registry's schema.
 
-flip and autosync are owed until the registry switch has run (docs/runbooks/registry-switch.md):
-until then Argo reads HelmCharts' release.yaml files, not this registry.
-
 Pushes to ArgoCDDeploy, Architecture and DockerImages are left to the caller, so several apps can
 go in one push.
 
