@@ -105,10 +105,15 @@ When handing a command to the operator, use this exact shape:
 cluster-scoped included — Nodes, PersistentVolumes, namespaces, cluster RBAC. `kubectl cordon` /
 `uncordon` / `drain` work from this pod, as does everything else that used to need the SSH detour.
 
-**The base `~/.kube/config` is unchanged and stays narrow**: it is the separate `kubecoder-ro`
-identity — cluster-wide `view` (which excludes Secrets), `edit` in the `development` namespace, and
-get/list/watch on Argo CD's Applications, ApplicationSets and AppProjects.
-It is also the *default* kubeconfig, so cluster-scoped work needs the flag spelled out:
+**The base `~/.kube/config` reads everything but Secrets**: it is the separate `kubecoder-ro`
+identity — get/list/watch on every resource of both clusters, cluster-scoped ones and RBAC objects
+included, **except** Secrets and the `exec`, `attach`, `portforward` and `proxy` subresources, plus
+`edit` in prd's `development` namespace. Nodes, PersistentVolumes, `kubectl top nodes` and cluster
+RBAC read through it, so a read needs neither `config-prd-write` nor SSH. The grant is ClusterRole
+`kubecoder-ro-read`, applied by hand from KubeCoder's `docs/operations/kubecoder-ro-read.yaml` per
+`cluster-identity-remint.md` beside it. The role names API groups one by one, so a kind from a group
+added since reads Forbidden until that manifest names the group.
+It is also the *default* kubeconfig, so a cluster-scoped write needs the flag spelled out:
 
 ```
 cexec iac kubectl --kubeconfig ~/.kube/config-prd-write --context prd cordon srvk8s2
@@ -136,7 +141,8 @@ kubectl` on a node also stays the break-glass path when the token or the apiserv
 the broken thing.
 
 The dev cluster is the other case. `~/.kube/config-dev-write` addresses `srvk8sdev` as
-`kubecoder-rw`, which is still only `edit`-bound there, so cluster-scoped work on dev goes over SSH.
+`kubecoder-rw`, which is still only `edit`-bound there, so cluster-scoped writes on dev go over
+SSH. Cluster-scoped reads on dev do not: the base `~/.kube/config` makes them with `--context dev`.
 When srvk8sdev is running it answers from this pod on 22, 16443 and RGW's 80 (checked 2026-09-15);
 docs written before then call it unreachable from here.
 
