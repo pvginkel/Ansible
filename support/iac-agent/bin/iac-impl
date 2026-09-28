@@ -49,8 +49,7 @@ SECRETS_FILE = Path(os.environ.get("SECRETS_FILE", "/etc/iac/secrets.yaml"))
 WORK = Path(os.environ.get("WORK", "/work"))
 # Repos cloned into /work/<name>. Configurable via a top-level `repos:`
 # list in secrets.yaml; defaults to Ansible alone so a pre-existing
-# secrets.yaml (no `repos:` key) keeps cloning exactly Ansible. The
-# HelmCharts deploy harness clones HelmCharts alongside it.
+# secrets.yaml (no `repos:` key) keeps cloning exactly Ansible.
 GIT_OWNER = "github.com/pvginkel"
 DEFAULT_REPOS = ("Ansible",)
 BAKED_LOCK = Path("/app/poetry.lock")
