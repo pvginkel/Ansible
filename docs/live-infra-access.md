@@ -121,8 +121,9 @@ cexec iac kubectl --kubeconfig ~/.kube/config-prd-write --context prd cordon srv
 
 The widening swapped the `kubecoder-rw-edit` ClusterRoleBinding for `kubecoder-rw-admin`. The
 ServiceAccount and its OpenBao-held token are untouched, so nothing was re-minted and no pod
-restarted. **Nothing in this repo reconciles that binding** — it is hand-created out-of-band per
-KubeCoder slice 012's K1 recipe, and a cluster rebuild does not restore it.
+restarted. **Nothing in this repo reconciles that binding** — it is hand-created out-of-band, and a
+cluster rebuild does not restore it; KubeCoder's `docs/operations/cluster-identity-remint.md` is the
+recipe that re-mints it.
 
 Same weight as any other production write: say what you are about to change and why before doing
 it, and don't leave a node cordoned at the end of a task. The credential is wide now; the care is
