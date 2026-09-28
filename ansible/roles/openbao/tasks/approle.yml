@@ -62,6 +62,8 @@
           type: approle
         status_code: 204
         validate_certs: true
+      # Runs only when the state differs (`when` below), so the write is a change.
+      changed_when: true
       when: "'approle/' not in _openbao_auth_methods.json"
 
     # ----- kv-v2 secrets engine ---------------------------------------
@@ -89,6 +91,8 @@
             version: "2"
         status_code: 204
         validate_certs: true
+      # Runs only when the state differs (`when` below), so the write is a change.
+      changed_when: true
       when: (openbao_kv_mount + '/') not in _openbao_mounts.json
 
     # ----- policies ---------------------------------------------------
@@ -208,6 +212,8 @@
         - eso
         - eso-dev
         - backup
+      # Runs only when the state differs (`when` below), so the write is a change.
+      changed_when: true
       when: _openbao_policy_texts[item] != _openbao_existing_policy_texts[item]
 
     # ----- AppRoles ---------------------------------------------------
@@ -344,6 +350,8 @@
         - eso-dev
         - backup
       no_log: true
+      # Runs only when the state differs (`when` below), so the write is a change.
+      changed_when: true
       when: openbao_rotate_secret_ids | bool
 
     # --check skips the mint (uri has no check mode), and it must: a mint
@@ -523,6 +531,8 @@
         headers: "{{ _bao_headers }}"
         status_code: 204
         validate_certs: true
+      # Runs only when the state differs (`when` below), so the write is a change.
+      changed_when: true
       when:
         - openbao_retire_root_token | bool
         - openbao_admin_token | length > 0

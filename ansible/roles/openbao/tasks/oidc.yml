@@ -71,6 +71,8 @@
           type: oidc
         status_code: 204
         validate_certs: true
+      # Runs only when the state differs (`when` below), so the write is a change.
+      changed_when: true
       when: "'oidc/' not in _openbao_auth_methods_oidc.json"
 
     # ----- oidc config ------------------------------------------------
