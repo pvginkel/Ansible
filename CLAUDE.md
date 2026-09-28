@@ -69,8 +69,7 @@ as on srviac, which Jenkins uses and which stays up when Kubernetes is down. Det
 ## Related repos on this machine
 
 All under `/work`, same paths for Claude and operator: `AnsibleSpecs` (decisions, slices — a
-separate git repo, commit there too), `HelmCharts` (the deploy path before Argo CD, cloned
-until it is archived), `DockerImages`, `HomelabTerraformProvider`,
+separate git repo, commit there too), `DockerImages`, `HomelabTerraformProvider`,
 `Charts` (the `homelab-shared` Helm library chart and the `https://charts.home` chart repository —
 see its README), `ArgoCDTools` (two images: `argocd-hook`, the Argo CD Terraform PreSync hook, and
 `aac-tools`, the architecture-as-code commands a repo's checkout runs — see its README),
@@ -86,8 +85,9 @@ the same commit (a `shared: true` entry is mounted, so it takes `kc env restart`
 cloned by hand). A repo needed only for the task at hand goes under `/work/scratch/<Repo>` with no
 entry — including one a slice changes: its phases say `Target: ../scratch/<Repo>`, and the
 environment that runs the slice clones it there first. `KubeCoderDeploy` (KubeCoder's deploy
-repo, the Argo CD pilot — see its README) is such a repo: older docs and slices cite it as
-`/work/KubeCoderDeploy`, read that as `/work/scratch/KubeCoderDeploy`. The `iac`
+repo, the Argo CD pilot — see its README) and `HelmCharts` (the deploy path before Argo CD,
+archived 2026-09-28) are such repos: older docs and slices cite them as `/work/<Repo>`, read that
+as `/work/scratch/<Repo>`. The `iac`
 runner's tree lives in this repo at `support/iac-agent/` — that is the copy to edit and the one the
 `iac_agent` role installs. Older docs mention `/work/Obsidian` and
 `/work/IaCAgent` — neither is cloned here any more, so treat those citations as historical

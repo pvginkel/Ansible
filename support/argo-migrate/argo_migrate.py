@@ -49,7 +49,7 @@ from pathlib import Path
 
 import yaml
 
-HC = Path("/work/HelmCharts")
+HC = Path("/work/scratch/HelmCharts")  # archived; clone it there to run this tool
 WORK = Path("/work")
 ARGOCD_DEPLOY = WORK / "ArgoCDDeploy"
 REGISTRY = "releases/values.yaml"
@@ -1825,7 +1825,7 @@ def cmd_plan(app: App, args) -> None:
     script = "\n".join([
         "set -e",
         "cd /work/Ansible && . scripts/bao-login.sh >/dev/null",
-        "cd /work/HelmCharts && . scripts/setup-env.sh prd",
+        "cd /work/scratch/HelmCharts && . scripts/setup-env.sh prd",
         *[f"export {k}={q(v)}" for k, v in exports.items()],
         'export GITHUB_TOKEN="$GH_TOKEN"',
         f"cd {q(str(app.path / 'terraform'))}",

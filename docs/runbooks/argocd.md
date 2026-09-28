@@ -319,7 +319,8 @@ What a new producer would otherwise get wrong:
   adds `charts/<app>`. Every published element of the app carries that date:
 
   ```sh
-  git -C /work/HelmCharts log --diff-filter=A --reverse --format=%ad --date=short -- charts/<app> | head -1
+  # HelmCharts is archived: git clone https://github.com/pvginkel/HelmCharts /work/scratch/HelmCharts
+  git -C /work/scratch/HelmCharts log --diff-filter=A --reverse --format=%ad --date=short -- charts/<app> | head -1
   ```
 
 - **The producer id is `<app>-deploy`**, where `<app>` is `name:` in

@@ -1,13 +1,12 @@
 cwd: Ansible
 
 # This environment is the operator's whole infrastructure workspace, not just
-# the Ansible repo: HelmCharts, DockerImages and the Terraform
+# the Ansible repo: DockerImages, the deploy tooling and the Terraform
 # provider are all worked on from here, so `tools:` below is the union of what
 # those repos need. Each sibling keeps its own .kubecoder/project.yaml.
 repos:
   - url: https://github.com/pvginkel/AnsibleSpecs
     shared: true
-  - url: https://github.com/pvginkel/HelmCharts
   - url: https://github.com/pvginkel/JenkinsPipelineUtils
   - url: https://github.com/pvginkel/DockerImages
   - url: https://github.com/pvginkel/HomelabTerraformProvider

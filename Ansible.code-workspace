@@ -7,9 +7,6 @@
 			"path": "../AnsibleSpecs"
 		},
 		{
-			"path": "../HelmCharts"
-		},
-		{
 			"path": "../JenkinsPipelineUtils"
 		},
 		{
