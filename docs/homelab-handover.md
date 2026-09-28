@@ -230,9 +230,12 @@ no performance/efficiency split to exploit.
   `ansible.cfg`'s `ssh_args`.
 - **Kubernetes**: `~/.kube/config-prd-write` is bound to `cluster-admin` on the prd cluster
   (since 2026-09-04), so `cordon`, `drain` and every other cluster-scoped write work from the
-  dev pod given an explicit `--kubeconfig`. The default `~/.kube/config` is a separate, narrow
-  identity — cluster-wide `view` plus `edit` in `development`. `sudo microk8s kubectl` over SSH
-  stays the path for node-*host* work (the microk8s snap, dqlite recovery) and for break-glass.
+  dev pod given an explicit `--kubeconfig`. The default `~/.kube/config` is a separate read
+  identity: everything on both clusters but Secrets and the `exec`, `attach`, `portforward` and
+  `proxy` subresources — nodes, PersistentVolumes and cluster RBAC included — plus `edit` in prd's
+  `development` namespace ([live-infra-access.md](live-infra-access.md)). `sudo microk8s kubectl`
+  over SSH stays the path for node-*host* work (the microk8s snap, dqlite recovery) and for
+  break-glass.
 - **OpenBao** is at `secrets.home:8200`. Reachable, but no token is provisioned in the dev
   environment by default.
 - **Terraform** works from the dev pod — state reads, `plan` and `apply` — because the Proxmox
