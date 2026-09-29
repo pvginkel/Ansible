@@ -1,6 +1,22 @@
 ---
-# `microceph status` exits non-zero until the cluster is bootstrapped —
-# the cleanest "already done?" probe.
+# The daemon runs before bootstrap too, so it should always be up. If it
+# is down, `microceph status` fails as it would on an unbootstrapped node,
+# and the probe below would bootstrap a live cluster (Apply, 2026-09-28).
+# daemon_reload picks up the restart drop-in from install.yml.
+- name: Ensure the microceph daemon is running
+  ansible.builtin.systemd:
+    name: snap.microceph.daemon
+    state: started
+    daemon_reload: true
+
+- name: Wait for the microceph control socket
+  ansible.builtin.wait_for:
+    path: /var/snap/microceph/common/state/control.socket
+    timeout: 60
+  check_mode: false
+
+# With the daemon up, `microceph status` exits non-zero until the cluster
+# is bootstrapped — the cleanest "already done?" probe.
 - name: Probe cluster status
   ansible.builtin.command: microceph status
   register: _microceph_status

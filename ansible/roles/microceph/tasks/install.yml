@@ -13,3 +13,29 @@
     name: microceph
     channel: "{{ microceph_channel }}"
     state: present
+
+# The daemon binds the host address the moment it starts. On a boot where
+# DHCP lags (2026-09-25), it failed "cannot assign requested address" five
+# times inside systemd's start limit and stayed down for days. mon, osd and
+# rgw kept running, so only the microceph CLI noticed. Retry until the
+# address is up.
+- name: Ensure the snap.microceph.daemon drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/snap.microceph.daemon.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Keep restarting the microceph daemon until it binds
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/snap.microceph.daemon.service.d/restart.conf
+    content: |
+      [Unit]
+      StartLimitIntervalSec=0
+
+      [Service]
+      RestartSec=10
+    owner: root
+    group: root
+    mode: "0644"
