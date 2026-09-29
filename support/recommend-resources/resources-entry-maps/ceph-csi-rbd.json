@@ -1,7 +1,7 @@
 {
-    "ceph-csi-rbd-prd/csi-rbdplugin": "nodeplugin.plugin.resources.requests",
-    "ceph-csi-rbd-prd/driver-registrar": "nodeplugin.registrar.resources.requests",
-    "ceph-csi-rbd-prd/liveness-prometheus": "nodeplugin.plugin.resources.requests",
+    "ceph-csi-rbd-prd-nodeplugin/csi-rbdplugin": "nodeplugin.plugin.resources.requests",
+    "ceph-csi-rbd-prd-nodeplugin/driver-registrar": "nodeplugin.registrar.resources.requests",
+    "ceph-csi-rbd-prd-nodeplugin/liveness-prometheus": "nodeplugin.plugin.resources.requests",
     "ceph-csi-rbd-prd-provisioner/csi-rbdplugin": "nodeplugin.plugin.resources.requests",
     "ceph-csi-rbd-prd-provisioner/csi-rbdplugin-controller": "nodeplugin.plugin.resources.requests",
     "ceph-csi-rbd-prd-provisioner/liveness-prometheus": "nodeplugin.plugin.resources.requests",

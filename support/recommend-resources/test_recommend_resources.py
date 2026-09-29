@@ -30,9 +30,11 @@ class Policy(unittest.TestCase):
     def test_workload_from_pod(self):
         self.assertEqual(rr.infer_workload("calendar-support-6d9f8b7c5d-x2x9z"), "calendar-support")
         self.assertEqual(rr.infer_workload("step-ca-0"), "step-ca")
-        # The maps' keys depend on this: an 8-10 char last word reads as a ReplicaSet hash.
+        # A ReplicaSet hash shorter than 8 characters (seen live, 2026-09-26).
+        self.assertEqual(rr.infer_workload("keycloak-d8cb679-x2x9z"), "keycloak")
+        # A last word with a vowel is part of the name, not a hash.
         self.assertEqual(rr.infer_workload("prometheus-prd-prometheus-node-exporter-9wrrz"),
-                         "prometheus-prd-prometheus-node")
+                         "prometheus-prd-prometheus-node-exporter")
 
     def test_rounding(self):
         self.assertEqual([rr.round_cpu_recommendation(v) for v in (9, 13, 371)], [0, 20, 400])
