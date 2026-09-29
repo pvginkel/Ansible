@@ -15,8 +15,10 @@ at 15:03 UTC and pods were starting at 15:11. Everything recovered unaided excep
 
 - **Keycloak.** Its pinned image digest had been garbage-collected from the registry.
   `dhcpapp-app` crash-looped on OIDC discovery and held the `dhcp` pod not-Ready, so there was
-  no DHCP for 2h45m. DHCPApp has been out of the dhcp pod since (DnsmasqDeploy `ca30bbe`), and
-  registry-cleanup is suspended until it stops deleting digests that deploy repos pin.
+  no DHCP for 2h45m. DHCPApp has been out of the dhcp pod since (DnsmasqDeploy `ca30bbe`). Deploy
+  repos pin images from `registry:5000` to a per-build tag, never a digest, so garbage collection
+  cannot delete a pinned image while its tag stands. registry-cleanup deletes only when
+  RegistryDeploy's `registryCleanup.dryRun` is `false`; in dry-run it logs what it would delete.
 - **srvk8s4.** It takes its address from the in-cluster DHCP and stayed off the LAN until
   DHCP was back. It still does; srviac, which had the same problem, is static now
   ([`static-address.md`](static-address.md)). Expect srvk8s4 NotReady until DHCP answers.
@@ -79,15 +81,16 @@ The chart pins the field to `false`, so Argo shows the patch as drift. With `sel
 stays until the next DnsmasqDeploy sync, which reverts it. Don't push DnsmasqDeploy while DHCP
 depends on the patch. Once the pod is Ready, sync or patch it back.
 
-**A pinned image digest missing from the registry** (Keycloak on 2026-09-25): the pod sits in
-`ImagePullBackOff` with `NotFound`. Repin the deploy repo to the current digest of the same tag,
-as KeycloakDeploy `075184c` did.
+**A pinned image missing from the registry** (Keycloak's digest on 2026-09-25): the pod sits in
+`ImagePullBackOff` with `NotFound`. Repin the deploy repo to the image's newest per-build tag,
+which registry-cleanup always keeps, never to a digest. Where the image's build writes the pin, a
+rebuild does the same.
 
 **Argo CD without Keycloak.** The local admin account is enabled (`admin.enabled: true` in
 `argocd-cm`). `kubectl` with `config-prd-write` works as well.
 
 **One push that syncs two stages of the same deploy repo no longer clashes on the hook name.**
-Since homelab-shared 0.3.1 (ANS-137) each app's Job is `tf-presync-<app>-<stage>`. A deploy
+Since homelab-shared 0.3.1 each app's Job is `tf-presync-<app>-<stage>`. A deploy
 repo still pinning an older version names its Jobs `tf-presync-<rev>-presync-<ts>`. There, delete
 the other stage's finished Job in `argocd-hooks`, and Argo's retry goes through.
 

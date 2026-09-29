@@ -685,6 +685,11 @@ the recipient committed in `config/prd/values.yaml`.
   them, gets no standing sync alert: its failed sync is the event alone.
   `ArgoCDAlertsBlind` fires when Prometheus has had no application metrics from
   the controller for fifteen minutes, which leaves both blind.
+- **Every webhook-relay build leaves `argocd-prd` OutOfSync.** DockerImages writes each relay
+  build's number into ArgoCDDeploy's `config/prd/values.yaml` (`relay.image`), the version
+  poller's scheduled rebuilds included, and Argo's own Application never syncs on its own (D3).
+  The relay runs its previous build until you sync `argocd-prd` by hand; the diff is the relay
+  Deployment's image.
 - **Hook Jobs accumulate** for an app's lifetime; the delete policy never
   matches a name carrying SHA and timestamp. They go with the Application.
 - **Rebuilds.** Argo runs on prd only, deploys only into prd (`in-cluster`) and
