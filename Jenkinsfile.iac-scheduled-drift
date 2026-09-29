@@ -106,7 +106,10 @@ String driftSummary(String output, String tool) {
         }
     }
 
-    List<String> lines = new ArrayList<String>()
+    // List literals, not `new ArrayList`: the sandbox rejects that
+    // constructor without a script approval held in Jenkins, and losing
+    // the approval turned every drift run red.
+    List<String> lines = []
     if (tool == 'terraform') {
         // A refused plan still renders its body, so the refused VM's
         // header alone reads as drift. The diagnostic wraps at 78 columns,
@@ -130,7 +133,8 @@ String driftSummary(String output, String tool) {
         return 'no output captured; see the build log'
     }
     int max = 10
-    List<String> shown = new ArrayList<String>(lines.subList(0, Math.min(max, lines.size())))
+    List<String> shown = []
+    shown.addAll(lines.subList(0, Math.min(max, lines.size())))
     if (lines.size() > max) {
         shown << "… and ${lines.size() - max} more in the build log".toString()
     }
