@@ -1,7 +1,5 @@
 ---
-# The daemon runs before bootstrap too, so it should always be up. If it
-# is down, `microceph status` fails as it would on an unbootstrapped node,
-# and the probe below would bootstrap a live cluster (Apply, 2026-09-28).
+# The daemon runs before bootstrap too, so it should always be up.
 # daemon_reload picks up the restart drop-in from install.yml.
 - name: Ensure the microceph daemon is running
   ansible.builtin.systemd:
@@ -9,29 +7,26 @@
     state: started
     daemon_reload: true
 
-- name: Wait for the microceph control socket
-  ansible.builtin.wait_for:
-    path: /var/snap/microceph/common/state/control.socket
-    timeout: 60
-  check_mode: false
-
-# With the daemon up, `microceph status` exits non-zero until the cluster
-# is bootstrapped — the cleanest "already done?" probe.
-- name: Probe cluster status
-  ansible.builtin.command: microceph status
-  register: _microceph_status
-  changed_when: false
-  failed_when: false
-  check_mode: false
+# microcluster's own "bootstrapped or joined?" test (isInitialized in
+# internal/db/dqlite.go). Don't probe with `microceph status`: it also
+# fails while the daemon is down or still opening its database, and
+# reading that as "not bootstrapped" ran bootstrap against the live
+# cluster twice (2026-09-28, 2026-09-29).
+- name: Probe whether the node is bootstrapped
+  ansible.builtin.stat:
+    path: /var/snap/microceph/common/state/database/info.yaml
+  register: _microceph_db
 
 - name: Bootstrap the single-node cluster
   ansible.builtin.command: microceph cluster bootstrap
-  when: _microceph_status.rc != 0
+  when: not _microceph_db.stat.exists
   register: _microceph_bootstrap
   changed_when: _microceph_bootstrap.rc == 0
 
-# Bootstrap returns before the mon/mgr are fully serving; block until
-# status reports cleanly so the OSD-add and config steps don't race it.
+# Bootstrap returns before the mon/mgr are fully serving, and a freshly
+# started daemon takes a moment to open its database; block until status
+# reports cleanly so the OSD-add and config steps don't race either.
+# Check mode can't wait on a bootstrap it skipped.
 - name: Wait for the cluster to report status
   ansible.builtin.command: microceph status
   register: _microceph_status_post
@@ -40,4 +35,4 @@
   delay: 2
   changed_when: false
   check_mode: false
-  when: _microceph_status.rc != 0
+  when: _microceph_db.stat.exists or not ansible_check_mode
