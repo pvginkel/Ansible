@@ -1824,8 +1824,7 @@ def cmd_plan(app: App, args) -> None:
     backend = " ".join(q(f"-backend-config={k}={dst}") for k in ("address", "lock_address", "unlock_address"))
     script = "\n".join([
         "set -e",
-        "cd /work/Ansible && . scripts/bao-login.sh >/dev/null",
-        "cd /work/scratch/HelmCharts && . scripts/setup-env.sh prd",
+        "cd /work/Ansible && . scripts/bao-login.sh >/dev/null && . scripts/setup-env.sh prd",
         *[f"export {k}={q(v)}" for k, v in exports.items()],
         'export GITHUB_TOKEN="$GH_TOKEN"',
         f"cd {q(str(app.path / 'terraform'))}",

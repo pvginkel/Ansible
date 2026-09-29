@@ -43,8 +43,9 @@ cd ansible && ssh <options> ansible@srviac \
 
 A **deploy repo's** Terraform is applied by Argo CD's PreSync hook on each sync of its stage
 ([argocd.md](runbooks/argocd.md)), and the hook has no plan step. Planning it from here takes the
-hook's inputs plus the OpenBao-held provider credentials, which HelmCharts' `scripts/setup-env.sh
-prd` loads. [kubecoder-cutover.md](runbooks/kubecoder-cutover.md)'s "The no-destroy plan" is the
+hook's inputs (the hook environment in ArgoCDDeploy's `config/prd/values.yaml`) plus the
+OpenBao-held provider credentials, which `scripts/setup-env.sh prd` loads after
+`scripts/bao-login.sh`. [kubecoder-cutover.md](runbooks/kubecoder-cutover.md)'s "The no-destroy plan" is the
 command written out, and `argo_migrate.py plan` in `support/argo-migrate/` runs it for a migrating
 app-stage. `setup-env.sh` reads OpenBao values into the environment, so it falls under
 `CLAUDE.md`'s "What Claude doesn't read on its own" — ask first.

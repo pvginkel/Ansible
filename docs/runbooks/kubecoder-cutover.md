@@ -276,7 +276,7 @@ R4. This is the only look before the hook runs `terraform apply -auto-approve` f
 has no plan step of its own. It is one command, typed by the operator. The subshell keeps
 anything it exports from outliving it.
 
-- `bao-login.sh` and HelmCharts' `setup-env.sh prd` export the OpenBao-held `HOMELAB_*`
+- `scripts/bao-login.sh` and `scripts/setup-env.sh prd` export the OpenBao-held `HOMELAB_*`
   credentials and `KUBE_CONFIG_PATH`: the prd-write kubeconfig, verified against srvk8s1.
 - The rest is what the hook's environment gives KubeCoderDeploy's Terraform:
   - the stage's namespace;
@@ -291,7 +291,7 @@ The working tree must be `origin/main`: run `git -C /work/KubeCoderDeploy pull -
 Then:
 
 ```sh
-cd /work/Ansible && ( . scripts/bao-login.sh && cd /work/HelmCharts && . scripts/setup-env.sh prd && cd /work/KubeCoderDeploy/terraform && export TF_DATA_DIR=$W/plan TF_VAR_namespace=kubecoder-$STAGE TF_VAR_zfs_pools='{"zpool2":"srvk8s1","zpool3":"srvk8s2","zpool4":"srvk8s3","zpool5":"srvk8s4"}' TF_VAR_github_webhook_secret=plan-placeholder GITHUB_TOKEN="$GH_TOKEN" && tfinit "$DST" -upgrade && cexec iac terraform plan -input=false -var-file=../config/$STAGE/terraform.tfvars )
+cd /work/Ansible && ( . scripts/bao-login.sh && . scripts/setup-env.sh prd && cd /work/KubeCoderDeploy/terraform && export TF_DATA_DIR=$W/plan TF_VAR_namespace=kubecoder-$STAGE TF_VAR_zfs_pools='{"zpool2":"srvk8s1","zpool3":"srvk8s2","zpool4":"srvk8s3","zpool5":"srvk8s4"}' TF_VAR_github_webhook_secret=plan-placeholder GITHUB_TOKEN="$GH_TOKEN" && tfinit "$DST" -upgrade && cexec iac terraform plan -input=false -var-file=../config/$STAGE/terraform.tfvars )
 ```
 
 It must show:
