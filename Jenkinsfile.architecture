@@ -1,7 +1,7 @@
 library identifier: 'JenkinsPipelineUtils', changelog: false
 
 podTemplate(inheritFrom: 'jenkins-agent kaniko', containers: [
-    containerTemplates.python('python')
+    containerTemplates.aac_tools('aac-tools')
 ]) {
     node(POD_LABEL) {
         stage('Cloning repo') {
@@ -9,8 +9,8 @@ podTemplate(inheritFrom: 'jenkins-agent kaniko', containers: [
         }
 
         stage('Validate architecture artifact') {
-            container('python') {
-                sh './scripts/arch-validate.py docs/architecture/ansible-architecture.yaml'
+            container('aac-tools') {
+                sh 'arch-validate docs/architecture/ansible-architecture.yaml'
             }
         }
 

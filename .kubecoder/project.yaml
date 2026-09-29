@@ -52,4 +52,4 @@ projects:
     # ./architecture that does not exist. The other components are named after
     # their directories, so they need no cwd at all.
     cwd: .
-    test: cexec iac ./scripts/arch-validate.py docs/architecture/ansible-architecture.yaml
+    test: cexec aac-tools arch-validate docs/architecture/ansible-architecture.yaml
