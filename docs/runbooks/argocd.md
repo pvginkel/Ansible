@@ -653,6 +653,14 @@ the recipient committed in `config/prd/values.yaml`.
    once by hand — Argo has adopted itself. Log in via SSO to confirm the client.
 6. ArgoCDDeploy's relay webhook exists and survives a rebuild; GitHub's creation
    ping, or a redelivery, logs "all 1 receivers accepted" at the relay.
+7. Delete the release record step 3's `helm install` left. Argo renders with
+   `helm template` and never reads it, but while it exists `helm list -A` shows
+   Argo CD as a Helm release, and a stray `helm upgrade` or `helm uninstall`
+   would act on Argo CD itself:
+
+   ```sh
+   cexec iac kubectl $KC -n argocd-prd delete secret sh.helm.release.v1.argocd-prd.v1
+   ```
 
 ## Known behaviours
 
