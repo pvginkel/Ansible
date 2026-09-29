@@ -230,7 +230,8 @@ instructions: >
   build output: gitignored, produced by gen-architecture from the aac-tools image, which
   renders chart/ with config/{stage}/values.yaml the way Argo CD renders it. The
   AaC/{repo} Jenkins job runs it. Edit only the judgment layer, architecture.yaml at the
-  repo root, whose schema is the generator's docstring.
+  repo root, whose schema is what gen-architecture --help prints from the aac-tools
+  toolchain.
 """
 
 PROJECT_YAML = """# Curated entry points for {repo}. Helm and Terraform live in the `iac` toolchain sidecar.

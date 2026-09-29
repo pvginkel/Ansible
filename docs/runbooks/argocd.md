@@ -287,8 +287,9 @@ The worked examples, to copy from:
 
 What the deploy repo carries:
 
-- **`architecture.yaml`** at the root: the judgment layer. Its schema is the
-  docstring of ArgoCDTools' `aac-tools/image/gen_architecture.py`.
+- **`architecture.yaml`** at the root: the judgment layer. Its schema is what
+  `gen-architecture --help` prints from the aac-tools toolchain (`cexec aac-tools
+  gen-architecture --help`).
 - **`Jenkinsfile.architecture`**: it clones the published branch. Then, in the
   `aac-tools` container (`containerTemplates.aac_tools('aac-tools')`), it runs
   `gen-architecture --stage <stage> --producer <app>-deploy` and `arch-validate
@@ -341,7 +342,8 @@ What a new producer would otherwise get wrong:
     - chart/
     - config/<stage>/
   instructions: >
-    The artifact is build output; edit only the judgment layer, architecture.yaml.
+    The artifact is build output; edit only the judgment layer, architecture.yaml,
+    whose schema is what gen-architecture --help prints from the aac-tools toolchain.
   ```
 
 - **An owned product is minted once.** A `products:` entry makes this producer
