@@ -1,7 +1,7 @@
 # Argo CD operator runbook
 
 Day-to-day operation of the Argo CD instance on the prd cluster: reading its
-state without the CLI, diagnosing a failed sync, webhooks, rotating its tokens,
+state, diagnosing a failed sync, webhooks, rotating its tokens,
 upgrading it, getting in when SSO is broken, registering and removing an app,
 giving an app its own architecture producer, and rebuilding Argo from nothing.
 Read this when a sync fails, a token or secret changes, or Argo itself needs an
@@ -20,10 +20,13 @@ actually ran and the Phase A proof drill are recorded in slice 009's
 
 - The operator's keystroke applies: every sync, every bootstrap command, every
   `bao kv put`, every deletion. Claude prepares and reads.
-- There is no `argocd` CLI in the `iac` sidecar and none is needed. Everything
-  below is `kubectl` with the prd-write kubeconfig. The read-only default
-  kubeconfig can list Applications, ApplicationSets and AppProjects, but not
-  patch or annotate them. Shorthand used throughout:
+- A prd KubeCoder environment reads Argo through the `argocd` CLI in its `iac`
+  sidecar, as the read-only `kubecoder` account and with no login step
+  ([Reading Argo with the CLI](#reading-argo-with-the-cli)). It writes nothing.
+  Every write is the operator's keystroke, in the UI or through `kubectl` with
+  the prd-write kubeconfig. The read-only default kubeconfig can list
+  Applications, ApplicationSets and AppProjects, but not patch or annotate
+  them. Shorthand used throughout:
 
   ```sh
   KC="--kubeconfig $HOME/.kube/config-prd-write --context prd"
@@ -42,6 +45,7 @@ actually ran and the Phase A proof drill are recorded in slice 009's
 | Namespaces | `argocd-prd` (Argo, the webhook relay), `argocd-hooks` (PreSync Jobs, the `tf-presync` ServiceAccount, `argocd-hook-credentials`) |
 | Helm release, Application, AppProject | `argocd-prd`, `argocd-prd`, `releases` |
 | UI | `https://argocd.home`, or the bare `https://argocd` — Keycloak SSO (realm `homelab`, client `argocd`) |
+| Read-only account | `kubecoder`: API tokens only, no password, bound to `role:readonly`; its token is `ARGOCD_AUTH_TOKEN` in every prd KubeCoder environment |
 | Deploy repo | `ArgoCDDeploy`: exact `argo-cd` pin in `chart/Chart.yaml`, stage values in `config/prd/values.yaml` |
 | Registry | ArgoCDDeploy `releases/values.yaml`: one entry per app, one Application per stage (D63); `releases/values.schema.json` refuses a malformed entry |
 | Registry Application | `releases`: syncs the registry chart `releases/` from ArgoCDDeploy `main`, automated without prune or self-heal |
@@ -91,6 +95,27 @@ cexec iac kubectl $KC get pods -n argocd-prd -o name | grep webhook-relay   # th
 In the UI the apply error lives on the **operation**, not on the resource: click
 the *Last Sync* tile at the top of the Application and read the *Result*
 section. The resource tree only shows the refused object as *Missing*.
+
+## Reading Argo with the CLI
+
+In a prd KubeCoder environment, `iac` carries the `argocd` CLI, and the
+environment carries `ARGOCD_SERVER=argocd.home`, `ARGOCD_OPTS=--grpc-web` and
+the `kubecoder` account's token as `ARGOCD_AUTH_TOKEN`. The CLI reads with no
+login step. These two reads answer what the UI's *App Diff* tab shows:
+
+```sh
+# Live state against the target revision's render; exits 1 when they differ
+cexec iac argocd app diff <app>
+# The target revision's rendered manifests (--source live for the live ones)
+cexec iac argocd app manifests <app>
+```
+
+The account is ArgoCDDeploy's `accounts.kubecoder: apiKey`, and
+`g, kubecoder, role:readonly` in `policy.csv` binds it to Argo's built-in
+read-only role, which grants `get` on every resource type and nothing else.
+`cexec iac argocd account can-i sync applications '*/*'` answers `no`. Its
+token: [The `kubecoder` account's token](#the-kubecoder-accounts-token). The
+dev deployment's environments carry none of this.
 
 ## Diagnosing a failed sync
 
@@ -154,6 +179,8 @@ returns the previous value.
 
 ## Rotating a token or secret
 
+Argo's own credentials, the leaves in the table above:
+
 1. Write the new value to its leaf, from stdin so it never lands in a history:
 
    ```sh
@@ -173,6 +200,76 @@ returns the previous value.
    only the status code of `GET https://api.github.com/user` (401 vs 200), then
    let `--rm` delete it.
 
+### The `kubecoder` account's token
+
+Argo issues this token rather than reading it. The `kubecoder` account has no
+password: an admin mints its API token, with no expiry, like KubeCoder's
+Jenkins token. The token exists only in OpenBao, under `argocd-token` in
+KubeCoder's prd catalog leaf `eso/prd/kubecoder/prd/catalog`. ESO extracts that
+leaf whole into `kubecoder-secret-catalog` in `kubecoder-prd`, and
+KubeCoderDeploy's prd values project the key onto every prd environment as
+`ARGOCD_AUTH_TOKEN`, read at pod start. Once KubeCoderDeploy names the key,
+every prd environment's start fails while the leaf lacks it.
+
+One procedure mints the first token and rotates it after. It runs from a prd
+environment as written, or without `cexec iac` from any machine with the CLI
+and `bao`. The CLI takes `ARGOCD_AUTH_TOKEN` over a logged-in context, and
+every prd environment carries it, so each admin step clears it with `env -u`.
+Without that, the step acts as the read-only account and is refused.
+
+1. Log in as an admin through SSO. The Keycloak client `argocd` carries the
+   CLI's redirect URI `http://localhost:8085/auth/callback` for this login:
+
+   ```sh
+   cexec iac env -u ARGOCD_AUTH_TOKEN argocd login argocd.home --grpc-web --sso
+   ```
+
+   **Not yet exercised** from an environment: the redirect lands on port 8085
+   of the machine running the browser, and the CLI listens on it in the pod.
+2. List the account's tokens and note their ids, which step 6 revokes. The
+   first mint finds none.
+
+   ```sh
+   cexec iac env -u ARGOCD_AUTH_TOKEN argocd account get --account kubecoder
+   ```
+
+3. Mint a token and pipe it straight into the leaf, so it never reaches a
+   terminal or a history. `generate-token` sets no expiry by default. `patch`,
+   never `put`: the leaf holds every other catalog key, and `bao kv put`
+   replaces a leaf whole. `tr` drops the newline the CLI prints after the
+   token, which would otherwise become part of the variable.
+
+   ```sh
+   cexec iac env -u ARGOCD_AUTH_TOKEN argocd account generate-token --account kubecoder \
+     | tr -d '\n' | cexec iac bao kv patch -mount=kv eso/prd/kubecoder/prd/catalog argocd-token=-
+   ```
+
+4. Log out. The saved context is an admin session, and the environment's home
+   is shared with every container in the pod:
+
+   ```sh
+   cexec iac env -u ARGOCD_AUTH_TOKEN argocd logout argocd.home
+   ```
+
+5. ESO refreshes within the hour. To force it:
+
+   ```sh
+   cexec iac kubectl $KC annotate externalsecret -n kubecoder-prd kubecoder-secret-catalog force-sync=$(date +%s) --overwrite
+   ```
+
+   A stopped environment gets the new token when it next starts; a running
+   one keeps the old token until it restarts. In an environment started after
+   the refresh, `cexec iac argocd account get-user-info` checks the token
+   without reading it: `Logged In: true`, `Username: kubecoder`.
+6. Revoke the old tokens once every environment that was running at step 3
+   has restarted or stopped. An environment still holding a revoked token
+   loses its read view until it restarts. Log in as in step 1, revoke each id
+   noted in step 2, and log out as in step 4:
+
+   ```sh
+   cexec iac env -u ARGOCD_AUTH_TOKEN argocd account delete-token --account kubecoder <id>
+   ```
+
 ## Upgrading Argo CD
 
 1. In ArgoCDDeploy, bump the exact `argo-cd` version in `chart/Chart.yaml`,
@@ -186,6 +283,12 @@ returns the previous value.
 4. Verify: `argocd-prd` Synced and Healthy, every pod Running, the full
    Application list back, and a webhook delivery accepted by the relay's receiver. If
    the list does not come back, see item 4 of Diagnosing a failed sync.
+5. Move the `argocd` CLI to the same version, in DockerImages'
+   `kube-coder-iac-toolchain/Dockerfile`: `ARGOCD_VERSION` is the version
+   `https://argocd.home/api/version` now reports, and `ARGOCD_SHA256` the
+   `argocd-linux-amd64` line of that release's `cli_checksums.txt`. The new CLI
+   reaches an environment when its `iac` sidecar next starts on the published
+   image.
 
 ## Break-glass: the local admin account (D9)
 
@@ -205,8 +308,9 @@ with `admin.passwordMtime` set to now. **Not yet exercised** — a Phase A.5 ite
 still open; try it once at a quiet moment.
 
 The SSO side maps `preferred_username` `pvginkel@gmail.com` to `role:admin` in
-`argocd-rbac-cm` (the realm uses email as username); `policy.default` is empty,
-so any other identity gets nothing at all.
+`argocd-rbac-cm` (the realm uses email as username). The one other binding is
+the `kubecoder` account's `role:readonly`, and `policy.default` is empty, so
+any other identity gets nothing at all.
 
 ## Registering, undeploying and unregistering an app
 
