@@ -781,6 +781,13 @@ the recipient committed in `config/prd/values.yaml`.
    cexec iac kubectl $KC -n argocd-prd delete secret sh.helm.release.v1.argocd-prd.v1
    ```
 
+8. Mint the `kubecoder` account's token anew:
+   [its procedure](#the-kubecoder-accounts-token), steps 1 to 5. Step 2 finds
+   no ids, so there is nothing to revoke. The rebuild recreated
+   `argocd-secret`, whose `server.secretkey` signs the account's tokens and
+   which lists their ids, so Argo refuses the token every prd environment
+   holds. A running environment keeps the refused token until it restarts.
+
 ## Known behaviours
 
 - **A manual sync by `kubectl patch` inherits the last operation's fields.** A
