@@ -193,7 +193,7 @@ Argo's own credentials, the leaves in the table above:
    cexec iac kubectl $KC annotate externalsecret -n <namespace> <name> force-sync=$(date +%s) --overwrite
    ```
 
-   Both leaf-to-ExternalSecret pairs are in the table above.
+   Each leaf's ExternalSecret is in the table above.
 3. Argo reads its repo-creds Secret live; the hook reads its Secret at Job
    start, so the next sync uses the new value. To check a token without reading
    it, run a throwaway pod on the hook image with `envFrom` the Secret and print
