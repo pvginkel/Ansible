@@ -217,15 +217,15 @@ and `bao`. The CLI takes `ARGOCD_AUTH_TOKEN` over a logged-in context, and
 every prd environment carries it, so each admin step clears it with `env -u`.
 Without that, the step acts as the read-only account and is refused.
 
-1. Log in as an admin through SSO. The Keycloak client `argocd` carries the
-   CLI's redirect URI `http://localhost:8085/auth/callback` for this login:
+1. Log in as the local `admin`, with the password from
+   [Break-glass](#break-glass-the-local-admin-account-d9). SSO cannot log the
+   CLI in: the Keycloak client `argocd` is confidential, and the CLI's login
+   sends no client secret.
 
    ```sh
-   cexec iac env -u ARGOCD_AUTH_TOKEN argocd login argocd.home --grpc-web --sso
+   cexec iac env -u ARGOCD_AUTH_TOKEN argocd login argocd.home --grpc-web --username admin
    ```
 
-   **Not yet exercised** from an environment: the redirect lands on port 8085
-   of the machine running the browser, and the CLI listens on it in the pod.
 2. List the account's tokens and note their ids, which step 6 revokes. The
    first mint finds none.
 
