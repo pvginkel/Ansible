@@ -132,8 +132,10 @@ Any other deploy repo needs its webhook made by hand: payload URL
 `https://deploy-hooks.webathome.org/api/webhook`, content type
 `application/json`, the shared secret from
 `eso/prd/argocd/prd/webhook#github_secret`, just the push event. The pod's
-GitHub token can list hooks (`cexec iac gh api repos/pvginkel/<repo>/hooks`) but not
-create them, so creation is a GitHub UI keystroke.
+GitHub token can list, create and delete hooks (`cexec iac gh api
+repos/pvginkel/<repo>/hooks`). What a session lacks is the shared secret: it
+reads that value only with the operator's permission for that path, and without
+it the hook is made in the GitHub UI.
 
 A delivery that worked leaves three traces: the relay logs `delivery <id>
 event=push: all 1 receivers accepted`; argocd-server logs `Received push event
@@ -217,8 +219,7 @@ apps:
   <app>:
     repo: https://github.com/pvginkel/<DeployRepo>.git
     stages:
-      prd:
-        autoSync: false
+      prd: {}
 ```
 
 An app whose chart comes from a Helm repository adds `upstream: {repo, chart}`,
@@ -228,8 +229,11 @@ Application gets it (D62). The file's header comment names every key, and
 `releases/values.schema.json` refuses anything else. Keep entries alphabetical.
 `helm lint releases` checks an edit against the schema, and ArgoCDDeploy's
 `kc project test` runs the render test. Push; the relay webhook refreshes
-`releases`, whose sync creates the Application OutOfSync. The first sync is
-manual.
+`releases`, whose sync creates the Application, and Argo then syncs it on its
+own. A stage that takes over resources already running, as a migration's
+cutover does, registers with `autoSync: false` instead: the Application is
+created OutOfSync, its diff is reviewed, it is synced once by hand, and the
+flag is then turned on (D5). A new app has nothing live to diff.
 
 What a sync does, in order: Argo applies the chart's `sync-wave: "-1"` Namespace
 during its dry-run pass; the PreSync Job runs in `argocd-hooks` (clone at the
@@ -284,18 +288,22 @@ The worked examples, to copy from:
 | --- | --- | --- | --- |
 | `ArgoCDDeploy` | `argocd-deploy` | prd, from `main` | a new app: no current producer |
 | `KubeCoderDeploy` | `kubecoder-deploy` | prd, from `prd` | a handover from `helm-charts`; dev is not published |
+| `PipelinesDeploy` | `pipelines-deploy` | prd, from `main` | a new app, its `Jenkinsfile.architecture` in the style guide's form |
 
 What the deploy repo carries:
 
 - **`architecture.yaml`** at the root: the judgment layer. Its schema is what
   `gen-architecture --help` prints from the aac-tools toolchain (`cexec aac-tools
   gen-architecture --help`).
-- **`Jenkinsfile.architecture`**: it clones the published branch. Then, in the
-  `aac-tools` container (`containerTemplates.aac_tools('aac-tools')`), it runs
-  `gen-architecture --stage <stage> --producer <app>-deploy` and `arch-validate
-  docs/architecture/*.yaml`, and it archives `docs/architecture/*.yaml`. The
-  collector copies only artifacts whose path contains an `architecture/`
-  directory.
+- **`Jenkinsfile.architecture`**: the Jenkins pipeline style guide's deploy-repo
+  producer (<https://pipelines.home/docs/types/deploy-architecture/>) with its
+  names changed. It checks out the branch the job builds (`checkout scm`). Then,
+  in the `aac-tools` container (`podYaml(templates: ['aac-tools'])`), it runs
+  `gen-architecture --stage <stage> --producer <app>-deploy` and archives
+  `docs/architecture/*.yaml`, and it runs `arch-validate
+  docs/architecture/*.yaml` as the gate. The collector copies only artifacts
+  whose path contains an `architecture/` directory, from the job's last
+  successful build.
 - **`.architecturerc`**: see below.
 - **`/docs/architecture/` in `.gitignore`**: the artifact is build output and is
   never committed.
@@ -308,10 +316,11 @@ What a new producer would otherwise get wrong:
 
 - **One pipeline publishes one stage, from one branch.** The artifact is
   attached to the pipeline, so a pipeline that built two stages would publish
-  them alternately. `Jenkinsfile.architecture` names the branch Argo syncs the
-  stage from and passes that stage to `--stage`, which is required and takes one
-  value. That is the whole guard. The generator does not read the branch, and it
-  has no rule about which stages an app publishes. KubeCoder publishes prd only.
+  them alternately. The job builds the branch Argo syncs the stage from, and
+  `Jenkinsfile.architecture` passes that stage to `--stage`, which is required
+  and takes one value. That is the whole guard. The generator does not read the
+  branch, and it has no rule about which stages an app publishes. KubeCoder
+  publishes prd only.
 - **The annotation file states `introduced:`.** A deploy repo's history dates
   the repo, not the app, so the generator requires the key and has no fallback.
   A new app takes the date of the first commit that adds its deploy repo's
@@ -358,20 +367,22 @@ What a new producer would otherwise get wrong:
   green. The central architecture update reads those lines from the last green
   build. Map the image, or know why it stays a gap.
 
-The order runs from a committed producer to a registered one. Steps 3 and 4 are
-the operator's:
+The order runs from a committed producer to a registered one:
 
 1. Commit the files. `kc project test` in the deploy repo generates and
    validates the artifact. Two regenerations from the same commit must be
    byte-identical. A difference means render-time randomness reaches an id or
    an emitted field.
-2. Push the published branch. A promotion branch must exist and carry the
-   producer. KubeCoderDeploy's `prd` is created from `main` by its promote job's
-   first run, at the prd cutover.
-3. Create the Jenkins job `AaC/<Repo>` to run `Jenkinsfile.architecture`, and
-   build it. The first green build archives `docs/architecture/<app>-deploy.yaml`.
-4. Only after that green build, register the producer with a PR against
-   `pipeline-producers.yaml` in `pvginkel/Architecture`:
+2. Create the Jenkins job `AaC/<Repo>` through the Jenkins API, with the push
+   trigger in its `config.xml`: the style guide's new-repo recipe
+   (<https://pipelines.home/docs/guide/new-repo/>). Jenkins installs the repo's
+   push hook when the job is created. Creating the job starts no build.
+3. Push the published branch. The push starts the job's first build, and the
+   first green build archives `docs/architecture/<app>-deploy.yaml`. A promotion
+   branch must exist and carry the producer. KubeCoderDeploy's `prd` is created
+   from `main` by its promote job's first run, at the prd cutover.
+4. Only after that green build, register the producer: commit its entry to
+   `pipeline-producers.yaml` on `main` in `pvginkel/Architecture`:
 
    ```yaml
    - id: <app>-deploy

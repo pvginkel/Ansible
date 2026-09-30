@@ -78,7 +78,8 @@ the `releases` AppProject and the `argocd-hooks` namespace),
 `Architecture`
 (the architecture-as-code contract: `pipeline-producers.yaml`, the element/relation schema, the
 shared product catalog and the producer manual) and
-`JenkinsPipelineUtils` (the shared library every Jenkinsfile in the estate loads). The set is
+`JenkinsPipelineUtils` (the shared library every Jenkinsfile in the estate loads, and the source
+of the Jenkins pipeline style guide served at `https://pipelines.home/docs/`). The set is
 declared in `.kubecoder/config.yaml`; adding an ordinary entry needs no restart — clone it to the
 path the entry resolves to, run `kc project setup` in it, and add it to `Ansible.code-workspace` in
 the same commit (a `shared: true` entry is mounted, so it takes `kc env restart` and is never
