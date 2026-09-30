@@ -261,8 +261,10 @@ Without that, the step acts as the read-only account and is refused.
    one keeps the old token until it restarts. In an environment started after
    the refresh, `cexec iac argocd account get-user-info` checks the token
    without reading it: `Logged In: true`, `Username: kubecoder`.
-6. Revoke the old tokens once every environment that was running at step 3
-   has restarted or stopped. An environment still holding a revoked token
+6. Revoke the old tokens once every environment that was running when step
+   5's refresh landed — at the force-sync, or up to an hour after step 3
+   without one — has restarted or stopped: one that started before the
+   refresh read the old token. An environment still holding a revoked token
    loses its read view until it restarts. Log in as in step 1, revoke each id
    noted in step 2, and log out as in step 4:
 
