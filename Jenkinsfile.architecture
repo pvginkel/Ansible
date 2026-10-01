@@ -1,21 +1,47 @@
+// Validates Ansible's hand-authored architecture model,
+// docs/architecture/ansible-architecture.yaml, against the architecture service, and archives it
+// as the producer's artifact, which AaC/Architecture collects.
+//
+// Controller config:
+//   - Job: AaC/Ansible
+//   - SCM: pvginkel/Ansible, branch main
+//   - Script Path: Jenkinsfile.architecture
+
 library identifier: 'JenkinsPipelineUtils', changelog: false
 
-podTemplate(inheritFrom: 'jenkins-agent kaniko', containers: [
-    containerTemplates.aac_tools('aac-tools')
-]) {
-    node(POD_LABEL) {
-        stage('Cloning repo') {
-            checkout scm
+pipeline {
+    agent {
+        kubernetes {
+            inheritFrom 'jenkins-agent'
+            yaml podYaml(templates: ['aac-tools'])
         }
+    }
 
-        stage('Validate architecture artifact') {
-            container('aac-tools') {
-                sh 'arch-validate docs/architecture/ansible-architecture.yaml'
+    options {
+        disableConcurrentBuilds(abortPrevious: true)
+        skipDefaultCheckout()
+        timeout(time: 60, unit: 'MINUTES')
+        timestamps()
+    }
+
+    triggers {
+        githubPush()
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
             }
         }
 
-        stage('Archive architecture artifact') {
-            archiveArtifacts artifacts: 'docs/architecture/*.yaml', fingerprint: true
+        stage('Validate architecture') {
+            steps {
+                script {
+                    architectureProducer.validate(files: ['docs/architecture/ansible-architecture.yaml'])
+                    architectureProducer.archive(files: ['docs/architecture/ansible-architecture.yaml'])
+                }
+            }
         }
     }
 }
