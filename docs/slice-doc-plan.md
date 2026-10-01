@@ -58,6 +58,24 @@ changed authority rule, a repo that appeared or vanished. Apply the discipline i
 [design-philosophy.md](design-philosophy.md): state every fact once, demote detail to a `docs/`
 topic doc rather than inlining it. Growth here is a cost every future session pays.
 
+## Other repos the slice touched
+
+A cross-repo slice ships code outside Ansible and AnsibleSpecs, and the surfaces above do not cover
+those repos.
+
+- **A touched repo's own docs are in scope.** Its README, its `docs/` and its agent docs
+  (`CLAUDE.md` and the docs that file points at) get the same reconciliation as this repo's.
+  Commit the edits in that repo, on its base branch.
+- **Gate what you edited there.** Run that repo's `kc project test` component whose config or doc
+  gate the edit touches.
+- **A repo the slice did not touch gets no commit.** The run loop pushes only the repos named in
+  the slice's diff rows, so a commit in any other repo would be stranded. A doc there that the
+  slice made untrue goes to the close-out as doc debt.
+- **A `*Deploy` repo with no clear home of its own is worked from Ansible.** Its slices are
+  Ansible-led and run from an Ansible environment, which clones the deploy repo under
+  `/work/scratch/` when this environment does not declare it. The slice docs live in AnsibleSpecs.
+  The deploy repo's own README and docs stay in that repo and fall under the first rule.
+
 ## The architecture model — not an edit
 
 `docs/architecture/ansible-architecture.yaml` is this repo's federated Architecture-as-Code
