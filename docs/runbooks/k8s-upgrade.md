@@ -22,10 +22,27 @@ If any step fails on a node, the playbook stops; nothing else moves. The cordone
 - Routinely, to pick up Ubuntu security patches and microk8s patch versions.
 - After a microk8s channel bump in inventory (e.g. `1.35/stable` → `1.36/stable`).
 
+Before bumping the channel, run the [deprecated-API check](#before-a-channel-bump-deprecated-apis-still-in-use).
+
 ## Prerequisites
 
 - Both SSH identities loaded per [`operator-workstation.md`](operator-workstation.md).
 - Cluster members reachable; primary node responsive (`microk8s status` is `running: True`).
+
+## Before a channel bump: deprecated APIs still in use
+
+No build renders the deploy repos' charts against a target Kubernetes minor, so an API version a chart still uses and the new minor removes surfaces only as a failed Argo sync of that app after the roll. Check before bumping `microk8s_channel`: every apiserver reports each deprecated API that clients still request as `apiserver_requested_deprecated_apis`, and Prometheus scrapes it.
+
+```bash
+q() { curl -s http://prometheus.home/api/v1/query --data-urlencode "query=$1" | jq -c '.data.result[] | [.metric, .value[1]]'; }
+q 'count by (group, version, resource, removed_release) (apiserver_requested_deprecated_apis)'
+```
+
+Any series whose `removed_release` is at or below the target minor (e.g. `1.36` for a `1.35` → `1.36` bump) blocks the bump: find what still requests that API — usually a chart in a deploy repo, or an addon or CRD controller — and move it to the replacement version first.
+
+- **An empty `removed_release` is not a pass forever.** It means the API is deprecated without a scheduled removal (on 2026-10-01 all eight series were core `v1 endpoints` and `metallb.io/v1beta1 addresspools`, none with a removal release). Re-read it on every bump; a later release can schedule the removal.
+- **Query before the roll, not after.** The metric only covers requests since each apiserver last started, and a roll restarts every one. Read it on a cluster that has been up long enough for Argo CD to reconcile every app at least once.
+- **This covers prd only.** Prometheus scrapes the `k8s_prd` apiservers (srvk8s1–3, under both the `kubernetes-api-servers` and `kubernetes-nodes` jobs, hence the `count by`); `srvk8sdev` is not scraped, so the check says nothing about the dev cluster.
 
 ## Run
 
