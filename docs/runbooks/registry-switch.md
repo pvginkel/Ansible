@@ -442,7 +442,8 @@ list of what went.
     position, `check_applicationsets` and the helpers it calls, and HelmCharts in `REPOS` and
     `PERMITTED_SOURCES`.
   - `Jenkinsfile.architecture`'s header, which names HelmCharts' `configs/prd/argocd/prd/release.yaml`
-    as where Argo's branch is set. That is now `releases/values.yaml`'s `apps.argocd`.
+    as where Argo's branch is set. That is now `releases/values.yaml`'s
+    `apps.argocd.stages.prd.targetRevision`, `main` when unset.
 - **Also dead, though not on D64's list:**
   - `tools/registry-equivalence.py`. From the switch, `releases`' own sync status answers its
     question, and it counts `releases` itself as `ONLY LIVE`.

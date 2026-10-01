@@ -394,7 +394,7 @@ The worked examples, to copy from:
 | --- | --- | --- | --- |
 | `ArgoCDDeploy` | `argocd-deploy` | prd, from `main` | a new app: no current producer |
 | `KubeCoderDeploy` | `kubecoder-deploy` | prd, from `prd` | a handover from `helm-charts`; dev is not published |
-| `PipelinesDeploy` | `pipelines-deploy` | prd, from `main` | a new app, its `Jenkinsfile.architecture` in the style guide's form |
+| `PipelinesDeploy` | `pipelines-deploy` | prd, from `main` | a new app: no current producer |
 
 What the deploy repo carries:
 
@@ -403,13 +403,17 @@ What the deploy repo carries:
   gen-architecture --help`).
 - **`Jenkinsfile.architecture`**: the Jenkins pipeline style guide's deploy-repo
   producer (<https://pipelines.home/docs/types/deploy-architecture/>) with its
-  names changed. It checks out the branch the job builds (`checkout scm`). Then,
-  in the `aac-tools` container (`podYaml(templates: ['aac-tools'])`), it runs
-  `gen-architecture --stage <stage> --producer <app>-deploy` and archives
-  `docs/architecture/*.yaml`, and it runs `arch-validate
-  docs/architecture/*.yaml` as the gate. The collector copies only artifacts
-  whose path contains an `architecture/` directory, from the job's last
-  successful build.
+  header, stage and producer id changed. It declares its own push trigger and
+  concurrency guard, and checks out the branch the job builds (`checkout scm`).
+  Its stages call the library's `architectureProducer` steps
+  (<https://pipelines.home/docs/reference/architectureProducer/>):
+  `generate(stage: '<stage>', producer: '<app>-deploy')` runs `gen-architecture`
+  and `archive` archives `docs/architecture/*.yaml`, then `validate` runs
+  `arch-validate docs/architecture/*.yaml` as the gate. `generate` and
+  `validate` run in the `aac-tools` container, which the pod declares with
+  `podYaml(templates: ['aac-tools'])`. The collector copies only `.yaml` files
+  under an `architecture/` directory, from the job's last successful build, and
+  `archive` refuses a pattern it would not copy.
 - **`.architecturerc`**: see below.
 - **`/docs/architecture/` in `.gitignore`**: the artifact is build output and is
   never committed.
