@@ -61,7 +61,6 @@ TFB = ("http://127.0.0.1:6061/?type=git&repository=https%3A%2F%2Fgithub.com%2Fpv
        "TerraformState&ref=main&state=")
 LIB_VERSION = "0.3.1"
 JENKINS = "https://jenkins.webathome.org"
-GIT_CRED = "5f6fbd66-b41c-405f-b107-85ba6fd97f10"
 RELAY = "https://deploy-hooks.webathome.org/api/webhook"
 DATASET_URL = "https://architecture.webathome.org/data/v0.1/architecture.yaml"
 HOOK_PARAMS = "hook.repo={repo},hook.revision=0123456789abcdef0123456789abcdef01234567,hook.stage={stage},hook.namespace={ns}"
@@ -189,32 +188,65 @@ terraform -chdir=terraform init -backend=false -input=false -no-color
 terraform -chdir=terraform validate -no-color
 """
 
-JENKINSFILE_ARCH = """// Architecture producer pipeline for the federated Architecture-as-Code model: this repo
-// publishes {app}'s {stage} stage as producer `{producer}` (argo-cd D50).
+JENKINSFILE_ARCH = """// Generates the architecture of {app}'s {stage} stage as producer {producer}, validates it
+// against the architecture service, and archives it as the producer's artifact, which
+// AaC/Architecture collects.
 //
 // The artifact is generated, never committed. gen-architecture renders chart/ the way Argo CD
 // renders it, reads the judgment layer (architecture.yaml at the repo root) and writes
-// docs/architecture/{producer}.yaml. One pipeline publishes one stage, from the branch Argo
-// syncs it from: `main`.
+// docs/architecture/{producer}.yaml. One pipeline publishes one stage, from the branch Argo CD
+// syncs it from: main.
+//
+// Controller config:
+//   - Job: AaC/{job}
+//   - SCM: pvginkel/{repo}, branch main
+//   - Script Path: {script}
 
 library identifier: 'JenkinsPipelineUtils', changelog: false
 
-podTemplate(inheritFrom: 'jenkins-agent', containers: [
-    containerTemplates.aac_tools('aac-tools')
-]) {{
-    node(POD_LABEL) {{
-        stage('Cloning repo') {{
-            git branch: 'main',
-                credentialsId: '{cred}',
-                url: '{url}'
+pipeline {{
+    agent {{
+        kubernetes {{
+            inheritFrom 'jenkins-agent'
+            yaml podYaml(templates: ['aac-tools'])
+        }}
+    }}
+
+    options {{
+        disableConcurrentBuilds(abortPrevious: true)
+        skipDefaultCheckout()
+        timeout(time: 60, unit: 'MINUTES')
+        timestamps()
+    }}
+
+    triggers {{
+        githubPush()
+    }}
+
+    stages {{
+        stage('Checkout') {{
+            steps {{
+                checkout scm
+            }}
         }}
 
-        stage('Architecture') {{
-            container('aac-tools') {{
-                sh 'gen-architecture --stage {stage} --producer {producer}'
-                sh 'arch-validate docs/architecture/*.yaml'
+        stage('Generate architecture') {{
+            steps {{
+                script {{
+                    architectureProducer.generate(stage: '{stage}', producer: '{producer}')
+                    architectureProducer.archive(files: ['docs/architecture/*.yaml'])
+                }}
             }}
-            archiveArtifacts artifacts: 'docs/architecture/*.yaml', fingerprint: true
+        }}
+
+        // AaC/Architecture copies a producer's last successful build, so a model that fails here
+        // never reaches it, archived or not.
+        stage('Validate architecture') {{
+            steps {{
+                script {{
+                    architectureProducer.validate(files: ['docs/architecture/*.yaml'])
+                }}
+            }}
         }}
     }}
 }}
@@ -944,7 +976,8 @@ def add_stage(app: App, args) -> None:
     (cdir / "terraform.tfvars").write_text(
         "# The prd stage owns the repository's webhook; this one does not.\nmanage_webhook = false\n")
     (p / app.arch_file).write_text(JENKINSFILE_ARCH.format(
-        app=app.name, stage=app.stage, producer=app.producer, cred=GIT_CRED, url=app.url))
+        app=app.name, stage=app.stage, producer=app.producer, job=app.aac_job, repo=app.repo_name,
+        script=app.arch_file))
     rc = (p / ".architecturerc").read_text()
     rc = rc.replace("  - config/prd/\n", f"  - config/prd/\n  - config/{app.stage}/\n", 1)
     (p / ".architecturerc").write_text(rc)
@@ -1121,7 +1154,8 @@ def cmd_scaffold(app: App, args) -> None:
         "# published element carries.\n"
         f"introduced: '{introduced}'\n\n" + up_text + atext)
     (p / "Jenkinsfile.architecture").write_text(JENKINSFILE_ARCH.format(
-        app=app.name, stage=app.stage, producer=app.producer, cred=GIT_CRED, url=app.url))
+        app=app.name, stage=app.stage, producer=app.producer, job=app.aac_job, repo=app.repo_name,
+        script="Jenkinsfile.architecture"))
     (p / ".architecturerc").write_text(ARCHITECTURERC.format(
         stage=app.stage, producer=app.producer, repo=app.repo_name))
     (p / ".gitignore").write_text(GITIGNORE)
