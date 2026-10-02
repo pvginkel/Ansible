@@ -41,8 +41,8 @@ The operator works in this same pod and sees the same `/work/<repo>` paths, so t
 **authority, not access**. It holds regardless: `changed=N>0` and terraform state mutations are the
 operator's keystroke.
 
-A push to `main` is safe — `iac-on-push` only lints, validates, plans and runs the destroy check.
-Convergence is the separate manual `iac-apply` job; never start it.
+A push to `main` is safe — `IaC/Build-Main` only lints, validates, plans and runs the destroy check.
+Convergence is the separate manual `IaC/Apply` job; never start it.
 
 Mechanics — the toolchain, the canonical command shape, the cluster credentials (`config-prd-write`
 is cluster-admin on prd), and writing OpenBao secrets — are in [`docs/live-infra-access.md`](docs/live-infra-access.md).
@@ -62,7 +62,7 @@ is cluster-admin on prd), and writing OpenBao secrets — are in [`docs/live-inf
 The toolchain lives in the `iac` sidecar, not this container: `cexec iac <cmd>` for poetry,
 ansible, terraform, kubectl, helm, `bao`, `step`. Curated entry points are `kc project
 setup|lint|test`. **No pre-commit hook** — run `kc project lint` before proposing a commit;
-`iac-on-push` runs the same gates only after the push. Terraform `plan`/`apply` work here as well
+`IaC/Build-Main` runs the same gates only after the push. Terraform `plan`/`apply` work here as well
 as on srviac, which Jenkins uses and which stays up when Kubernetes is down. Details in
 [`docs/live-infra-access.md`](docs/live-infra-access.md).
 
@@ -84,9 +84,7 @@ declared in `.kubecoder/config.yaml`; adding an ordinary entry needs no restart 
 path the entry resolves to, run `kc project setup` in it, and add it to `Ansible.code-workspace` in
 the same commit (a `shared: true` entry is mounted, so it takes `kc env restart` and is never
 cloned by hand). A repo needed only for the task at hand goes under `/work/scratch/<Repo>` with no
-entry — including one a slice changes: its phases say `Target: github:<owner>/<repo>`, and the
-dev plugin's driver (and the planning dry run) clones or adopts `/work/scratch/<repo>` itself; a
-`github:` repo with no `.kubecoder/project.yaml` needs a `gate` line under `## Driver rulings`.
+entry, including one a slice changes. How a slice targets such a repo is in the dev plugin's `docs/plan-template.md`.
 `KubeCoderDeploy` (KubeCoder's deploy
 repo, the Argo CD pilot — see its README) and `HelmCharts` (the deploy path before Argo CD,
 archived 2026-09-28) are such repos: older docs and slices cite them as `/work/<Repo>`, read that
