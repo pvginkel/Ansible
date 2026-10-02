@@ -33,7 +33,7 @@ procedure's shape depends on how they land.
   two-root bundle dropped there is silently truncated — the second root would
   never reach a host's trust store. The bundle-splitting, fingerprint-named,
   reconciling task `decisions.md` specifies does not exist.
-- **The drift check is a byte diff.** The `Homelab CA root drift` stage in
+- **The drift check is a byte diff.** The `Check homelab CA root drift` stage in
   [`Jenkinsfile.iac-scheduled-drift`](../../Jenkinsfile.iac-scheduled-drift)
   `diff -u`s the in-repo cert against `https://ca.home/roots.pem`. The moment
   the bundle carries two roots the two sides' ordering is no longer pinned and

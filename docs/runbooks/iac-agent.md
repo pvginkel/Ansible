@@ -43,9 +43,12 @@ All ansible stages pass `--skip-tags os_update`: patch posture belongs to `iac-s
 
 On failure, jenkins-telegram-bot reports the build — job name, build link, and whatever the job
 put in the build description. It is subscribed to every build, so no `iac-*` pipeline carries a
-failure handler of its own. What the bot deliberately stays quiet about is UNSTABLE, which is why
-the dev stage raises its own warning through JenkinsPipelineUtils' `notify` var when srvk8sdev was
-up and the run genuinely failed.
+failure handler of its own. The bot deliberately stays quiet about UNSTABLE and ABORTED, so each
+job raises those itself through JenkinsPipelineUtils' `notify` var. The dev stage warns when
+srvk8sdev was up and the run genuinely failed. Every `iac-*` file ends with a `post { aborted }`
+block that raises `<job> #<n> aborted (timeout or hand)`: a build is aborted by hand or by its
+`timeout`, four hours on the srviac jobs and 60 minutes on `iac-image`. An apply cut off that way
+is left half converged.
 
 > The split exists so that pushing a commit is not the same act as applying it to production — an
 > unattended agent pushing a branch must not be able to roll the prd fleet. The cost is that **prd
@@ -59,7 +62,7 @@ when the push's changeset touched something the image is built from — `support
 root `pyproject.toml` or `poetry.lock` whose venv is baked in,
 `ansible/roles/baseline/files/homelab-root.crt`, `ansible/files/known_hosts.d/homelab`, or
 `Jenkinsfile.iac-image` itself, which carries the Dockerfile path, the context and both tags. Any
-other push reports the `Building iac image` stage as *skipped for conditional* and pushes no tag;
+other push reports the `Build iac image` stage as *skipped for conditional* and pushes no tag;
 `registry:5000/iac:latest` stays where it was.
 
 The gate reads the build's own changeset (`utils.hasChanges`), so a build that **fails** on an
