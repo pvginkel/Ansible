@@ -575,9 +575,13 @@ not manage it. KubeCoderDeploy's `dev` does, and its `prd` sets `false`.
 Destroying `dev` while `prd` stays deployed would delete the repo's only hook,
 and the guard does not refuse that. `prd`'s pushes then reach Argo only through
 the 30-minute refresh (D6). To give the surviving stage the hook, set
-`manage_webhook = true` in its tfvars after the destroy, on the branch it
-tracks, push, and refresh its Application by hand, since no hook delivers that
-push. Its sync's apply creates the hook. Not before the destroy: while the old
+`manage_webhook = true` in its tfvars after the destroy, in a commit on `main`.
+A stage that tracks another branch gets that commit through its promotion, as
+it gets every change (D35): KubeCoderDeploy's `prd` through
+`KubeCoder/Promote-PRD`, never by a commit to `prd` itself, which that job's
+fast-forward would then refuse. Once the commit is on the branch the stage
+tracks, refresh its Application by hand, since no hook delivers that push. Its
+sync's apply creates the hook. Not before the destroy: while the old
 hook exists, that create fails on GitHub's hook-already-exists.
 
 ## Giving an app its own architecture producer
