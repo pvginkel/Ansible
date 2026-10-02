@@ -1,30 +1,23 @@
-// iac-scheduled-update — weekly cluster-class OS maintenance.
-// Idempotent: no-op when no upgrades are pending.
+// Rolls OS updates through the k8s clusters every week: drains, upgrades and reboots each k8s prd
+// node in turn, then srvk8sdev when it is up. A no-op when no upgrades are pending.
 //
-// Coverage is by host class (decisions.md "OS updates"), not by
-// site-* playbook:
-//   - Cluster class (k8s, ceph) is Ansible-orchestrated here.
-//     update-k8s.yml runs today; update-ceph.yml is future work.
-//   - Standalone class (Jenkins agent, srvvault1/2/3) self-updates
-//     via unattended-upgrades in a quiet window — baseline installs
-//     and configures the package, then steps back. No stage needed.
+// Coverage is by host class (decisions.md "OS updates"), not by site-* playbook:
+//   - Cluster class (k8s, ceph) is Ansible-orchestrated here. update-k8s.yml runs today;
+//     update-ceph.yml is future work.
+//   - Standalone class (Jenkins agent, srvvault1/2/3) self-updates via unattended-upgrades in
+//     a quiet window: baseline installs and configures the package, then steps back. Their
+//     reboot stagger comes from those windows, not from this job.
 //   - Self-managed hosts sit outside this system entirely.
 //
-// Reboot stagger across the standalone fleet is enforced by their
-// unattended-upgrades windows, not by anything in this pipeline.
-//
 // Controller config:
+//   - Job: IaC/Scheduled Update
 //   - SCM: pvginkel/Ansible, branch main
 //   - Script Path: Jenkinsfile.iac-scheduled-update
 
 library identifier: 'JenkinsPipelineUtils', changelog: false
 
-// srvk8sdev can be down: it starts with pve, but may be stopped by
-// hand. Every dev stage in every iac-* pipeline opens with this
-// bounded SSH probe: `-T 5` caps the
-// connect, so a down box costs seconds rather than a playbook's worth
-// of connection retries. A false result means "skip the stage and mark
-// the build UNSTABLE" — never FAILURE, and never a page.
+// srvk8sdev can be down: it starts with pve, but may be stopped by hand. `-T 5` caps the connect,
+// so a down box costs seconds rather than a playbook's worth of connection retries.
 def devUp() {
     return sh(
         returnStatus: true,
@@ -40,26 +33,31 @@ def devUp() {
 pipeline {
     agent { label 'iac-controller' }
 
+    options {
+        // Without abortPrevious: an abort in the middle of a roll leaves a node drained or half
+        // upgraded.
+        disableConcurrentBuilds()
+        skipDefaultCheckout()
+        timeout(time: 4, unit: 'HOURS')
+        timestamps()
+    }
+
     triggers {
-        // Weekly, early Sunday. Cron lives here, not in the controller's
-        // job config: the drift job's schedule was configured only in the
-        // UI, silently vanished in June 2026, and nobody noticed for five
-        // weeks — long enough for the fleet's SSH host certs to lapse.
-        // A schedule that isn't in git can disappear without a diff.
+        // Sunday early morning: the Wednesday calico rollout and the Friday certificate renewal
+        // are scheduled clear of it.
         cron('H 4 * * 0')
     }
 
-    options {
-        timestamps()
-        disableConcurrentBuilds()
-        buildDiscarder(logRotator(numToKeepStr: '50'))
-    }
-
     stages {
-        // Critical clusters: an unreachable member fails the build. The
-        // playbook's preflight aborts before any cordon, so a hard fail
-        // here never leaves a half-drained prod cluster.
-        stage('k8s prd') {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        // An unreachable member fails the build. The playbook's preflight aborts before any
+        // cordon, so a failure here never leaves a half-drained prd cluster.
+        stage('Roll OS updates (k8s prd)') {
             steps {
                 sh '''
                     iac -c '
@@ -71,25 +69,16 @@ pipeline {
             }
         }
 
-        // Non-critical dev roll, two-tier handling:
-        //   - If srvk8sdev is unreachable (powered off / down), skip the
-        //     roll and mark the build UNSTABLE. A down dev box is
-        //     expected churn, so it's visible but never pages.
-        //   - If it's up but the roll fails, downgrade to UNSTABLE too,
-        //     so a dev hiccup never reds the prod roll above — but do
-        //     page, because that one is a real failure.
-        //
-        // 45m bound: a full drain → upgrade → reboot on a single node
-        // runs well inside that, and it caps the case where a wedged
-        // mount stalls the drain for the rest of the night.
-        stage('k8s dev') {
+        // 45m bound: a full drain, upgrade and reboot of a single node runs well inside it, and it
+        // caps the case where a wedged mount stalls the drain for the rest of the night.
+        stage('Roll OS updates (k8s dev)') {
             steps {
                 script {
                     if (!devUp()) {
                         unstable('srvk8sdev is unreachable — dev cluster roll skipped')
                         return
                     }
-                    def rc = sh(
+                    int rc = sh(
                         returnStatus: true,
                         script: '''
                             iac -c '
@@ -100,8 +89,9 @@ pipeline {
                         '''
                     )
                     if (rc != 0) {
-                        env.DEV_STAGE_FAILED = 'true'
-                        unstable("dev cluster roll failed on srvk8sdev (exit ${rc})")
+                        String message = "dev cluster roll failed on srvk8sdev (exit ${rc})"
+                        notify.warning(message)
+                        unstable(message)
                     }
                 }
             }
@@ -109,19 +99,9 @@ pipeline {
     }
 
     post {
-        // No failure handler: jenkins-telegram-bot watches every build and
-        // reports FAILURE loudly by itself, job name and build link included.
-        // UNSTABLE it deliberately stays quiet about — an accepted warning is
-        // exactly what unstable means — so a dev stage that genuinely broke
-        // has to say so itself.
-        unstable {
-            // Page only when srvk8sdev was up and the roll genuinely
-            // failed. An unreachable dev box yellows the build so it's
-            // visible in Jenkins, but it isn't news.
+        aborted {
             script {
-                if (env.DEV_STAGE_FAILED == 'true') {
-                    notify.warning('dev cluster roll failed on srvk8sdev')
-                }
+                notify.error("${env.JOB_NAME} #${env.BUILD_NUMBER} aborted (timeout or hand)")
             }
         }
     }

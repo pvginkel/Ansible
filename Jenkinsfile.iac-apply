@@ -1,43 +1,31 @@
-// iac-apply — the converging half of the old iac-on-push pipeline.
-// Manually triggered: there is no `triggers` block, on purpose. A push
-// to main validates (Jenkinsfile.iac-on-push); converging prd is a
-// deliberate act someone starts.
+// Converges prd, started by hand: plans, checks and applies Terraform's prd root, then runs the
+// site playbook on every host outside iac_agent, site-openbao, and site-k8s on k8s prd. When
+// srvk8sdev is up, it converges that too (site-k8s and site-ceph).
 //
-// Sequential, fail-fast on prd: plan + destroy-check + apply, site (sans
-// iac_agent), site-openbao, site-k8s (prd). A trailing dev stage
-// (srvk8sdev: site-k8s dev + site-ceph) can only ever downgrade the
-// build to UNSTABLE — see devUp() below. Each stage wraps its work in a
-// single `iac -c '...'` so the steps that belong together share one
-// container — every `iac` call is a fresh container and clone.
+// A push to main only validates (Jenkinsfile.iac-on-push); converging prd is a deliberate act
+// someone starts. The prd stages run in order and the first that fails ends the build. The dev
+// stage can only mark the build UNSTABLE.
 //
-// The plan + destroy check is repeated here rather than trusted from
-// the validate run: check-protected-vms.sh is the guard that stops an
-// apply destroying a prd VM, and a guard that runs in a different build
-// against a different commit is not a guard. For the same reason the
-// plan, the check and the apply of that saved plan share one `iac`
-// call: a second call would plan again in a new clone.
+// The plan and the destroy check are repeated here rather than trusted from the validate run:
+// check-protected-vms.sh is the guard that stops an apply destroying a prd VM, and a guard that
+// runs in a different build against a different commit is not a guard. For the same reason the
+// plan, the check and the apply of that saved plan share one `iac` call, since every `iac` call is
+// a fresh container and clone, and a second call would plan again.
 //
-// All ansible stages run with `--skip-tags os_update`: apt cache
-// refresh + dist-upgrade are patch posture, owned by
-// iac-scheduled-update (today: update-k8s.yml; future: update-ceph).
-// This pipeline converges config drift only; it never drains, upgrades,
-// or reboots a cluster node. Same skip-tags pattern as
-// iac-scheduled-drift.
+// Every playbook runs with `--skip-tags os_update`: the apt cache refresh and dist-upgrade are
+// patch posture, owned by Jenkinsfile.iac-scheduled-update. This job converges config drift only;
+// it never drains, upgrades or reboots a cluster node.
 //
 // Controller config:
+//   - Job: IaC/Apply
 //   - SCM: pvginkel/Ansible, branch main
 //   - Script Path: Jenkinsfile.iac-apply
-//   - Build trigger: none — started by hand
 
 library identifier: 'JenkinsPipelineUtils', changelog: false
 
-// srvk8sdev can be down: it starts with pve, but may be stopped by
-// hand. Every dev stage in every iac-* pipeline opens with this
-// bounded SSH probe: `-T 5` caps the
-// connect, so a down box costs seconds rather than a playbook's worth
-// of connection retries (or, worse, microk8s' "wait for API" loop).
-// A false result means "skip the stage and mark the build UNSTABLE" —
-// never FAILURE, and never a page.
+// srvk8sdev can be down: it starts with pve, but may be stopped by hand. `-T 5` caps the connect,
+// so a down box costs seconds rather than a playbook's worth of connection retries (or microk8s'
+// "wait for API" loop).
 def devUp() {
     return sh(
         returnStatus: true,
@@ -54,15 +42,23 @@ pipeline {
     agent { label 'iac-controller' }
 
     options {
-        timestamps()
+        // Without abortPrevious: an abort in the middle of an apply leaves prd half converged.
         disableConcurrentBuilds()
-        buildDiscarder(logRotator(numToKeepStr: '50'))
+        skipDefaultCheckout()
+        timeout(time: 4, unit: 'HOURS')
+        timestamps()
     }
 
     stages {
-        // The plan file stays inside the iac container: a saved plan holds
-        // the secret values it would write.
-        stage('Terraform plan + destroy check + apply (prd)') {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        // The plan file stays inside the iac container: a saved plan holds the secret values it
+        // would write.
+        stage('Apply Terraform (prd)') {
             steps {
                 sh '''
                     iac -c '
@@ -82,7 +78,7 @@ pipeline {
             }
         }
 
-        stage('Ansible site (excl. iac_agent)') {
+        stage('Apply site (excl. iac_agent)') {
             steps {
                 sh '''
                     iac -c '
@@ -94,14 +90,11 @@ pipeline {
             }
         }
 
-        stage('Ansible site-openbao') {
-            // site-openbao.yml converges the OpenBao service VMs;
-            // site.yml excludes them because the Play 0 transient
-            // known_hosts handoff (pre-cert SSH for srvvaultN) lives
-            // here, not in site.yml. Play 0 reads `terraform output
-            // host_pubkeys` and writes tmp/known_hosts.openbao at
-            // run time, so this works from CI without operator
-            // priming.
+        // site.yml excludes the OpenBao service VMs because the pre-cert known_hosts handoff for
+        // srvvaultN lives in site-openbao.yml's Play 0. Play 0 reads `terraform output
+        // host_pubkeys` and writes tmp/known_hosts.openbao at run time, so this runs from CI
+        // without operator priming.
+        stage('Apply site-openbao') {
             steps {
                 sh '''
                     iac -c '
@@ -113,18 +106,10 @@ pipeline {
             }
         }
 
-        stage('Ansible site-k8s (prd)') {
-            // Converges cluster config drift (baseline, microk8s,
-            // ssh_host_cert) on the prd k8s cluster. site.yml excludes
-            // the k8s groups because cluster changes need serial: 1, so
-            // without this stage a microk8s role tweak wouldn't land.
-            // Limited to k8s_prd — the dev node converges in the
-            // non-blocking dev stage below (splitting the play by
-            // cluster limit is safe: elect-primary elects per cluster).
-            // --skip-tags os_update keeps the apt cache refresh +
-            // dist-upgrade out — those belong to iac-scheduled-update /
-            // update-k8s.yml, which owns the drain → upgrade → reboot
-            // cycle.
+        // site.yml excludes the k8s groups because a cluster change needs serial: 1, so without
+        // this stage a microk8s role change would not land. Limiting the play to one cluster is
+        // safe: elect-primary elects per cluster.
+        stage('Apply site-k8s (k8s prd)') {
             steps {
                 sh '''
                     iac -c '
@@ -136,26 +121,19 @@ pipeline {
             }
         }
 
-        // srvk8sdev converges here, split off from the prd stage above
-        // so a dev box that is powered off or broken can never
-        // block a prd deploy. Both dev playbooks live here: site-k8s
-        // --limit k8s_dev (baseline + microk8s on srvk8sdev) and
-        // site-ceph (its microceph layer, ceph_dev → srvk8sdev only).
-        //
-        // The bound lives in the shell, not in a Jenkins timeout()
-        // step, on purpose: a timeout() firing inside catchError sets
-        // the build to ABORTED whatever buildResult says, which is how
-        // #113 aborted with every prd stage green (srvk8sdev answered
-        // SSH, then hung on `snap install microk8s`). A shell timeout
-        // exits 124 — an ordinary rc this stage can downgrade itself.
-        stage('Ansible dev (srvk8sdev)') {
+        // srvk8sdev converges apart from prd, so a dev box that is powered off or broken never
+        // blocks a prd deploy. site-ceph converges its microceph layer (ceph_dev is srvk8sdev only).
+        // The shell bounds each playbook, not a `timeout` step: a `timeout` step that fires ends the
+        // build ABORTED, which is how IaC/Apply #113 aborted with every prd stage green (srvk8sdev
+        // answered SSH, then hung on `snap install microk8s`).
+        stage('Apply site-k8s and site-ceph (srvk8sdev)') {
             steps {
                 script {
                     if (!devUp()) {
                         unstable('srvk8sdev is unreachable — dev convergence skipped')
                         return
                     }
-                    def rc = sh(
+                    int rc = sh(
                         returnStatus: true,
                         script: '''
                             iac -c '
@@ -167,8 +145,9 @@ pipeline {
                         '''
                     )
                     if (rc != 0) {
-                        env.DEV_STAGE_FAILED = 'true'
-                        unstable("dev convergence failed on srvk8sdev (exit ${rc})")
+                        String message = "dev convergence failed on srvk8sdev (exit ${rc})"
+                        notify.warning(message)
+                        unstable(message)
                     }
                 }
             }
@@ -176,20 +155,9 @@ pipeline {
     }
 
     post {
-        // No failure handler: jenkins-telegram-bot watches every build and
-        // reports FAILURE loudly by itself, job name and build link included.
-        // UNSTABLE it deliberately stays quiet about — an accepted warning is
-        // exactly what unstable means — so a dev stage that genuinely broke
-        // has to say so itself.
-        unstable {
-            // Page only when srvk8sdev was up and the run genuinely
-            // failed. An unreachable dev box yellows the build so it's
-            // visible in Jenkins, but it must not push a notification
-            // on every apply.
+        aborted {
             script {
-                if (env.DEV_STAGE_FAILED == 'true') {
-                    notify.warning('dev convergence failed on srvk8sdev')
-                }
+                notify.error("${env.JOB_NAME} #${env.BUILD_NUMBER} aborted (timeout or hand)")
             }
         }
     }

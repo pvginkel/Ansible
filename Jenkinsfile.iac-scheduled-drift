@@ -1,24 +1,20 @@
-// iac-scheduled-drift — daily drift check across terraform + ansible.
-// Push-notifies on detected changes or non-zero exit. Read-only; no
-// terraform apply, no ansible run without --check.
+// Checks every day that the estate matches the repo: a Terraform plan of prd, an Ansible --check
+// of each site playbook, and step-ca's live roots against the in-repo homelab root. Read-only: no
+// terraform apply, and no ansible run without --check.
 //
-// Every stage runs whatever an earlier one did, so a failure in one
-// doesn't mask findings in the others. All stages are inside the same
-// Jenkins build, so however many of them fail, the build goes red once
-// and is reported once.
+// Every stage runs whatever an earlier one did, so a failure in one does not mask findings in the
+// others. All stages are inside the same build, so however many of them fail, the build goes red
+// once and is reported once.
 //
 // Controller config:
+//   - Job: IaC/Scheduled Drift
 //   - SCM: pvginkel/Ansible, branch main
 //   - Script Path: Jenkinsfile.iac-scheduled-drift
 
 library identifier: 'JenkinsPipelineUtils', changelog: false
 
-// srvk8sdev can be down: it starts with pve, but may be stopped by
-// hand. Every dev stage in every iac-* pipeline opens with this
-// bounded SSH probe: `-T 5` caps the
-// connect, so a down box costs seconds rather than a playbook's worth
-// of connection retries. A false result means "skip the stage and mark
-// the build UNSTABLE" — never FAILURE, and never a page.
+// srvk8sdev can be down: it starts with pve, but may be stopped by hand. `-T 5` caps the connect,
+// so a down box costs seconds rather than a playbook's worth of connection retries.
 def devUp() {
     return sh(
         returnStatus: true,
@@ -31,35 +27,30 @@ def devUp() {
     ) == 0
 }
 
-// Certificate renewal is iac-scheduled-certs' job, not this one's. That
-// job re-issues any leaf inside its last 14 days and runs weekly, so a
-// leaf that is merely inside that window is nothing for an operator to
-// act on — Friday will sign it. Checked at the role's own 14 days, this
-// build went red for up to six days per leaf per cycle over renewals
-// that needed no hand, which is how a drift signal stops being read.
+// Certificate renewal is IaC/Scheduled Certs' job, not this one's. That job re-issues any leaf
+// inside its last 14 days and runs weekly, so a leaf that is merely inside that window is nothing
+// for an operator to act on: Friday will sign it. Checked at the role's own 14 days, this build
+// would go red for up to six days per leaf per cycle over renewals that need no hand, which is how
+// a drift signal stops being read.
 //
-// So every stage that reaches a leaf checks one renewer period shorter:
-// a leaf with under 7 days left is one the certs job has already had
-// its Friday at and missed, and that is the only certificate state
-// worth a red build here. Keep this at the role's threshold minus the
-// certs job's period if either moves.
+// So every stage that reaches a leaf checks one renewer period shorter: a leaf with under 7 days
+// left is one the certs job has already had its Friday at and missed, and that is the only
+// certificate state worth a red build here. Keep this at the role's threshold minus the certs
+// job's period if either moves.
 //
-// ssh_host_cert is not listed: its sign step is a `command` with no
-// check-mode report, so under --check it is skipped, not counted, and
-// there is nothing here to shorten. The certs job's own build is the
-// only signal for a host cert renewal that stopped happening.
+// ssh_host_cert is not listed: its sign step is a `command` with no check-mode report, so under
+// --check it is skipped, not counted, and there is nothing here to shorten. The certs job's own
+// build is the only signal for a host cert renewal that stopped happening.
 def certDriftArgs = '-e internal_tls_renewal_threshold_days=7'
 
-// A red build used to reach Telegram as a bare "Scheduled Drift #N",
-// and what had drifted was only in a log thousands of lines long. So
-// every check tees its output to drift-logs/<name>.log, and a check that
-// goes wrong records the lines naming the drift in the build
-// description: jenkins-telegram-bot appends that to its FAILURE
-// message, and a dev stage's warning carries its own entry.
+// What drifted is otherwise only in a log thousands of lines long. So every check tees its output
+// to drift-logs/<name>.log, and a check that goes wrong records the lines naming the drift in the
+// build description: jenkins-telegram-bot appends that to its FAILURE message, and a dev stage's
+// warning carries its own entry.
 //
-// The tee is why every check's script opens with a bash shebang: the
-// pipe needs pipefail, or the step would report tee's status instead
-// of the check's. (iac is itself a bash script on this agent.)
+// The tee is why every check's script opens with a bash shebang: the pipe needs pipefail, or the
+// step would report tee's status instead of the check's. (iac is itself a bash script on this
+// agent.)
 
 // Pulls the lines that name the drift out of a check's teed output:
 //   terraform  first each VM destroy Terraform refused (prevent_destroy)
@@ -156,15 +147,11 @@ def recordDrift(String stage, String log, String tool) {
     return entry
 }
 
-// jenkins-telegram-bot reports a FAILURE by itself, with the build
-// description on the lines under it. UNSTABLE it stays quiet about, so a
-// dev check that genuinely fails raises its own warning where it fails: the
-// bot sends every marker in a finished build's log whatever the build result.
-
-// Runs a prd check. A check that fails records its drift and marks its stage
-// and the build FAILURE without throwing, so the checks after it still run.
-// The sh stays outside catchError: an abort or a timeout() caught inside it
-// sets the build ABORTED whatever buildResult says (iac-apply build #113).
+// Runs a prd check. jenkins-telegram-bot reports a FAILURE by itself, with the build description
+// on the lines under it, so a check that fails records its drift, then marks its stage and the
+// build FAILURE without throwing, so the checks after it still run. The sh stays outside
+// catchError: an abort or a timeout() caught inside it sets the build ABORTED whatever buildResult
+// says (IaC/Apply build #113).
 def prdCheck(String stage, String log, String tool, String shellScript) {
     int rc = sh(returnStatus: true, script: shellScript)
     if (rc != 0) {
@@ -178,26 +165,31 @@ def prdCheck(String stage, String log, String tool, String shellScript) {
 pipeline {
     agent { label 'iac-controller' }
 
+    options {
+        // Without abortPrevious: this file carries the abort marker, which would page for every
+        // build a newer one replaced.
+        disableConcurrentBuilds()
+        skipDefaultCheckout()
+        timeout(time: 4, unit: 'HOURS')
+        timestamps()
+    }
+
     triggers {
-        // Daily, late morning. Cron lives here, not in the controller's
-        // job config: this job's schedule was UI-only, disappeared in
-        // June 2026 and went unnoticed for five weeks — which is how the
-        // fleet's SSH host certificates were allowed to lapse unseen.
-        // A schedule that isn't in git can disappear without a diff.
+        // Daily, late morning.
         cron('H 11 * * *')
     }
 
-    options {
-        timestamps()
-        disableConcurrentBuilds()
-        buildDiscarder(logRotator(numToKeepStr: '50'))
-    }
-
     stages {
-        stage('Terraform drift (prd)') {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Check Terraform drift (prd)') {
             steps {
                 script {
-                    prdCheck('Terraform drift (prd)', 'tf-prd', 'terraform', '''#!/usr/bin/env bash
+                    prdCheck('Check Terraform drift (prd)', 'tf-prd', 'terraform', '''#!/usr/bin/env bash
                         set -o pipefail
                         mkdir -p drift-logs
                         iac -c '
@@ -208,9 +200,6 @@ pipeline {
                             terraform plan -out=/tmp/plan.tfplan -no-color -detailed-exitcode || rc=$?
                             # POSIX test, not [[ ]]: iac -c runs the script under
                             # the iac image sh (dash), where [[ is "not found".
-                            # Both branches used to fall through to the else, so a
-                            # drifting plan exited 2 with no DRIFT line and no
-                            # protected-VM check.
                             if [ "$rc" -eq 0 ]; then
                                 exit 0
                             elif [ "$rc" -eq 2 ]; then
@@ -227,16 +216,14 @@ pipeline {
             }
         }
 
-        stage('Ansible drift (excl. iac_agent)') {
+        // --skip-tags os_update: the apt cache refresh and dist-upgrade tasks in baseline report
+        // pending package upgrades as `changed` under --check. That is patch posture, not drift;
+        // IaC/Scheduled Update applies it. Drop the skip once those tasks leave site.yml (see
+        // decisions.md "OS updates").
+        stage('Check Ansible drift (excl. iac_agent)') {
             steps {
-                // --skip-tags os_update: the apt cache refresh and
-                // dist-upgrade tasks in baseline report pending package
-                // upgrades as `changed` under --check. That's patch
-                // posture, not drift; the scheduled-update pipeline owns
-                // applying it. Drop the skip once those tasks leave
-                // site.yml (see decisions.md "OS updates").
                 script {
-                    prdCheck('Ansible drift (excl. iac_agent)', 'site', 'ansible', """#!/usr/bin/env bash
+                    prdCheck('Check Ansible drift (excl. iac_agent)', 'site', 'ansible', """#!/usr/bin/env bash
                         set -o pipefail
                         mkdir -p drift-logs
                         iac -c '
@@ -249,16 +236,12 @@ pipeline {
             }
         }
 
-        stage('Ansible drift (k8s prd)') {
+        // site.yml excludes the k8s clusters (serial: 1 and drain concerns), so without this stage
+        // a k8s config change is invisible to CI. The dev node is checked in a stage of its own.
+        stage('Check Ansible drift (k8s prd)') {
             steps {
-                // site-k8s.yml converges the k8s clusters in place;
-                // site.yml excludes them (serial: 1 / drain concerns),
-                // so without this stage a k8s config change is invisible
-                // to CI. Limited to k8s_prd; the dev node is gated below
-                // (offline most of the time). --check only; same
-                // --skip-tags os_update rationale as the stage above.
                 script {
-                    prdCheck('Ansible drift (k8s prd)', 'k8s-prd', 'ansible', """#!/usr/bin/env bash
+                    prdCheck('Check Ansible drift (k8s prd)', 'k8s-prd', 'ansible', """#!/usr/bin/env bash
                         set -o pipefail
                         mkdir -p drift-logs
                         iac -c '
@@ -271,20 +254,17 @@ pipeline {
             }
         }
 
-        // srvk8sdev is offline most of the time, so this stage skips on
-        // an unreachable box and only ever marks the build UNSTABLE —
-        // never FAILURE. Dev drift is worth seeing but is not worth
-        // reddening a build whose whole prd surface came back clean, and
-        // the daily cadence means a dev box left off would otherwise
-        // page every single day.
-        stage('Ansible drift (k8s dev)') {
+        // srvk8sdev is offline most of the time. Dev drift is worth seeing but not worth reddening
+        // a build whose whole prd surface came back clean, and the daily cadence would otherwise
+        // page every day a dev box is left off.
+        stage('Check Ansible drift (k8s dev)') {
             steps {
                 script {
                     if (!devUp()) {
                         unstable('srvk8sdev is unreachable — dev k8s drift check skipped')
                         return
                     }
-                    def rc = sh(
+                    int rc = sh(
                         returnStatus: true,
                         script: """#!/usr/bin/env bash
                             set -o pipefail
@@ -297,25 +277,22 @@ pipeline {
                         """
                     )
                     if (rc != 0) {
-                        String entry = recordDrift('Ansible drift (k8s dev)', 'k8s-dev', 'ansible')
-                        notify.warning("detected drift on srvk8sdev\n\n${entry}")
-                        unstable("dev k8s drift check reported changes or failed (exit ${rc})")
+                        String entry = recordDrift('Check Ansible drift (k8s dev)', 'k8s-dev', 'ansible')
+                        String message = "dev k8s drift check reported changes or failed on srvk8sdev (exit ${rc})\n\n${entry}"
+                        notify.warning(message)
+                        unstable(message)
                     }
                 }
             }
         }
 
-        stage('Ansible drift (openbao)') {
+        // site.yml excludes the OpenBao service VMs, whose pre-cert known_hosts handoff lives in
+        // site-openbao.yml's Play 0, so an openbao config change is invisible to the site.yml
+        // check.
+        stage('Check Ansible drift (openbao)') {
             steps {
-                // site-openbao.yml converges the OpenBao service VMs;
-                // site.yml excludes them so the pre-cert known_hosts
-                // handoff lives in this playbook's Play 0. Same
-                // rationale as the k8s stage above — an openbao config
-                // change is invisible to site.yml drift, so this stage
-                // covers it. --skip-tags os_update for the same patch-
-                // posture reason.
                 script {
-                    prdCheck('Ansible drift (openbao)', 'openbao', 'ansible', """#!/usr/bin/env bash
+                    prdCheck('Check Ansible drift (openbao)', 'openbao', 'ansible', """#!/usr/bin/env bash
                         set -o pipefail
                         mkdir -p drift-logs
                         iac -c '
@@ -328,21 +305,17 @@ pipeline {
             }
         }
 
-        // site-ceph.yml converges the microceph storage layer (today
-        // only ceph_dev → srvk8sdev); site.yml and site-k8s.yml don't
-        // cover it, so a microceph role or ceph_dev group_vars change is
-        // invisible to drift without this stage. --check only; same
-        // --skip-tags os_update belt as the stages above. Being
-        // srvk8sdev-only it carries the same handling as the k8s dev
-        // stage: skip when offline, UNSTABLE either way, never FAILURE.
-        stage('Ansible drift (ceph dev)') {
+        // site-ceph.yml converges the microceph storage layer (today only ceph_dev, srvk8sdev);
+        // site.yml and site-k8s.yml do not cover it. srvk8sdev-only, so it is handled as the k8s
+        // dev stage is.
+        stage('Check Ansible drift (ceph dev)') {
             steps {
                 script {
                     if (!devUp()) {
                         unstable('srvk8sdev is unreachable — dev ceph drift check skipped')
                         return
                     }
-                    def rc = sh(
+                    int rc = sh(
                         returnStatus: true,
                         script: '''#!/usr/bin/env bash
                             set -o pipefail
@@ -355,31 +328,25 @@ pipeline {
                         '''
                     )
                     if (rc != 0) {
-                        String entry = recordDrift('Ansible drift (ceph dev)', 'ceph-dev', 'ansible')
-                        notify.warning("detected drift on srvk8sdev\n\n${entry}")
-                        unstable("dev ceph drift check reported changes or failed (exit ${rc})")
+                        String entry = recordDrift('Check Ansible drift (ceph dev)', 'ceph-dev', 'ansible')
+                        String message = "dev ceph drift check reported changes or failed on srvk8sdev (exit ${rc})\n\n${entry}"
+                        notify.warning(message)
+                        unstable(message)
                     }
                 }
             }
         }
 
-        stage('Homelab CA root drift') {
+        // The in-repo homelab-root.crt is the trust anchor baseline distributes to every managed
+        // host. step-ca serves the live set of configured roots at https://ca.home/roots.pem; if
+        // those disagree, either the CA was rotated without updating the repo or the repo copy was
+        // edited without rotating the CA. --cacert pins the TLS handshake to the in-repo root, so
+        // this also catches ca.home's leaf re-issued under a root the repo does not yet trust
+        // (curl exits non-zero before the body is read).
+        stage('Check homelab CA root drift') {
             steps {
-                // The in-repo homelab-root.crt is the trust anchor
-                // baseline distributes to every managed host. step-ca
-                // serves the live set of configured roots at
-                // https://ca.home/roots.pem; if those disagree, either
-                // the CA has been rotated without updating the repo or
-                // the repo copy was edited without rotating the CA —
-                // both are drift the operator wants to know about.
-                //
-                // --cacert pins the TLS handshake to the in-repo root,
-                // so this also catches the case where ca.home's leaf
-                // has been re-issued under a new root the repo does not
-                // yet trust (curl exits non-zero before we ever read
-                // the body).
                 script {
-                    prdCheck('Homelab CA root drift', 'ca-root', 'plain', '''#!/usr/bin/env bash
+                    prdCheck('Check homelab CA root drift', 'ca-root', 'plain', '''#!/usr/bin/env bash
                         set -o pipefail
                         mkdir -p drift-logs
                         iac -c '
@@ -400,6 +367,14 @@ pipeline {
                         ' 2>&1 | tee drift-logs/ca-root.log
                     ''')
                 }
+            }
+        }
+    }
+
+    post {
+        aborted {
+            script {
+                notify.error("${env.JOB_NAME} #${env.BUILD_NUMBER} aborted (timeout or hand)")
             }
         }
     }

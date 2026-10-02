@@ -1,49 +1,16 @@
-import org.jenkinsci.plugins.pipeline.modeldefinition.Utils
+// Builds the iac image from support/iac-image/ and pushes it to registry:5000, when a push changes
+// what the image is built from or the build's `image` parameter names it. It pins nothing.
+//
+// Controller config:
+//   - Job: IaC/IaC Docker Image
+//   - SCM: pvginkel/Ansible, branch main
+//   - Script Path: Jenkinsfile.iac-image
 
 library identifier: 'JenkinsPipelineUtils', changelog: false
 
-// The version poller replays the params label kaniko2 stamps ([image: 'iac']) as
-// build parameters, so its weekly rebuild names the image, as DockerImages' does.
-// `all` or a comma-separated list containing `iac` forces the build. Only this
-// property is set here: the push trigger and the concurrency setting stay with
-// the job's own configuration.
-properties([
-    parameters([
-        string(name: 'image', defaultValue: '')
-    ])
-])
-
-podTemplate(inheritFrom: 'jenkins-agent kaniko') {
-    node(POD_LABEL) {
-        stage('Cloning repo') {
-            // checkout scm populates currentBuild.changeSets, which is what
-            // imageBuildRequired() reads.
-            checkout scm
-        }
-
-        stage('Building iac image') {
-            if (imageBuildRequired()) {
-                container('kaniko') {
-                    helmCharts.kaniko2(
-                        dockerfile: 'support/iac-image/Dockerfile',
-                        context: '.',
-                        destinations: [
-                            "registry:5000/iac:${currentBuild.number}",
-                            "registry:5000/iac:latest"
-                        ],
-                        params: [image: 'iac']
-                    )
-                }
-            } else {
-                Utils.markStageSkippedForConditional('Building iac image')
-            }
-        }
-    }
-}
-
+// Whether this build builds the image. A build that names the image builds it whatever its change
+// sets hold: the version poller's weekly rebuild, or Build with Parameters with image=iac.
 def imageBuildRequired() {
-    // A build that names the image builds it whatever its changeset holds: the
-    // version poller's weekly rebuild, or Build with Parameters with image=iac.
     if (params.image == 'all') {
         return true
     }
@@ -54,13 +21,9 @@ def imageBuildRequired() {
         }
     }
 
-    // Everything support/iac-image/Dockerfile builds from: the build context under
-    // support/iac-image/, the root poetry project baked in at :11, and the two files
-    // copied out of ansible/ at :72 and :142. Every other COPY comes from the build
-    // stage or a pinned external image. This file is watched too — it carries the
-    // Dockerfile path, the context and both destination tags. utils.hasChanges tests
-    // a changed file's whole repo-relative path with Groovy's ==~, so each pattern is
-    // a full-match regex and a directory prefix carries a trailing /.*.
+    // Everything support/iac-image/Dockerfile builds from, and this file, which carries the
+    // Dockerfile path, the context and the destinations. utils.hasChanges matches a changed file's
+    // whole repo-relative path, so a directory prefix ends in /.*.
     return (
         utils.hasChanges('Jenkinsfile\\.iac-image') ||
         utils.hasChanges('support/iac-image/.*') ||
@@ -69,4 +32,69 @@ def imageBuildRequired() {
         utils.hasChanges('ansible/roles/baseline/files/homelab-root\\.crt') ||
         utils.hasChanges('ansible/files/known_hosts\\.d/homelab')
     )
+}
+
+pipeline {
+    agent {
+        kubernetes {
+            inheritFrom 'jenkins-agent kaniko'
+            yamlMergeStrategy merge()
+        }
+    }
+
+    options {
+        // Without abortPrevious: this build decides from its change sets what to build, and the
+        // next build's change sets start after an aborted build's commits.
+        disableConcurrentBuilds()
+        skipDefaultCheckout()
+        timeout(time: 60, unit: 'MINUTES')
+        timestamps()
+    }
+
+    triggers {
+        githubPush()
+    }
+
+    parameters {
+        // The version poller replays the params label kaniko2 stamps ([image: 'iac']) as this
+        // parameter. `all`, or a comma-separated list holding `iac`, forces the build.
+        string(name: 'image', defaultValue: '')
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build iac image') {
+            when {
+                expression { imageBuildRequired() }
+            }
+            steps {
+                container('kaniko') {
+                    script {
+                        helmCharts.kaniko2(
+                            dockerfile: 'support/iac-image/Dockerfile',
+                            context: '.',
+                            destinations: [
+                                "registry:5000/iac:${currentBuild.number}",
+                                'registry:5000/iac:latest',
+                            ],
+                            params: [image: 'iac']
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        aborted {
+            script {
+                notify.error("${env.JOB_NAME} #${env.BUILD_NUMBER} aborted (timeout or hand)")
+            }
+        }
+    }
 }

@@ -1,29 +1,29 @@
-// iac-on-push — validates every push to main on pvginkel/Ansible.
-// Read-only: lint and validate gates, then `terraform plan` plus the
-// protected-VM destroy check. It converges nothing.
+// Validates every push to main on pvginkel/Ansible: the lint and validate gates, then a Terraform
+// plan of prd and the protected-VM destroy check. It changes nothing outside the build.
 //
-// The converging stages used to live here and fire on every push. They
-// are now Jenkinsfile.iac-apply, started by hand. The split exists so
-// that pushing a commit is not the same act as applying it to
-// production — an unattended agent pushing a branch must not be able to
-// roll the prd fleet. Whoever wants convergence starts iac-apply.
-//
-// A red build here means the commit on main fails a lint or validate
-// gate, would not apply cleanly, or would destroy something protected.
-// Nothing has happened to the estate either way.
+// Convergence is Jenkinsfile.iac-apply, started by hand, so that pushing a commit is not the same
+// act as applying it to production: an unattended agent pushing a branch must not be able to roll
+// the prd fleet. A red build means the commit on main fails a lint or validate gate, would not
+// apply cleanly, or would destroy something protected. Nothing has happened to the estate either
+// way.
 //
 // Controller config:
+//   - Job: IaC/Build-Main
 //   - SCM: pvginkel/Ansible, branch main
 //   - Script Path: Jenkinsfile.iac-on-push
-//   - Build trigger: GitHub hook on pvginkel/Ansible main
+
+library identifier: 'JenkinsPipelineUtils', changelog: false
 
 pipeline {
     agent { label 'iac-controller' }
 
     options {
-        timestamps()
+        // Without abortPrevious: this file carries the abort marker, which would page for every
+        // build a newer push replaced.
         disableConcurrentBuilds()
-        buildDiscarder(logRotator(numToKeepStr: '50'))
+        skipDefaultCheckout()
+        timeout(time: 4, unit: 'HOURS')
+        timestamps()
     }
 
     triggers {
@@ -31,13 +31,17 @@ pipeline {
     }
 
     stages {
-        // The gates run cheapest first; a red gate stops the build before
-        // the plan. The ansible commands are the dev loop's gate
-        // (.kubecoder/project.yaml, project `ansible`) and must stay
-        // identical to it. ansible-lint takes strict mode and the
-        // mandatory-var placeholders from .ansible-lint, and its
-        // unskippable syntax-check rule runs `ansible-playbook
-        // --syntax-check` on every playbook.
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        // The gates run cheapest first; a red gate stops the build before the plan. The commands
+        // are the dev loop's gate (.kubecoder/project.yaml, projects `ansible` and `terraform`) and
+        // must stay identical to it. ansible-lint takes strict mode and the mandatory-var
+        // placeholders from .ansible-lint, and its unskippable syntax-check rule runs
+        // `ansible-playbook --syntax-check` on every playbook.
         stage('Lint') {
             steps {
                 sh '''
@@ -53,9 +57,9 @@ pipeline {
             }
         }
 
-        // -backend=false: validate reads no state, so this gate never
-        // touches the state backend or its lock.
-        stage('Terraform validate') {
+        // -backend=false: validate reads no state, so this gate never touches the state backend
+        // or its lock.
+        stage('Validate Terraform') {
             steps {
                 sh '''
                     iac -c '
@@ -70,7 +74,7 @@ pipeline {
             }
         }
 
-        stage('Plan + destroy check') {
+        stage('Plan Terraform and check destroys (prd)') {
             steps {
                 sh '''
                     iac -c '
@@ -90,7 +94,11 @@ pipeline {
         }
     }
 
-    // No post block: this pipeline has no dev stage, so it is only ever green
-    // or red, and jenkins-telegram-bot watches every build and reports FAILURE
-    // loudly by itself, job name and build link included.
+    post {
+        aborted {
+            script {
+                notify.error("${env.JOB_NAME} #${env.BUILD_NUMBER} aborted (timeout or hand)")
+            }
+        }
+    }
 }
