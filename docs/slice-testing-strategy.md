@@ -6,8 +6,8 @@ execute it".
 **The Ansible roles and the Terraform have no runnable test suite, and that is a decision, not a
 gap.** What Ansible and Terraform do is converge real machines; the only honest proof is a run
 against them, and those runs are the operator's. So this procedure is short, and it ends with work
-owed to the operator rather than a green tick. Two Python tools under `support/`,
-`argo-migrate` and `recommend-resources`, are the exception: they carry unit tests.
+owed to the operator rather than a green tick. One Python tool under `support/`,
+`recommend-resources`, is the exception: it carries unit tests.
 
 ## 1. The gates
 

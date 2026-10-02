@@ -67,8 +67,7 @@ What must already be true:
   sync changes. Step 4 checks this.
 
 **The freeze.** From step 3 until step 10 is done, change no registry. That means no push to
-HelmCharts' `configs/prd/` or to ArgoCDDeploy's `releases/values.yaml`, and no `argo_migrate.py
-flip` or `autosync`. Step 6 catches one that slips through. Pushes to deploy repos are fine: the
+HelmCharts' `configs/prd/` or to ArgoCDDeploy's `releases/values.yaml`. Step 6 catches one that slips through. Pushes to deploy repos are fine: the
 Applications keep syncing throughout.
 
 ## 1. Rehearse on throwaway objects

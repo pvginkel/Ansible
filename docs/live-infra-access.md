@@ -46,8 +46,7 @@ A **deploy repo's** Terraform is applied by Argo CD's PreSync hook on each sync 
 hook's inputs (the hook environment in ArgoCDDeploy's `config/prd/values.yaml`) plus the
 OpenBao-held provider credentials, which `scripts/setup-env.sh prd` loads after
 `scripts/bao-login.sh`. [kubecoder-cutover.md](runbooks/kubecoder-cutover.md)'s "The no-destroy plan" is the
-command written out, and `argo_migrate.py plan` in `support/argo-migrate/` runs it for a migrating
-app-stage. `setup-env.sh` reads OpenBao values into the environment, so it falls under
+command written out. `setup-env.sh` reads OpenBao values into the environment, so it falls under
 `CLAUDE.md`'s "What Claude doesn't read on its own" — ask first.
 
 **Lint before you commit.** There is no pre-commit hook — it was removed because it was breaking

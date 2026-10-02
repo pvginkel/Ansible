@@ -344,7 +344,7 @@ cd /work/KubeCoderDeploy && git pull --ff-only && kc project test
 
 This is the carried-in S11 ruling's item 2. Run argocd.md's pre-flight, in
 [What a cutover does not change](argocd.md#what-a-cutover-does-not-change), from
-`/work/KubeCoderDeploy` after `cexec iac tests/build-deps.sh`, with these values:
+`/work/KubeCoderDeploy` after `cexec aac-tools chart-deps`, with these values:
 
 - `<ns>`: `kubecoder-$STAGE`
 - `<stage>`: `$STAGE`
