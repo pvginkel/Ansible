@@ -3,7 +3,8 @@
 Day-to-day operation of the Argo CD instance on the prd cluster: reading its
 state, diagnosing a failed sync, webhooks, rotating its tokens,
 upgrading it, getting in when SSO is broken, registering and removing an app,
-giving an app its own architecture producer, and rebuilding Argo from nothing.
+destroying what a retired stage left, giving an app its own architecture
+producer, and rebuilding Argo from nothing.
 Read this when a sync fails, a token or secret changes, or Argo itself needs an
 upgrade or a bootstrap.
 
@@ -45,7 +46,7 @@ actually ran and the Phase A proof drill are recorded in slice 009's
 
 | Item | Value |
 | --- | --- |
-| Namespaces | `argocd-prd` (Argo, the webhook relay), `argocd-hooks` (PreSync Jobs, the `tf-presync` ServiceAccount, `argocd-hook-credentials`) |
+| Namespaces | `argocd-prd` (Argo, the webhook relay), `argocd-hooks` (PreSync Jobs, Destroy Stage Jobs, the `tf-presync` ServiceAccount, `argocd-hook-credentials`) |
 | Helm release, Application, AppProject | `argocd-prd`, `argocd-prd`, `releases` |
 | UI | `https://argocd.home`, or the bare `https://argocd` — Keycloak SSO (realm `homelab`, client `argocd`) |
 | Read-only account | `kubecoder`: API tokens only, no password, bound to `role:readonly`; its token is `ARGOCD_AUTH_TOKEN` in every prd KubeCoder environment |
@@ -55,6 +56,7 @@ actually ran and the Phase A proof drill are recorded in slice 009's
 | Webhook edge | `https://deploy-hooks.webathome.org/api/webhook` → relay (2 replicas) → argocd-server |
 | Hook image | `registry:5000/argocd-hook:<n>` from ArgoCDTools; default pin in the `homelab-shared` library chart. Its Terraform is pinned to the version the `iac` images carry (AnsibleSpecs `decisions.md`, "Terraform version") |
 | Terraform state | `pvginkel/TerraformState`, `argocd/<repo>/<stage>/terraform.tfstate`, sops/age |
+| Destroy Stage | Jenkins job `IaC/Destroy Stage`, ArgoCDTools `Jenkinsfile.destroy-stage`; the build runs as `jenkins-prd/destroy-stage`, its Job is `argocd-hooks/destroy-stage-<build#>` under `tf-presync` (D66) |
 | Notifications | Alertmanager `prometheus-prd-alertmanager.prometheus-prd:9093`, delivered to Telegram with no "resolved"; `ArgoCDSyncFailed` (critical, with sound), `ArgoCDHealthDegraded` (warning, silent) |
 | Standing alerts | PrometheusDeploy's rule group `argocd`, over the application controller's metrics (Service `argocd-prd-application-controller-metrics`); `ArgoCDSyncStillFailed` (critical), `ArgoCDHealthStillDegraded` and `ArgoCDAlertsBlind` (warning) |
 
@@ -386,10 +388,197 @@ with `releases`' sync of the push.
 Application stays, shown as requiring pruning, until the operator syncs
 `releases` with *Prune* ticked (D27 as amended). Then the resources finalizer
 cascades: workloads, the `Prune=false` Namespace and the hook Jobs were all gone
-within 45 seconds on 2026-09-13. What stays: the state file in TerraformState
-(nothing prunes it until D28 is designed) and the deploy repo's GitHub webhook.
+within 45 seconds on 2026-09-13. What stays is what the stage's Terraform made,
+since teardown never destroys (D29): its PVs and what backs them, databases,
+buckets, the deploy repo's GitHub webhook if the stage manages it. So do its
+state file in TerraformState and its `config/<stage>/` in the deploy repo. One
+`IaC/Destroy Stage` build deletes them all
+([Destroying a retired stage](#destroying-a-retired-stage), D66).
 **Unregister** is deleting the app's whole entry, which undeploys each stage the
 same way.
+
+## Destroying a retired stage
+
+One build of
+[`IaC/Destroy Stage`](https://jenkins.webathome.org/job/IaC/job/Destroy%20Stage/)
+deletes what an undeployed stage left, for good: the resources in its Terraform
+state, its `argocd/<repo>/<stage>/` in TerraformState and its `config/<stage>/`
+in the deploy repo (D66). The build runs ArgoCDTools' `Jenkinsfile.destroy-stage`
+as `jenkins-prd/destroy-stage`. The work is done by the argocd-hook image's
+destroy mode (`python3 -m presync.destroy`, from `argocd-hook:latest`), run as
+the Job `argocd-hooks/destroy-stage-<build#>` under `tf-presync` with
+`argocd-hook-credentials`. The build shows the Job's log in its console and
+deletes the Job when its stage ends.
+
+The build cleans up after an undeploy and never undeploys. Undeploy the stage
+first ([above](#registering-undeploying-and-unregistering-an-app)): delete its
+registry entry, then sync `releases` with *Prune*, so that its Application goes
+and its namespace with it.
+
+*Build with Parameters* takes three:
+
+- `REPO`: the deploy repo exactly as GitHub spells it, `FieldnotesDeploy` and
+  not `fieldnotesdeploy`;
+- `STAGE`: the retired stage, e.g. `dev`;
+- `APPLY`: unticked by default, which makes the build a dry run.
+
+A dry run comes first, then an apply. The apply is the operator's keystroke.
+
+1. **Dry run** (`APPLY` unticked). The build runs `Checkout`, `Check stage is
+   undeployed` and `Plan destroy`. It writes nothing: no resource, no state, no
+   commit anywhere. The Job's log reads, in order:
+   - `presync: <file>.tf: keeps N declaration(s), drops …`, once per root
+     `.tf`: the root reduced to its `terraform`, `provider` and `variable`
+     blocks. With nothing else declared, every resource in state is planned
+     for deletion, and `prevent_destroy` no longer binds;
+   - `presync: the clone has no config/<stage>/: planning without its tfvars`,
+     only when that folder is already gone;
+   - `presync: an apply forgets N namespaced Kubernetes object(s), …`, one line
+     per object with its namespace, or `… nothing to forget`
+     ([below](#what-the-build-forgets-rather-than-destroys));
+   - Terraform's plan: a `will be destroyed` per resource, and `Plan: 0 to add,
+     0 to change, N to destroy.`;
+   - `presync: an apply removes argocd/<REPO>/<STAGE>/ from the state
+     repository`;
+   - `presync: dry run: nothing was written`.
+
+   The build's own line follows: `An apply removes config/<STAGE>/ from
+   pvginkel/<REPO>'s main. This dry run pushed nothing.` Read the plan as the
+   list of what an apply deletes, with whatever data those resources hold.
+   Nothing else stands in its way.
+2. **Apply** (`APPLY` ticked). The build runs `Checkout`, `Check stage is
+   undeployed`, `Destroy Terraform resources and state` and `Remove config
+   folder`. Its Job plans again, at the SHA of `main` this build resolved, and
+   applies that plan with no `input` step. The dry run's plan is what to
+   expect; the log shows the plan that ran, above Terraform's apply output. The
+   Job's log reads:
+   - `presync: forgetting N namespaced Kubernetes object(s), …` (or `… nothing
+     to forget`), which `terraform state rm` then drops;
+   - Terraform's plan and apply;
+   - `presync: the state lists no resources`, checked before TerraformState is
+     touched;
+   - `presync: removed argocd/<REPO>/<STAGE>/ from the state repository`: a
+     TerraformState commit `Remove argocd/<REPO>/<STAGE>/: <STAGE> of <REPO>
+     destroyed` by `argocd-hook@<pod>`.
+
+   Once the Job has succeeded, `Remove config folder` commits `Remove
+   config/<STAGE>/: <STAGE> destroyed by IaC/Destroy Stage #<n>` to the deploy
+   repo's `main` as `jenkins`, and prints `pvginkel/<REPO> <sha> removes
+   config/<STAGE>/.` The build reads and edits `main` only, whatever branch the
+   stage tracked (D34).
+
+Do not abort an apply while its Job runs
+([A build that stopped halfway](#a-build-that-stopped-halfway)).
+
+### What the guard refuses
+
+`Check stage is undeployed` fails the build before any Job starts:
+
+- while the stage is still deployed, by an entry in ArgoCDDeploy's
+  `releases/values.yaml` on `main` that deploys `REPO`'s `STAGE`, or by a live
+  Application in `argocd-prd` that sources `REPO` with the Helm parameter
+  `hook.stage` set to `STAGE`, single- or multi-source. Repo URLs match
+  ignoring case, `.git` and a trailing `/`. The failure names both checks'
+  findings:
+
+  ```text
+  prd of pvginkel/FieldnotesDeploy is still deployed, by the registry entry apps.fieldnotes.stages.prd in ArgoCDDeploy's releases/values.yaml on main and the live Application argocd-prd/fieldnotes-prd. This build cleans up after an undeployed stage: delete its registry entry and prune its Application first.
+  ```
+
+- when `REPO` is not spelled as GitHub spells it: `GitHub spells
+  pvginkel/fieldnotesdeploy as FieldnotesDeploy, the spelling the stage's state
+  is filed under: run with REPO=FieldnotesDeploy`. GitHub serves a repo under
+  any case of its name, but TerraformState's paths are case-sensitive: another
+  case finds no state, and an apply would still remove `config/<stage>/`;
+- when `REPO` or `STAGE` is empty or not a single path segment. A build without
+  parameters fails here on the empty `REPO` and changes nothing; that is how
+  the job's first build registered its parameters.
+
+The guard does not check whether the stage's namespace is gone.
+
+### What the build forgets rather than destroys
+
+The prune took the stage's namespace with everything in it, the
+`tf-presync-app` RoleBinding included. That RoleBinding is the Job's only grant
+in a namespace (D33), so Terraform reading such an object now gets `403`. The
+Job therefore drops every Kubernetes object in state that lives in a namespace
+from the state, without deleting it: the dry run lists them as `an apply forgets
+…`, the apply as `forgetting …`. Cluster-scoped objects such as PVs, and
+everything outside Kubernetes (RBD images, ZFS datasets, databases, buckets, the
+webhook), are destroyed for real. `tf-presync` gets no grant for this.
+
+A namespace that outlived its Application keeps those objects, its Secrets
+among them: the build forgets them all the same, and they stay behind (D66's
+accepted risk). Before the build, `cexec iac kubectl get namespace
+<app>-<stage>` should answer `NotFound`. If it does not, removing that namespace
+is a separate act, by hand.
+
+### A build that stopped halfway
+
+Run it again with the same parameters. Each step skips what is already done:
+
+- an empty state skips the destroy (`presync: the state lists no resources to
+  destroy`);
+- a state that is already gone skips the destroy too (`presync: the backend
+  holds no state at argocd/<REPO>/<STAGE>/terraform.tfstate: nothing to
+  destroy`), and no run creates one;
+- a folder already gone from TerraformState is skipped (`presync: the state
+  repository has no argocd/<REPO>/<STAGE>/: nothing to remove`);
+- once `config/<stage>/` is gone, the Job plans without its tfvars, and
+  `Remove config folder` prints `pvginkel/<REPO> has no config/<STAGE>/ on main:
+  nothing to remove.`
+
+So a build whose `Remove config folder` failed is finished by a re-run whose Job
+skips everything, and a Job that ended with `presync: the state still lists …:
+its folder stays` is finished by a re-run that plans what is left.
+
+The build deletes its Job however it ends, an abort included, and Terraform is
+then killed where it stands, without a clean shutdown. An apply cut off that way
+can leave the state's lock held: the re-run then fails with Terraform's `Error
+acquiring the state lock`. The lock is the branch
+`locks/argocd/<REPO>/<STAGE>/terraform.tfstate` in TerraformState, and
+force-unlocking means deleting that branch (AnsibleSpecs `decisions.md`,
+"Concurrency control"). The Job's deadline, 30 minutes, kills it the same way,
+and the build then fails in `waitForJobContainer` with no Job log in the
+console. Its log may still be in Kibana, as `kubernetes.namespace:"argocd-hooks"
+and kubernetes.pod.name:destroy-stage-<build#>-*`
+([A replaced hook's log](#a-replaced-hooks-log-kibana); unconfirmed, as that
+section says).
+
+### A build that fails at the plan
+
+The Job inits and plans on the root's declarations alone. Its inputs are the
+hook's credentials, `TF_VAR_stage` and, while `config/<stage>/` exists, the
+stage's tfvars; the stage's namespace is not one of them. A root that needs more
+fails the Job at `init` or
+`plan`, before anything is written, and destroys nothing. The build's last line
+is the Job's `presync: …`, and Terraform's error above it names the cause:
+
+- `No value for required variable`: the root's declarations do not plan on
+  their own, and the fix is in the deploy repo. KubeCoderDeploy's do not, as of
+  2026-10-03: its `terraform/variables.tf` declares `namespace` with no default,
+  and once `config/<stage>/` is gone, `zfs_dataset`, `zfs_quota`, `zfs_size` and
+  `manage_webhook` have none either;
+- anything else, from the state backend or from refreshing a resource still in
+  state (Ceph, GitHub, the cluster), is the infrastructure, not the
+  declarations.
+
+A root `*.tf.json`, or a top level the reduction cannot read, fails the Job the
+same way, naming the file and line.
+
+### The webhook
+
+A deploy repo's GitHub webhook belongs to the one stage whose tfvars set
+`manage_webhook = true` ([Webhooks](#webhooks), D39). It is destroyed with that
+stage, and destroying any other stage leaves it. FieldnotesDeploy's `dev` does
+not manage it. KubeCoderDeploy's `dev` does, and its `prd` sets `false`.
+Destroying `dev` while `prd` stays deployed would delete the repo's only hook,
+and the guard does not refuse that. `prd`'s pushes then reach Argo only through
+the 30-minute refresh (D6). To give the surviving stage the hook, set
+`manage_webhook = true` in its tfvars after the destroy, on the branch it
+tracks, push, and refresh its Application by hand, since no hook delivers that
+push. Its sync's apply creates the hook. Not before the destroy: while the old
+hook exists, that create fails on GitHub's hook-already-exists.
 
 ## Giving an app its own architecture producer
 
