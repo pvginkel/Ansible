@@ -121,7 +121,8 @@ dev deployment's environments carry none of this.
 
 1. **Operation `Failed`, the only failed result a `Job/tf-presync-…` with "Job
    has reached the specified backoff limit".** The hook failed and nothing was
-   applied. Read the Job's log (the Job name carries the revision). Seen so far:
+   applied. Read the Job's log (`tf-presync-<app>-<stage>`, the same name for
+   every run; a retry replaces it, see below). Seen so far:
    - `remote: Invalid username or token` on the clone — the hook's PAT at
      `eso/prd/argocd-hooks/git` is no longer accepted. Rotate it (below).
    - `Error: Resource precondition failed` or any other Terraform error — the
@@ -141,8 +142,34 @@ dev deployment's environments carry none of this.
    webhook (below). A registry entry reaches its Application only through
    `releases`' sync, so read `releases`' last operation and conditions too.
 
-Hook Jobs persist for the app's lifetime, one per sync (`backoffLimit: 0`, so a
-failed hook is exactly one pod), and are removed with the Application.
+Hook Jobs persist one per app, holding only the latest attempt
+(`backoffLimit: 0`, so a failed hook is exactly one pod), and are removed with
+the Application. A retry (`retry.limit: 3`) or the next sync replaces the Job
+under the same name, and the failed pod goes with it, 60 to 90 s after
+`BackoffLimitExceeded`; events keep no log.
+
+### A replaced hook's log: Kibana
+
+Filebeat (`filebeat-prd`) ships every container log on prd to Elasticsearch,
+kept 7 days, and each hook attempt is a pod of its own name, so a replaced
+attempt's log stays there. In `https://kibana.home` → Discover, data view
+`filebeat-*`:
+
+```text
+kubernetes.namespace:"argocd-hooks" and kubernetes.pod.name:tf-presync-<app>-<stage>-*
+```
+
+Each attempt shows as its own `kubernetes.pod.name` (the Job name plus a
+five-character suffix); sort by `@timestamp`. Where the Kubernetes metadata is
+missing, match on the file instead:
+`log.file.path:*tf-presync-<app>-<stage>*`.
+
+What is verified (2026-10-02, ANS-164): Filebeat's own log shows it harvesting
+the hook pods' files, `/var/log/containers/tf-presync-<app>-<stage>-<suffix>_argocd-hooks_terraform-*.log`,
+before the pod is deleted. Reading them back from Elastic is not yet proven:
+it was not done for want of a credential. The check owed is one query in
+Kibana for `tf-presync-fieldnotes-prd-sx956`, harvested 2026-10-01 18:26Z.
+Until it returns that pod's lines, treat this route as unconfirmed.
 
 ## Webhooks
 
@@ -828,8 +855,10 @@ the recipient committed in `config/prd/values.yaml`.
   poller's scheduled rebuilds included, and Argo's own Application never syncs on its own (D3).
   The relay runs its previous build until you sync `argocd-prd` by hand; the diff is the relay
   Deployment's image.
-- **Hook Jobs accumulate** for an app's lifetime; the delete policy never
-  matches a name carrying SHA and timestamp. They go with the Application.
+- **One hook Job per app, latest attempt only.** The fixed name
+  `tf-presync-<app>-<stage>` lets `BeforeHookCreation` replace it on every sync
+  and retry (ANS-137), so an earlier attempt's log is only in Kibana (above).
+  The Job goes with the Application.
 - **Rebuilds.** Argo runs on prd only, deploys only into prd (`in-cluster`) and
   keeps no node-local state, so neither a prd node rebuild nor a `srvk8sdev`
   rebuild touches it.
