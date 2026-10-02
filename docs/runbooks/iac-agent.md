@@ -9,17 +9,17 @@ See [`/work/AnsibleSpecs/phases/completed/iac-agent.md`](../../../AnsibleSpecs/p
 | Where | What |
 |---|---|
 | `srviac` host | Docker, the `iac` shim, a daily `docker image prune -f` cron, a systemd unit running the Jenkins inbound-agent container, `/etc/iac/secrets.yaml` (operator-curated, `0600`). |
-| `registry:5000/iac` image | Terraform, Ansible, kubectl, helm, python, poetry, `terraform-backend-git`, plus `iac-impl` — the in-container entrypoint that parses `secrets.yaml`, clones the repos `secrets.yaml` names (Ansible alone by default), starts the terraform-backend-git daemon on `127.0.0.1:6061`, then exec's whatever you asked for. The Python venv is baked in at image build from this repo's `pyproject.toml`/`poetry.lock`; `iac-impl` installs nothing at runtime and instead warns when the cloned `poetry.lock` differs from the baked one. Built from `support/iac-image/Dockerfile` by this repo's `iac-image` job. |
+| `registry:5000/iac` image | Terraform, Ansible, kubectl, helm, python, poetry, `terraform-backend-git`, plus `iac-impl` — the in-container entrypoint that parses `secrets.yaml`, clones the repos `secrets.yaml` names (Ansible alone by default), starts the terraform-backend-git daemon on `127.0.0.1:6061`, then exec's whatever you asked for. The Python venv is baked in at image build from this repo's `pyproject.toml`/`poetry.lock`; `iac-impl` installs nothing at runtime and instead warns when the cloned `poetry.lock` differs from the baked one. Built from `support/iac-image/Dockerfile` by this repo's `IaC/IaC Docker Image` job. |
 | `pvginkel/Ansible` (this repo) | Roles, playbooks, inventory, the Terraform configs (`terraform/{prd,scratch}/`, each with a `backend.tf` http block), the Jenkins pipeline scripts (`Jenkinsfile.*`) every job checks out, the iac image's build context (`support/iac-image/`), and the srviac host glue (`support/iac-agent/` — `bin/iac`, `install.sh`, the systemd unit, the `secrets.example.yaml` template). |
 | `pvginkel/TerraformState` | tfstate served through the terraform-backend-git http backend, sops+age-encrypted at rest. Private. Holds the same sensitivity as any secret-bearing repo (VM host private keys, API tokens, proxmox creds). Not srviac's alone: the Argo CD Terraform PreSync hook (`/work/ArgoCDTools`) writes into the same repo under `argocd/<repo>/<stage>/terraform.tfstate`, starting its own terraform-backend-git in the hook pod. Both sides decrypt with the one age keypair at `kv/iac/tf-backend`: the prd `eso` AppRole is granted read on that single leaf rather than a copy being made, so the two cannot drift onto different keys. |
-| Jenkins controller (`jenkins.webathome.org`) | Six jobs on the `iac-controller`-labelled agent: `iac-on-push`, `iac-apply`, `iac-scheduled-update`, `iac-scheduled-drift`, `iac-scheduled-calico`, `iac-scheduled-certs`. `iac-image` and `architecture` also build from this repo, but on Kubernetes pod agents — they use none of the host glue. |
+| Jenkins controller (`jenkins.webathome.org`) | Six jobs on the `iac-controller`-labelled agent: `IaC/Build-Main`, `IaC/Apply`, `IaC/Scheduled Update`, `IaC/Scheduled Drift`, `IaC/Scheduled Calico Rollout`, `IaC/Scheduled Certs`. `IaC/IaC Docker Image` and `AaC/Ansible` also build from this repo, but on Kubernetes pod agents — they use none of the host glue. |
 
 ## Operator workflow
 
 ### Routine: push to `main`, then apply
 
 **Pushing and applying are two acts.** A merge to `main` on `pvginkel/Ansible` triggers
-`iac-on-push`, which is read-only. It first runs the gates `kc project lint` runs —
+`IaC/Build-Main`, which is read-only. It first runs the gates `kc project lint` runs —
 `terraform fmt -check`, yamllint, and ansible-lint in strict mode, whose syntax-check covers every
 playbook — and `terraform validate` on `terraform/prd` and `terraform/scratch`. Then it plan-checks
 `terraform/prd` and fails fast if the plan deletes or replaces any prd VM. Terraform refuses such
@@ -27,7 +27,7 @@ a plan itself (`prevent_destroy` in the `managed-vm` module); `check-protected-v
 for a config without that line. Nothing converges. A red build means the commit fails a lint or
 validate gate or would not apply cleanly; the estate is untouched either way.
 
-Convergence is `iac-apply`, started by hand once the validation is green. The job, inside one
+Convergence is `IaC/Apply`, started by hand once the validation is green. The job, inside one
 `iac -c '…'` per stage:
 
 1. Plans `terraform/prd`, runs the destroy check against that plan, and applies that saved plan —
@@ -39,7 +39,7 @@ Convergence is `iac-apply`, started by hand once the validation is green. The jo
 4. Runs `site-k8s.yml --limit k8s_prd`.
 5. Converges `srvk8sdev` last, in a stage that can only ever downgrade the build to UNSTABLE.
 
-All ansible stages pass `--skip-tags os_update`: patch posture belongs to `iac-scheduled-update`.
+All ansible stages pass `--skip-tags os_update`: patch posture belongs to `IaC/Scheduled Update`.
 
 On failure, jenkins-telegram-bot reports the build — job name, build link, and whatever the job
 put in the build description. It is subscribed to every build, so no `iac-*` pipeline carries a
@@ -47,17 +47,17 @@ failure handler of its own. The bot deliberately stays quiet about UNSTABLE and 
 job raises those itself through JenkinsPipelineUtils' `notify` var. The dev stage warns when
 srvk8sdev was up and the run genuinely failed. Every `iac-*` file ends with a `post { aborted }`
 block that raises `<job> #<n> aborted (timeout or hand)`: a build is aborted by hand or by its
-`timeout`, four hours on the srviac jobs and 60 minutes on `iac-image`. An apply cut off that way
+`timeout`, four hours on the srviac jobs and 60 minutes on `IaC/IaC Docker Image`. An apply cut off that way
 is left half converged.
 
 > The split exists so that pushing a commit is not the same act as applying it to production — an
 > unattended agent pushing a branch must not be able to roll the prd fleet. The cost is that **prd
-> no longer converges on its own after a push**: if you push and do not start `iac-apply`, the
+> no longer converges on its own after a push**: if you push and do not start `IaC/Apply`, the
 > change sits unapplied until a scheduled job or a later apply picks it up.
 
 ### Routine: the `iac` image rebuild
 
-A push still starts `iac-image`, but the job decides for itself whether to build. It rebuilds only
+A push still starts `IaC/IaC Docker Image`, but the job decides for itself whether to build. It rebuilds only
 when the push's changeset touched something the image is built from — `support/iac-image/`, the
 root `pyproject.toml` or `poetry.lock` whose venv is baked in,
 `ansible/roles/baseline/files/homelab-root.crt`, `ansible/files/known_hosts.d/homelab`, or
@@ -172,7 +172,7 @@ This is the sequence to stand `srviac` up the first time, after all the source c
 
 ### Rebuild `srviac` from scratch
 
-From `wrkdev`, not `iac-apply`, which runs on `srviac`. Terraform refuses to replace a prd VM, so destroy `srviac` on Proxmox first (`vm_id` 920 on `pve`, from `terraform/prd/vms.tf`); the apply then finds it gone and recreates it:
+From `wrkdev`, not `IaC/Apply`, which runs on `srviac`. Terraform refuses to replace a prd VM, so destroy `srviac` on Proxmox first (`vm_id` 920 on `pve`, from `terraform/prd/vms.tf`); the apply then finds it gone and recreates it:
 
 ```sh
 ssh root@pve 'qm shutdown 920 ; sleep 5 ; qm destroy 920'

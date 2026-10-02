@@ -30,7 +30,7 @@ curl prints `SSL certificate problem: certificate has expired`. Python clients p
 Leaves live **47 days**, and `internal_tls` re-issues a leaf once fewer than **14** days are left.
 `IaC/Scheduled Certs` (Fridays, `Jenkinsfile.iac-scheduled-certs`) runs
 `playbooks/renew-internal-tls.yml` over every leaf, which gives two attempts inside that window. The
-daily `iac-scheduled-drift` build reds once a leaf is under 7 days. So a lapse means the Friday job
+daily `IaC/Scheduled Drift` build reds once a leaf is under 7 days. So a lapse means the Friday job
 failed or did not run on two Fridays in a row — **check it before doing anything else**. The build
 description says which stage broke:
 

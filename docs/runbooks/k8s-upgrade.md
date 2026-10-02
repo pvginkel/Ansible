@@ -112,7 +112,7 @@ as a deliberate defense-in-depth net. See
 ## Re-evaluate the Calico CNI-token refresh job
 
 Every time you bump the microk8s channel, re-check whether the weekly
-`iac-scheduled-calico` job — a rolling-restart of the `calico-node`
+`IaC/Scheduled Calico Rollout` job — a rolling-restart of the `calico-node`
 DaemonSet, [`playbooks/refresh-calico-token.yml`](../../ansible/playbooks/refresh-calico-token.yml)
 — is still needed. It works around
 [projectcalico/calico#8777](https://github.com/projectcalico/calico/issues/8777):

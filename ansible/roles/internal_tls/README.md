@@ -94,18 +94,18 @@ role asserts it is defined.
 
 Cadence comes from whatever calls the consumer role, and the threshold
 gate makes the role naturally idempotent under any cadence.
-**`iac-scheduled-certs` is what calls it on a schedule** — weekly,
+**`IaC/Scheduled Certs` is what calls it on a schedule** — weekly,
 running `playbooks/renew-internal-tls.yml`, which enters each consumer
 role at its own `internal_tls` task file (`tasks_from: internal_tls`)
 and so reaches every leaf in the fleet. Two attempts inside every 14-day renewal window.
 
-Nothing else can be relied on for it. iac-scheduled-drift runs daily but
+Nothing else can be relied on for it. IaC/Scheduled Drift runs daily but
 `--check`-only, so it can report a pending issue (step 2 above) and is
 structurally incapable of signing one. It also checks at 7 days rather
 than the role's 14 — one certs-job period shorter, passed as an extra
 var by `Jenkinsfile.iac-scheduled-drift` — so a leaf merely inside its
 renewal window is not drift; only a leaf the Friday run already missed
-reds the build. A converge under a hand-started iac-apply issues for
+reds the build. A converge under a hand-started IaC/Apply issues for
 real, but only when someone starts it.
 
 ## Requirements

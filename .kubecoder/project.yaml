@@ -5,7 +5,7 @@ projects:
       the microk8s and microceph VMs on top, and the Linux dev box baseline.
       Jenkins runs its deploys through the IaC/* pipelines; Argo CD deploys
       the Kubernetes workloads from per-app deploy repos.
-    jenkins: IaC/Deploy
+    jenkins: IaC/Build-Main
     setup:
       # Not cexec-prefixed: the catalog secrets are projected into the dev
       # container, and the home directory is shared with the sidecars.

@@ -37,7 +37,7 @@ After a power cut, or when DNS, DHCP or Keycloak are down, start at [`docs/runbo
 └── .kubecoder/              # KubeCoder environment shape + curated build/lint entry points
 ```
 
-There is no pre-commit hook: run `kc project lint` before committing. The push job, `iac-on-push`,
+There is no pre-commit hook: run `kc project lint` before committing. The push job, `IaC/Build-Main`,
 runs the same gates and goes red on a finding.
 
 ## Prerequisites

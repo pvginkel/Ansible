@@ -21,4 +21,4 @@ Applied to the `iac_agent` group (today: `srviac` only). See [`/work/AnsibleSpec
 
 ## Carve-out
 
-The `iac-apply` Jenkins job runs `ansible-playbook playbooks/site.yml --limit '!iac_agent'`. The orchestrator must not mutate itself; changes to this role apply only via the operator workstation.
+The `IaC/Apply` Jenkins job runs `ansible-playbook playbooks/site.yml --limit '!iac_agent'`. The orchestrator must not mutate itself; changes to this role apply only via the operator workstation.

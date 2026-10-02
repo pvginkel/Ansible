@@ -45,7 +45,7 @@ It needs no per-inclusion vars: principals and paths are derived from
 
 Certificates last 47 days and the role re-signs inside the last 14, so
 **something must apply the role for real at least every 33 days**, per
-host. **`iac-scheduled-certs` is what does that** — weekly, running
+host. **`IaC/Scheduled Certs` is what does that** — weekly, running
 `playbooks/renew-host-certs.yml`, which reaches `srviac` too. Two
 attempts inside every 14-day renewal window. The same job also renews
 the `internal_tls` X.509 leaves, in stages of its own — so "certs job
@@ -53,12 +53,12 @@ is red" no longer means the host certs by itself.
 
 Nothing else can be relied on for it:
 
-- `iac-scheduled-drift` runs `check-ansible-drift.sh`, i.e.
+- `IaC/Scheduled Drift` runs `check-ansible-drift.sh`, i.e.
   `ansible-playbook --check`. The signing task is a `command`, so
   check-mode skips it — skipped, not reported as pending. Drift
   neither renews a host cert nor flags one that is due; the certs
   job's own build is the only signal for a renewal that stopped.
-- `iac-apply` applies for real, but only when someone starts it *and*
+- `IaC/Apply` applies for real, but only when someone starts it *and*
   every earlier stage passes. That is an accidental cadence, not a
   guarantee — and since the apply stages were split out of the on-push
   pipeline it is not even tied to a push any more.
@@ -114,7 +114,7 @@ The role asserts it resolves.
   offered — consistent with `ansible.cfg`'s long-standing
   `HostKeyAlgorithms=ssh-ed25519` pin.
 - No cert-expiry metric is published (unlike `internal_tls`). A failed
-  renewal reds `iac-scheduled-certs` and pages, which is the signal
+  renewal reds `IaC/Scheduled Certs` and pages, which is the signal
   that matters. Worth revisiting: that only fires once renewal is
   already failing, and the July 2026 lapse happened with every job
   green-or-absent rather than red.

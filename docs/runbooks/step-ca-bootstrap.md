@@ -534,7 +534,7 @@ When to do this:
   intermediate.
 
 The root stays in Roboform throughout. Leaf re-issuance for every
-consumer follows on the weekly `iac-scheduled-certs` run, as each leaf
+consumer follows on the weekly `IaC/Scheduled Certs` run, as each leaf
 enters its 14-day renewal window (so ≤47 days for the whole fleet).
 
 ### 1. Reconstitute the root on `wrkdev`
@@ -614,7 +614,7 @@ the new passphrase. **Only after** step 4 verified.
 
 Leaf certs in the field keep working with the old chain until they
 renew; renewal under the new intermediate happens on the weekly
-`iac-scheduled-certs` run as each leaf reaches its 14-day threshold. To
+`IaC/Scheduled Certs` run as each leaf reaches its 14-day threshold. To
 force-renew everything early, `rm <cert.pem>` on each consumer (or
 temporarily bump `internal_tls_renewal_threshold_days` — see the role's
 README) and run `poetry run ansible-playbook playbooks/renew-internal-tls.yml`,
@@ -684,7 +684,7 @@ re-issue:
 rm /etc/pve/local/pveproxy-ssl.pem    # or whichever cert
 
 # From the controller — a missing leaf is re-issued regardless of the
-# renewal threshold. iac-scheduled-drift cannot do this: it is
+# renewal threshold. IaC/Scheduled Drift cannot do this: it is
 # --check-only, so it reports the missing leaf and signs nothing.
 cd ansible && poetry run ansible-playbook playbooks/renew-internal-tls.yml --limit pve
 ```

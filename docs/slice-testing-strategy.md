@@ -55,12 +55,12 @@ See [live-infra-access.md](live-infra-access.md) for the mechanics.
 
 Push what the slice committed — the driver checks for it and bails otherwise.
 
-**A push to `main` no longer converges anything.** It triggers `iac-on-push`, which runs the lint
+**A push to `main` no longer converges anything.** It triggers `IaC/Build-Main`, which runs the lint
 gates and `terraform validate`, then `terraform plan` and the protected-VM destroy check, and
 stops. That build going green is a real signal and worth recording: it means the commit passes
 the gates, would apply cleanly and destroys nothing protected. Wait for it and read it.
 
-Convergence is the separate `iac-apply` job. **Do not start it.** That is the operator gate, and
+Convergence is the separate `IaC/Apply` job. **Do not start it.** That is the operator gate, and
 it is the whole reason the pipeline was split.
 
 ## 5. The operator gate — what to hand back
@@ -70,7 +70,7 @@ Close the test phase by writing, in the verdict summary, the exact commands the 
 
 - Check-mode first, then the apply — same command with the trailing `--check` deleted. Follow the
   canonical shape in [live-infra-access.md](live-infra-access.md).
-- Or, where CI is the right route: "push is done and `iac-on-push` is green; start `iac-apply`."
+- Or, where CI is the right route: "push is done and `IaC/Build-Main` is green; start `IaC/Apply`."
 
 Mark the affected `verification.json` items as **owed to the operator**, with the command that
 will settle each. Do not mark them verified, and do not let a green gate stand in for a run that

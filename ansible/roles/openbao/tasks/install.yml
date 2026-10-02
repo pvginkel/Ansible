@@ -4,7 +4,7 @@
 # bump openbao_version and openbao_deb_sha256 together when upgrading.
 # The standalone-service-VM unattended-upgrades policy doesn't cover
 # OpenBao for this reason: upgrades are Ansible-driven (bump the vars,
-# next iac-scheduled-drift cycle picks them up).
+# next IaC/Scheduled Drift cycle picks them up).
 
 - name: Ensure the OpenBao .deb cache directory exists
   ansible.builtin.file:

@@ -5,11 +5,11 @@
 # This is the *only* thing that renews them on a schedule. The
 # arrangement it replaces was accidental and it failed in July 2026:
 #
-#   - iac-scheduled-drift runs `ansible-playbook --check`. The signing
+#   - IaC/Scheduled Drift runs `ansible-playbook --check`. The signing
 #     step is a `command`, so check-mode skips it — skipped, not counted
 #     as pending. Drift neither reports an approaching expiry nor acts
 #     on one.
-#   - The applying pipeline (iac-apply today; these stages fired on
+#   - The applying pipeline (IaC/Apply today; these stages fired on
 #     every push to main at the time) applies for real, but only when
 #     someone starts it *and* every earlier stage is green. It had been
 #     red for three weeks when srvk8s1 and srvk8s2 lapsed.

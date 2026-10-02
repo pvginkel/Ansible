@@ -9,7 +9,7 @@
 #   1  drift detected (changed > 0 in the recap)
 #   N  ansible-playbook itself failed with exit code N
 #
-# Used by the iac-scheduled-drift Jenkins job.
+# Used by the IaC/Scheduled Drift Jenkins job.
 
 set -euo pipefail
 

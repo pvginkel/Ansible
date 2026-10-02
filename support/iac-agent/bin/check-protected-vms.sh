@@ -14,7 +14,7 @@
 # module.vm: the module's DNS reservation is deleted once a VM's vms.tf
 # entry is gone, and that delete must pass.
 #
-# Used by the iac-on-push, iac-apply and iac-scheduled-drift Jenkins jobs.
+# Used by the IaC/Build-Main, IaC/Apply and IaC/Scheduled Drift Jenkins jobs.
 
 set -euo pipefail
 

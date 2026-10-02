@@ -30,7 +30,7 @@ Design context:
    Raft peer reloads at a time whatever drove the play — which is what
    lets the un-serialised `playbooks/renew-internal-tls.yml` renew all
    three listener leaves in one batch. That playbook, run weekly by
-   `iac-scheduled-certs`, is what keeps these leaves inside their
+   `IaC/Scheduled Certs`, is what keeps these leaves inside their
    validity window.
 4. **Render** `/etc/openbao/openbao.hcl` (Raft storage, TLS listener,
    `seal "static"`, `api_addr` / `cluster_addr`) and drop the
@@ -491,7 +491,7 @@ the phase-2 doc §Bootstrap procedure.
   process reads it; root can read anything) and stays stable.
 
 - **Upgrade flow.** Bump `openbao_version` + `openbao_deb_sha256`
-  together; the next `iac-scheduled-drift` cycle downloads the new
+  together; the next `IaC/Scheduled Drift` cycle downloads the new
   `.deb`, sha256-verifies, and reinstalls. The bundled systemd unit
   restarts on `state: present` only when the package version actually
   changes; config/cert/seal-key drift triggers their own handlers.

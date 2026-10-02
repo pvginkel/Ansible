@@ -51,7 +51,7 @@ app-stage. `setup-env.sh` reads OpenBao values into the environment, so it falls
 `CLAUDE.md`'s "What Claude doesn't read on its own" — ask first.
 
 **Lint before you commit.** There is no pre-commit hook — it was removed because it was breaking
-commits. Run `kc project lint` before proposing a commit. `iac-on-push` runs the same ansible and
+commits. Run `kc project lint` before proposing a commit. `IaC/Build-Main` runs the same ansible and
 `terraform fmt` gates, plus `terraform validate`, on every push to `main`, and a finding turns it
 red. For a single path, reach past it: `cexec iac poetry run ansible-lint <path>`.
 
@@ -102,8 +102,8 @@ When handing a command to the operator, use this exact shape:
   mid-command. Never include `--ask-vault-pass`: `ANSIBLE_VAULT_PASSWORD_FILE` is projected by
   `.kubecoder/config.yaml` and survives into the sidecar, so the vault unlocks automatically.
 - **Terraform:** `cd terraform/prd && cexec iac terraform apply`. It applies the working tree, so
-  push first and state never runs ahead of `main`. A push to `main` does not apply: `iac-on-push`
-  only lints, validates and plans; convergence is the manual `iac-apply` job. The srviac shape is
+  push first and state never runs ahead of `main`. A push to `main` does not apply: `IaC/Build-Main`
+  only lints, validates and plans; convergence is the manual `IaC/Apply` job. The srviac shape is
   `iac -c 'cd /work/Ansible/terraform/prd && terraform init -input=false && terraform apply'` — it
   applies pushed `main`, not the working tree, and it is the one that still works with Kubernetes
   down.

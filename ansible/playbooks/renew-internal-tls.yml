@@ -6,13 +6,13 @@
 # for the same reason: until it existed nothing renewed these leaves on
 # a schedule.
 #
-#   - iac-scheduled-drift runs `ansible-playbook --check`. Issuance is a
+#   - IaC/Scheduled Drift runs `ansible-playbook --check`. Issuance is a
 #     `command`, so check mode skips it — drift reports a due renewal as
 #     changed and is structurally incapable of signing one. It checks at
 #     7 days rather than 14, so what it reports is a renewal this job
 #     has missed, not one it has yet to make.
 #   - Otherwise the leaves are converged only by site.yml, site-k8s.yml
-#     and site-openbao.yml under iac-apply, which runs when someone
+#     and site-openbao.yml under IaC/Apply, which runs when someone
 #     starts it by hand.
 #
 # Leaves live 47 days and internal_tls re-issues inside the last 14, so

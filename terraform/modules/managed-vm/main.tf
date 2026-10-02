@@ -240,8 +240,8 @@ resource "proxmox_virtual_environment_vm" "this" {
       # Power state is the operator's, not Terraform's. `started`
       # defaults to true in bpg, so without this every apply powers a
       # deliberately-stopped VM back on — which is what kept overriding
-      # a manual shutdown of srvk8sdev, since iac-on-push applies on
-      # every push to main. Terraform still starts a VM when it creates
+      # a manual shutdown of srvk8sdev back when every push to main
+      # applied. Terraform still starts a VM when it creates
       # one; after that, `qm start`/`qm stop` stick.
       #
       # ignore_changes can't be parameterized, so this is module-wide:
