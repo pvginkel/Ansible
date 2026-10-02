@@ -65,6 +65,15 @@ where its tests live too. This repo keeps no copy.
 anything the build result does not say through JenkinsPipelineUtils' `notify` var. For yourself,
 ask for a notification in plain words — pushing to the operator is built into this environment.
 
+**Jenkins runs three agent pods at a time, on purpose.** The Kubernetes cloud's container cap of
+3 is sized to the nodes' capacity, not a leftover (operator, 2026-09-21). Every pod pipeline
+waits for one of those three slots; the `IaC/*` jobs instead share the IaC Agent's single
+executor, which is the "iac lock". So a push to many repos at once queues, and nothing is wrong
+while it drains: push everything in one go, then check every job's `lastBuild` once the queue
+is empty and no build is running. An item that waits on "All nodes of label … are offline" for
+about an hour is the plugin's slot-counter leak, not load. Read the cloud's `cloudCounts`
+against the live agent pods over several samples before resetting it from the Script Console.
+
 ## What is safe to run without asking
 
 Read-only state inspection on managed hosts (`qm config <vmid>`, `lsblk`, file reads) needs an SSH
