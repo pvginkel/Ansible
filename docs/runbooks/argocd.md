@@ -33,8 +33,11 @@ actually ran and the Phase A proof drill are recorded in slice 009's
   cexec iac kubectl $KC get applications.argoproj.io -A
   ```
 
-- Polling is off (D6). Argo learns about a push only through the webhook; no
-  webhook means no refresh, ever.
+- The webhook is the trigger (D6). A dropped delivery is picked up by the
+  30-minute periodic refresh, which is also what brings an app's health up to
+  date after a rollout: Argo CD 3.x ignores `/status`-only updates. An app
+  that shows Progressing past its rollout catches up within half an hour, or
+  at once on a manual Refresh.
 - Argo's own Application never auto-syncs (D3). Every Argo upgrade is a manual
   sync at a moment the operator picks.
 
