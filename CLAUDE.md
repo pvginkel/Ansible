@@ -84,8 +84,10 @@ declared in `.kubecoder/config.yaml`; adding an ordinary entry needs no restart 
 path the entry resolves to, run `kc project setup` in it, and add it to `Ansible.code-workspace` in
 the same commit (a `shared: true` entry is mounted, so it takes `kc env restart` and is never
 cloned by hand). A repo needed only for the task at hand goes under `/work/scratch/<Repo>` with no
-entry — including one a slice changes: its phases say `Target: ../scratch/<Repo>`, and the
-environment that runs the slice clones it there first. `KubeCoderDeploy` (KubeCoder's deploy
+entry — including one a slice changes: its phases say `Target: github:<owner>/<repo>`, and the
+dev plugin's driver (and the planning dry run) clones or adopts `/work/scratch/<repo>` itself; a
+`github:` repo with no `.kubecoder/project.yaml` needs a `gate` line under `## Driver rulings`.
+`KubeCoderDeploy` (KubeCoder's deploy
 repo, the Argo CD pilot — see its README) and `HelmCharts` (the deploy path before Argo CD,
 archived 2026-09-28) are such repos: older docs and slices cite them as `/work/<Repo>`, read that
 as `/work/scratch/<Repo>`. The `iac`
