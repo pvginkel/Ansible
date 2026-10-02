@@ -388,14 +388,17 @@ with `releases`' sync of the push.
 Application stays, shown as requiring pruning, until the operator syncs
 `releases` with *Prune* ticked (D27 as amended). Then the resources finalizer
 cascades: workloads, the `Prune=false` Namespace and the hook Jobs were all gone
-within 45 seconds on 2026-09-13. What stays is what the stage's Terraform made,
-since teardown never destroys (D29): its PVs and what backs them, databases,
-buckets, the deploy repo's GitHub webhook if the stage manages it. So do its
-state file in TerraformState and its `config/<stage>/` in the deploy repo. One
-`IaC/Destroy Stage` build deletes them all
+within 45 seconds on 2026-09-13. What stays is what the stage's Terraform made
+outside its namespace, since teardown never destroys (D29): its PVs and what
+backs them, databases, buckets, the deploy repo's GitHub webhook if the stage
+manages it. So do its state file in TerraformState and its `config/<stage>/` in
+the deploy repo. One `IaC/Destroy Stage` build deletes them all
 ([Destroying a retired stage](#destroying-a-retired-stage), D66).
 **Unregister** is deleting the app's whole entry, which undeploys each stage the
-same way.
+same way. A webhook made by hand ([Webhooks](#webhooks)) stays on the deploy
+repo after that too, and keeps sending its pushes to the relay for a repo
+nothing deploys: no stage's Terraform holds it, so no build deletes it, and
+removing it is a separate act, by hand.
 
 ## Destroying a retired stage
 
