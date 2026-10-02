@@ -985,7 +985,8 @@ cd /work/HelmCharts && git pull --ff-only && git rm -rq charts/kubecoder configs
 Push on confirmation. Nothing is stranded: `architecture.yaml` already lives in KubeCoderDeploy
 (slice 014), and neither stage is HelmCharts' any more. `IaC/HelmCharts` runs and deploys nothing
 for KubeCoder. The two emptied states, `helm-charts/prd/kubecoder/{dev,prd}/infra.tfstate`, stay
-in TerraformState, because nothing prunes a state (D28).
+in TerraformState: `IaC/Destroy Stage` removes only states under `argocd/` (D66), and nothing
+prunes the others.
 
 HelmCharts' orphan audit is run by hand. What it lists at this step:
 
