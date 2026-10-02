@@ -550,8 +550,11 @@ section says).
 The Job inits and plans on the root's declarations alone. Its inputs are the
 hook's credentials, `TF_VAR_stage` and, while `config/<stage>/` exists, the
 stage's tfvars; the stage's namespace is not one of them. A root that needs more
-fails the Job at `init` or
-`plan`, before anything is written, and destroys nothing. The build's last line
+fails the Job at `init` or `plan` and destroys nothing. A dry run writes nothing
+either way, and neither does a failed `init`. An apply that fails at its `plan`
+has already dropped the namespaced objects from the stage's stored state with
+`terraform state rm` (its `forgetting …` lines); the re-run finds nothing left
+to forget and plans the rest as before. The build's last line
 is the Job's `presync: …`, and Terraform's error above it names the cause:
 
 - `No value for required variable`: the root's declarations do not plan on
