@@ -169,10 +169,10 @@ environment that provides the credential gives it to an agent as
 provide it yet.
 
 **In Kibana**, at `http://kibana.home` (`https://kibana.home` lands on another
-service), log in as `reader` and open Discover. Pick the data view `filebeat-*`.
-If none is saved, create one with index pattern `filebeat-*` and timestamp field
-`@timestamp`, then choose **Use without saving**: `reader` cannot save a data
-view. Set the time range to cover the attempt, then query:
+service), log in as `reader` and open Discover. Pick the saved data view
+`filebeat-*`; prd holds it. Should it be gone, create one with index pattern
+`filebeat-*` and timestamp field `@timestamp`, then choose **Use without
+saving**: `reader` cannot save a data view. Set the time range to cover the attempt, then query:
 
 ```text
 kubernetes.namespace:"argocd-hooks" and kubernetes.pod.name:tf-presync-<app>-<stage>-*
