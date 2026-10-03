@@ -118,8 +118,11 @@ cexec iac argocd app manifests <app>
 The account is ArgoCDDeploy's `accounts.kubecoder: apiKey`, and
 `g, kubecoder, role:readonly` in `policy.csv` binds it to Argo's built-in
 read-only role, which grants `get` on every resource type and nothing else.
-`cexec iac argocd account can-i sync applications '*/*'` answers `no`. Its
-token: [The `kubecoder` account's token](#the-kubecoder-accounts-token). The
+`cexec iac argocd account can-i sync applications '*/*'` answers `no`.
+ArgoCDDeploy's render test keeps it that way: it reads `policy.csv` and every
+other `policy.*.csv` key of `argocd-rbac-cm`, which Argo enforces as one
+policy, and fails on any binding of `kubecoder` but that one and on a rule
+whose subject is `role:readonly`. Its token: [The `kubecoder` account's token](#the-kubecoder-accounts-token). The
 dev deployment's environments carry none of this.
 
 ## Diagnosing a failed sync
@@ -383,6 +386,15 @@ A stage without `autoSync`, or with `autoSync: true`, gets `syncPolicy.automated
 (`prune: true`, `selfHeal: false`) and D5's retry block, and Argo syncs it on its
 own; `autoSync: false` renders no policy. Either change reaches the Application
 with `releases`' sync of the push.
+
+Every push to the deploy repo changes the render, so an auto-synced stage syncs
+it and its hook applies at that commit, a push touching only `terraform/` or
+the stage tfvars included. What changes is the ConfigMap `tf-presync-revision`
+in the app's namespace, which the homelab-shared hook include (0.4.0 and later)
+renders as an ordinary object, not a hook, with the synced SHA in
+`data.revision`. A deploy repo pinning an older version syncs only when its
+chart or values render differently, and a Terraform-only push there waits for
+the next push that does.
 
 **Undeploy** a stage by deleting its entry. `releases` does not prune, so the
 Application stays, shown as requiring pruning, until the operator syncs
