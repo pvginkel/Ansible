@@ -97,7 +97,7 @@ When handing a command to the operator, use this exact shape:
   `cd <dir> && cexec iac <cmd>` behaves as if the tool were local.
 - **Ansible:** `cd ansible && cexec iac poetry run ansible-playbook playbooks/<play>.yml --limit
   <host>`. Inventory defaults to `inventories/prd` per `ansible.cfg`; pass `-i inventories/scratch`
-  only for scratch-fleet runs. Don't pass `--diff` — `ansible.cfg` sets `diff_always = True`. For
+  only for scratch-fleet runs. Don't pass `--diff` — `ansible.cfg` sets `always = True` under `[diff]`. For
   the check-mode preflight, append `--check` to the **very end** of the apply command so the
   operator converts it to an apply by deleting the trailing flag — never put `--check`
   mid-command. Never include `--ask-vault-pass`: `ANSIBLE_VAULT_PASSWORD_FILE` is projected by
