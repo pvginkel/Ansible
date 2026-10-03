@@ -473,18 +473,18 @@ first ([above](#registering-undeploying-and-unregistering-an-app)): delete its
 registry entry, then sync `releases` with *Prune*, so that its Application goes
 and its namespace with it.
 
-*Build with Parameters* takes three:
+*Build with Parameters* takes two:
 
 - `REPO`: the deploy repo exactly as GitHub spells it, `FieldnotesDeploy` and
   not `fieldnotesdeploy`;
-- `STAGE`: the retired stage, e.g. `dev`;
-- `APPLY`: unticked by default, which makes the build a dry run.
+- `STAGE`: the retired stage, e.g. `dev`.
 
-A dry run comes first, then an apply. The apply is the operator's keystroke.
+Every build plans first and asks before it destroys. The yes is the operator's
+keystroke.
 
-1. **Dry run** (`APPLY` unticked). The build runs `Checkout`, `Check stage is
-   undeployed` and `Plan destroy`. It writes nothing: no resource, no state, no
-   commit anywhere. The Job's log reads, in order:
+1. **Plan.** The build runs `Checkout`, `Check stage is undeployed` and `Plan
+   destroy`. Its first Job is a dry run: it writes nothing, no resource, no
+   state, no commit anywhere. The Job's log reads, in order:
    - `presync: <file>.tf: keeps N declaration(s), drops …`, once per root
      `.tf`: the root reduced to its `terraform`, `provider` and `variable`
      blocks. With nothing else declared, every resource in state is planned
@@ -500,15 +500,21 @@ A dry run comes first, then an apply. The apply is the operator's keystroke.
      repository`;
    - `presync: dry run: nothing was written`.
 
-   The build's own line follows: `An apply removes config/<STAGE>/ from
-   pvginkel/<REPO>'s main. This dry run pushed nothing.` Read the plan as the
-   list of what an apply deletes, with whatever data those resources hold.
-   Nothing else stands in its way.
-2. **Apply** (`APPLY` ticked). The build runs `Checkout`, `Check stage is
-   undeployed`, `Destroy Terraform resources and state` and `Remove config
-   folder`. Its Job plans again, at the SHA of `main` this build resolved, and
-   applies that plan with no `input` step. The dry run's plan is what to
-   expect; the log shows the plan that ran, above Terraform's apply output. The
+   The build's own line follows: `A destroy removes config/<STAGE>/ from
+   pvginkel/<REPO>'s main.` Read the plan as the list of what a destroy
+   deletes, with whatever data those resources hold. Nothing else stands in its
+   way.
+2. **Confirm.** `Plan destroy` then waits on an `input` step, `Destroy what the
+   plan above shows for <STAGE> of pvginkel/<REPO>?`. *Abort* is the no: the
+   build prints `Not confirmed: nothing was destroyed.` and ends `NOT_BUILT`,
+   described `declined: <REPO> <STAGE>`, with no message from the abort
+   marker. Stopping the build while it asks ends it the same way. The wait
+   counts against the build's 60-minute timeout.
+3. **Destroy** (*Destroy* at the input). The build runs `Destroy Terraform
+   resources and state` and `Remove config folder`. Its second Job plans again,
+   at the SHA of `main` this build resolved, and applies that plan; nothing
+   compares it with the plan you confirmed, so read the second plan, above
+   Terraform's apply output, if the stage could have changed in between. The
    Job's log reads:
    - `presync: forgetting N namespaced Kubernetes object(s), …` (or `… nothing
      to forget`), which `terraform state rm` then drops;
@@ -525,7 +531,7 @@ A dry run comes first, then an apply. The apply is the operator's keystroke.
    config/<STAGE>/.` The build reads and edits `main` only, whatever branch the
    stage tracked (D34).
 
-Do not abort an apply while its Job runs
+Do not abort a build once you have confirmed it, while its second Job runs
 ([A build that stopped halfway](#a-build-that-stopped-halfway)).
 
 ### What the guard refuses
@@ -543,11 +549,13 @@ Do not abort an apply while its Job runs
   prd of pvginkel/FieldnotesDeploy is still deployed, by the registry entry apps.fieldnotes.stages.prd in ArgoCDDeploy's releases/values.yaml on main and the live Application argocd-prd/fieldnotes-prd. This build cleans up after an undeployed stage: delete its registry entry and prune its Application first.
   ```
 
+- when GitHub has no repo `REPO`: `GitHub has no repo pvginkel/FieldnotedDeploy:
+  name the deploy repo as GitHub spells it, e.g. FieldnotesDeploy.`;
 - when `REPO` is not spelled as GitHub spells it: `GitHub spells
   pvginkel/fieldnotesdeploy as FieldnotesDeploy, the spelling the stage's state
   is filed under: run with REPO=FieldnotesDeploy`. GitHub serves a repo under
   any case of its name, but TerraformState's paths are case-sensitive: another
-  case finds no state, and an apply would still remove `config/<stage>/`;
+  case finds no state, and a destroy would still remove `config/<stage>/`;
 - when `REPO` or `STAGE` is empty or not a single path segment. A build without
   parameters fails here on the empty `REPO` and changes nothing; that is how
   the job's first build registered its parameters.
@@ -560,10 +568,11 @@ The prune took the stage's namespace with everything in it, the
 `tf-presync-app` RoleBinding included. That RoleBinding is the Job's only grant
 in a namespace (D33), so Terraform reading such an object now gets `403`. The
 Job therefore drops every Kubernetes object in state that lives in a namespace
-from the state, without deleting it: the dry run lists them as `an apply forgets
-…`, the apply as `forgetting …`. Cluster-scoped objects such as PVs, and
-everything outside Kubernetes (RBD images, ZFS datasets, databases, buckets, the
-webhook), are destroyed for real. `tf-presync` gets no grant for this.
+from the state, without deleting it: the plan's Job lists them as `an apply
+forgets …`, the destroy's Job as `forgetting …`. Cluster-scoped objects such as
+PVs, and everything outside Kubernetes (RBD images, ZFS datasets, databases,
+buckets, the webhook), are destroyed for real. `tf-presync` gets no grant for
+this.
 
 A namespace that outlived its Application keeps those objects, its Secrets
 among them: the build forgets them all the same, and they stay behind (D66's
@@ -591,7 +600,7 @@ skips everything, and a Job that ended with `presync: the state still lists …:
 its folder stays` is finished by a re-run that plans what is left.
 
 The build deletes its Job however it ends, an abort included, and Terraform is
-then killed where it stands, without a clean shutdown. An apply cut off that way
+then killed where it stands, without a clean shutdown. A destroy cut off that way
 can leave the state's lock held: the re-run then fails with Terraform's `Error
 acquiring the state lock`. The lock is the branch
 `locks/argocd/<REPO>/<STAGE>/terraform.tfstate` in TerraformState, and
@@ -607,9 +616,9 @@ and kubernetes.pod.name:destroy-stage-<build#>-*`
 The Job inits and plans on the root's declarations alone. Its inputs are the
 hook's credentials, `TF_VAR_stage` and, while `config/<stage>/` exists, the
 stage's tfvars; the stage's namespace is not one of them. A root that needs more
-fails the Job at `init` or `plan` and destroys nothing. A dry run writes nothing
-either way, and neither does a failed `init`. An apply that fails at its `plan`
-has already dropped the namespaced objects from the stage's stored state with
+fails the Job at `init` or `plan` and destroys nothing. The plan's Job writes
+nothing either way, and neither does a failed `init`. A destroy's Job that fails
+at its `plan` has already dropped the namespaced objects from the stage's stored state with
 `terraform state rm` (its `forgetting …` lines); the re-run finds nothing left
 to forget and plans the rest as before. The build's last line
 is the Job's `presync: …`, and Terraform's error above it names the cause:

@@ -43,7 +43,7 @@ cd ansible && ssh <options> ansible@srviac \
 
 A **deploy repo's** Terraform is applied by Argo CD's PreSync hook on each sync of its stage
 ([argocd.md](runbooks/argocd.md)), and the hook has no plan step. A retired stage's Terraform is
-destroyed by an `IaC/Destroy Stage` build, whose dry run is that destroy's plan
+destroyed by an `IaC/Destroy Stage` build, which shows that destroy's plan before it asks
 ([argocd.md](runbooks/argocd.md#destroying-a-retired-stage)). Planning it from here takes the
 hook's inputs (the hook environment in ArgoCDDeploy's `config/prd/values.yaml`) plus the
 OpenBao-held provider credentials, which `scripts/setup-env.sh prd` loads after
