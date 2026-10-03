@@ -192,7 +192,7 @@ Terraform manages 12 production VMs (`terraform/prd`) plus 2 disposable scratch 
 | srvvault1 | 913 | pve | 2 | 1 GiB | 24G | OpenBao Raft peer |
 | srvvault2 | 914 | pve1 | 2 | 1 GiB | 24G | OpenBao Raft peer |
 | srvvault3 | 915 | pve2 | 2 | 1 GiB | 24G | OpenBao Raft peer |
-| srviac | 920 | pve | 2 | 3 GiB | 32G | Jenkins agent / Terraform+Ansible runner |
+| srviac | 920 | pve | 2 | 3 GiB | 32G | Jenkins agent / Terraform+Ansible runner / DHCP probe |
 
 Kubernetes is microk8s **v1.35.6** on Ubuntu 24.04.4, containerd 2.1.6, Calico in VXLAN mode.
 The three Ceph VMs are configured as `1 core × 3 sockets` rather than `3 × 1` — three vCPUs
@@ -296,6 +296,13 @@ everything else. With the cluster down, or with only the `dhcp` pod not-Ready (M
 withdraws `10.2.1.10`), no laptop, phone, AP or IoT device can obtain or renew a lease.
 Existing leases (1 day, renewed at 12 h) carry the estate for their remaining lifetime, so the
 failure is delayed rather than immediate.
+
+What raises it: srviac sends the `dhcp` Service a relay-style DISCOVER every 3 minutes (role
+`dhcp_probe`), and Prometheus pages `DHCPNotAnswering` after 12 minutes without an OFFER, beside
+`LoadBalancerNotAnnounced` for the withdrawn address and `OIDCDiscoveryFailing` for a Keycloak
+that is down (PrometheusDeploy `config/prd/values.yaml`). With the whole cluster down Prometheus
+itself is silent; its heartbeat to healthchecks.io then stops, and healthchecks.io notifies over
+Telegram.
 
 That happened on 2026-09-25. After a power cut, the `dhcp` pod stayed not-Ready and there was no
 DHCP for 2h45m (AnsibleSpecs `handovers/dhcp-outage-2026-09-25/`). A minimal DHCP floor outside

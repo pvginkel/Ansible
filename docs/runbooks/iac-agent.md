@@ -8,7 +8,7 @@ See [`/work/AnsibleSpecs/phases/completed/iac-agent.md`](../../../AnsibleSpecs/p
 
 | Where | What |
 |---|---|
-| `srviac` host | Docker, the `iac` shim, a daily `docker image prune -f` cron, a systemd unit running the Jenkins inbound-agent container, `/etc/iac/secrets.yaml` (operator-curated, `0600`). |
+| `srviac` host | Docker, the `iac` shim, a daily `docker image prune -f` cron, a systemd unit running the Jenkins inbound-agent container, `/etc/iac/secrets.yaml` (operator-curated, `0600`), and the `dhcp-probe` timer (role `dhcp_probe`), which checks every 3 minutes that the production DHCP service answers and leaves the result for Prometheus. |
 | `registry:5000/iac` image | Terraform, Ansible, kubectl, helm, python, poetry, `terraform-backend-git`, plus `iac-impl` — the in-container entrypoint that parses `secrets.yaml`, clones the repos `secrets.yaml` names (Ansible alone by default), starts the terraform-backend-git daemon on `127.0.0.1:6061`, then exec's whatever you asked for. The Python venv is baked in at image build from this repo's `pyproject.toml`/`poetry.lock`; `iac-impl` installs nothing at runtime and instead warns when the cloned `poetry.lock` differs from the baked one. Built from `support/iac-image/Dockerfile` by this repo's `IaC/IaC Docker Image` job. |
 | `pvginkel/Ansible` (this repo) | Roles, playbooks, inventory, the Terraform configs (`terraform/{prd,scratch}/`, each with a `backend.tf` http block), the Jenkins pipeline scripts (`Jenkinsfile.*`) every job checks out, the iac image's build context (`support/iac-image/`), and the srviac host glue (`support/iac-agent/` — `bin/iac`, `install.sh`, the systemd unit, the `secrets.example.yaml` template). |
 | `pvginkel/TerraformState` | tfstate served through the terraform-backend-git http backend, sops+age-encrypted at rest. Private. Holds the same sensitivity as any secret-bearing repo (VM host private keys, API tokens, proxmox creds). Not srviac's alone: the Argo CD Terraform PreSync hook (`/work/ArgoCDTools`) writes into the same repo under `argocd/<repo>/<stage>/terraform.tfstate`, starting its own terraform-backend-git in the hook pod, and its destroy mode, which `IaC/Destroy Stage` runs, removes a retired stage's `argocd/<repo>/<stage>/` with a commit of its own. Both sides decrypt with the one age keypair at `kv/iac/tf-backend`: the prd `eso` AppRole is granted read on that single leaf rather than a copy being made, so the two cannot drift onto different keys. |
@@ -110,7 +110,7 @@ This is the sequence to stand `srviac` up the first time, after all the source c
    cd terraform/prd && terraform apply
    ```
 
-2. **Apply Ansible to `srviac`** — bootstrap, baseline (including node_exporter + unattended-upgrades), `iac_agent` role.
+2. **Apply Ansible to `srviac`** — bootstrap, baseline (including node_exporter + unattended-upgrades), the `iac_agent` and `dhcp_probe` roles.
 
    ```sh
    cd ansible && poetry run ansible-playbook playbooks/site.yml --limit srviac
