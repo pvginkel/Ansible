@@ -81,7 +81,33 @@
     # oidc_client_secret, so a strict drift comparison would never
     # match — we always write instead. Server-side write is cheap and
     # the vault-sourced secret stays in sync without an explicit
-    # rotation flag.
+    # rotation flag. Changed reports only a difference in the readable
+    # fields: a rotation of the client secret alone is written but
+    # reports ok.
+
+    - name: Read the OIDC config
+      ansible.builtin.uri:
+        url: "{{ openbao_admin_api_addr }}/v1/auth/oidc/config"
+        method: GET
+        headers: "{{ _bao_headers }}"
+        status_code: [200, 404]
+        validate_certs: true
+      register: _openbao_oidc_config
+      no_log: true
+      check_mode: false
+
+    - name: Compare the OIDC config's readable fields
+      ansible.builtin.set_fact:
+        _openbao_oidc_config_differs: >-
+          {{
+            _openbao_oidc_config.status != 200
+            or (_openbao_oidc_config.json.data.oidc_discovery_url | default(none))
+               != openbao_oidc_discovery_url
+            or (_openbao_oidc_config.json.data.oidc_client_id | default(none))
+               != openbao_oidc_client_id
+            or (_openbao_oidc_config.json.data.default_role | default(none))
+               != openbao_oidc_default_role
+          }}
 
     - name: Write the OIDC config (Keycloak realm)
       ansible.builtin.uri:
@@ -96,7 +122,18 @@
           default_role: "{{ openbao_oidc_default_role }}"
         status_code: [200, 204]
         validate_certs: true
+      changed_when: _openbao_oidc_config_differs | bool
       no_log: true
+
+    # --check skips the write (uri has no check mode); report it instead so
+    # the drift check sees OIDC config drift.
+    - name: Report the OIDC config write a real run would change (check mode)
+      ansible.builtin.debug:
+        msg: A real run would change the OIDC config's discovery URL, client id or default role.
+      changed_when: true
+      when:
+        - ansible_check_mode
+        - _openbao_oidc_config_differs | bool
 
     # ----- oidc admin role --------------------------------------------
     #
@@ -118,7 +155,42 @@
             })
           }}
 
-    - name: Write the OIDC admin role
+    - name: Read the OIDC admin role
+      ansible.builtin.uri:
+        url: "{{ openbao_admin_api_addr }}/v1/auth/oidc/role/{{ openbao_oidc_default_role }}"
+        method: GET
+        headers: "{{ _bao_headers }}"
+        status_code: [200, 404]
+        validate_certs: true
+      register: _openbao_oidc_admin_role
+      check_mode: false
+
+    # Compare only what the write sends, TTLs normalised to the whole
+    # seconds OpenBao reads back. A TTL the filter cannot read normalises
+    # to none and counts as a difference: a misread can cost a needless
+    # write but never skip a needed one.
+    - name: Compare the OIDC admin role
+      vars:
+        _role: "{{ _openbao_oidc_admin_role.json.data | default({}) }}"
+      ansible.builtin.set_fact:
+        _openbao_oidc_admin_role_differs: >-
+          {{
+            _openbao_oidc_admin_role.status != 200
+            or (_role.role_type | default(none)) != 'oidc'
+            or (_role.user_claim | default(none)) != openbao_oidc_admin_user_claim
+            or (_role.groups_claim | default(none)) != openbao_oidc_admin_groups_claim
+            or (_role.bound_audiences | default(none)) != [openbao_oidc_client_id]
+            or (_role.bound_claims | default(none)) != _openbao_oidc_admin_bound_claims
+            or (_role.token_policies | default(none)) != openbao_oidc_admin_policies
+            or (_role.token_ttl | default(none))
+               != (openbao_oidc_admin_token_ttl | openbao_duration_seconds)
+            or (_role.token_max_ttl | default(none))
+               != (openbao_oidc_admin_token_max_ttl | openbao_duration_seconds)
+            or not (_role.token_no_default_policy | default(false))
+            or (_role.allowed_redirect_uris | default(none)) != openbao_oidc_admin_redirect_uris
+          }}
+
+    - name: Write the OIDC admin role (only when it differs)
       ansible.builtin.uri:
         url: "{{ openbao_admin_api_addr }}/v1/auth/oidc/role/{{ openbao_oidc_default_role }}"
         method: POST
@@ -138,3 +210,16 @@
           allowed_redirect_uris: "{{ openbao_oidc_admin_redirect_uris }}"
         status_code: [200, 204]
         validate_certs: true
+      # Runs only when the state differs (`when` below), so the write is a change.
+      changed_when: true
+      when: _openbao_oidc_admin_role_differs | bool
+
+    # --check skips the write (uri has no check mode); report it instead so
+    # the drift check sees OIDC role drift.
+    - name: Report the OIDC admin role write a real run would perform (check mode)
+      ansible.builtin.debug:
+        msg: A real run would rewrite OIDC role {{ openbao_oidc_default_role }}.
+      changed_when: true
+      when:
+        - ansible_check_mode
+        - _openbao_oidc_admin_role_differs | bool

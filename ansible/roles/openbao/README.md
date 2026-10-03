@@ -310,10 +310,13 @@ First-apply procedure:
    ```
 
    The provisioning runs on the bootstrap host; reads/writes go through
-   Raft and replicate to followers. Steady-state drift runs re-write
-   the config (the client secret isn't readable through the API, so
-   we always write — cheap server-side, keeps the vault content
-   authoritative).
+   Raft and replicate to followers. Every real run re-writes the
+   config (the client secret isn't readable through the API, so we
+   always write — cheap server-side, keeps the vault content
+   authoritative), but reports changed only when the discovery URL,
+   client id or default role differ. The admin role is written only
+   when it differs. A `--check` run reports either difference as a
+   change.
 
 5. **Verify** by hitting `https://secrets/` in a browser — pick
    "Sign in with OIDC", leave the role field blank (the default is
@@ -323,7 +326,8 @@ First-apply procedure:
    For CLI: `BAO_ADDR=https://secrets bao login -method=oidc`.
 
 Rotation: re-vault `openbao_oidc_client_secret` (after rotating in
-Keycloak) and re-apply. No flag required.
+Keycloak) and re-apply. No flag required. The apply writes the new
+secret but reports the config task ok, as nothing readable changed.
 
 ## Backup pipeline
 

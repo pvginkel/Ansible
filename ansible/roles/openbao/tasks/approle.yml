@@ -37,6 +37,31 @@
   vars:
     _bao_headers:
       X-Vault-Token: "{{ _openbao_token }}"
+    _openbao_approle_specs:
+      - name: openbao-admin
+        policy: openbao-admin
+        token_ttl: "{{ openbao_admin_token_ttl }}"
+        token_max_ttl: "{{ openbao_admin_token_max_ttl }}"
+      - name: iac-agent
+        policy: iac-agent
+        token_ttl: "{{ openbao_iac_agent_token_ttl }}"
+        token_max_ttl: "{{ openbao_iac_agent_token_max_ttl }}"
+      - name: jenkins
+        policy: jenkins
+        token_ttl: "{{ openbao_jenkins_token_ttl }}"
+        token_max_ttl: "{{ openbao_jenkins_token_max_ttl }}"
+      - name: eso
+        policy: eso
+        token_ttl: "{{ openbao_eso_token_ttl }}"
+        token_max_ttl: "{{ openbao_eso_token_max_ttl }}"
+      - name: eso-dev
+        policy: eso-dev
+        token_ttl: "{{ openbao_eso_dev_token_ttl }}"
+        token_max_ttl: "{{ openbao_eso_dev_token_max_ttl }}"
+      - name: backup
+        policy: backup
+        token_ttl: "{{ openbao_backup_token_ttl }}"
+        token_max_ttl: "{{ openbao_backup_token_max_ttl }}"
   block:
 
     # ----- approle auth method -----------------------------------------
@@ -233,35 +258,37 @@
         validate_certs: true
       register: _openbao_approles
       check_mode: false
-      loop:
-        - name: openbao-admin
-          policy: openbao-admin
-          token_ttl: "{{ openbao_admin_token_ttl }}"
-          token_max_ttl: "{{ openbao_admin_token_max_ttl }}"
-        - name: iac-agent
-          policy: iac-agent
-          token_ttl: "{{ openbao_iac_agent_token_ttl }}"
-          token_max_ttl: "{{ openbao_iac_agent_token_max_ttl }}"
-        - name: jenkins
-          policy: jenkins
-          token_ttl: "{{ openbao_jenkins_token_ttl }}"
-          token_max_ttl: "{{ openbao_jenkins_token_max_ttl }}"
-        - name: eso
-          policy: eso
-          token_ttl: "{{ openbao_eso_token_ttl }}"
-          token_max_ttl: "{{ openbao_eso_token_max_ttl }}"
-        - name: eso-dev
-          policy: eso-dev
-          token_ttl: "{{ openbao_eso_dev_token_ttl }}"
-          token_max_ttl: "{{ openbao_eso_dev_token_max_ttl }}"
-        - name: backup
-          policy: backup
-          token_ttl: "{{ openbao_backup_token_ttl }}"
-          token_max_ttl: "{{ openbao_backup_token_max_ttl }}"
+      loop: "{{ _openbao_approle_specs }}"
       loop_control:
         label: "{{ item.name }}"
 
-    - name: Write AppRoles
+    # Compare only what the write sends. OpenBao reads TTLs back as whole
+    # seconds, so the desired TTLs are normalised first; a TTL the filter
+    # cannot read normalises to none and counts as a difference, so a
+    # misread can cost a needless write but never skip a needed one.
+    - name: Build the AppRole drift dict
+      ansible.builtin.set_fact:
+        _openbao_approles_differ: >-
+          {{
+            (_openbao_approles_differ | default({}))
+            | combine({
+                item.item.name: (
+                  item.status != 200
+                  or (item.json.data.token_policies | default([])) != [item.item.policy]
+                  or (item.json.data.token_ttl | default(none))
+                     != (item.item.token_ttl | openbao_duration_seconds)
+                  or (item.json.data.token_max_ttl | default(none))
+                     != (item.item.token_max_ttl | openbao_duration_seconds)
+                  or not (item.json.data.token_no_default_policy | default(false))
+                  or not (item.json.data.bind_secret_id | default(false))
+                )
+              })
+          }}
+      loop: "{{ _openbao_approles.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+
+    - name: Write AppRoles (only when settings differ)
       ansible.builtin.uri:
         url: "{{ openbao_admin_api_addr }}/v1/auth/approle/role/{{ item.name }}"
         method: POST
@@ -275,34 +302,25 @@
           bind_secret_id: true
         status_code: [200, 204]
         validate_certs: true
-      register: _openbao_approle_writes
-      loop:
-        - name: openbao-admin
-          policy: openbao-admin
-          token_ttl: "{{ openbao_admin_token_ttl }}"
-          token_max_ttl: "{{ openbao_admin_token_max_ttl }}"
-        - name: iac-agent
-          policy: iac-agent
-          token_ttl: "{{ openbao_iac_agent_token_ttl }}"
-          token_max_ttl: "{{ openbao_iac_agent_token_max_ttl }}"
-        - name: jenkins
-          policy: jenkins
-          token_ttl: "{{ openbao_jenkins_token_ttl }}"
-          token_max_ttl: "{{ openbao_jenkins_token_max_ttl }}"
-        - name: eso
-          policy: eso
-          token_ttl: "{{ openbao_eso_token_ttl }}"
-          token_max_ttl: "{{ openbao_eso_token_max_ttl }}"
-        - name: eso-dev
-          policy: eso-dev
-          token_ttl: "{{ openbao_eso_dev_token_ttl }}"
-          token_max_ttl: "{{ openbao_eso_dev_token_max_ttl }}"
-        - name: backup
-          policy: backup
-          token_ttl: "{{ openbao_backup_token_ttl }}"
-          token_max_ttl: "{{ openbao_backup_token_max_ttl }}"
+      loop: "{{ _openbao_approle_specs }}"
       loop_control:
         label: "{{ item.name }}"
+      # Runs only when the state differs (`when` below), so the write is a change.
+      changed_when: true
+      when: _openbao_approles_differ[item.name]
+
+    # --check skips the write (uri has no check mode); report it instead so
+    # the drift check sees AppRole drift.
+    - name: Report the AppRole writes a real run would perform (check mode)
+      ansible.builtin.debug:
+        msg: A real run would rewrite AppRole {{ item.name }}'s settings.
+      loop: "{{ _openbao_approle_specs }}"
+      loop_control:
+        label: "{{ item.name }}"
+      changed_when: true
+      when:
+        - ansible_check_mode
+        - _openbao_approles_differ[item.name]
 
     # ----- role_id readout (always; deterministic) --------------------
 
