@@ -17,6 +17,7 @@ projects:
     # Not cexec-prefixed: recommend-resources runs in the dev container.
     test:
       - python3 -m unittest discover -s support/recommend-resources
+      - python3 -m unittest discover -s ansible/roles/dhcp_probe/tests
 
   ansible:
     description: >-

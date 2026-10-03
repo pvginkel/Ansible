@@ -1,0 +1,11 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Periodic relay-style DHCP probe
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec={{ dhcp_probe_interval }}
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target

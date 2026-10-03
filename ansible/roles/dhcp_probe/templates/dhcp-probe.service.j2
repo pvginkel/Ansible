@@ -1,0 +1,14 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Relay-style DHCPDISCOVER to the production DHCP service
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Root: the OFFER comes back to UDP 67.
+ExecStart=/usr/local/sbin/dhcp-probe --server {{ dhcp_probe_server }} --giaddr {{ dhcp_probe_giaddr }} --chaddr {{ dhcp_probe_chaddr }} --timeout {{ dhcp_probe_timeout }} --textfile-dir {{ dhcp_probe_textfile_dir }}
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths={{ dhcp_probe_textfile_dir }}

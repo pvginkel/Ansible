@@ -1,0 +1,28 @@
+---
+# The production DHCP service's LoadBalancer address — the address the
+# router relays to. By IP, not name: DNS runs in the same cluster as the
+# DHCP under test, and srviac is bring-up tier that depends on neither.
+dhcp_probe_server: 10.2.1.10
+
+# The relay agent address the DISCOVER carries. The server sends its OFFER
+# here, and picks the pool by it, so it is this host's address on the LAN
+# the router relays for: the IPv4 address of the NIC with the gateway in
+# host_vars' network_devices.
+dhcp_probe_giaddr: >-
+  {{ network_devices | selectattr('gateway', 'defined') | map(attribute='addresses') | first
+  | select('match', '^[0-9.]+/') | first | split('/') | first }}
+
+# A fixed, locally administered client address, so dnsmasq's log names the
+# probe and every run asks for the same client.
+dhcp_probe_chaddr: "02:00:00:40:04:01"
+
+# dnsmasq pings a free address before offering it, so an OFFER takes about
+# 3 s; the timeout leaves room for that.
+dhcp_probe_timeout: 10
+
+# How often the timer runs the probe. Staleness alerts read this cadence.
+dhcp_probe_interval: 3min
+
+# node-exporter textfile-collector directory, created by baseline's
+# prometheus-node-exporter package.
+dhcp_probe_textfile_dir: /var/lib/prometheus/node-exporter

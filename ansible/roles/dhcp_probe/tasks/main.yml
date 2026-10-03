@@ -1,0 +1,30 @@
+---
+- name: Install the DHCP probe
+  ansible.builtin.copy:
+    src: dhcp_probe.py
+    dest: /usr/local/sbin/dhcp-probe
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the DHCP probe systemd service + timer
+  ansible.builtin.template:
+    src: "dhcp-probe.{{ item }}.j2"
+    dest: "/etc/systemd/system/dhcp-probe.{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - service
+    - timer
+
+- name: Enable + start the DHCP probe timer
+  ansible.builtin.systemd:
+    name: dhcp-probe.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  # In check mode the template task above has not written the unit, so
+  # systemd cannot find dhcp-probe.timer and the module errors out. The
+  # file diffs above are the dry run's preview.
+  when: not ansible_check_mode

@@ -1,0 +1,16 @@
+---
+galaxy_info:
+  role_name: dhcp_probe
+  author: pvginkel
+  description: >-
+    A systemd timer that sends a relay-style DHCPDISCOVER to the production
+    DHCP service and records whether an OFFER came back for node-exporter.
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - noble
+        - resolute
+
+dependencies: []
