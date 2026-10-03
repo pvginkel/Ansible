@@ -2,20 +2,23 @@
 """Resource requests for every app-stage Argo CD deploys, from Prometheus (argo-cd D65).
 
     report DIR   clone every deploy repo in ArgoCDDeploy's registry into DIR/repos, read the last
-                 7 days from Prometheus, and write one patch per deploy repo it would change into
+                 28 days from Prometheus, and write one patch per deploy repo it would change into
                  DIR/report; containers it cannot place are listed in DIR/not-placed.txt
     apply DIR    apply the patches left in DIR/report to their clones and commit each on main
 
 Between the two steps the report is the operator's: deleting a patch leaves that deploy repo as it
 is, and an edited hunk is applied as edited. Nothing is pushed; `apply` prints the push commands.
 
-The recommendation policy is HelmCharts' tools/chart_tools/recommend_resources.py's: p75 CPU and
-p90 working-set memory over 7 days, CPU rounded up to one significant digit, memory up to the next
-quarter power of two, and a value only ever raised unless --reset. A container's requests go in
-its app-stage's config/<stage>/values.yaml, at `resources.<workload>.<container>.requests` when
-the stage's resolved chart declares that container there, else at the path the chart's map in
-resources-entry-maps/<chart>.json names. The resolved chart is the deploy repo's chart/, or for an
-upstream app the registry's chart at the stage's pinned version.
+The policy (argo-cd D65, as amended 2026-10-03): a memory request at p90 working-set memory over
+28 days (or as much of them as Prometheus still holds), rounded up to the next quarter power of
+two and only ever raised unless --reset; and no CPU request at all. Every CPU request in a stage's
+values file or a local chart's values.yaml is dropped, measured or not. A CPU limit stays, and so
+does `cpu: null`, which is how a values file drops its chart's default. A container's memory
+request goes in its app-stage's config/<stage>/values.yaml, at
+`resources.<workload>.<container>.requests` when the stage's resolved chart declares that
+container there, else at the path the chart's map in resources-entry-maps/<chart>.json names. The
+resolved chart is the deploy repo's chart/, or for an upstream app the registry's chart at the
+stage's pinned version.
 
 Run from the dev container; helm runs in the `iac` sidecar via cexec.
 """
@@ -44,14 +47,15 @@ HERE = Path(__file__).resolve().parent
 REGISTRY = Path("/work/ArgoCDDeploy/releases/values.yaml")
 MAPS = HERE / "resources-entry-maps"
 PROMETHEUS = "http://prometheus.home"
-NUM_DAYS = 7
+NUM_DAYS = 28
 # Changes enter a deploy repo on main; a stage that tracks another branch, like KubeCoder's prd
 # (argo-cd D34), receives them by promotion.
 ENTRY_BRANCH = "main"
 COMMIT_MESSAGE = f"""\
-config: resource requests from {NUM_DAYS} days of Prometheus data
+config: memory requests from {NUM_DAYS} days of Prometheus data, CPU requests dropped
 
-p75 CPU and p90 working-set memory, by Ansible's support/recommend-resources (argo-cd D65).
+p90 working-set memory and no CPU request, by Ansible's support/recommend-resources
+(argo-cd D65).
 """
 
 
@@ -145,7 +149,6 @@ class ContainerRef:
 
 @dataclass
 class Recommendation:
-    cpu: int
     memory: int
 
 
@@ -202,19 +205,11 @@ def percentile(values: list[float], q: float) -> float:
     return s[lo] + (h - lo) * (s[hi] - s[lo])
 
 
-def get_recommendations(start: datetime, end: datetime) -> dict[ContainerRef, Recommendation]:
+def get_recommendations(start: datetime, end: datetime) -> tuple[dict[ContainerRef, Recommendation], datetime]:
+    """The recommendations, and when the data they come from starts: no earlier than `start`, and
+    later when Prometheus no longer holds all of the window."""
     start_ts = int(start.timestamp())
     end_ts = int(end.timestamp())
-
-    cpu_metrics = promql(
-        """
-        sum by (namespace, pod, container) (
-            rate(container_cpu_usage_seconds_total{container != "", container != "POD"}[5m])
-        )
-        """,
-        start_ts,
-        end_ts,
-    )
 
     # working_set, not usage: container_memory_usage_bytes includes inactive
     # page cache, which is reclaimable and is not what the scheduler packs
@@ -231,33 +226,17 @@ def get_recommendations(start: datetime, end: datetime) -> dict[ContainerRef, Re
         end_ts,
     )
 
-    cpu_data = get_values_from_metrics(cpu_metrics)
     mem_data = get_values_from_metrics(mem_metrics)
 
     recommendations = {}
 
-    for key in set(cpu_data.keys() | mem_data.keys()):
-        cpu = cpu_data.get(key, [])
-        mem = mem_data.get(key, [])
+    for key, mem in mem_data.items():
+        mem_req = percentile(mem, 90) / (1024 * 1024)  # MiB
 
-        cpu_req = (percentile(cpu, 75) if len(cpu) > 0 else 0) * 1000  # millicores
-        mem_req = (percentile(mem, 90) if len(mem) > 0 else 0) / (1024 * 1024)  # MiB
+        recommendations[key] = Recommendation(int(round(mem_req)))
 
-        recommendations[key] = Recommendation(int(round(cpu_req)), int(round(mem_req)))
-
-    return recommendations
-
-
-def round_cpu_recommendation(value: int) -> int:
-    """Round up to 1 significant digit (e.g., 13 -> 20, 371 -> 400)"""
-    if value < 10:
-        return 0
-
-    power = math.floor(math.log10(abs(value)))
-    base = 10**power
-    rounded = math.ceil(value / base) * base
-
-    return int(rounded)
+    first = min((float(v[0]) for result in mem_metrics for v in result.get("values", [])), default=start_ts)
+    return recommendations, datetime.fromtimestamp(max(first, start_ts), timezone.utc)
 
 
 def round_mem_recommendation(value: int) -> int:
@@ -278,24 +257,8 @@ def round_mem_recommendation(value: int) -> int:
     return 2**exponent
 
 
-def format_cpu(value: int) -> Optional[str]:
-    return f"{int(round(value))}m" if value > 0 else None
-
-
 def format_mem(value: int) -> Optional[str]:
     return f"{int(round(value))}Mi" if value > 0 else None
-
-
-def parse_cpu(value: Optional[str]) -> int:
-    if not value:
-        return 0
-
-    if value.endswith("m"):
-        return int(value[:-1])
-    elif value.endswith("c"):
-        return int(value[:-1]) // 1000  # Convert from cores to millicores
-    else:
-        raise ValueError(f"Invalid CPU value format: {value}")
 
 
 def parse_mem(value: Optional[str]) -> int:
@@ -416,12 +379,10 @@ def _nested_set(data: dict, path: list[str], value: str) -> None:
     data[path[-1]] = value
 
 
-def _nested_pop(data: dict, path: list[str]) -> None:
-    for key in path[:-1]:
-        data = data.get(key)
-        if not isinstance(data, dict):
-            return
-    data.pop(path[-1], None)
+def _nested_pop(data: Any, path: list) -> None:
+    data = _get(data, path[:-1])
+    if isinstance(data, dict):
+        data.pop(path[-1], None)
 
 
 def set_value(text: str, path: list[str], value: str) -> str:
@@ -464,14 +425,22 @@ def set_value(text: str, path: list[str], value: str) -> str:
     raise AssertionError("unreachable")
 
 
-def delete_value(text: str, path: list[str]) -> str:
-    """`text` without the key at `path`; a mapping it empties stays, as `{}`."""
+def delete_value(text: str, path: list) -> str:
+    """`text` without the key at `path`, where an int steps into a sequence; a mapping it empties
+    stays, as `{}`."""
     node, owner = _compose(text), None
     for d, key in enumerate(path):
-        if not isinstance(node, yaml.MappingNode):
+        if not isinstance(node, (yaml.MappingNode, yaml.SequenceNode)):
             return text
         if node.flow_style:
             return _flow(text, node, lambda data: _nested_pop(data, path[d:]))
+        if isinstance(key, int):
+            if not isinstance(node, yaml.SequenceNode) or key >= len(node.value):
+                return text
+            node, owner = node.value[key], None
+            continue
+        if not isinstance(node, yaml.MappingNode):
+            return text
         pair = _pair(node, key)
         if pair is None:
             return text
@@ -491,31 +460,59 @@ def delete_value(text: str, path: list[str]) -> str:
     raise AssertionError("unreachable")
 
 
-def _get(data: Any, path: list[str]) -> Any:
+def _get(data: Any, path: list) -> Any:
     for key in path:
-        data = data.get(key) if isinstance(data, dict) else None
+        if isinstance(data, dict):
+            data = data.get(key)
+        elif isinstance(data, list) and isinstance(key, int) and key < len(data):
+            data = data[key]
+        else:
+            return None
     return data
 
 
 def revise(text: str, path: list[str], rec: Recommendation, reset: bool) -> tuple[str, list[str]]:
-    """The values text with one container's requests revised, and what changed."""
-    old = _get(yaml.safe_load(text), path)
-    old = old if isinstance(old, dict) else {}
+    """The values text with one container's memory request revised, and what changed."""
+    old = _get(yaml.safe_load(text), [*path, "memory"])
+    new = format_mem(round_mem_recommendation(rec.memory))
+    # Recommendations normally only ratchet upwards: a high-water mark is
+    # evidence the container really needed that much, and a quiet measurement
+    # window is not evidence it stopped. --reset drops that guard so a stale
+    # mark can be re-derived from the current window.
+    if not (reset or parse_mem(new) > parse_mem(old)):
+        return text, []
+    revised = set_value(text, [*path, "memory"], new) if new else delete_value(text, [*path, "memory"])
+    if revised == text:
+        return text, []
+    return revised, [f"memory {old or 'unset'} -> {new or 'unset'}"]
+
+
+def cpu_requests(text: str) -> list[tuple[list, Any]]:
+    """Every CPU request in a values file: the path to each `requests` mapping that sets `cpu`, and
+    the value. `cpu: null` is not one: it drops the chart's default."""
+    found = []
+
+    def walk(data: Any, path: list) -> None:
+        if isinstance(data, dict):
+            for key, value in data.items():
+                if key == "requests" and isinstance(value, dict) and value.get("cpu") is not None:
+                    found.append(([*path, key], value["cpu"]))
+                walk(value, [*path, str(key)])
+        elif isinstance(data, list):
+            for i, value in enumerate(data):
+                walk(value, [*path, i])
+
+    walk(yaml.safe_load(text), [])
+    return found
+
+
+def drop_cpu_requests(text: str) -> tuple[str, list[str]]:
+    """The values text without a CPU request, and what was dropped; CPU limits stay."""
     changes = []
-    for field, parse, new in (
-        ("cpu", parse_cpu, format_cpu(round_cpu_recommendation(rec.cpu))),
-        ("memory", parse_mem, format_mem(round_mem_recommendation(rec.memory))),
-    ):
-        # Recommendations normally only ratchet upwards: a high-water mark is
-        # evidence the container really needed that much, and a quiet measurement
-        # window is not evidence it stopped. --reset drops that guard so a stale
-        # mark can be re-derived from the current window.
-        if not (reset or parse(new) > parse(old.get(field))):
-            continue
-        revised = set_value(text, [*path, field], new) if new else delete_value(text, [*path, field])
-        if revised != text:
-            changes.append(f"{field} {old.get(field) or 'unset'} -> {new or 'unset'}")
-            text = revised
+    for path, cpu in cpu_requests(text):
+        text = delete_value(text, [*path, "cpu"])
+        where = "".join(f"[{key}]" if isinstance(key, int) else f".{key}" for key in path).lstrip(".")
+        changes.append(f"{where}.cpu {cpu} -> unset")
     return text, changes
 
 
@@ -540,7 +537,7 @@ def preamble(name: str, start: datetime, end: datetime, lines: list[str]) -> str
     when = f"{start:%Y-%m-%d %H:%MZ} to {end:%Y-%m-%d %H:%MZ}"
     head = [
         f"recommend-resources: {name}",
-        f"Requests from Prometheus, {when}: p75 CPU, p90 working-set memory.",
+        f"Memory requests from Prometheus, {when}: p90 working set. Every CPU request is dropped.",
         f"Delete this file to leave {name} as it is, or edit a hunk to overrule it;",
         f"`recommend_resources.py apply` commits what is left on {ENTRY_BRANCH}. Lines before the",
         "first `diff --git` are ignored.",
@@ -560,11 +557,34 @@ def cmd_report(args: argparse.Namespace) -> None:
 
     end = datetime.now(timezone.utc)
     start = end - timedelta(days=NUM_DAYS)
-    recommendations = get_recommendations(start, end)
+    recommendations, start = get_recommendations(start, end)
+    log(f"Prometheus data from {start:%Y-%m-%d %H:%MZ}")
 
     texts: dict[Path, str] = {}
     notes: dict[str, list[str]] = defaultdict(list)
     promoted: dict[str, set[str]] = defaultdict(set)
+
+    def promotion(stage: Stage) -> None:
+        if stage.revision != ENTRY_BRANCH:
+            promoted[stage.clone].add(
+                f"{stage.ns} tracks {stage.revision}: this reaches it by promotion (argo-cd D34).")
+
+    # CPU requests go wherever they are, measured or not: each stage's values file, and a local
+    # chart's defaults, which every stage of the repo reads.
+    by_clone: dict[str, list[Stage]] = defaultdict(list)
+    for stage in sorted(stages.values(), key=lambda s: s.ns):
+        by_clone[stage.clone].append(stage)
+    for name, repo_stages in sorted(by_clone.items()):
+        files = [(s.ns, repos / name / s.values_file, [s]) for s in repo_stages]
+        if not repo_stages[0].upstream:
+            files.append(("chart", repos / name / "chart/values.yaml", repo_stages))
+        for label, file, readers in files:
+            texts[file], changes = drop_cpu_requests(texts.setdefault(file, file.read_text()))
+            if changes:
+                notes[name].extend(f"{label} {change}" for change in changes)
+                for stage in readers:
+                    promotion(stage)
+
     unplaced = []
     for ref in sorted(recommendations, key=lambda r: (r.ns, r.pod, r.container)):
         stage = stages.get(ref.ns)
@@ -580,11 +600,8 @@ def cmd_report(args: argparse.Namespace) -> None:
         texts[file], changes = revise(text, path, rec, args.reset)
         if changes:
             notes[stage.clone].append(
-                f"{ref.ns} {ref.pod}/{ref.container}: {', '.join(changes)} "
-                f"(measured {rec.cpu}m, {rec.memory}Mi)")
-            if stage.revision != ENTRY_BRANCH:
-                promoted[stage.clone].add(
-                    f"{ref.ns} tracks {stage.revision}: this reaches it by promotion (argo-cd D34).")
+                f"{ref.ns} {ref.pod}/{ref.container}: {', '.join(changes)} (measured {rec.memory}Mi)")
+            promotion(stage)
 
     report.mkdir()
     for file, text in texts.items():
@@ -596,7 +613,7 @@ def cmd_report(args: argparse.Namespace) -> None:
         (report / f"{name}.patch").write_text(preamble(name, start, end, lines) + diff)
 
     (work / "not-placed.txt").write_text("".join(f"{line}\n" for line in unplaced))
-    log(f"{len(unplaced)} containers in registry namespaces have requests neither their chart's values "
+    log(f"{len(unplaced)} containers in registry namespaces have memory requests neither their chart's values "
         f"nor its map place; they are listed in {work / 'not-placed.txt'}")
     log(f"{len(notes)} of {len({s.clone for s in stages.values()})} deploy repos would change; "
         f"the patches are in {report}")

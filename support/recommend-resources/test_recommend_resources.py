@@ -37,28 +37,35 @@ class Policy(unittest.TestCase):
                          "prometheus-prd-prometheus-node-exporter")
 
     def test_rounding(self):
-        self.assertEqual([rr.round_cpu_recommendation(v) for v in (9, 13, 371)], [0, 20, 400])
         self.assertEqual([rr.round_mem_recommendation(v) for v in (0, 100, 118, 129)], [0, 112, 128, 160])
 
     def test_window_and_percentiles(self):
-        series = {
-            "cpu": [{"metric": {"namespace": "a-prd", "pod": "a-0", "container": "c"},
-                     "values": [[0, "0.010"], [1, "0.020"], [2, "0.030"], [3, "0.050"]]}],
-            "mem": [{"metric": {"namespace": "a-prd", "pod": "a-0", "container": "c"},
-                     "values": [[0, str(v * 1024 * 1024)] for v in range(1, 11)]}],
-        }
+        start = rr.datetime(2026, 9, 5, tzinfo=rr.timezone.utc)
+        end = start + rr.timedelta(days=rr.NUM_DAYS)
+        # Prometheus holds the last 18 days of the 28 only.
+        first = start + rr.timedelta(days=10)
+        series = [{"metric": {"namespace": "a-prd", "pod": "a-0", "container": "c"},
+                   "values": [[first.timestamp() + 300 * v, str(v * 1024 * 1024)] for v in range(1, 11)]},
+                  {"metric": {"namespace": "a-prd", "pod": "b-0", "container": "c"},
+                   "values": [[first.timestamp(), str(64 * 1024 * 1024)]]}]
         calls = []
 
         def promql(query, start, end, step="300s"):
-            calls.append((start, end, step))
-            return series["cpu" if "cpu" in query else "mem"]
+            calls.append((query, start, end, step))
+            return series
 
-        start = rr.datetime(2026, 9, 19, tzinfo=rr.timezone.utc)
-        end = start + rr.timedelta(days=rr.NUM_DAYS)
         with mock.patch.object(rr, "promql", promql):
-            recs = rr.get_recommendations(start, end)
-        self.assertEqual(calls, [(int(start.timestamp()), int(end.timestamp()), "300s")] * 2)
-        self.assertEqual(recs, {ContainerRef("a-prd", "a", "c"): Recommendation(35, 9)})
+            recs, data_start = rr.get_recommendations(start, end)
+        self.assertEqual([c[1:] for c in calls], [(int(start.timestamp()), int(end.timestamp()), "300s")])
+        self.assertIn("container_memory_working_set_bytes", calls[0][0])
+        self.assertEqual(recs, {ContainerRef("a-prd", "a", "c"): Recommendation(9),
+                                ContainerRef("a-prd", "b", "c"): Recommendation(64)})
+        self.assertEqual(data_start, first)
+
+    def test_a_full_window_starts_at_its_start(self):
+        start = rr.datetime(2026, 9, 5, tzinfo=rr.timezone.utc)
+        with mock.patch.object(rr, "promql", lambda *a, **k: []):
+            self.assertEqual(rr.get_recommendations(start, start + rr.timedelta(days=rr.NUM_DAYS)), ({}, start))
 
 
 class ResolvedChart(unittest.TestCase):
@@ -192,29 +199,85 @@ class Edit(unittest.TestCase):
     def test_delete_of_an_absent_key_changes_nothing(self):
         self.assertEqual(rr.delete_value(self.VALUES, ["resources", "nope", "requests", "cpu"]), self.VALUES)
 
+    def test_delete_steps_into_a_sequence(self):
+        text = "extra:\n  - name: a\n  - name: b\n    resources:\n      requests:\n        cpu: 5m\n"
+        self.assertEqual(rr.delete_value(text, ["extra", 1, "resources", "requests", "cpu"]),
+                         "extra:\n  - name: a\n  - name: b\n    resources:\n      requests: {}\n")
+        self.assertEqual(rr.delete_value(text, ["extra", 2, "resources", "requests", "cpu"]), text)
+
 
 class Revise(unittest.TestCase):
     PATH = ["resources", "a", "a", "requests"]
-    TEXT = "resources:\n  a:\n    a:\n      requests:\n        cpu: 200m\n        memory: 64Mi\n"
+    TEXT = "resources:\n  a:\n    a:\n      requests:\n        memory: 64Mi\n"
 
     def test_only_raises(self):
-        text, changes = rr.revise(self.TEXT, self.PATH, Recommendation(cpu=13, memory=100), reset=False)
+        text, changes = rr.revise(self.TEXT, self.PATH, Recommendation(memory=100), reset=False)
         self.assertEqual(text, self.TEXT.replace("64Mi", "112Mi"))
         self.assertEqual(changes, ["memory 64Mi -> 112Mi"])
 
     def test_nothing_higher_nothing_changed(self):
-        self.assertEqual(rr.revise(self.TEXT, self.PATH, Recommendation(cpu=13, memory=20), reset=False),
+        self.assertEqual(rr.revise(self.TEXT, self.PATH, Recommendation(memory=20), reset=False),
                          (self.TEXT, []))
 
-    def test_reset_lowers_and_drops_a_request_under_10m(self):
-        text, changes = rr.revise(self.TEXT, self.PATH, Recommendation(cpu=4, memory=20), reset=True)
-        self.assertEqual(text, "resources:\n  a:\n    a:\n      requests:\n        memory: 20Mi\n")
-        self.assertEqual(changes, ["cpu 200m -> unset", "memory 64Mi -> 20Mi"])
+    def test_reset_lowers_and_drops_a_zero_measurement(self):
+        text, changes = rr.revise(self.TEXT, self.PATH, Recommendation(memory=20), reset=True)
+        self.assertEqual(text, self.TEXT.replace("64Mi", "20Mi"))
+        self.assertEqual(changes, ["memory 64Mi -> 20Mi"])
+        text, changes = rr.revise(self.TEXT, self.PATH, Recommendation(memory=0), reset=True)
+        self.assertEqual(text, "resources:\n  a:\n    a:\n      requests: {}\n")
+        self.assertEqual(changes, ["memory 64Mi -> unset"])
 
-    def test_adds_requests_the_file_lacks(self):
-        text, changes = rr.revise("image: x\n", self.PATH, Recommendation(cpu=13, memory=100), reset=False)
-        self.assertEqual(yaml.safe_load(text)["resources"], {"a": {"a": {"requests": {"cpu": "20m", "memory": "112Mi"}}}})
-        self.assertEqual(changes, ["cpu unset -> 20m", "memory unset -> 112Mi"])
+    def test_adds_the_request_the_file_lacks_and_never_a_cpu_one(self):
+        text, changes = rr.revise("image: x\n", self.PATH, Recommendation(memory=100), reset=False)
+        self.assertEqual(yaml.safe_load(text)["resources"], {"a": {"a": {"requests": {"memory": "112Mi"}}}})
+        self.assertEqual(changes, ["memory unset -> 112Mi"])
+
+
+class DropCpu(unittest.TestCase):
+    TEXT = textwrap.dedent("""\
+        resources:
+          app:
+            app:
+              requests:
+                cpu: 200m  # measured
+                memory: 64Mi
+              limits:
+                cpu: "1"
+            side:
+              requests:
+                cpu: 10m
+            nulled:
+              requests:
+                cpu: null
+        server:
+          resources:
+            requests: {cpu: 20m, memory: 1Gi}
+        extraContainers:
+          - name: x
+            resources:
+              requests:
+                cpu: 5m
+        """)
+
+    def test_every_cpu_request_goes_and_nothing_else(self):
+        text, changes = rr.drop_cpu_requests(self.TEXT)
+        self.assertEqual(changes, ["resources.app.app.requests.cpu 200m -> unset",
+                                   "resources.app.side.requests.cpu 10m -> unset",
+                                   "server.resources.requests.cpu 20m -> unset",
+                                   "extraContainers[0].resources.requests.cpu 5m -> unset"])
+        self.assertEqual(text, self.TEXT
+                         .replace("        cpu: 200m  # measured\n", "")
+                         .replace("      requests:\n        cpu: 10m\n", "      requests: {}\n")
+                         .replace("{cpu: 20m, memory: 1Gi}", "{memory: 1Gi}")
+                         .replace("      requests:\n        cpu: 5m\n", "      requests: {}\n"))
+        # The limit stays, and so does `cpu: null`, which drops a chart's default.
+        data = yaml.safe_load(text)
+        self.assertEqual(data["resources"]["app"]["app"]["limits"], {"cpu": "1"})
+        self.assertEqual(data["resources"]["app"]["nulled"], {"requests": {"cpu": None}})
+
+    def test_none_left_none_changed(self):
+        text = "resources:\n  requests:\n    memory: 64Mi\n  limits:\n    cpu: 100m\n"
+        self.assertEqual(rr.drop_cpu_requests(text), (text, []))
 
 
 def sh(*cmd, cwd=None):
@@ -239,10 +302,14 @@ class RoundTrip(unittest.TestCase):
         for name, chart_values, stages in (
             ("AlphaDeploy", "resources:\n  alpha:\n    app: {}\n", {"prd": "image: a\n"}),
             ("BetaDeploy", "resources:\n  beta:\n    app: {}\n",
-             {"prd": "resources:\n  beta:\n    app:\n      requests:\n        memory: 64Mi\n"}),
+             {"prd": "resources:\n  beta:\n    app:\n      requests:\n        cpu: 50m\n        memory: 64Mi\n"}),
             ("GammaDeploy", "resources:\n  gamma:\n    app: {}\n", {"dev": "image: g\n", "prd": "image: g\n"}),
             ("QuietDeploy", "resources:\n  quiet:\n    app: {}\n",
-             {"prd": "resources:\n  quiet:\n    app:\n      requests:\n        cpu: 900m\n        memory: 4Gi\n"}),
+             {"prd": "resources:\n  quiet:\n    app:\n      requests:\n        memory: 4Gi\n      limits:\n"
+                     "        cpu: 900m\n"}),
+            # Not measured: its CPU requests go all the same, the chart's default among them.
+            ("IdleDeploy", "resources:\n  idle:\n    app:\n      requests:\n        cpu: 10m\n",
+             {"prd": "resources:\n  idle:\n    app:\n      requests:\n        cpu: 100m\n"}),
         ):
             app = name.removesuffix("Deploy").lower()
             repo = origins / f"{name}.git"
@@ -263,12 +330,12 @@ class RoundTrip(unittest.TestCase):
         self.work = self.tmp / "work"
 
     def metrics(self, query, start, end, step="300s"):
-        def series(ns, pod, container, cpu=0.013, mem=100):
-            value = cpu if "cpu" in query else mem * 1024 * 1024
-            return {"metric": {"namespace": ns, "pod": pod, "container": container}, "values": [[0, str(value)]]}
+        def series(ns, pod, container, mem=100):
+            return {"metric": {"namespace": ns, "pod": pod, "container": container},
+                    "values": [[start, str(mem * 1024 * 1024)]]}
         return [
             *(series(f"{w}-prd", f"{w}-0", "app") for w in ("alpha", "beta", "gamma", "quiet")),
-            series("gamma-dev", "gamma-0", "app", cpu=0.3, mem=300),
+            series("gamma-dev", "gamma-0", "app", mem=300),
             series("alpha-prd", "alpha-0", "sidecar"),
             series("elsewhere", "other-0", "app"),
         ]
@@ -284,24 +351,32 @@ class RoundTrip(unittest.TestCase):
         self.step("report")
         report = self.work / "report"
         self.assertEqual(sorted(p.name for p in report.iterdir()),
-                         ["AlphaDeploy.patch", "BetaDeploy.patch", "GammaDeploy.patch"])
+                         ["AlphaDeploy.patch", "BetaDeploy.patch", "GammaDeploy.patch", "IdleDeploy.patch"])
         beta = (report / "BetaDeploy.patch").read_text()
-        self.assertIn("# beta-prd beta/app: cpu unset -> 20m, memory 64Mi -> 112Mi (measured 13m, 100Mi)\n"
+        self.assertIn("# beta-prd resources.beta.app.requests.cpu 50m -> unset\n"
+                      "# beta-prd beta/app: memory 64Mi -> 112Mi (measured 100Mi)\n"
                       "# beta-prd tracks prd: this reaches it by promotion (argo-cd D34).\n", beta)
-        self.assertIn("+        cpu: 20m\n", beta)
+        self.assertIn("-        cpu: 50m\n-        memory: 64Mi\n+        memory: 112Mi\n", beta)
+        idle = (report / "IdleDeploy.patch").read_text()
+        self.assertIn("# idle-prd resources.idle.app.requests.cpu 100m -> unset\n"
+                      "# chart resources.idle.app.requests.cpu 10m -> unset\n", idle)
         self.assertEqual((self.work / "not-placed.txt").read_text(), "alpha-prd alpha/sidecar (chart alpha)\n")
         # The clones stay at the origin's commit until apply.
         self.assertEqual(sh("git", "status", "--porcelain", cwd=self.work / "repos/BetaDeploy"), "")
 
-        # The operator skips Gamma and overrules Beta's CPU.
+        # The operator skips Gamma and overrules Beta's memory.
         (report / "GammaDeploy.patch").unlink()
-        (report / "BetaDeploy.patch").write_text(beta.replace("+        cpu: 20m\n", "+        cpu: 50m\n"))
+        (report / "BetaDeploy.patch").write_text(beta.replace("+        memory: 112Mi\n", "+        memory: 128Mi\n"))
         out = self.step("apply")
         self.assertIn("git -C", out)
 
         beta_clone = self.work / "repos/BetaDeploy"
         self.assertEqual(yaml.safe_load((beta_clone / "config/prd/values.yaml").read_text()),
-                         {"resources": {"beta": {"app": {"requests": {"memory": "112Mi", "cpu": "50m"}}}}})
+                         {"resources": {"beta": {"app": {"requests": {"memory": "128Mi"}}}}})
+        idle_clone = self.work / "repos/IdleDeploy"
+        for values in ("config/prd/values.yaml", "chart/values.yaml"):
+            self.assertEqual(yaml.safe_load((idle_clone / values).read_text()),
+                             {"resources": {"idle": {"app": {"requests": {}}}}})
         self.assertEqual(sh("git", "rev-list", "--count", "origin/main..main", cwd=beta_clone), "1\n")
         self.assertEqual(sh("git", "rev-list", "--count", "origin/main..main", cwd=self.work / "repos/GammaDeploy"), "0\n")
         # Nothing reached the origins.
@@ -317,24 +392,25 @@ class RoundTrip(unittest.TestCase):
         self.step("apply")
         gamma = self.work / "repos/GammaDeploy"
         self.assertEqual(yaml.safe_load((gamma / "config/dev/values.yaml").read_text())["resources"],
-                         {"gamma": {"app": {"requests": {"cpu": "300m", "memory": "320Mi"}}}})
+                         {"gamma": {"app": {"requests": {"memory": "320Mi"}}}})
         self.assertEqual(yaml.safe_load((gamma / "config/prd/values.yaml").read_text())["resources"],
-                         {"gamma": {"app": {"requests": {"cpu": "20m", "memory": "112Mi"}}}})
+                         {"gamma": {"app": {"requests": {"memory": "112Mi"}}}})
 
-    def test_an_overrule_that_drops_a_line_applies(self):
-        # Dropping one `+` line leaves the hunk header's line count wrong.
+    def test_an_overrule_that_changes_a_line_count_applies(self):
+        # Keeping Beta's CPU request turns a `-` line into context, which leaves the hunk header's
+        # line count wrong.
         self.step("report")
         patch = self.work / "report/BetaDeploy.patch"
-        patch.write_text(patch.read_text().replace("+        cpu: 20m\n", ""))
+        patch.write_text(patch.read_text().replace("-        cpu: 50m\n", "         cpu: 50m\n"))
         self.step("apply")
         self.assertEqual(yaml.safe_load((self.work / "repos/BetaDeploy/config/prd/values.yaml").read_text()),
-                         {"resources": {"beta": {"app": {"requests": {"memory": "112Mi"}}}}})
+                         {"resources": {"beta": {"app": {"requests": {"cpu": "50m", "memory": "112Mi"}}}}})
 
     def test_an_overrule_back_to_the_current_values_leaves_that_repo_as_it_is(self):
         self.step("report")
         patch = self.work / "report/BetaDeploy.patch"
         text = patch.read_text()
-        patch.write_text(text.replace("+        memory: 112Mi\n+        cpu: 20m\n", "+        memory: 64Mi\n"))
+        patch.write_text(text.replace("+        memory: 112Mi\n", "+        cpu: 50m\n+        memory: 64Mi\n"))
         self.assertNotEqual(patch.read_text(), text)
         out = self.step("apply")
 
@@ -343,7 +419,7 @@ class RoundTrip(unittest.TestCase):
         self.assertEqual(sh("git", "rev-list", "--count", "origin/main..main", cwd=beta), "0\n")
         self.assertIn("BetaDeploy.patch changes nothing", out)
         self.assertNotIn(f"git -C {beta} push", out)
-        for name in ("AlphaDeploy", "GammaDeploy"):
+        for name in ("AlphaDeploy", "GammaDeploy", "IdleDeploy"):
             clone = self.work / "repos" / name
             self.assertEqual(sh("git", "rev-list", "--count", "origin/main..main", cwd=clone), "1\n")
             self.assertIn(f"git -C {clone} push", out)
@@ -355,7 +431,7 @@ class RoundTrip(unittest.TestCase):
         (report / "AlphaDeploy.patch").write_text(alpha.replace(" image: a\n", " image: zzz\n"))
         with self.assertRaisesRegex(rr.Stop, "AlphaDeploy.patch"):
             self.step("apply")
-        for name in ("AlphaDeploy", "BetaDeploy", "GammaDeploy"):
+        for name in ("AlphaDeploy", "BetaDeploy", "GammaDeploy", "IdleDeploy"):
             clone = self.work / "repos" / name
             self.assertEqual(sh("git", "status", "--porcelain", cwd=clone), "")
             self.assertEqual(sh("git", "rev-list", "--count", "origin/main..main", cwd=clone), "0\n")
