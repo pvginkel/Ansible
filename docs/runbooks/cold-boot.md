@@ -63,8 +63,13 @@ The kubectl lines work from KubeCoder (`cexec iac kubectl --kubeconfig ~/.kube/c
 7. **Postgres, then Keycloak**: `postgres-pas-prd`, then `keycloak-prd`, which reaches its
    database through `postgres-pooler-rw`. `curl -s -o /dev/null -w '%{http_code}\n'
    https://auth.ginbov.nl/realms/homelab/.well-known/openid-configuration` returns 200. Until it
-   does, apps that discover OIDC at startup crash-loop, and so do Argo CD's and Jenkins's
-   SSO logins.
+   does, apps that discover OIDC at startup crash-loop by design, and every SSO login fails: use
+   the admin logins under break-glass.
+   Keycloak is one replica and needs, besides the database: the CNPG cluster `postgres` (three
+   instances, one per node on srvk8s1–3, each on that node's local ZFS pool) and its pooler; its image from the registry, unless the node still
+   has it cached; the CephFS PV `keycloak-themes-prd-pv`; and nginx for `auth.ginbov.nl`. If it
+   is stuck, check them in that order: `kubectl -n postgres-pas-prd get cluster,pods`, then
+   `kubectl -n keycloak-prd describe pod -l app=keycloak` for the pull or mount error.
 8. **Apps**: `kubectl get pods -A | grep -vE 'Running|Completed'` is short and shrinking, and
    `kubectl -n argocd-prd get applications` shows everything Synced/Healthy.
 
@@ -86,8 +91,25 @@ depends on the patch. Once the pod is Ready, sync or patch it back.
 which registry-cleanup always keeps, never to a digest. Where the image's build writes the pin, a
 rebuild does the same.
 
-**Argo CD without Keycloak.** The local admin account is enabled (`admin.enabled: true` in
-`argocd-cm`). `kubectl` with `config-prd-write` works as well.
+**Admin logins without Keycloak.** Argo CD and Jenkins each keep a local admin beside SSO, and
+the operator keeps both passwords in RoboForm. Try each once at a quiet moment, so the first use
+is not mid-incident.
+
+- **Argo CD**: `https://argocd.home`, user `admin`, in the username/password form beneath the SSO
+  button. If RoboForm's copy fails, the chart's own copy is in `argocd-initial-admin-secret`,
+  readable with `config-prd-write`, which is certificate-based and does not go through Keycloak.
+  A rebuilt Argo mints a new one. The command and the reset fallback are in
+  [`argocd.md`](argocd.md#break-glass-the-local-admin-account-d9). `kubectl` with
+  `config-prd-write` does everything Argo does, as a last resort.
+- **Jenkins**: `https://jenkins.webathome.org/login`. The OIDC plugin's escape hatch is the
+  username/password form on that page, which posts to `securityRealm/escapeHatch`; log in as
+  `admin`. Jenkins keeps the account in its own configuration on its volume, not in a deploy
+  repo.
+- **The others**: Grafana's local admin is the leaf `eso/prd/grafana/prd/admin`, and its login
+  form is not disabled. pgAdmin allows internal logins beside Keycloak; its default account is the
+  one in PgadminDeploy's values. Headlamp never used Keycloak: it takes a service-account token,
+  printed by the command in HeadlampDeploy's `config/prd/values.yaml`. Guacamole lists OIDC first
+  but keeps its database accounts; whether one of them still logs in is unconfirmed.
 
 **One push that syncs two stages of the same deploy repo no longer clashes on the hook name.**
 Since homelab-shared 0.3.1 each app's Job is `tf-presync-<app>-<stage>`. A deploy
