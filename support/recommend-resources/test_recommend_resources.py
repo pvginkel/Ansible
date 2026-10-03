@@ -30,6 +30,9 @@ class Policy(unittest.TestCase):
     def test_workload_from_pod(self):
         self.assertEqual(rr.infer_workload("calendar-support-6d9f8b7c5d-x2x9z"), "calendar-support")
         self.assertEqual(rr.infer_workload("step-ca-0"), "step-ca")
+        # A CronJob's Job is named for its scheduled minute, which a hash's alphabet cannot spell.
+        self.assertEqual(rr.infer_workload("git-sync-29846880-x2x9z"), "git-sync")
+        self.assertEqual(rr.infer_workload("storage-sync-cronjob-29846890-x2x9z"), "storage-sync-cronjob")
         # A ReplicaSet hash shorter than 8 characters (seen live, 2026-09-26).
         self.assertEqual(rr.infer_workload("keycloak-d8cb679-x2x9z"), "keycloak")
         # A last word with a vowel is part of the name, not a hash.

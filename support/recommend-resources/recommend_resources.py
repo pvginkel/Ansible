@@ -153,14 +153,15 @@ class Recommendation:
 
 
 # Strips controller-generated pod suffixes to recover the workload name:
-#   Deployment / CronJob: <workload>-<6-10 char hash>-<5 char id>
-#   DaemonSet / Job:      <workload>-<5 char id>
-#   StatefulSet:          <workload>-<ordinal>
+#   Deployment:      <workload>-<6-10 char hash>-<5 char id>
+#   CronJob:         <workload>-<scheduled minute>-<5 char id>
+#   DaemonSet / Job: <workload>-<5 char id>
+#   StatefulSet:     <workload>-<ordinal>
 # Hashes and ids are drawn from Kubernetes' safe-encoding alphabet (no vowels, no 0, 1 or 3):
 # the hash's length varies, and matching the alphabet keeps a word like "exporter" from
 # reading as one.
 _SAFE = "[bcdfghjklmnpqrstvwxz2456789]"
-_POD_SUFFIX_RE = re.compile(rf"-(?:{_SAFE}{{6,10}}-{_SAFE}{{5}}|{_SAFE}{{5}}|\d+)$")
+_POD_SUFFIX_RE = re.compile(rf"-(?:{_SAFE}{{6,10}}-{_SAFE}{{5}}|\d+-{_SAFE}{{5}}|{_SAFE}{{5}}|\d+)$")
 
 
 def infer_workload(pod: str) -> Optional[str]:
