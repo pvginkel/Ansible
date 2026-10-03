@@ -189,7 +189,7 @@ module "vm" {
   # node's normal backup policy.
   exclude_from_backup = try(each.value.exclude_from_backup, false)
 
-  # Autostart on PVE boot. Default true; set false on a VM meant to be
-  # off unless someone is actively using it (none today).
+  # Autostart on PVE boot. Default true; false only for srvk8sdev,
+  # which is off unless someone is actively using it.
   on_boot = try(each.value.on_boot, true)
 }

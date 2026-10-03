@@ -53,8 +53,8 @@ cd ansible && poetry run ansible 'proxmox:openbao:k8s' -m ping
 - `UNREACHABLE` with `Certificate invalid: expired` — fix the host certificate first with
   [`ssh-host-cert-expiry.md`](ssh-host-cert-expiry.md), then come back. For pve, pve1 and pve2 its
   fix takes a host key you first verify on the node's own console.
-- srvk8sdev starts with `pve` but can be stopped by hand, so a connection timeout there usually
-  means it is off (`qm status 919` on pve).
+- srvk8sdev is off unless someone starts it, so a connection timeout there usually means it is off
+  (`qm status 919` on pve).
 
 ## 2 — Confirm the leaf has lapsed (read-only)
 
@@ -186,7 +186,8 @@ sudo iac -c 'cd /work/Ansible/ansible && ansible-playbook playbooks/renew-intern
   due and reloads nothing. Force a new leaf, and the reload with it, by adding
   `-e internal_tls_renewal_threshold_days=48` to the `--limit <host>` run. Above the 47-day life,
   every leaf in scope counts as due.
-- **srvk8sdev**'s leaf can lapse if the box is stopped when the Friday job runs, because the job skips
-  a dev host it cannot reach. That is the accepted cost `Jenkinsfile.iac-scheduled-certs` records. Renew it with `--limit k8s_dev` when it is back.
+- **srvk8sdev** is off more than it is on, and its leaf lapses while it is off, because the Friday
+  job skips a dev host it cannot reach. That is the accepted cost `Jenkinsfile.iac-scheduled-certs`
+  records. Renew it with `--limit k8s_dev` when it is back.
 - Renewal design: the header of `ansible/playbooks/renew-internal-tls.yml` and
   `ansible/roles/internal_tls/README.md`.

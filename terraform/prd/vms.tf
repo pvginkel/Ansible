@@ -109,6 +109,11 @@ locals {
       bios          = "ovmf"
       machine       = "q35"
 
+      # Off unless someone starts it by hand to iterate on it: nothing
+      # depends on it being up. Terraform ignores `started`, so this only
+      # decides whether it comes back with pve.
+      on_boot = false
+
       cpu_cores   = 4
       cpu_sockets = 1
       # 8 GiB (cut from 12 on 2026-09-10): shares the box with the

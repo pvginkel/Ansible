@@ -23,7 +23,7 @@
 
 library identifier: 'JenkinsPipelineUtils', changelog: false
 
-// srvk8sdev can be down: it starts with pve, but may be stopped by hand. `-T 5` caps the connect,
+// srvk8sdev is off unless someone starts it by hand. `-T 5` caps the connect,
 // so a down box costs seconds rather than a playbook's worth of connection retries (or microk8s'
 // "wait for API" loop).
 def devUp() {
