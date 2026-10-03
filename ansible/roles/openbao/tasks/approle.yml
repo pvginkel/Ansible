@@ -503,7 +503,7 @@
                                 (OPENBAO_ROLE_ID / OPENBAO_SECRET_ID)
                 jenkins       → Jenkins controller Vault plugin config
                 eso           → openbao-eso-approle Secret on the prd
-                                cluster (external-secrets namespace)
+                                cluster (external-secrets-prd namespace)
                 eso-dev       → openbao-eso-approle Secret on the dev
                                 cluster (external-secrets namespace)
 

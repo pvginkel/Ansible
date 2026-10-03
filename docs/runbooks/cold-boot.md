@@ -5,7 +5,8 @@ hosts down together, as on 2026-09-25 (report and follow-up: AnsibleSpecs
 `handovers/dhcp-outage-2026-09-25/`). It gives the order things come back in, a check
 per layer, and the break-glass moves for when a layer doesn't come back. When OpenBao is the
 layer that's down and srviac has to run without it, the escape hatch is
-[`iac-cold-boot.md`](iac-cold-boot.md).
+[`iac-cold-boot.md`](iac-cold-boot.md). A cluster rebuilt empty, with no objects left to restart,
+is [`cluster-bootstrap.md`](cluster-bootstrap.md).
 
 ## What happens on its own
 

@@ -945,7 +945,9 @@ state to interrupt. Which of the two is the estate's default is not yet decided.
 ## Bootstrapping Argo from nothing
 
 Steps 1 to 3 are as run on 2026-09-04. Only when the cluster, or the
-`argocd-prd` namespace, is gone.
+`argocd-prd` namespace, is gone. On an empty cluster, External Secrets goes in
+by hand first: the chart carries ExternalSecrets, and every deploy repo is
+private. The whole sequence is [`cluster-bootstrap.md`](cluster-bootstrap.md).
 
 Before anything: `ArgoCDDeploy` pushed — the first self-sync clones
 `origin/main`, so any bootstrap-time fix left unpushed is reverted by it; the

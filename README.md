@@ -13,7 +13,7 @@ For the physical layer — what the hardware actually is, how it is wired, and w
 
 ## When the estate is down
 
-After a power cut, or when DNS, DHCP or Keycloak are down, start at [`docs/runbooks/cold-boot.md`](docs/runbooks/cold-boot.md): the bring-up order, what to check at each layer, and the break-glass steps (DHCP, Argo CD without Keycloak, a static desktop address, SSH by IP).
+After a power cut, or when DNS, DHCP or Keycloak are down, start at [`docs/runbooks/cold-boot.md`](docs/runbooks/cold-boot.md): the bring-up order, what to check at each layer, and the break-glass steps (DHCP, the admin logins without Keycloak, a static desktop address, SSH by IP). A prd cluster rebuilt empty is [`docs/runbooks/cluster-bootstrap.md`](docs/runbooks/cluster-bootstrap.md).
 
 ## Layout
 
