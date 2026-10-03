@@ -128,6 +128,11 @@ microk8s_coredns_hosts:
   - { ip: 10.1.0.24, names: [srvceph1, srvceph1.home] }
   - { ip: 10.1.0.25, names: [srvceph2, srvceph2.home] }
   - { ip: 10.1.0.26, names: [srvceph3, srvceph3.home] }
+  # OpenBao's VIP, for External Secrets: ESO reaches it as secrets.home, and
+  # without the pin a rebuilt cluster loops — dnsmasq needs a CephFS volume,
+  # whose CSI credentials ESO makes. The certificate has no IP SAN, so the
+  # name has to resolve.
+  - { ip: 10.1.0.39, names: [secrets, secrets.home] }
 
 # CoreDNS A-record templates. Public hostnames that should resolve
 # in-cluster to the local ingress LB (10.2.1.7 sits inside the
