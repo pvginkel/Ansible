@@ -156,12 +156,20 @@ the Application. A retry (`retry.limit: 3`) or the next sync replaces the Job
 under the same name, and the failed pod goes with it, 60 to 90 s after
 `BackoffLimitExceeded`; events keep no log.
 
-### A replaced hook's log: Kibana
+### A replaced hook's log: Kibana or the API
 
 Filebeat (`filebeat-prd`) ships every container log on prd to Elasticsearch,
 kept 7 days, and each hook attempt is a pod of its own name, so a replaced
-attempt's log stays there. In `https://kibana.home` → Discover, data view
-`filebeat-*`:
+attempt's log stays there. Reading it takes the read-only Elasticsearch user
+`reader`, which reads every index and changes nothing. Its password is in
+OpenBao at `kv/eso/prd/elasticsearch/prd/filebeat-reader` (property
+`password`), and an agent holds it as `ELASTIC_URL`/`ELASTIC_USER`/`ELASTIC_PASSWORD`.
+
+**In Kibana**, at `http://kibana.home` (`https://kibana.home` lands on another
+service), log in as `reader` and open Discover. Pick the data view `filebeat-*`.
+If none is saved, create one with index pattern `filebeat-*` and timestamp field
+`@timestamp`, then choose **Use without saving**: `reader` cannot save a data
+view. Set the time range to cover the attempt, then query:
 
 ```text
 kubernetes.namespace:"argocd-hooks" and kubernetes.pod.name:tf-presync-<app>-<stage>-*
@@ -172,12 +180,27 @@ five-character suffix); sort by `@timestamp`. Where the Kubernetes metadata is
 missing, match on the file instead:
 `log.file.path:*tf-presync-<app>-<stage>*`.
 
-What is verified (2026-10-02, ANS-164): Filebeat's own log shows it harvesting
-the hook pods' files, `/var/log/containers/tf-presync-<app>-<stage>-<suffix>_argocd-hooks_terraform-*.log`,
-before the pod is deleted. Reading them back from Elastic is not yet proven:
-it was not done for want of a credential. The check owed is one query in
-Kibana for `tf-presync-fieldnotes-prd-sx956`, harvested 2026-10-01 18:26Z.
-Until it returns that pod's lines, treat this route as unconfirmed.
+**Through the API**, at `http://elasticsearch.home` (`$ELASTIC_URL`), the same
+query lists each attempt's lines in order:
+
+```bash
+curl -s -u "$ELASTIC_USER:$ELASTIC_PASSWORD" "$ELASTIC_URL/filebeat-*/_search" \
+  -H 'Content-Type: application/json' -d '{
+  "size": 1000,
+  "sort": [{"@timestamp": "asc"}],
+  "_source": ["@timestamp", "kubernetes.pod.name", "message"],
+  "query": {"bool": {"filter": [
+    {"term": {"kubernetes.namespace": "argocd-hooks"}},
+    {"wildcard": {"kubernetes.pod.name": "tf-presync-<app>-<stage>-*"}}
+  ]}}
+}' | jq -r '.hits.hits[]._source | "\(.["@timestamp"]) \(.kubernetes.pod.name) \(.message)"'
+```
+
+What is verified: Filebeat's own log shows it harvesting the hook pods' files,
+`/var/log/containers/tf-presync-<app>-<stage>-<suffix>_argocd-hooks_terraform-*.log`,
+before the pod is deleted (2026-10-02, ANS-164). Both routes, made as `reader`,
+returned a current Argo CD hook pod's lines: Kibana's Discover, and the API
+query above (slice 040, ANS-185).
 
 ## Webhooks
 
@@ -555,10 +578,9 @@ acquiring the state lock`. The lock is the branch
 force-unlocking means deleting that branch (AnsibleSpecs `decisions.md`,
 "Concurrency control"). The Job's deadline, 30 minutes, kills it the same way,
 and the build then fails in `waitForJobContainer` with no Job log in the
-console. Its log may still be in Kibana, as `kubernetes.namespace:"argocd-hooks"
+console. Its log stays in Elasticsearch for 7 days, as `kubernetes.namespace:"argocd-hooks"
 and kubernetes.pod.name:destroy-stage-<build#>-*`
-([A replaced hook's log](#a-replaced-hooks-log-kibana); unconfirmed, as that
-section says).
+([A replaced hook's log](#a-replaced-hooks-log-kibana-or-the-api)).
 
 ### A build that fails at the plan
 
@@ -1073,7 +1095,7 @@ the recipient committed in `config/prd/values.yaml`.
   Deployment's image.
 - **One hook Job per app, latest attempt only.** The fixed name
   `tf-presync-<app>-<stage>` lets `BeforeHookCreation` replace it on every sync
-  and retry (ANS-137), so an earlier attempt's log is only in Kibana (above).
+  and retry (ANS-137), so an earlier attempt's log is only in Elasticsearch (above).
   The Job goes with the Application.
 - **Rebuilds.** Argo runs on prd only, deploys only into prd (`in-cluster`) and
   keeps no node-local state, so neither a prd node rebuild nor a `srvk8sdev`
