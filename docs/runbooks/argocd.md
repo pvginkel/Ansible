@@ -180,27 +180,43 @@ five-character suffix); sort by `@timestamp`. Where the Kubernetes metadata is
 missing, match on the file instead:
 `log.file.path:*tf-presync-<app>-<stage>*`.
 
-**Through the API**, at `http://elasticsearch.home` (`$ELASTIC_URL`), the same
-query lists each attempt's lines in order:
+**Through the API**, at `http://elasticsearch.home` (`$ELASTIC_URL`), in two
+steps. The same match spans every attempt in the 7 days, often thousands of
+lines, so list the attempts first, newest first, each with its last line's time:
 
 ```bash
 curl -s -u "$ELASTIC_USER:$ELASTIC_PASSWORD" "$ELASTIC_URL/filebeat-*/_search" \
   -H 'Content-Type: application/json' -d '{
-  "size": 1000,
-  "sort": [{"@timestamp": "asc"}],
-  "_source": ["@timestamp", "kubernetes.pod.name", "message"],
+  "size": 0,
   "query": {"bool": {"filter": [
     {"term": {"kubernetes.namespace": "argocd-hooks"}},
     {"wildcard": {"kubernetes.pod.name": "tf-presync-<app>-<stage>-*"}}
+  ]}},
+  "aggs": {"pods": {"terms": {"field": "kubernetes.pod.name", "size": 500,
+    "order": {"last": "desc"}}, "aggs": {"last": {"max": {"field": "@timestamp"}}}}}
+}' | jq -r '.aggregations.pods.buckets[] | "\(.last.value_as_string) \(.key)"'
+```
+
+Then read one attempt's lines in order:
+
+```bash
+curl -s -u "$ELASTIC_USER:$ELASTIC_PASSWORD" "$ELASTIC_URL/filebeat-*/_search" \
+  -H 'Content-Type: application/json' -d '{
+  "size": 10000,
+  "sort": [{"@timestamp": "asc"}],
+  "_source": ["@timestamp", "message"],
+  "query": {"bool": {"filter": [
+    {"term": {"kubernetes.namespace": "argocd-hooks"}},
+    {"term": {"kubernetes.pod.name": "<pod>"}}
   ]}}
-}' | jq -r '.hits.hits[]._source | "\(.["@timestamp"]) \(.kubernetes.pod.name) \(.message)"'
+}' | jq -r '.hits.hits[]._source | "\(.["@timestamp"]) \(.message)"'
 ```
 
 What is verified: Filebeat's own log shows it harvesting the hook pods' files,
 `/var/log/containers/tf-presync-<app>-<stage>-<suffix>_argocd-hooks_terraform-*.log`,
 before the pod is deleted (2026-10-02, ANS-164). Both routes, made as `reader`,
-returned a current Argo CD hook pod's lines: Kibana's Discover, and the API
-query above (slice 040, ANS-185).
+returned a current Argo CD hook pod's lines: Kibana's Discover, and the two API
+queries above (slice 040, ANS-185).
 
 ## Webhooks
 
