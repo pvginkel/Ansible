@@ -53,9 +53,10 @@ See [live-infra-access.md](live-infra-access.md) for the mechanics.
 
 ## 4. Push, and what it now does
 
-Push what the slice committed — the driver checks for it and bails otherwise.
+Push what the slice committed — the driver checks for it and bails otherwise. What the push does
+depends on the repo.
 
-**A push to `main` no longer converges anything.** It triggers `IaC/Build-Main`, which runs the lint
+**A push to this repo's `main` converges nothing.** It triggers `IaC/Build-Main`, which runs the lint
 gates and `terraform validate`, then `terraform plan` and the protected-VM destroy check, and
 stops. That build going green is a real signal and worth recording: it means the commit passes
 the gates, would apply cleanly and destroys nothing protected. Wait for it and read it.
@@ -63,9 +64,18 @@ the gates, would apply cleanly and destroys nothing protected. Wait for it and r
 Convergence is the separate `IaC/Apply` job. **Do not start it.** That is the operator gate, and
 it is the whole reason the pipeline was split.
 
+**A push to an Argo CD deploy repo's `main` deploys.** Every stage that auto-syncs — the default,
+prd included — syncs the new commit, and its PreSync hook applies the stage's Terraform at that
+commit ([Argo CD runbook](runbooks/argocd.md#registering-undeploying-and-unregistering-an-app)).
+The push is the rollout, so whether the run makes it or holds it for the operator is settled in
+the plan; follow that. When the run pushes, prove the change live within the run: wait for the
+stage's Application to sync and go healthy, read the hook Job's log where the slice changed
+Terraform, then take the live readings the plan's criteria name.
+
 ## 5. The operator gate — what to hand back
 
-Every slice that changes a role, playbook, inventory or Terraform module ends **deploy-owed**.
+Every slice that changes a role, playbook, inventory or Terraform module in this repo ends
+**deploy-owed**.
 Close the test phase by writing, in the verdict summary, the exact commands the operator runs:
 
 - Check-mode first, then the apply — same command with the trailing `--check` deleted. Follow the
@@ -76,6 +86,10 @@ Mark the affected `verification.json` items as **owed to the operator**, with th
 will settle each. Do not mark them verified, and do not let a green gate stand in for a run that
 has not happened. If the operator has already applied and reported back within the run, record
 their output as the evidence.
+
+A deploy-repo change the run pushed is not deploy-owed: it is live, and the readings of §4 are the
+evidence for its items. One whose push the plan held is owed that push: hand back the repo, the
+commit, and what to read once its stages have synced.
 
 ## 6. Findings
 
