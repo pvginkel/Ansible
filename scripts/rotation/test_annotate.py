@@ -475,6 +475,18 @@ class Apply(unittest.TestCase):
         run.apply("--apply")
         self.assertEqual(len(run.bao.writes()), before)
 
+    def test_a_seed_note_inside_a_different_earlier_note_is_still_written(self):
+        run = Run(self, unannotated_bao())
+        seed = {path: dict(meta) for path, (_, meta) in COMPLIANT.items()}
+        seed["eso/prd/app/prd/oidc"]["notes"] = "migrated"
+        run.write_seed(seed)
+        run.apply("--apply")
+        self.assertEqual(run.bao.meta("eso/prd/app/prd/oidc")["notes"],
+                         "migrated | earlier: Transcript-migrated.")
+        before = len(run.bao.writes())
+        run.apply("--apply")
+        self.assertEqual(len(run.bao.writes()), before)
+
     def test_a_seed_leaf_the_store_lacks_is_reported_and_skipped(self):
         bao = unannotated_bao()
         del bao.leaves["shared/wifi"]

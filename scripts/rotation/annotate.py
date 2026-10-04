@@ -403,7 +403,7 @@ def changes(seed: dict[str, str], current: dict[str, str]) -> dict[str, str]:
     for key, value in seed.items():
         have = current.get(key)
         if key == "notes" and have and value != have:
-            if value in have:
+            if have.startswith(value + NOTES_JOIN):
                 continue
             value = f"{value}{NOTES_JOIN}{have}"
         if have != value:
