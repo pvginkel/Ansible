@@ -674,7 +674,7 @@ Only then does the script destroy jenkins' other accessors.
 esync intercom-prd intercom-mqtt; k get clustersecretstore openbao-prd                   # eso
 (cd ansible && cexec iac poetry run ansible srviac -b -m command -a 'iac -c true')       # iac-agent
 (cd ansible && cexec iac poetry run ansible openbao -b -m command -a 'systemctl start openbao-backup.service')   # backup
-(cd ansible && cexec iac poetry run ansible openbao -b -m command -a 'journalctl -u openbao-backup -n 2 --no-pager')
+(cd ansible && cexec iac poetry run ansible openbao -b -m command -a 'journalctl -u openbao-backup -n 5 --no-pager')
 n=$(curl -sS -u "$JENKINS_USER:$JENKINS_TOKEN" "$JENKINS_URL/job/AaC/job/Home%20Assistant%20Fleet/api/json?tree=nextBuildNumber" | jq .nextBuildNumber)
 curl -sS -X POST -u "$JENKINS_USER:$JENKINS_TOKEN" -o /dev/null -w '%{http_code}\n' "$JENKINS_URL/job/AaC/job/Home%20Assistant%20Fleet/build"
 track_build.py --buildnr "$n" --no-wait-downstream --no-follow-argocd 'AaC/Home Assistant Fleet'   # jenkins
@@ -690,8 +690,9 @@ scripts/rotation/accessor_cleanup.py $roles
   logs in on every sync.
 - iac-agent: `srviac | CHANGED | rc=0`. `iac-impl` logs in to resolve the `!bao` references of
   `secrets.yaml` before it runs any command.
-- backup: the Raft leader's journal ends `openbao-backup: backup uploaded (…)`. The followers' end
-  `not the Raft leader; nothing to do`.
+- backup: on the Raft leader, the last `openbao-backup:` line reads
+  `openbao-backup: backup uploaded (…)`; on the followers, `not the Raft leader; nothing to do`.
+  systemd's own lines for the oneshot unit (`Deactivated successfully`, `Finished …`) follow it.
 - jenkins: `201`, then a green build. Its `withVault` step reads `kv/jenkins/home-automation-fleet`.
 - The final dry run shows five `proven` blocks and `would destroy 0 accessor(s); untouched: none`
   (V06).
