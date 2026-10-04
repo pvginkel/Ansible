@@ -77,7 +77,7 @@ see its README), `ArgoCDTools` (two images: `argocd-hook`, the Argo CD Terraform
 the `releases` AppProject and the `argocd-hooks` namespace),
 `Architecture`
 (the architecture-as-code contract: `pipeline-producers.yaml`, the element/relation schema, the
-shared product catalog and the producer manual) and
+shared product catalog and the producer manual),
 `JenkinsPipelineUtils` (the shared library every Jenkinsfile in the estate loads, and the source
 of the Jenkins pipeline style guide served at `https://pipelines.home/docs/`) and `SecretRotator`
 (the OpenBao rotation platform, run nightly on srviac as an `iac` pipeline; YouTrack `SR`). The set is
