@@ -42,26 +42,32 @@
         policy: openbao-admin
         token_ttl: "{{ openbao_admin_token_ttl }}"
         token_max_ttl: "{{ openbao_admin_token_max_ttl }}"
+        secret_id_ttl: "{{ openbao_admin_secret_id_ttl }}"
       - name: iac-agent
         policy: iac-agent
         token_ttl: "{{ openbao_iac_agent_token_ttl }}"
         token_max_ttl: "{{ openbao_iac_agent_token_max_ttl }}"
+        secret_id_ttl: "{{ openbao_iac_agent_secret_id_ttl }}"
       - name: jenkins
         policy: jenkins
         token_ttl: "{{ openbao_jenkins_token_ttl }}"
         token_max_ttl: "{{ openbao_jenkins_token_max_ttl }}"
+        secret_id_ttl: "{{ openbao_jenkins_secret_id_ttl }}"
       - name: eso
         policy: eso
         token_ttl: "{{ openbao_eso_token_ttl }}"
         token_max_ttl: "{{ openbao_eso_token_max_ttl }}"
+        secret_id_ttl: "{{ openbao_eso_secret_id_ttl }}"
       - name: eso-dev
         policy: eso-dev
         token_ttl: "{{ openbao_eso_dev_token_ttl }}"
         token_max_ttl: "{{ openbao_eso_dev_token_max_ttl }}"
+        secret_id_ttl: "{{ openbao_eso_dev_secret_id_ttl }}"
       - name: backup
         policy: backup
         token_ttl: "{{ openbao_backup_token_ttl }}"
         token_max_ttl: "{{ openbao_backup_token_max_ttl }}"
+        secret_id_ttl: "{{ openbao_backup_secret_id_ttl }}"
   block:
 
     # ----- approle auth method -----------------------------------------
@@ -247,7 +253,7 @@
     # log in. `token_no_default_policy=true` keeps the default policy
     # off the role's token so the consumer is strictly bound to the
     # named policy. TTLs are short — see openbao_*_token_ttl in
-    # defaults/main.yml.
+    # defaults/main.yml; secret_id expiry is openbao_*_secret_id_ttl.
 
     - name: Read existing AppRoles
       ansible.builtin.uri:
@@ -279,6 +285,8 @@
                      != (item.item.token_ttl | openbao_duration_seconds)
                   or (item.json.data.token_max_ttl | default(none))
                      != (item.item.token_max_ttl | openbao_duration_seconds)
+                  or (item.json.data.secret_id_ttl | default(none))
+                     != (item.item.secret_id_ttl | openbao_duration_seconds)
                   or not (item.json.data.token_no_default_policy | default(false))
                   or not (item.json.data.bind_secret_id | default(false))
                 )
@@ -298,6 +306,7 @@
           token_policies: ["{{ item.policy }}"]
           token_ttl: "{{ item.token_ttl }}"
           token_max_ttl: "{{ item.token_max_ttl }}"
+          secret_id_ttl: "{{ item.secret_id_ttl }}"
           token_no_default_policy: true
           bind_secret_id: true
         status_code: [200, 204]

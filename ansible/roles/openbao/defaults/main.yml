@@ -104,6 +104,17 @@ openbao_eso_dev_token_max_ttl: 1h
 openbao_backup_token_ttl: 5m
 openbao_backup_token_max_ttl: 5m
 
+# AppRole secret_id expiry: the secret_id_ttl each role carries, the
+# lifetime OpenBao gives a secret_id minted for it. 0 = never expires.
+# Sent in the role write and compared in its drift check, so the role
+# converges it.
+openbao_admin_secret_id_ttl: 0
+openbao_iac_agent_secret_id_ttl: 0
+openbao_jenkins_secret_id_ttl: 0
+openbao_eso_secret_id_ttl: 0
+openbao_eso_dev_secret_id_ttl: 0
+openbao_backup_secret_id_ttl: 0
+
 # KV-v2 read paths granted to each consumer's policy. Empty lists give
 # the AppRole an inert policy that grants nothing — safe default; the
 # AppRole exists and can authenticate, but reads return 403 until the

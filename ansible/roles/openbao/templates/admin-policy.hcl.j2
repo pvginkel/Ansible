@@ -22,6 +22,8 @@ path "identity/*" {
 # KV mount maintenance — create/list mounts is under sys/*, this grants
 # the data side too so the admin can seed values from `bao kv put`
 # during operator-driven onboarding without minting an extra token.
+# `patch` is what `bao kv metadata patch` needs to change a leaf's
+# custom_metadata without replacing it.
 path "{{ openbao_kv_mount }}/*" {
-  capabilities = ["create", "read", "update", "delete", "list"]
+  capabilities = ["create", "read", "update", "delete", "list", "patch"]
 }
