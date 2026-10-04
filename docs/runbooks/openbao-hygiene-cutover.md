@@ -61,21 +61,10 @@ Facts are as of 2026-10-04.
   basic()  { python3 -c 'import base64, sys; print("Authorization: Basic " + base64.b64encode(f"{sys.argv[1]}:{sys.stdin.read()}".encode()).decode())' "$1"; }
   esauth() { basic "$1" | curl -sS -o /dev/null -w "$1 %{http_code}\n" -H @- "$ES/_security/_authenticate"; }
   asjson() { python3 -c 'import json, sys; json.dump({sys.argv[1]: sys.stdin.read()}, sys.stdout)' "$1"; }
-  kibanayml() { python3 -c '
-  import json, sys, yaml
-  def flat(d, p=""):
-      out = {}
-      for k, v in d.items():
-          if isinstance(v, dict): out.update(flat(v, f"{p}{k}."))
-          else: out[f"{p}{k}"] = v
-      return out
-  json.dump(flat(yaml.safe_load(sys.stdin)), sys.stdout)'; }
-  same() { python3 -c '
-  import json, sys
-  a, b = (json.load(open(f)) for f in sys.argv[1:3])
-  for k in sorted(a.keys() | b.keys()):
-      print(k, "equal" if k in a and k in b and a[k] == b[k] else "DIFFERS")
-  sys.exit(a != b)' "$@"; }
+  # One line each: copied from this indented block, a multi-line python3 -c carries the indent
+  # and fails with IndentationError.
+  kibanayml() { python3 -c 'import json, sys, yaml; flat = lambda d, p="": {fk: fv for k, v in d.items() for fk, fv in (flat(v, f"{p}{k}.") if isinstance(v, dict) else {f"{p}{k}": v}).items()}; json.dump(flat(yaml.safe_load(sys.stdin)), sys.stdout)'; }
+  same() { python3 -c 'import json, sys; a, b = (json.load(open(f)) for f in sys.argv[1:3]); [print(k, "equal" if k in a and k in b and a[k] == b[k] else "DIFFERS") for k in sorted(a.keys() | b.keys())]; sys.exit(a != b)' "$@"; }
 
   # es CURL-ARGS...: curl as elastic, with the current version of the elastic leaf (from step 4 on).
   es() { curl -sS -H @<(leaf eso/prd/elasticsearch/prd/elastic password | basic elastic) "$@"; echo; }
