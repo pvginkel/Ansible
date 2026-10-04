@@ -15,7 +15,7 @@ and the reading that must hold before the next step starts.
 
 Context:
 
-- Slice 044's [`plan.md`](../../../AnsibleSpecs/slices/044_openbao_hygiene_before_rotation/plan.md)
+- Slice 044's [`plan.md`](../../../AnsibleSpecs/slices/completed/044_openbao_hygiene_before_rotation/plan.md)
   holds the rulings behind every step (S1–S13, D1, B1–B3, A2).
 - [`secret-rotation/design.md`](../../../AnsibleSpecs/secret-rotation/design.md) and
   [`catalog.md`](../../../AnsibleSpecs/secret-rotation/catalog.md).
@@ -227,9 +227,11 @@ cd /work/Ansible/ansible && cexec iac poetry run ansible-playbook playbooks/site
 
 - `Report the AppRole writes a real run would perform (check mode)` skips all six items: the store
   holds `secret_id_ttl` 0 on every role, as declared, so no AppRole would be rewritten (V08).
-- `Write consumer policies (only when text differs)` shows as skipped. `uri` has no check mode, so
-  the check run cannot show the grant.
-- Any other changed task is drift that this slice did not bring: stop and read it.
+- `Report the policy writes a real run would perform (check mode)` reports one item,
+  `openbao-admin`: the `patch` grant. `Write consumer policies (only when text differs)` shows as
+  skipped, because `uri` has no check mode.
+- Any other changed task, or another policy in that report, is drift that this slice did not
+  bring: stop and read it.
 
 Then the real run, which is the same command without `--check`, and the proof:
 
