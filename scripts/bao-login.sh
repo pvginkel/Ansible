@@ -47,7 +47,7 @@ fi
 export BAO_ADDR
 export BAO_TOKEN="$_bao_token"
 
-_bao_ttl=$(bao token lookup -format=json 2>/dev/null | sed -n 's/.*"ttl": *\([0-9]*\).*/\1/p' | head -n1)
+_bao_ttl=$(cexec iac bao token lookup -format=json 2>/dev/null | sed -n 's/.*"ttl": *\([0-9]*\).*/\1/p' | head -n1)
 if [ -n "$_bao_ttl" ]; then
     echo "bao-login: BAO_ADDR=$BAO_ADDR  ttl=${_bao_ttl}s" >&2
 else
