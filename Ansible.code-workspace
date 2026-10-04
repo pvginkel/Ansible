@@ -26,6 +26,9 @@
 		},
 		{
 			"path": "../Architecture"
+		},
+		{
+			"path": "../SecretRotator"
 		}
 	],
 	"settings": {}

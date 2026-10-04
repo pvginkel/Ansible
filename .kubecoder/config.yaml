@@ -17,6 +17,9 @@ repos:
   # element/relation schema, the shared product catalog and the producer manual.
   # ArgoCDTools' `aac-tools` generator is written against it.
   - url: https://github.com/pvginkel/Architecture
+  # SecretRotator: the OpenBao rotation platform, run nightly on srviac as an
+  # `iac` pipeline (AnsibleSpecs secret-rotation/design.md).
+  - url: https://github.com/pvginkel/SecretRotator
 
 capabilities:
   github: rw
