@@ -247,6 +247,23 @@
       changed_when: true
       when: _openbao_policy_texts[item] != _openbao_existing_policy_texts[item]
 
+    # --check skips the write (uri has no check mode); report it instead so
+    # the drift check sees policy drift.
+    - name: Report the policy writes a real run would perform (check mode)
+      ansible.builtin.debug:
+        msg: A real run would rewrite policy {{ item }}.
+      loop:
+        - openbao-admin
+        - iac-agent
+        - jenkins
+        - eso
+        - eso-dev
+        - backup
+      changed_when: true
+      when:
+        - ansible_check_mode
+        - _openbao_policy_texts[item] != _openbao_existing_policy_texts[item]
+
     # ----- AppRoles ---------------------------------------------------
     #
     # `bind_secret_id=true` (default) means a secret-id is required to
