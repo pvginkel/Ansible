@@ -163,10 +163,9 @@ kept 7 days, and each hook attempt is a pod of its own name, so a replaced
 attempt's log stays there. Reading it takes the read-only Elasticsearch user
 `reader`, which reads every index but the dot-prefixed system ones and changes
 nothing. Its password is in OpenBao at
-`kv/eso/prd/elasticsearch/prd/filebeat-reader` (property `password`). An
-environment that provides the credential gives it to an agent as
-`ELASTIC_URL`/`ELASTIC_USER`/`ELASTIC_PASSWORD`; KubeCoder environments do not
-provide it yet.
+`kv/eso/prd/elasticsearch/prd/filebeat-reader` (property `password`). A
+KubeCoder environment on prd gives it to an agent as
+`ELASTIC_URL`/`ELASTIC_USER`/`ELASTIC_PASSWORD`.
 
 **In Kibana**, at `http://kibana.home` (`https://kibana.home` lands on another
 service), log in as `reader` and open Discover. Pick the saved data view
