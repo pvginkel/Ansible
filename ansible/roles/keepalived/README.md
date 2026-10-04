@@ -63,8 +63,11 @@ Optional (defaults in [`defaults/main.yml`](defaults/main.yml)):
 ## What it does
 
 1. `apt install keepalived`.
-2. When `keepalived_track_script` is set, install the script under
-   `keepalived_scripts_dir`.
+2. When `keepalived_track_script` is set, create the unprivileged
+   `keepalived_script` system user the script runs as, and install the
+   script under `keepalived_scripts_dir`. Without that user,
+   `enable_script_security` makes keepalived drop the script at startup
+   and the VIP degrades to plain VRRP.
 3. Render `/etc/keepalived/keepalived.conf` from the inputs.
 4. Enable `keepalived.service`; restart it on a config or script change.
 
