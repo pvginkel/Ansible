@@ -28,7 +28,7 @@ if [ $? -ne 0 ] || [ -z "$_bao_creds" ]; then
 fi
 
 _bao_role_id=$(printf '%s' "$_bao_creds" | sed -n 's/.*role_id=\([^ ]*\) secret_id.*/\1/p')
-_bao_secret_id=$(printf '%s' "$_bao_creds" | sed -n 's/.*secret_id=\([^"]*\)".*/\1/p')
+_bao_secret_id=$(printf '%s' "$_bao_creds" | sed -n 's/.*secret_id=\([^" ]*\).*/\1/p')
 if [ -z "$_bao_role_id" ] || [ -z "$_bao_secret_id" ]; then
     echo "bao-login: failed to parse role_id/secret_id from ansible output" >&2
     unset _bao_repo _bao_src _bao_creds _bao_role_id _bao_secret_id
