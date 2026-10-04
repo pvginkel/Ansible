@@ -1,114 +1,101 @@
-# OpenBao secret rotation
+# OpenBao rotation annotations
 
-Tooling for rotating the homelab's runtime secrets in OpenBao (`kv` mount).
-Born out of the `runtime-secrets-sweep` slice: every secret was migrated
-into OpenBao from a transcript-exposed source, so all of them need a
-fresh value minted at least once ("slice-close rotation"), and we want a
-repeatable mechanism for ongoing rotation afterwards.
+`annotate.py` writes the rotation annotations of every leaf in the `kv` mount from one seed, and
+checks the whole mount against the annotation contract. The contract is
+[`secret-rotation/design.md`](../../../AnsibleSpecs/secret-rotation/design.md) §4 (keys, kinds and
+copies in §3.1, per-key intervals in §3.2, activators in §3.3, kinds in §5). The per-leaf values
+come from [`secret-rotation/catalog.md`](../../../AnsibleSpecs/secret-rotation/catalog.md). The
+rotator (slice 045) reads these annotations.
 
-## The two metadata attributes
+## Running it
 
-Every `kv` leaf carries `custom_metadata` that drives rotation:
-
-| key                  | meaning |
-|----------------------|---------|
-| `notes`              | freeform sourcing / rotation context |
-| `rotated_at`         | ISO date; **present = minted fresh**. Absent = still transcript-exposed, needs rotation. |
-| `rotation`           | trust class — see below |
-| `rotation_mechanism` | the system/handler used to mint the replacement |
-
-`rotation` (trust class):
-
-- **`unrestricted`** — we mint the value, no other party involved. A
-  random string the consumer simply adopts on restart (app session keys,
-  signing secrets). Fully scriptable.
-- **`coordinated`** — we mint it, but it must be registered in a system
-  *we run* (Keycloak, Postgres/MySQL, Elasticsearch, the MQTT broker,
-  Ceph, Samba, Jenkins, Home Assistant, Proxmox, hosts' `authorized_keys`)
-  — including DB/RabbitMQ, whose engine only reads the password at init,
-  and leaves whose value is shared across several leaves.
-- **`external`** — a third party mints it (OpenAI, Google, GitHub,
-  Mouser, Twitter, TorGuard, …). We fetch and paste; not self-rotatable.
-
-`rotation_mechanism` is what a rotation job dispatches on:
-`random`, `postgres`, `rabbitmq`, `keycloak`, `mqtt`, `elasticsearch`,
-`kibana`, `ceph-rgw`, `ceph-cephx`, `samba`, `jenkins`, `home-assistant`,
-`proxmox`, `ssh`, `wifi`, `dnsmasq`, `backup-server`, `android-keystore`,
-`mysql`, `openai`, `google`, `github`, `mouser`, `twitter`, `torguard`,
-`third-party-blob`.
-
-The two axes are orthogonal: `rotation` says *how much ceremony*;
-`rotation_mechanism` says *which handler*. `unrestricted` ⟺ `random`;
-`external` ⟺ a provider mechanism; `coordinated` spans the internal
-system mechanisms.
-
-## Scripts
-
-All are read-only against OpenBao except where noted, read **no** secret
-values into their output, and depend on nothing in `tmp/`. Each needs a
-logged-in `bao` session first:
+Every live run needs a logged-in session. The offline check needs none:
 
 ```sh
-export BAO_CACERT=ansible/roles/baseline/files/homelab-root.crt
 . scripts/bao-login.sh
+scripts/rotation/annotate.py                  # dry run: per leaf, the metadata keys it would add or change
+scripts/rotation/annotate.py --apply          # writes them
+scripts/rotation/annotate.py --check          # the contract over the whole kv mount
+scripts/rotation/annotate.py --check --keys keys.json   # offline: the seed over keys.json's key names
 ```
 
-| script | what it does |
-|--------|--------------|
-| `annotate.sh` | Classifies every leaf and stamps `rotation` + `rotation_mechanism` (idempotent; preserves `notes`/`rotated_at`; skips strays and refuses to guess on unrecognised leaves). Dry-run by default; `--apply` to write. Re-run when new leaves are added. |
-| `audit.sh [out.md]` | Generates the rotation checklist: leaves that still need rotating (no `rotated_at`), **excluding `rotation=unrestricted`**, grouped by `rotation_mechanism`. Read-only. |
-| `rotate-unrestricted.sh` | The `random` handler: regenerates every `rotation=unrestricted` leaf with a fresh random value and stamps `rotated_at`. Dry-run by default; `--apply` writes. Restart consumers afterwards so they pick up the new value. |
+`--seed FILE` replaces the default seed, `seed.yaml` beside the script. `keys.json` maps each leaf
+path to the list of its data key names. The exit status is 0 when the apply finished or the check
+found nothing, 1 otherwise, and 2 on a usage error. No output carries a secret value: the check
+reads each leaf's data only to learn its key names.
 
-## Workflow
+## The seed
 
-1. `annotate.sh --apply` — once, and again whenever leaves are added.
-2. `rotate-unrestricted.sh --apply` — rotates the stateless app secrets;
-   then `kubectl rollout restart` the affected workloads.
-3. `audit.sh tmp/rotation-checklist.md` — work the remaining
-   (`coordinated` / `external`) leaves by mechanism. Each rotated leaf
-   drops off the list once it carries `rotated_at`.
+A YAML mapping from leaf path (under the mount, no `kv/` prefix) to the metadata keys that leaf
+gets. A seed may hold only the operator's keys: `rotation_mechanism`, `rotation_interval`,
+`rotation_activate`, `rotation_args`, `rotation_expires_at`, `notes`, `key_<name>` and
+`interval_<name>`. Every value is a string. A leaf holds at most 64 keys, a key at most 128 bytes
+and a value at most 512 bytes. A leaf or key given twice is an error. On any problem the seed is
+rejected whole, before OpenBao is contacted.
 
-## Per-mechanism rotation (future)
+```yaml
+eso/prd/jenkins-telegram-bot/prd/config:
+  rotation_mechanism: jenkins-token
+  key_telegram-bot-token: manual
+  key_telegram-chat-id: none
+  rotation_interval: 14d
+  interval_telegram-bot-token: 365d
+  rotation_activate: auto
+```
 
-`rotation_mechanism` exists so rotation can be automated handler by
-handler. Most `coordinated` mechanisms are scriptable with the right
-access — Keycloak admin API (`oidc`/`keycloak-admin`), `ALTER ROLE`
-(`postgres`), the ES user API, RabbitMQ mgmt, `radosgw-admin`,
-`smbpasswd`. `external` ones stay manual.
+## The apply
 
-**Build them as per-mechanism jobs**, each scoped to one system's admin
-creds + an OpenBao policy that can write only that mechanism's leaves
-(`rotation_mechanism=<x>` makes the policy query trivial). Avoid a single
-cronjob holding admin to everything — it would be the highest-value
-target in the homelab. Suggested order: `random` (done) → `keycloak`
-(largest clean chunk) → `postgres`/`rabbitmq` last (stateful: `ALTER` +
-verify the app reconnects + roll back on failure).
+- A dry run unless `--apply` is given. It reads metadata only.
+- It writes with `PATCH kv/metadata/<leaf>`, which is what `bao kv metadata patch` sends. It never
+  uses `put` and never writes data. Keys the seed does not name stay as they are: the sweep's
+  `rotation`, `rotated_at`, and the rotator's `rotator_*`.
+- Seed `notes` that differ from a leaf's existing notes are written first, and the existing text
+  follows after ` | earlier: `.
+- A second apply changes nothing.
+- A seed leaf the store lacks is reported and skipped. A live leaf the seed lacks is reported. The
+  check catches both.
+- The writes need the `patch` capability on the KV mount. The `site-openbao.yml` converge grants it
+  to the `openbao-admin` policy. If OpenBao refuses a write, the run stops at that leaf and says how
+  many leaves it patched. Run the apply again after the converge.
 
-### URL-safe passwords for `postgres` / `rabbitmq`
+## The check
 
-These leaves carry **only** a `password` property — consumers no longer
-store a whole-`url` connection string. The Helm chart composes the
-connection string at deploy time from a literal host/user plus the
-password, injected via Kubernetes `$(VAR)` env interpolation
-(`postgresql+psycopg://user:$(DB_PASSWORD)@host:5432/db`,
-`amqp://user:$(RABBITMQ_PASSWORD)@host:5672/`). That interpolation is a
-plain string substitution — it does **not** percent-encode. So any
-`postgres`/`rabbitmq` password we mint must be **URL-safe**: restrict the
-charset to `[A-Za-z0-9]` (or otherwise avoid `@ : / ? # [ ]`) so it can't
-break the composed URL. The handler that rotates these must enforce that
-constraint when generating the replacement.
+The check walks the whole mount. It prints one line per finding, as `<leaf>: <key>: <what>`, where
+the key is the metadata key or data key at fault. A finding is any of these:
 
-## Notes
+- `rotation_mechanism` or `rotation_activate` is missing. `rotation_interval` is missing on a
+  leaf with a key that is neither a copy nor `none`.
+- A kind in `rotation_mechanism` or in a `key_<name>` is not a kind of design §5, `none`, or
+  `copy:<path>#<key>`.
+- A data key that its leaf's kind does not own, and that no `key_<name>` names.
+- A `key_<name>` or `interval_<name>` names a key the leaf does not have.
+- A copy's primary leaf or primary key does not exist.
+- A `rotation_interval` or `interval_<name>` is not `<n>d` or `never`, or is `never` while the
+  leaf has no `notes`.
+- An `interval_<name>` is set on a key whose kind is a copy or `none`.
+- A `rotation_activate` is not `auto`, `none`, or a comma list of design §3.3's activators. `auto`
+  and `none` stand alone. A `k8s-rollout:` target may be followed by further
+  `<ns>/<kind>/<name>` targets.
+- A `rotation_args` is not JSON, or is larger than 512 bytes.
+- A `rotation_expires_at` is not a date in the form `YYYY-MM-DD`.
+- A leaf whose current version is deleted, so its keys cannot be read.
 
-- Whole-file blobs (`pgpass`, `kibana-config`, `version-poller/config`,
-  `mydownloads-config`, `webathome-org-config`, `gluetun-wg`) can't be
-  blindly random-rotated — a handler must rebuild the file.
-- Some values live in multiple leaves and must rotate together (e.g.
-  `dnsmasq/management-api` = `iac/dns-reservation`; `storage/backup-server`
-  = `iac/backup-server`; the three identical DB passwords behind
-  `pgadmin/pgpass`). The audit output flags these.
-- Strays excluded by `is_stray` (not real secrets): `test/nested/leaf`,
-  `eso/jenkins-approle`.
+Which keys a kind owns is set in one place, `OWNS` in `annotate.py`:
 
-See [`runtime-secrets-sweep`](../../../AnsibleSpecs/slices/runtime-secrets-sweep.md)
-§Decisions for the rationale behind the taxonomy.
+| Kind | Owns |
+|---|---|
+| `random`, `manual` | every key |
+| `keycloak-client` | `client_secret`; `client_id` is `none` without an override |
+| `cnpg-role`, `elastic-user` | `password` |
+| every other kind | the leaf's one key that no `key_<name>` names; with several such keys, none of them |
+
+## A rotation done by hand
+
+After writing the new value, stamp the leaf with `kv metadata patch`:
+
+```sh
+bao kv metadata patch -mount=kv -custom-metadata=rotated_at="$(date -I)" <leaf>
+```
+
+Never use `bao kv metadata put`: it replaces the leaf's whole custom metadata, so every
+annotation is lost.
