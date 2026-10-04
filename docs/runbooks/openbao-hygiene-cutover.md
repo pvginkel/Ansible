@@ -696,6 +696,10 @@ scripts/rotation/accessor_cleanup.py $roles
 - jenkins: `201`, then a green build. Its `withVault` step reads `kv/jenkins/home-automation-fleet`.
 - The final dry run shows five `proven` blocks and `would destroy 0 accessor(s); untouched: none`
   (V06).
+- After the jenkins fallback, the credential read that sent you to it may fail again. The final dry
+  run then shows four `proven` blocks, `jenkins: untouched: …` and `untouched: jenkins`, with exit
+  status 1. That is expected: jenkins' proof is the fallback's green `withVault` build (V06). Do
+  not follow the line's hint to mint another secret_id.
 - A consumer that fails to log in has lost its secret_id. Re-mint it per [openbao.md](openbao.md)
   §5.
 
