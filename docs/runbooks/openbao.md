@@ -219,11 +219,12 @@ and the latest backup's Raft snapshot is restored into it.
    ```
 
    It mints and stages a fresh `backup` secret_id, which every node
-   proves and receives. It also mints a fresh never-expiring
-   secret_id for the other five AppRoles and revokes none, so every
-   consumer keeps its restored pair. The credentials it stages for
-   capture need no redistribution; wipe them with the `shred -u` its
-   closing message prints.
+   proves and receives. It also mints a fresh secret_id for the
+   other five AppRoles and revokes none, so every consumer keeps its
+   restored pair. The credentials it stages for capture need no
+   redistribution; wipe them with the `shred -u` its closing message
+   prints. The unused secret_ids stay valid until
+   `accessor_cleanup.py` destroys them (§5).
 
 6. **Verify.**
 
@@ -271,17 +272,35 @@ through the snapshot (§3).
   `site-openbao.yml`. The role rewrites `/etc/openbao/backup-token`.
 - **AppRole secret-ids** — re-run `site-openbao.yml` with
   `-e openbao_rotate_secret_ids=true`; recapture the printed creds
-  per the role README §First-apply procedure.
+  per the role README §First-apply procedure. The run mints a new
+  secret_id for each of the six AppRoles and destroys none. Once
+  every consumer holds its new secret_id,
+  `scripts/rotation/accessor_cleanup.py` destroys each accessor that
+  no consumer holds: run it dry first, then with `--apply`
+  ([`scripts/rotation/README.md`](../../scripts/rotation/README.md)).
+  How long a newly minted secret_id lives is its AppRole's
+  `openbao_<approle>_secret_id_ttl`, which defaults to `0` (never
+  expires).
 - **Static seal key** — generate a new key, bump
   `openbao_seal_current_key_id`, and follow the seal-rekey path; the
   old key id must stay declared until every node has migrated.
 
-### `rotated_at` custom metadata
+### Custom metadata: the rotation annotations and `rotated_at`
 
 OpenBao KV-v2 supports per-path `custom_metadata` — string→string
 pairs that travel alongside the secret data but are invisible to
 consumers (ESO, the Jenkins Vault plugin, the iac-impl `!bao`
-resolver). The homelab uses one key by convention:
+resolver). The rotation annotations of
+[`secret-rotation/design.md`](../../../AnsibleSpecs/secret-rotation/design.md)
+§4 live there: the leaf's kind, its interval, how a new value is
+activated, and per-key overrides. `scripts/rotation/annotate.py`
+writes them from `scripts/rotation/seed.yaml`. It also checks the
+whole mount against that contract, which flags a leaf that has no
+annotations
+([`scripts/rotation/README.md`](../../scripts/rotation/README.md)).
+[`openbao-hygiene-cutover.md`](openbao-hygiene-cutover.md) is the
+one-off cutover that first applies them. The same cutover deletes the
+orphan leaves and destroys the stale secret_id accessors.
 
 | Key | Meaning |
 |---|---|
@@ -290,11 +309,11 @@ resolver). The homelab uses one key by convention:
 Apply pattern (after a `bao kv put` of a freshly-minted value):
 
 ```
-bao kv metadata put -mount=kv \
-  -custom-metadata=rotated_at=$(date -I) \
-  -custom-metadata=notes='<one-liner: source / scope / consumer>' \
-  <path>
+bao kv metadata patch -mount=kv -custom-metadata=rotated_at="$(date -I)" <path>
 ```
+
+Never use `bao kv metadata put` here. It replaces the leaf's whole
+custom metadata, so the leaf loses its rotation annotations.
 
 Inspect with `bao kv metadata get -mount=kv <path>` or, in bulk:
 
@@ -313,9 +332,9 @@ runtime-secrets-sweep slice). Rotate at slice close, then set
 `rotated_at` to today's date.
 
 `notes` is freeform context — where to re-mint, what consumer it
-serves, scope grants on a PAT. Convention is documented in the
-naming-review §7 alongside the original mechanism note; adopting it
-broadly is operator-driven, not enforced by the role.
+serves, scope grants on a PAT. The check requires `notes` on a leaf
+whose interval is `never`. Where the seed carries a leaf's `notes`,
+change them in the seed.
 
 ## Consumer cold-boot
 
@@ -394,7 +413,7 @@ secret_ids live in Roboform under "OpenBao eso AppRole" and
 
 ## Drill log
 
-Timings from the recovery drills (cards #13 / #14):
+Timings from the recovery drills:
 
 - **Single-node loss** — _TBD: record VM rebuild, converge, and
   Raft-join durations from the single-node-loss drill._

@@ -1,7 +1,7 @@
 # OpenBao hygiene cutover (slice 044)
 
 This cutover puts the `kv` mount in the state that the rotator (slice 045) expects, and takes the
-Elasticsearch superuser password out of git (ANS-200). In order, it:
+Elasticsearch superuser password out of git. In order, it:
 
 - converges the `openbao` role;
 - pushes the three held repos and rolls their consumers;
@@ -210,7 +210,7 @@ leave both pods as they are.
 - Each of the three new leaves reads `No value found at kv/metadata/…`.
 - The annotation dry run lists the three new leaves as `absent from the store, skipped`.
   - Its `not in the seed:` lines name exactly the 13 orphans and the two composites of step 11.
-  - If ANS-229 has already deleted `jenkins/keycloak-da-admin`, that leaf is a fourth `absent` line.
+  - If `jenkins/keycloak-da-admin` has already been deleted, that leaf is a fourth `absent` line.
 
 ## 2 — The `openbao` converge (D1, B1)
 
@@ -710,7 +710,7 @@ scripts/rotation/annotate.py
 
 - The last line reads `would patch (dry run; --apply writes) 106 leaf(s); 0 unchanged, 0 absent
   from the store, 0 live leaf(s) not in the seed`.
-- Once ANS-229 has deleted `jenkins/keycloak-da-admin`, the count is 105, plus the line
+- Once `jenkins/keycloak-da-admin` has been deleted, the count is 105, plus the line
   `absent from the store, skipped: jenkins/keycloak-da-admin`.
 - A `not in the seed:` line names a leaf this cutover should have deleted: stop.
 
@@ -737,7 +737,7 @@ scripts/rotation/annotate.py --check; echo "exit $?"
 
 **Hand back:** the full output.
 
-**Reading:** `0 finding(s) on 0 of 106 leaf(s)` and `exit 0` (V10), or 105 once ANS-229 is done.
+**Reading:** `0 finding(s) on 0 of 106 leaf(s)` and `exit 0` (V10), or 105 once `jenkins/keycloak-da-admin` is deleted.
 A finding line names a leaf and a key. The fix goes into the seed or the store; then run steps 13
 and 14 again.
 

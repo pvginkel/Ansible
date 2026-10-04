@@ -113,7 +113,7 @@ Optional (defaults in [`defaults/main.yml`](defaults/main.yml)):
 - `openbao_recovery_shares` / `openbao_recovery_threshold` — Shamir
   shape for the recovery keys. Defaults 5/3.
 
-Auth + audit + ufw inputs (cards #40 / #11):
+Auth + audit + ufw inputs:
 
 - `openbao_admin_token` — operator-supplied (via `-e`) on the first
   apply (root token from init) and any rescue run. Leave unset for
@@ -131,6 +131,16 @@ Auth + audit + ufw inputs (cards #40 / #11):
   `openbao_credential_staging_dir` for capture. Default `false`; flip
   on the first apply and whenever you rotate. Steady-state runs skip
   the mint and the staging entirely — nothing is written or printed.
+  It destroys no secret_id. `scripts/rotation/accessor_cleanup.py`
+  destroys the ones no consumer holds
+  ([`docs/runbooks/openbao.md`](../../../docs/runbooks/openbao.md) §5).
+- `openbao_admin_secret_id_ttl` / `openbao_iac_agent_secret_id_ttl` /
+  `openbao_jenkins_secret_id_ttl` / `openbao_eso_secret_id_ttl` /
+  `openbao_eso_dev_secret_id_ttl` / `openbao_backup_secret_id_ttl` —
+  the `secret_id_ttl` each AppRole declares: how long a secret_id
+  minted for it lives. Default `0`, never expires. The AppRole write
+  sends it and the drift check compares it, so a converge applies a
+  change.
 - `openbao_credential_staging_dir` — controller-side directory where
   rotation runs drop one `<approle>-role-id` and one
   `<approle>-secret-id` file per operator-facing AppRole, mode `0600`.
@@ -178,7 +188,7 @@ the `backup` AppRole creds (provisioned by the auth tasks) and the
 backup-server upload token captured by `site-openbao.yml` Play 0 from
 `terraform output openbao_backup_token`.
 
-## First-apply procedure (cards #40 / #11)
+## First-apply procedure
 
 Run-once, operator-driven, with the bootstrap-captured root token.
 Two applies separate the provisioning from the retire so the operator
@@ -472,8 +482,7 @@ the phase-2 doc §Bootstrap procedure.
    ssh srvvault1 sudo rm  /dev/shm/openbao-init.json
    ```
 
-8. **Verify auto-unseal across a reboot** of `srvvault1` before card
-   #9 brings the other two in. After reboot, `bao status` (with
+8. **Verify auto-unseal across a reboot** of `srvvault1`. After reboot, `bao status` (with
    `BAO_ADDR=https://srvvault1.home:8200`) reports `Sealed: false`
    without any operator action.
 

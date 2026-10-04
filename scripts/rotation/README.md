@@ -1,7 +1,15 @@
-# OpenBao rotation annotations
+# OpenBao rotation tools
 
-`annotate.py` writes the rotation annotations of every leaf in the `kv` mount from one seed, and
-checks the whole mount against the annotation contract. The contract is
+Two tools, both run in the dev container (Python with PyYAML):
+
+- `annotate.py` writes the rotation annotations of every leaf in the `kv` mount from one seed,
+  and checks the whole mount against the annotation contract.
+- `accessor_cleanup.py` destroys the AppRole secret_id accessors that no consumer holds
+  ([below](#destroying-stale-secret_id-accessors)).
+
+`kc project test` runs their tests offline (`python3 -m unittest discover -s scripts/rotation`).
+
+The annotation contract is
 [`secret-rotation/design.md`](../../../AnsibleSpecs/secret-rotation/design.md) §4 (keys, kinds and
 copies in §3.1, per-key intervals in §3.2, activators in §3.3, kinds in §5). The per-leaf values
 come from [`secret-rotation/catalog.md`](../../../AnsibleSpecs/secret-rotation/catalog.md). The
@@ -42,6 +50,22 @@ eso/prd/jenkins-telegram-bot/prd/config:
   interval_telegram-bot-token: 365d
   rotation_activate: auto
 ```
+
+`seed.yaml` is transcribed from the catalog, so a change to a catalog row is made in the seed too.
+`store-keys.json` lists the data key names of every leaf the seed covers, never their values.
+`test_seed.py` runs the offline check of the seed over that file, and requires both files to name
+the same leaves.
+
+### A new leaf
+
+A leaf written to the store also needs:
+
+1. a catalog row;
+2. its entry in `seed.yaml`;
+3. its key names in `store-keys.json`;
+4. an `annotate.py --apply` once it exists.
+
+Until the apply has run, the check reports the leaf.
 
 ## The apply
 
@@ -99,3 +123,50 @@ bao kv metadata patch -mount=kv -custom-metadata=rotated_at="$(date -I)" <leaf>
 
 Never use `bao kv metadata put`: it replaces the leaf's whole custom metadata, so every
 annotation is lost.
+
+## Destroying stale secret_id accessors
+
+A rotation run of the `openbao` role (`-e openbao_rotate_secret_ids=true`) mints a new secret_id
+for every AppRole and destroys none, so every earlier secret_id stays valid. `accessor_cleanup.py`
+destroys them once no consumer holds them:
+
+```sh
+. scripts/bao-login.sh
+scripts/rotation/accessor_cleanup.py                          # dry run: the plan for every AppRole
+scripts/rotation/accessor_cleanup.py --apply                  # destroys what the plan names
+scripts/rotation/accessor_cleanup.py --role eso-dev --apply   # one AppRole; --role repeats
+```
+
+For each AppRole, the tool reads the secret_id that each consumer holds and looks up its accessor.
+It then plans to destroy every other accessor of that AppRole. It never guesses. It leaves an
+AppRole untouched when it cannot read one of its consumers, or when a consumer holds a secret_id
+that OpenBao does not find.
+
+| AppRole | Where its consumers' secret_ids are read |
+|---|---|
+| `openbao-admin` | the ansible-vaulted `openbao_admin_secret_id` |
+| `iac-agent` | the `OPENBAO_SECRET_ID` literal in srviac's `/etc/iac/secrets.yaml` |
+| `jenkins` | every Vault AppRole credential in Jenkins with the AppRole's role_id, read through the script console as `JENKINS_USER` with the API token `JENKINS_TOKEN` (an administrator) at `JENKINS_URL` |
+| `eso`, `eso-dev` | every ESO SecretStore or ClusterSecretStore with the AppRole's role_id on the prd or dev cluster, read through `~/.kube/config-prd-write` or `~/.kube/config-dev-write`. `eso-dev` needs the dev cluster up. |
+| `backup` | `/etc/openbao/backup-secret-id` on every host of the inventory group `openbao` |
+
+For each AppRole, the output is one of two forms:
+
+- `<role>: proven`, then a `keep` line per accessor a consumer holds (with its creation time and
+  which consumer holds it), then a `destroy` line per other accessor;
+- `<role>: untouched: <reason>`.
+
+A count line follows. `--apply` prints the whole plan before it destroys anything. It then prints
+`destroyed <role> <accessor>` for each destroy, and stops at the first destroy that fails. The exit
+status is 0 when every selected AppRole was proven (and, with `--apply`, cleaned). It is 1 when an
+AppRole was left untouched or a destroy failed, and 2 on a usage error.
+
+The proof covers the secret_id a consumer stores, not the one a running process loaded at start.
+After an apply, check that every consumer still logs in.
+
+`--jenkins-fallback` needs `--apply` and the `jenkins` AppRole. If the script console cannot be
+read, the tool mints one fresh `jenkins` secret_id and shows it once on the terminal, so that the
+operator can paste it into the Jenkins credential. It destroys the other `jenkins` accessors only
+after the operator confirms that a `withVault` build passed with the new one. That secret_id, shown
+on `/dev/tty` only, is the one secret the tool ever shows. No secret_id reaches stdout, stderr, a
+file or a command line.
