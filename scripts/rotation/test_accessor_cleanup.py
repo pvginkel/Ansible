@@ -234,8 +234,11 @@ class NoSecretLeaves(unittest.TestCase):
         self.assertEqual(w.destroyed(), [])
 
     def test_a_full_run_opens_no_file(self):
+        # io.open is what pathlib opens through, os.open what tempfile does.
         w = World()
-        with mock.patch.object(builtins, "open", side_effect=AssertionError("open() called")):
+        with mock.patch.object(builtins, "open", side_effect=AssertionError("open() called")), \
+                mock.patch.object(io, "open", side_effect=AssertionError("io.open() called")), \
+                mock.patch.object(os, "open", side_effect=AssertionError("os.open() called")):
             self.assertEqual(w.execute(apply=True), 0)
 
 
