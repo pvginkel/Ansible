@@ -438,6 +438,13 @@
         - rotator
       no_log: true
       check_mode: false
+      # --check skips the AppRole write, so a role it would create has no
+      # role_id yet.
+      when: >-
+        not ansible_check_mode
+        or item in (_openbao_approles.results
+                    | selectattr('status', 'equalto', 200)
+                    | map(attribute='item.name'))
 
     # ----- secret_id mint (only on operator-driven rotation) ----------
     #
