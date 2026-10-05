@@ -1,10 +1,9 @@
 {
   // Runs on srviac: the rotator's identity, code and network position are there (design.md R17),
   // and it works when Kubernetes is down. `ssh -t` gives `iac` the TTY it needs to add `-it`;
-  // `sudo` because only pvginkel is in srviac's docker group. The SSH options mirror
-  // docs/live-infra-access.md "What still needs SSH". Whether the script clones SecretRotator or
-  // the app is baked into the iac image is the planner's call (design.md §7) — adjust the inner
-  // script then.
+  // `sudo` because only pvginkel is in srviac's docker group. No SSH options: the operator's login
+  // script has the keys in ssh-agent and the pod's known_hosts trusts the homelab SSH CA. The
+  // script clones SecretRotator inside the container; the app is not baked into the iac image.
   "version": "2.0.0",
   "tasks": [
     {
@@ -13,11 +12,6 @@
       "command": "ssh",
       "args": [
         "-t",
-        "-o", "UserKnownHostsFile=${workspaceFolder}/ansible/files/known_hosts.d/homelab",
-        "-o", "GlobalKnownHostsFile=/dev/null",
-        "-o", "HostKeyAlgorithms=ssh-ed25519-cert-v01@openssh.com,ssh-ed25519",
-        "-o", "IdentityFile=~/.ssh/id_ed25519_ansible",
-        "-o", "IdentitiesOnly=yes",
         "ansible@srviac",
         "sudo iac -c 'git clone -q https://github.com/pvginkel/SecretRotator /work/SecretRotator && cd /work/SecretRotator && poetry install -q && poetry run secret-rotator ui'"
       ],
