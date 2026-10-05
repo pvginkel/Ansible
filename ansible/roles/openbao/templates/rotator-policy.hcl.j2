@@ -1,0 +1,61 @@
+# rotator — managed by the openbao role
+#
+# The SecretRotator's scope (AnsibleSpecs secret-rotation/design.md §8).
+# It creates paths under the mount's rotator/ prefix only; everywhere
+# else it rewrites existing leaves: without `create` a token rewrites an
+# existing leaf and is denied a new path. A policy applies its most
+# specific matching path, so each narrower path repeats the capabilities
+# of the wider one it refines.
+
+path "{{ openbao_kv_mount }}/data/*" {
+  capabilities = ["read", "list", "update", "patch"]
+}
+
+path "{{ openbao_kv_mount }}/metadata/*" {
+  capabilities = ["read", "list", "update", "patch"]
+}
+
+path "{{ openbao_kv_mount }}/data/rotator/*" {
+  capabilities = ["create", "read", "list", "update", "patch"]
+}
+
+path "{{ openbao_kv_mount }}/metadata/rotator/*" {
+  capabilities = ["create", "read", "list", "update", "patch"]
+}
+
+# The staging leaves. A metadata delete destroys a leaf with every
+# version; this is the policy's only delete.
+path "{{ openbao_kv_mount }}/metadata/rotator/staging/*" {
+  capabilities = ["create", "read", "list", "update", "patch", "delete"]
+}
+
+# Key names without their values.
+path "{{ openbao_kv_mount }}/subkeys/*" {
+  capabilities = ["read"]
+}
+
+# The approle kind: mint a secret_id with its own ttl, log in with it,
+# then find and destroy the accessor it replaced.
+path "auth/approle/role/+" {
+  capabilities = ["read"]
+}
+
+path "auth/approle/role/+/role-id" {
+  capabilities = ["read"]
+}
+
+path "auth/approle/role/+/secret-id" {
+  capabilities = ["update", "list"]
+}
+
+path "auth/approle/role/+/secret-id/lookup" {
+  capabilities = ["update"]
+}
+
+path "auth/approle/role/+/secret-id-accessor/lookup" {
+  capabilities = ["update"]
+}
+
+path "auth/approle/role/+/secret-id-accessor/destroy" {
+  capabilities = ["update"]
+}

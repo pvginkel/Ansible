@@ -80,11 +80,21 @@ openbao_admin_token: ""
 # can still authenticate without the root token).
 openbao_retire_root_token: false
 
-# When true, the auth tasks mint a fresh secret-id for each AppRole
-# (admin, iac-agent, jenkins, eso, eso-dev) and print it. role_ids are
-# always printed when an AppRole is created or rotated. Default false
+# When true, the auth tasks mint a fresh secret-id for each AppRole in
+# openbao_rotate_secret_id_roles and stage it for capture. Default false
 # so steady-state drift cycles don't churn secret-ids.
 openbao_rotate_secret_ids: false
+
+# The AppRoles a rotation run mints for. Narrow it to mint one role's
+# secret_id alone: -e '{"openbao_rotate_secret_id_roles": ["rotator"]}'.
+openbao_rotate_secret_id_roles:
+  - openbao-admin
+  - iac-agent
+  - jenkins
+  - eso
+  - eso-dev
+  - backup
+  - rotator
 
 # AppRole token TTLs. Short enough that a leaked token expires before
 # anyone reuses it; long enough to cover a single iac invocation, a
@@ -103,17 +113,30 @@ openbao_eso_dev_token_max_ttl: 1h
 # 5m envelope covers a slow run + retries without lingering.
 openbao_backup_token_ttl: 5m
 openbao_backup_token_max_ttl: 5m
+openbao_rotator_token_ttl: 1h
+openbao_rotator_token_max_ttl: 1h
 
 # AppRole secret_id expiry: the secret_id_ttl each role carries, the
 # lifetime OpenBao gives a secret_id minted for it. 0 = never expires.
 # Sent in the role write and compared in its drift check, so the role
-# converges it.
+# converges it. A role's nonzero secret_id_ttl caps the per-secret_id
+# ttl the SecretRotator mints with.
 openbao_admin_secret_id_ttl: 0
 openbao_iac_agent_secret_id_ttl: 0
 openbao_jenkins_secret_id_ttl: 0
 openbao_eso_secret_id_ttl: 0
 openbao_eso_dev_secret_id_ttl: 0
 openbao_backup_secret_id_ttl: 0
+openbao_rotator_secret_id_ttl: 0
+
+# The approle auth method's max_lease_ttl caps every secret_id's ttl;
+# it must cover the SecretRotator's longest mint, 360 d.
+openbao_approle_max_lease_ttl: 8640h
+
+# The rotator AppRole's secret_id_bound_cidrs: this host, resolved to
+# its address at converge. OpenBao sees a client of the 443 HAProxy
+# front door as 127.0.0.1, so the rotator logs in on the listener port.
+openbao_rotator_bound_hostname: "srviac.home"
 
 # KV-v2 read paths granted to each consumer's policy. Empty lists give
 # the AppRole an inert policy that grants nothing — safe default; the
@@ -246,9 +269,15 @@ openbao_backup_randomized_delay: "1h"
 openbao_backup_staging_dir: "{{ playbook_dir }}/../../tmp"
 
 # Controller-side staging directory for operator-facing AppRole creds
-# (openbao-admin, iac-agent, jenkins, eso, eso-dev). Written only on rotation
-# runs (-e openbao_rotate_secret_ids=true); the operator captures each
-# file into ansible-vault / the consumer config, then `shred -u`s them.
+# (every role in openbao_rotate_secret_id_roles but backup). Written only
+# on rotation runs (-e openbao_rotate_secret_ids=true); the operator
+# captures each file into ansible-vault / the consumer config, then
+# `shred -u`s them.
 # Kept distinct from openbao_backup_staging_dir: those files persist as
 # the cross-play rendezvous for backup.yml, these are throwaways.
 openbao_credential_staging_dir: "{{ playbook_dir }}/../../tmp/openbao-credentials"
+
+# The backup AppRole secret_id that playbooks/openbao-backup-secret-id.yml
+# proves and writes on every srvvaultN. Passed in an extra-vars file,
+# never on the command line.
+openbao_backup_secret_id: ""

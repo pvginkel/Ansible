@@ -47,15 +47,20 @@
     path: "{{ openbao_config_dir }}/backup-secret-id"
   register: _openbao_node_secret_id
 
-# A --check run with -e openbao_rotate_secret_ids=true cannot prove the
-# staged secret_id. The apply replaces it before this task: the
-# bootstrap host (the lowest-sorted openbao host, first in the converge
-# play's serial: 1 order) mints and stages one in approle.yml. --check
-# skips that mint, so the file still holds the secret_id the apply
-# retires, and proving it would fail a dry run the apply passes.
+# A --check run that would mint the backup secret_id
+# (openbao_rotate_secret_ids, with backup among
+# openbao_rotate_secret_id_roles) cannot prove the staged secret_id.
+# The apply replaces it before this task: the bootstrap host (the
+# lowest-sorted openbao host, first in the converge play's serial: 1
+# order) mints and stages one in approle.yml. --check skips that mint,
+# so the file still holds the secret_id the apply retires, and proving
+# it would fail a dry run the apply passes.
 - name: Note whether this is a --check preview of a secret_id rotation
   ansible.builtin.set_fact:
-    _openbao_backup_rotation_preview: "{{ ansible_check_mode and openbao_rotate_secret_ids | bool }}"
+    _openbao_backup_rotation_preview: >-
+      {{ ansible_check_mode
+         and openbao_rotate_secret_ids | bool
+         and 'backup' in openbao_rotate_secret_id_roles }}
 
 - name: Report the backup secret_id a real rotation run would deliver (check mode)
   ansible.builtin.debug:
@@ -105,10 +110,13 @@
       The backup AppRole login with the staged role_id and secret_id in
       {{ openbao_backup_staging_dir }} was rejected (HTTP 400:
       {{ _openbao_backup_login.json.errors | default([]) | join('; ') }}),
-      so the staged secret_id was not installed. Mint and stage a fresh
-      one with a site-openbao.yml run with
-      -e openbao_rotate_secret_ids=true (it mints a fresh secret_id for
-      every AppRole).
+      so the staged secret_id was not installed. When the SecretRotator
+      has delivered a backup secret_id since it was staged (its
+      playbooks/openbao-backup-secret-id.yml run), delete
+      {{ openbao_backup_staging_dir }}/openbao-backup-secret-id. Otherwise
+      mint and stage a fresh one with a site-openbao.yml run with
+      -e openbao_rotate_secret_ids=true
+      -e '{"openbao_rotate_secret_id_roles": ["backup"]}'.
   when: _openbao_backup_login.status | default(0) == 400
 
 - name: Fail when the staged backup AppRole login did not complete

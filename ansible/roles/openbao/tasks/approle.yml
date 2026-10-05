@@ -68,6 +68,13 @@
         token_ttl: "{{ openbao_backup_token_ttl }}"
         token_max_ttl: "{{ openbao_backup_token_max_ttl }}"
         secret_id_ttl: "{{ openbao_backup_secret_id_ttl }}"
+      - name: rotator
+        policy: rotator
+        token_ttl: "{{ openbao_rotator_token_ttl }}"
+        token_max_ttl: "{{ openbao_rotator_token_max_ttl }}"
+        secret_id_ttl: "{{ openbao_rotator_secret_id_ttl }}"
+        secret_id_bound_cidrs:
+          - "{{ (_openbao_rotator_bound_host.stdout.split() | first) ~ '/32' }}"
   block:
 
     # ----- approle auth method -----------------------------------------
@@ -96,6 +103,47 @@
       # Runs only when the state differs (`when` below), so the write is a change.
       changed_when: true
       when: "'approle/' not in _openbao_auth_methods.json"
+
+    # OpenBao caps a secret_id's ttl at the approle mount's max_lease_ttl
+    # without an error. Tokens stay capped by each role's token_max_ttl.
+    - name: Read the approle auth method's tuning
+      ansible.builtin.uri:
+        url: "{{ openbao_admin_api_addr }}/v1/sys/auth/approle/tune"
+        method: GET
+        headers: "{{ _bao_headers }}"
+        status_code: 200
+        validate_certs: true
+      register: _openbao_approle_tune
+      check_mode: false
+
+    - name: Tune the approle auth method's max_lease_ttl
+      ansible.builtin.uri:
+        url: "{{ openbao_admin_api_addr }}/v1/sys/auth/approle/tune"
+        method: POST
+        headers: "{{ _bao_headers }}"
+        body_format: json
+        body:
+          max_lease_ttl: "{{ openbao_approle_max_lease_ttl }}"
+        status_code: 204
+        validate_certs: true
+      # Runs only when the state differs (`when` below), so the write is a change.
+      changed_when: true
+      when: >-
+        _openbao_approle_tune.json.data.max_lease_ttl
+        != (openbao_approle_max_lease_ttl | openbao_duration_seconds)
+
+    # --check skips the write (uri has no check mode); report it instead.
+    - name: Report the approle tuning a real run would perform (check mode)
+      ansible.builtin.debug:
+        msg: >-
+          A real run would set the approle auth method's max_lease_ttl to
+          {{ openbao_approle_max_lease_ttl }}.
+      changed_when: true
+      when:
+        - ansible_check_mode
+        - >-
+          _openbao_approle_tune.json.data.max_lease_ttl
+          != (openbao_approle_max_lease_ttl | openbao_duration_seconds)
 
     # ----- kv-v2 secrets engine ---------------------------------------
 
@@ -148,6 +196,7 @@
         - eso
         - eso-dev
         - backup
+        - rotator
       no_log: true
       check_mode: false
 
@@ -216,6 +265,10 @@
       ansible.builtin.set_fact:
         _openbao_backup_policy_text: "{{ lookup('template', 'backup-policy.hcl.j2') }}"
 
+    - name: Render the rotator policy
+      ansible.builtin.set_fact:
+        _openbao_rotator_policy_text: "{{ lookup('template', 'rotator-policy.hcl.j2') }}"
+
     - name: Build the consolidated policy-text dict
       ansible.builtin.set_fact:
         _openbao_policy_texts:
@@ -225,6 +278,7 @@
           eso: "{{ _openbao_eso_policy_text }}"
           eso-dev: "{{ _openbao_eso_dev_policy_text }}"
           backup: "{{ _openbao_backup_policy_text }}"
+          rotator: "{{ _openbao_rotator_policy_text }}"
 
     - name: Write consumer policies (only when text differs)
       ansible.builtin.uri:
@@ -243,6 +297,7 @@
         - eso
         - eso-dev
         - backup
+        - rotator
       # Runs only when the state differs (`when` below), so the write is a change.
       changed_when: true
       when: _openbao_policy_texts[item] != _openbao_existing_policy_texts[item]
@@ -259,6 +314,7 @@
         - eso
         - eso-dev
         - backup
+        - rotator
       changed_when: true
       when:
         - ansible_check_mode
@@ -271,6 +327,17 @@
     # off the role's token so the consumer is strictly bound to the
     # named policy. TTLs are short — see openbao_*_token_ttl in
     # defaults/main.yml; secret_id expiry is openbao_*_secret_id_ttl.
+
+    # srviac has no address in the inventory (a dnsmasq reservation);
+    # resolve it as ufw.yml does.
+    - name: Resolve the rotator AppRole's bound host
+      ansible.builtin.command:
+        argv: [getent, ahostsv4, "{{ openbao_rotator_bound_hostname }}"]
+      delegate_to: localhost
+      become: false
+      register: _openbao_rotator_bound_host
+      changed_when: false
+      check_mode: false
 
     - name: Read existing AppRoles
       ansible.builtin.uri:
@@ -304,6 +371,8 @@
                      != (item.item.token_max_ttl | openbao_duration_seconds)
                   or (item.json.data.secret_id_ttl | default(none))
                      != (item.item.secret_id_ttl | openbao_duration_seconds)
+                  or (item.json.data.secret_id_bound_cidrs | default([], true))
+                     != (item.item.secret_id_bound_cidrs | default([]))
                   or not (item.json.data.token_no_default_policy | default(false))
                   or not (item.json.data.bind_secret_id | default(false))
                 )
@@ -324,6 +393,7 @@
           token_ttl: "{{ item.token_ttl }}"
           token_max_ttl: "{{ item.token_max_ttl }}"
           secret_id_ttl: "{{ item.secret_id_ttl }}"
+          secret_id_bound_cidrs: "{{ item.secret_id_bound_cidrs | default([]) }}"
           token_no_default_policy: true
           bind_secret_id: true
         status_code: [200, 204]
@@ -365,16 +435,17 @@
         - eso
         - eso-dev
         - backup
+        - rotator
       no_log: true
       check_mode: false
 
     # ----- secret_id mint (only on operator-driven rotation) ----------
     #
-    # bao_rotate_secret_ids must be set explicitly. First apply: the
+    # openbao_rotate_secret_ids must be set explicitly. First apply: the
     # operator runs `-e openbao_rotate_secret_ids=true` to mint the
-    # initial creds. Rotation procedure: same flag, again. Steady-state
-    # drift cycle does NOT touch secret-ids — they live in the role's
-    # store until rotated or revoked.
+    # initial creds for every role in openbao_rotate_secret_id_roles.
+    # Steady-state drift cycle does NOT touch secret-ids — they live in
+    # the role's store until rotated or revoked.
 
     - name: Mint a fresh secret-id for each AppRole
       ansible.builtin.uri:
@@ -386,13 +457,7 @@
         status_code: 200
         validate_certs: true
       register: _openbao_secret_ids
-      loop:
-        - openbao-admin
-        - iac-agent
-        - jenkins
-        - eso
-        - eso-dev
-        - backup
+      loop: "{{ openbao_rotate_secret_id_roles }}"
       no_log: true
       # Runs only when the state differs (`when` below), so the write is a change.
       changed_when: true
@@ -404,9 +469,9 @@
     - name: Report the secret-id mint a real run would perform (check mode)
       ansible.builtin.debug:
         msg: >-
-          A real run would mint a fresh secret_id for every AppRole
-          (openbao-admin, iac-agent, jenkins, eso, eso-dev, backup) and
-          stage them on the controller.
+          A real run would mint a fresh secret_id for
+          {{ openbao_rotate_secret_id_roles | join(', ') }} and stage
+          them on the controller.
       changed_when: true
       when:
         - openbao_rotate_secret_ids | bool
@@ -459,26 +524,39 @@
       become: false
       when:
         - openbao_rotate_secret_ids | bool
+        - "'backup' in openbao_rotate_secret_id_roles"
         - not ansible_check_mode
       no_log: true
 
     # ----- operator-capture staging (rotation runs only) --------------
     #
-    # The five operator-facing AppRoles (openbao-admin, iac-agent,
-    # jenkins, eso, eso-dev) each land in their own role_id + secret_id file
-    # under openbao_credential_staging_dir. The operator captures each
-    # file into ansible-vault or the consumer's config, then `shred -u`s
-    # the staging files. We never print secret_ids to stdout — the
-    # debug task we used to have leaked them into terminal scrollback
-    # and any captured Ansible output. backup is excluded: backup.yml
-    # already delivers its creds straight to each srvvaultN.
+    # Every minted AppRole but backup lands in its own role_id +
+    # secret_id file under openbao_credential_staging_dir. The operator
+    # captures each file into its capture target, then `shred -u`s the
+    # staging files. We never print secret_ids to stdout — the debug task
+    # we used to have leaked them into terminal scrollback and any
+    # captured Ansible output. backup is excluded: backup.yml already
+    # delivers its creds straight to each srvvaultN.
 
     - name: Stage AppRole credentials for operator capture (rotation runs only)
       when:
         - openbao_rotate_secret_ids | bool
+        - _openbao_capture_roles | length > 0
         - not ansible_check_mode
       delegate_to: localhost
       become: false
+      vars:
+        _openbao_capture_roles: >-
+          {{ openbao_rotate_secret_id_roles | reject('equalto', 'backup') | list }}
+        _openbao_capture_targets:
+          openbao-admin: >-
+            ansible-vault'd openbao_admin_role_id / openbao_admin_secret_id
+            in inventories/prd/group_vars/openbao.yml
+          iac-agent: srviac:/etc/iac/secrets.yaml (OPENBAO_ROLE_ID / OPENBAO_SECRET_ID)
+          jenkins: Jenkins controller Vault plugin config
+          eso: openbao-eso-approle Secret on the prd cluster (external-secrets-prd namespace)
+          eso-dev: openbao-eso-approle Secret on the dev cluster (external-secrets namespace)
+          rotator: "{{ openbao_kv_mount }}/iac/rotator-approle (keys role_id / secret_id)"
       block:
 
         - name: Ensure the controller-side credential staging directory exists
@@ -495,12 +573,7 @@
                   | selectattr('item', 'equalto', approle)
                   | first).json.data.role_id }}
             mode: "0600"
-          loop:
-            - openbao-admin
-            - iac-agent
-            - jenkins
-            - eso
-            - eso-dev
+          loop: "{{ _openbao_capture_roles }}"
           loop_control:
             loop_var: approle
           no_log: true
@@ -513,12 +586,7 @@
                   | selectattr('item', 'equalto', approle)
                   | first).json.data.secret_id }}
             mode: "0600"
-          loop:
-            - openbao-admin
-            - iac-agent
-            - jenkins
-            - eso
-            - eso-dev
+          loop: "{{ _openbao_capture_roles }}"
           loop_control:
             loop_var: approle
           no_log: true
@@ -530,26 +598,11 @@
 
                 {{ openbao_credential_staging_dir }}/
 
-              Files (one role_id and one secret_id per AppRole):
+              Files (<role>-role-id and <role>-secret-id) and capture targets:
 
-                openbao-admin-role-id   openbao-admin-secret-id
-                iac-agent-role-id       iac-agent-secret-id
-                jenkins-role-id         jenkins-secret-id
-                eso-role-id             eso-secret-id
-                eso-dev-role-id         eso-dev-secret-id
-
-              Capture targets:
-
-                openbao-admin → ansible-vault'd openbao_admin_role_id /
-                                openbao_admin_secret_id in
-                                inventories/prd/group_vars/openbao.yml
-                iac-agent     → srviac:/etc/iac/secrets.yaml
-                                (OPENBAO_ROLE_ID / OPENBAO_SECRET_ID)
-                jenkins       → Jenkins controller Vault plugin config
-                eso           → openbao-eso-approle Secret on the prd
-                                cluster (external-secrets-prd namespace)
-                eso-dev       → openbao-eso-approle Secret on the dev
-                                cluster (external-secrets namespace)
+              {% for r in _openbao_capture_roles %}
+                {{ r }} → {{ _openbao_capture_targets[r] }}
+              {% endfor %}
 
               Then wipe the staging files:
 
