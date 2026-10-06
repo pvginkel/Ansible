@@ -47,9 +47,30 @@ destroyed by an `IaC/Destroy Stage` build, which shows that destroy's plan befor
 ([argocd.md](runbooks/argocd.md#destroying-a-retired-stage)). Planning it from here takes the
 hook's inputs (the hook environment in ArgoCDDeploy's `config/prd/values.yaml`) plus the
 OpenBao-held provider credentials, which `scripts/setup-env.sh prd` loads after
-`scripts/bao-login.sh`. [kubecoder-cutover.md](runbooks/kubecoder-cutover.md)'s "The no-destroy plan" is the
-command written out. `setup-env.sh` reads OpenBao values into the environment, so it falls under
-`CLAUDE.md`'s "What Claude doesn't read on its own" — ask first.
+`scripts/bao-login.sh`. `setup-env.sh` reads OpenBao values into the environment, so it falls under
+`CLAUDE.md`'s "What Claude doesn't read on its own" — ask first. The command, from a clone of the
+deploy repo at `origin/main`:
+
+```sh
+REPO=KubeCoderDeploy STAGE=prd NS=kubecoder-prd   # the deploy repo, the stage, the stage's namespace
+U="http://127.0.0.1:6061/?type=git&repository=https%3A%2F%2Fgithub.com%2Fpvginkel%2FTerraformState&ref=main&state=argocd%2F$REPO%2F$STAGE%2Fterraform.tfstate"
+cd /work/Ansible && ( . scripts/bao-login.sh && . scripts/setup-env.sh prd \
+  && cd /work/scratch/$REPO/terraform \
+  && export TF_DATA_DIR=$HOME/tf-plan/$REPO-$STAGE TF_VAR_stage=$STAGE TF_VAR_namespace=$NS GITHUB_TOKEN="$GH_TOKEN" \
+  && cexec iac terraform init -input=false -reconfigure -upgrade \
+       -backend-config="address=$U" -backend-config="lock_address=$U" -backend-config="unlock_address=$U" \
+  && cexec iac terraform plan -input=false -var-file=../config/$STAGE/terraform.tfvars )
+```
+
+- Export, too, every other `TF_VAR_*` of the hook environment in ArgoCDDeploy's
+  `config/prd/values.yaml` that the repo's Terraform declares (KubeCoderDeploy's takes
+  `TF_VAR_zfs_pools`). A secret one, such as `TF_VAR_github_webhook_secret`, takes a placeholder;
+  a diff on the attribute it feeds is the placeholder's.
+- The subshell keeps the exported credentials from outliving it. `TF_DATA_DIR` keeps the
+  backend-initialised `.terraform/` out of the working tree, and `-upgrade` resolves the providers
+  as the hook's clone does. `cexec` layers this shell's environment over the sidecar's.
+- KubeCoderDeploy's cutover (2026-09-23) ran this command with its stage filled in; this general
+  form has not run as written.
 
 **Lint before you commit.** There is no pre-commit hook — it was removed because it was breaking
 commits. Run `kc project lint` before proposing a commit. `IaC/Build-Main` runs the same ansible and

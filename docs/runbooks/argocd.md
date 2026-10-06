@@ -923,9 +923,8 @@ replay KubeCoderDeploy still owes, not a defect.
 prd's set has the same rows, with `kubecoder-prd` in place of `kubecoder-dev`, and
 `prd-latest` and `prd-<n>` in place of `dev-latest` and `dev-<n>`. It has one more object:
 `Service/kubecoder-mcp-public`, which only prd's render carries, and which gains
-the tracking-id and nothing else. The cutover itself reviews the generated
-Application, not a preview:
-[`kubecoder-cutover.md`](kubecoder-cutover.md).
+the tracking-id and nothing else. The cutover itself reviewed the generated
+Application, not a preview.
 
 ## What a cutover does not change
 
