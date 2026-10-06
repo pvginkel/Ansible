@@ -275,10 +275,13 @@ admission controller's Deployment and its pods before wave −1, and the garbage
 deletes what the ClusterRole owned. Between the last admission-controller pod's exit and that,
 covered pod creates are refused.
 
-What stays: Argo CD never deletes a CRD with its Application, so Kyverno's 22 CRDs stay. So do the
+What stays: Argo CD never deletes a CRD with its Application, so Kyverno's 22 CRDs stay. The
 three owner-less validating registrations for policy exceptions and global context entries, all
-`Fail`. None matches pods, but they refuse creating those kinds, a reinstall's first sync included,
-until an admission controller answers. If Kyverno is not coming back, delete them all:
+`Fail`, may stay too. An admission-controller pod that shuts down while its Deployment is being
+deleted deletes every registration Kyverno manages, these three included, but only if its
+ClusterRoleBinding is still there to allow it, so a removal can leave all, some or none of them.
+None matches pods, but those that stay refuse creating those kinds, a reinstall's first sync
+included, until an admission controller answers. If Kyverno is not coming back, delete them all:
 
 ```sh
 cexec iac kubectl get mutatingwebhookconfigurations,validatingwebhookconfigurations | grep kyverno
@@ -287,5 +290,6 @@ cexec iac kubectl $KC delete validatingwebhookconfiguration kyverno-exception-va
 cexec iac kubectl get crd -o name | grep -E 'kyverno\.io$|wgpolicyk8s\.io$' | xargs cexec iac kubectl $KC delete
 ```
 
-The first line lists those three alone. A `kyverno-resource-mutating-webhook-cfg` still listed
+The first line lists whichever of those three are still there; the delete reports `NotFound` for
+one already gone and deletes the others. A `kyverno-resource-mutating-webhook-cfg` still listed
 there had lost its owner, and refuses covered pods: delete it as in [Break-glass](#break-glass).
