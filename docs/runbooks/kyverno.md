@@ -193,9 +193,11 @@ Then run the probe again: it is admitted.
 
 The deletion holds only while no Kyverno replica leads: the leader rewrites its webhook
 registrations every 10 seconds (Kyverno v1.19.1). If the registration is back within seconds,
-Kyverno is running but not answering. Scale it to zero, then delete the registration again. Pods in
-`kyverno-prd` are never refused, so scaling back up works while the registration stands. With
-`selfHeal` off, Argo leaves the Deployment at zero until it is scaled back or KyvernoDeploy syncs.
+Kyverno is running but not answering. Scale it to zero: a replica that shuts down cleanly with the
+Deployment at zero deletes Kyverno's registrations itself. If the registration still stands once the
+pods are gone, delete it again. Pods in `kyverno-prd` are never refused, so scaling back up works
+while the registration stands. With `selfHeal` off, Argo leaves the Deployment at zero until it is
+scaled back or KyvernoDeploy syncs.
 
 ```sh
 cexec iac kubectl $KC -n kyverno-prd scale deployment kyverno-admission-controller --replicas=0
@@ -223,13 +225,26 @@ cexec iac kubectl get pods -A -o json \
 
 ### Drilling it
 
-With Kyverno healthy, at a quiet moment: between the first two steps, every pod create in a covered
-namespace is refused.
+With Kyverno healthy, at a quiet moment. Scaling to zero alone leaves nothing to break: on the way
+down Kyverno deletes its own registrations. The drill puts the registration back once the pods are
+gone, the state a crashed or unreachable Kyverno leaves. Between steps 2 and 3, every pod create in
+a covered namespace is refused.
 
-1. Scale the admission controller to zero. The probe is refused.
-2. Delete the registration. The probe is admitted.
-3. Scale back to three. Once a replica is Ready, the registration is back with its entry and its
+1. Save the registration, scale the admission controller to zero and wait for its pods to go. The
+   registration is gone.
+2. Create the saved copy. The probe is refused.
+3. Delete the registration. The probe is admitted.
+4. Scale back to three. Once a replica is Ready, the registration is back with its entry and its
    owner, and the probe is admitted through Kyverno.
+
+```sh
+cexec iac kubectl get mutatingwebhookconfiguration kyverno-resource-mutating-webhook-cfg -o json \
+  | jq '.metadata |= {name, labels, annotations, ownerReferences}' > kyverno-webhook.json
+cexec iac kubectl $KC -n kyverno-prd scale deployment kyverno-admission-controller --replicas=0
+cexec iac kubectl -n kyverno-prd wait --for=delete pod -l app.kubernetes.io/component=admission-controller --timeout=5m
+cexec iac kubectl get mutatingwebhookconfiguration kyverno-resource-mutating-webhook-cfg   # NotFound
+cexec iac kubectl $KC create -f kyverno-webhook.json
+```
 
 ## Upgrading and removing the app
 
