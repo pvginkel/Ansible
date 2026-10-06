@@ -93,7 +93,7 @@ it is applied once, by hand:
 
 ```sh
 k apply -f /work/SecretRotator/k8s/cluster-identity.yaml
-k -n kube-system describe secret secret-rotator-token | grep -E '^token:'
+k -n kube-system get secret secret-rotator-token -o jsonpath='{.data.token}' | base64 -d | wc -c
 k -n kube-system get secret secret-rotator-token -o jsonpath='{.data.token}' | base64 -d | bao kv put -mount=kv iac/rotator-k8s-token token=-
 ```
 
@@ -103,7 +103,7 @@ k -n kube-system get secret secret-rotator-token -o jsonpath='{.data.token}' | b
 
 - `serviceaccount/secret-rotator`, `clusterrolebinding.rbac.authorization.k8s.io/secret-rotator-admin`
   and `secret/secret-rotator-token`, each `created`.
-- `token:` reads a byte count, not `0 bytes`.
+- The token's length in bytes, not `0`.
 - The `kv put` answers with `version 1`.
 
 ## 3 — srviac's `secrets.yaml` entries
@@ -222,7 +222,7 @@ yt 'admin/projects?fields=shortName&$top=500' | jq -r '.[].shortName' | grep -x 
 ## 6 — The annotations, and the stamps of the new leaves
 
 The seed is the one SecretRotator's `prd` carries, regenerated from the corrected catalog. Its
-apply also creates the 13 marker leaves, `rotator/approle/*` and `rotator/bootstrap/*`. Dry run
+apply also creates the 12 marker leaves, `rotator/approle/*` and `rotator/bootstrap/*`. Dry run
 first:
 
 ```sh
@@ -234,7 +234,7 @@ srviac 'secret-rotator annotate'
 **Reading.**
 
 - The marker leaves read `create  marker leaf, data key …`.
-- The last line reads `would patch (dry run; --apply writes) N leaf(s), 13 of them new marker
+- The last line reads `would patch (dry run; --apply writes) N leaf(s), 12 of them new marker
   leaves; M unchanged, 0 absent from the store, 0 live leaf(s) not in the seed`.
 - An `absent from the store` line names a seed leaf the store lacks. When it is one of the leaves
   of steps 1 to 5, finish that step first.
@@ -248,7 +248,7 @@ srviac 'secret-rotator annotate' | tail -n 1
 
 **Hand back:** the full output.
 
-**Reading:** the apply prints `patching N leaf(s), 13 of them new marker leaves; …`, then one
+**Reading:** the apply prints `patching N leaf(s), 12 of them new marker leaves; …`, then one
 `patched <leaf>` or `created and patched <leaf>` line per leaf, and exits 0. The dry run after it
 reads `would patch (dry run; --apply writes) 0 leaf(s), …`.
 
