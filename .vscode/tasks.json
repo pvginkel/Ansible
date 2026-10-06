@@ -1,9 +1,9 @@
 {
   // Runs on srviac: the rotator's identity, code and network position are there (design.md R17),
-  // and it works when Kubernetes is down. `ssh -t` gives `iac` the TTY it needs to add `-it`;
-  // `sudo` because only pvginkel is in srviac's docker group. No SSH options: the operator's login
-  // script has the keys in ssh-agent and the pod's known_hosts trusts the homelab SSH CA. The
-  // script clones SecretRotator inside the container; the app is not baked into the iac image.
+  // and it works when Kubernetes is down. SecretRotator is installed in the iac image from its prd
+  // branch. `ssh -t` gives `iac` the TTY it needs to add `-it`, and `run` prompts on it. `sudo`
+  // because only pvginkel is in srviac's docker group. No SSH options: the operator's login script
+  // has the keys in ssh-agent, and the pod's known_hosts trusts the homelab SSH CA.
   "version": "2.0.0",
   "tasks": [
     {
@@ -13,7 +13,7 @@
       "args": [
         "-t",
         "ansible@srviac",
-        "sudo iac -c 'git clone -q https://github.com/pvginkel/SecretRotator /work/SecretRotator && cd /work/SecretRotator && poetry install -q && poetry run secret-rotator ui'"
+        "sudo iac -c 'secret-rotator ui'"
       ],
       "presentation": {
         "reveal": "always",
@@ -22,6 +22,47 @@
         "clear": true
       },
       "problemMatcher": []
+    },
+    {
+      "label": "secret-rotator run (srviac)",
+      "type": "shell",
+      "command": "ssh",
+      "args": [
+        "-t",
+        "ansible@srviac",
+        "sudo iac -c 'secret-rotator run ${input:secretRotatorLeaf}'"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "focus": true,
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "secret-rotator plan (srviac)",
+      "type": "shell",
+      "command": "ssh",
+      "args": [
+        "-t",
+        "ansible@srviac",
+        "sudo iac -c 'secret-rotator plan ${input:secretRotatorLeaf}'"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "focus": true,
+        "clear": true
+      },
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "secretRotatorLeaf",
+      "type": "promptString",
+      "description": "The leaf, a path of the kv mount (e.g. iac/rotator-approle)"
     }
   ]
 }

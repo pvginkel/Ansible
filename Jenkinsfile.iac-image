@@ -9,7 +9,9 @@
 library identifier: 'JenkinsPipelineUtils', changelog: false
 
 // Whether this build builds the image. A build that names the image builds it whatever its change
-// sets hold: the version poller's weekly rebuild, or Build with Parameters with image=iac.
+// sets hold: the version poller's weekly rebuild, IaC/SecretRotator once it has moved
+// SecretRotator's prd branch (the image installs SecretRotator from there), or Build with
+// Parameters with image=iac.
 def imageBuildRequired() {
     if (params.image == 'all') {
         return true

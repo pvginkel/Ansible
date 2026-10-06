@@ -60,11 +60,19 @@ RUN apt-get update -yqq && \
 # uv (below) because it spins up a fresh container per release.
 RUN pip3 install poetry --break-system-packages
 
-# uv — the fast installer the HelmCharts deploy pipeline uses. Each
-# release deploys in its own `iac -c` (separate Jenkins stage), so the
-# deploy project is re-installed per release; uv keeps that from being
-# slow as molasses where `poetry install` would dominate the run.
 RUN set -o pipefail && curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh
+
+# SecretRotator: the nightly run of IaC/Scheduled Secret Rotation and the
+# operator's `secret-rotator run|plan <path>`. It installs from its prd
+# branch, which IaC/SecretRotator resets to the commit it built green
+# before it rebuilds this image. kaniko2 builds without a layer cache, so
+# every build installs prd's tip. A uv tool has a venv of its own on the
+# system Python, which keeps its dependencies out of /app/.venv. The VCS
+# install records the commit in direct_url.json (PEP 610), and every run
+# logs that commit. The package carries the committed switches.yaml.
+RUN UV_TOOL_DIR=/opt/uv/tools UV_TOOL_BIN_DIR=/usr/local/bin \
+    uv tool install --no-cache --python /usr/bin/python3 \
+        git+https://github.com/pvginkel/SecretRotator@prd
 
 # Trust the homelab step-ca root the same way managed hosts do via the
 # baseline role — tools in this image (curl, terraform providers,
