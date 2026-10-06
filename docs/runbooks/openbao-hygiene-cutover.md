@@ -13,8 +13,7 @@ Elasticsearch superuser password out of git. In order, it:
 The operator runs every step, from top to bottom. Each step gives the commands, what to hand back,
 and the reading that must hold before the next step starts.
 
-The operator ran steps 1–14 on 2026-10-04. The two follow-ups at the end remain, carried by
-Operator Action ANS-234.
+The operator ran steps 1–14 on 2026-10-04. The two follow-ups at the end remain to be run.
 
 Context:
 

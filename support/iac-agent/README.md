@@ -32,6 +32,7 @@ result does not, it calls JenkinsPipelineUtils' `notify` var. Current jobs:
 - **`Jenkinsfile.iac-scheduled-drift`** — daily cron: terraform + Ansible `--check` drift across the same playbooks, plus the homelab CA root.
 - **`Jenkinsfile.iac-scheduled-calico`** — weekly cron: rolling restart of the `calico-node` DaemonSet, capping every pod's uptime below the token-refresh stall window.
 - **`Jenkinsfile.iac-scheduled-certs`** — weekly cron: certificate renewal against step-ca — the fleet's SSH host certificates and the `internal_tls` X.509 leaves.
+- **`Jenkinsfile.iac-scheduled-secret-rotation`** — daily cron (04:30): SecretRotator's nightly run, `secret-rotator run`, which rotates the OpenBao `kv` secrets that are due and rolls them out to their consumers.
 
 **`Jenkinsfile.iac-image`** (the `iac` container-image build) and
 **`Jenkinsfile.architecture`** (the architecture-model job) live at the root

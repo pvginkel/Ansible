@@ -52,12 +52,9 @@ RUN apt-get update -yqq && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# poetry on PATH in the final stage. The HelmCharts deploy CLI is its
-# own poetry project (`cd /work/HelmCharts && poetry install`), so the
-# image needs poetry at runtime — the build stage's poetry never makes
-# it into the final image. Same install as the build stage. Kept for
-# manual/interactive operator use; the HelmCharts pipeline installs with
-# uv (below) because it spins up a fresh container per release.
+# poetry on PATH in the final stage, for manual/interactive operator
+# use: the build stage's poetry never makes it into the final image.
+# Same install as the build stage.
 RUN pip3 install poetry --break-system-packages
 
 RUN set -o pipefail && curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh

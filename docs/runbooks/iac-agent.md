@@ -9,10 +9,10 @@ See [`/work/AnsibleSpecs/phases/completed/iac-agent.md`](../../../AnsibleSpecs/p
 | Where | What |
 |---|---|
 | `srviac` host | Docker, the `iac` shim, a daily `docker image prune -f` cron, a systemd unit running the Jenkins inbound-agent container, `/etc/iac/secrets.yaml` (operator-curated, `0600`), and the `dhcp-probe` timer (role `dhcp_probe`), which checks every 3 minutes that the production DHCP service answers and leaves the result for Prometheus. |
-| `registry:5000/iac` image | Terraform, Ansible, kubectl, helm, python, poetry, `terraform-backend-git`, plus `iac-impl` — the in-container entrypoint that parses `secrets.yaml`, clones the repos `secrets.yaml` names (Ansible alone by default), starts the terraform-backend-git daemon on `127.0.0.1:6061`, then exec's whatever you asked for. The Python venv is baked in at image build from this repo's `pyproject.toml`/`poetry.lock`; `iac-impl` installs nothing at runtime and instead warns when the cloned `poetry.lock` differs from the baked one. Built from `support/iac-image/Dockerfile` by this repo's `IaC/IaC Docker Image` job. |
+| `registry:5000/iac` image | Terraform, Ansible, kubectl, helm, python, poetry, `terraform-backend-git`, SecretRotator's `secret-rotator`, plus `iac-impl` — the in-container entrypoint that parses `secrets.yaml`, clones the repos `secrets.yaml` names (Ansible alone by default), starts the terraform-backend-git daemon on `127.0.0.1:6061`, then exec's whatever you asked for. The Python venv is baked in at image build from this repo's `pyproject.toml`/`poetry.lock`; `iac-impl` installs nothing at runtime and instead warns when the cloned `poetry.lock` differs from the baked one. SecretRotator is installed from its `prd` branch as a uv tool, with a venv of its own. Built from `support/iac-image/Dockerfile` by this repo's `IaC/IaC Docker Image` job. |
 | `pvginkel/Ansible` (this repo) | Roles, playbooks, inventory, the Terraform configs (`terraform/{prd,scratch}/`, each with a `backend.tf` http block), the Jenkins pipeline scripts (`Jenkinsfile.*`) every job checks out, the iac image's build context (`support/iac-image/`), and the srviac host glue (`support/iac-agent/` — `bin/iac`, `install.sh`, the systemd unit, the `secrets.example.yaml` template). |
 | `pvginkel/TerraformState` | tfstate served through the terraform-backend-git http backend, sops+age-encrypted at rest. Private. Holds the same sensitivity as any secret-bearing repo (VM host private keys, API tokens, proxmox creds). Not srviac's alone: the Argo CD Terraform PreSync hook (`/work/ArgoCDTools`) writes into the same repo under `argocd/<repo>/<stage>/terraform.tfstate`, starting its own terraform-backend-git in the hook pod, and its destroy mode, which `IaC/Destroy Stage` runs, removes a retired stage's `argocd/<repo>/<stage>/` with a commit of its own. Both sides decrypt with the one age keypair at `kv/iac/tf-backend`: the prd `eso` AppRole is granted read on that single leaf rather than a copy being made, so the two cannot drift onto different keys. |
-| Jenkins controller (`jenkins.webathome.org`) | Six jobs on the `iac-controller`-labelled agent: `IaC/Build-Main`, `IaC/Apply`, `IaC/Scheduled Update`, `IaC/Scheduled Drift`, `IaC/Scheduled Calico Rollout`, `IaC/Scheduled Certs`. `IaC/IaC Docker Image` and `AaC/Ansible` also build from this repo, but on Kubernetes pod agents — they use none of the host glue. |
+| Jenkins controller (`jenkins.webathome.org`) | Seven jobs on the `iac-controller`-labelled agent: `IaC/Build-Main`, `IaC/Apply`, `IaC/Scheduled Update`, `IaC/Scheduled Drift`, `IaC/Scheduled Calico Rollout`, `IaC/Scheduled Certs`, `IaC/Scheduled Secret Rotation`. `IaC/IaC Docker Image` and `AaC/Ansible` also build from this repo, but on Kubernetes pod agents — they use none of the host glue. |
 
 ## Operator workflow
 
@@ -77,6 +77,12 @@ builds when its changeset carries unrelated commits.
 
 So: to force a rebuild, start the job with **Build with Parameters** and `image=iac`. A plain
 replay, or a build with no image-input change, skips.
+
+`IaC/SecretRotator` starts it the same way. A push to SecretRotator's `main` that passes its lint
+and tests resets SecretRotator's `prd` branch to that commit, then starts `IaC/IaC Docker Image`
+with `image=iac`. Every build installs SecretRotator from `prd`'s tip, so every rebuild, the weekly
+one included, carries the rotator's last green commit, and a red SecretRotator build changes nothing
+on srviac.
 
 ### Routine: manual run from `srviac`
 
@@ -159,7 +165,7 @@ This is the sequence to stand `srviac` up the first time, after all the source c
 
    Both clean → green light.
 
-7. **Wire the six `iac-controller` jobs** on the controller — each is a pipeline job with SCM `pvginkel/Ansible` and Script Path `Jenkinsfile.iac-<name>` in the repo root. Verify each runs against a no-op change (a comment-only push) before unleashing.
+7. **Wire the `iac-controller` jobs** listed under "What lives where" on the controller — each is a pipeline job with SCM `pvginkel/Ansible` and Script Path `Jenkinsfile.iac-<name>` in the repo root. Verify each runs against a no-op change (a comment-only push) before unleashing. `IaC/Scheduled Secret Rotation` is the exception: its first build runs the rotator, so it is created last, by [`secret-rotator-go-live.md`](secret-rotator-go-live.md) step 7.
 
 8. **Cutover.** Stop running Terraform and Ansible from `wrkdev` as the routine path. Delete the workstation-local `terraform/{prd,scratch}/terraform.tfstate{,.backup,.<timestamp>.backup}` files — state is reached only through the backend (encrypted in `TerraformState`) from now on.
 
@@ -188,6 +194,16 @@ Cloud-init re-bakes; the role re-applies; the operator re-populates secrets. The
 Bootstrap any Ubuntu box: install Poetry + the standard SSH keys from the cloud-synced attachments, clone `pvginkel/Ansible` — which carries the host glue at `support/iac-agent/`, so that one clone is the whole controller side. For break-glass terraform, run `scripts/tf-backend.sh` (the same backend in a local `docker run --network host`) and have the age private key from OpenBao (`kv/iac/tf-backend#age_secret_key`) so the backend can decrypt state — `wrkdev` doesn't clone `TerraformState` for normal use. From there `wrkdev`'s workflows resume. The orchestrator-self-applicable guarantee stops here — there is no zero-touch recovery for the case where both the workstation and `srviac` are lost simultaneously.
 
 ## Secret rotation
+
+### `OPENBAO_SECRET_ID` (the `iac-agent` AppRole) and SecretRotator's entries
+
+SecretRotator rotates the `iac-agent` secret_id every 90 days, with the operator
+([`openbao.md`](openbao.md) §5). The nightly run never starts that rotation: once `approle` is among
+its enabled kinds, it announces the rotation in Telegram as it falls due. Run it on srviac with
+`secret-rotator run rotator/approle/iac-agent`. It shows the new secret_id; paste it over the
+`OPENBAO_SECRET_ID` literal in `/etc/iac/secrets.yaml`. No restart: each `iac` call starts a fresh
+container that reads the file. The three `SECRET_ROTATOR_*` entries are `!bao` refs to leaves the
+rotator rewrites itself, so they need no edit.
 
 ### `JENKINS_AGENT_SECRET`
 

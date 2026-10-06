@@ -25,7 +25,8 @@ and §Secrets resolver in
   and Docker), as root or via sudo. `wrkdev` works as a fallback if
   `srviac` itself is down — `install.sh` runs on either host.
 - "Roboform" means the operator's password manager of record. Every
-  literal you'll need is already in there, one entry per secret.
+  literal you'll need is already in there, one entry per secret,
+  except SecretRotator's (see "What gets substituted").
 - The OpenBao admin path through the Jenkins agent VM is unavailable
   during cold boot — that's the whole reason you're here. Don't
   invent a half-restore that depends on it.
@@ -43,6 +44,13 @@ The irreducible-literal set (`OPENBAO_URL`, `OPENBAO_ROLE_ID`,
 `OPENBAO_SECRET_ID`, `GIT_API_TOKEN`) is already literal; cold boot
 doesn't touch it. Everything else with `!bao` becomes a literal for
 the duration of the recovery.
+
+SecretRotator's three entries (`SECRET_ROTATOR_ROLE_ID`,
+`SECRET_ROTATOR_SECRET_ID`, `SECRET_ROTATOR_K8S_TOKEN`) are the
+exception: they have no Roboform entry, since the rotator rewrites its
+own secret_id in `kv/iac/rotator-approle`. Comment them out instead.
+Only `secret-rotator` reads them, and it cannot run while OpenBao is
+down; step 5's restore brings them back.
 
 ## Procedure
 
@@ -75,6 +83,8 @@ each `!bao` ref:
 - **env entry**: replace `value: !bao kv/...` with `value: "<literal>"`.
 - **files entry**: replace `content: !bao kv/...` with a folded
   block. Mode lines stay as-is.
+- **SecretRotator's three `SECRET_ROTATOR_*` entries**: comment them
+  out (see "What gets substituted").
 
 Example before:
 

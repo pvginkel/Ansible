@@ -62,10 +62,12 @@ Design context:
     audit / Raft requirements; see
     [`templates/openbao-hardening.conf.j2`](templates/openbao-hardening.conf.j2)
     for the rationale.
-11. **Provision auth** on the bootstrap node — enable approle, write
-    the kv-v2 mount, render and write policies (`openbao-admin`,
-    `iac-agent`, `jenkins`, `eso`, `eso-dev`, `backup`), write the AppRoles bound
-    to each. Optionally rotate secret-ids
+11. **Provision auth** on the bootstrap node — enable approle and tune
+    its `max_lease_ttl`, write the kv-v2 mount, render and write policies
+    (`openbao-admin`, `iac-agent`, `jenkins`, `eso`, `eso-dev`, `backup`,
+    `rotator`), write the AppRoles bound to each. `rotator` is
+    SecretRotator's AppRole, and its secret_ids are bound to srviac's
+    address (`secret_id_bound_cidrs`). Optionally mint secret-ids
     (`-e openbao_rotate_secret_ids=true`) and retire the root token
     (`-e openbao_retire_root_token=true`).
     Gated on a controller token: `openbao_admin_token` (operator-
@@ -125,22 +127,39 @@ Auth + audit + ufw inputs:
   `openbao_eso_kv_paths` — KV-v2 read paths granted to each
   consumer's policy. Empty list = inert policy (AppRole exists, reads
   return 403 until a path is added). Extend per migrated ref.
-- `openbao_rotate_secret_ids` — when `true`, mints fresh secret-ids
-  for every AppRole (admin, iac-agent, jenkins, eso, eso-dev, backup)
-  and stages the five operator-facing ones to
-  `openbao_credential_staging_dir` for capture. Default `false`; flip
-  on the first apply and whenever you rotate. Steady-state runs skip
-  the mint and the staging entirely — nothing is written or printed.
-  It destroys no secret_id. `scripts/rotation/accessor_cleanup.py`
-  destroys the ones no consumer holds
+- `openbao_rotate_secret_ids` — when `true`, mints a fresh secret-id
+  for each AppRole in `openbao_rotate_secret_id_roles` and stages every
+  one but `backup` to `openbao_credential_staging_dir` for capture.
+  Default `false`; flip it on the first apply, and for a role's first
+  secret_id or a recovery. Routine rotation is SecretRotator's
   ([`docs/runbooks/openbao.md`](../../../docs/runbooks/openbao.md) §5).
+  Steady-state runs skip the mint and the staging entirely — nothing
+  is written or printed. It destroys no secret_id.
+  `scripts/rotation/accessor_cleanup.py` destroys the ones no consumer
+  holds (§5 too).
+- `openbao_rotate_secret_id_roles` — the AppRoles such a run mints
+  for. Default: all seven (`openbao-admin`, `iac-agent`, `jenkins`,
+  `eso`, `eso-dev`, `backup`, `rotator`). Narrow it to mint one role's
+  secret_id alone:
+  `-e '{"openbao_rotate_secret_id_roles": ["rotator"]}'`.
 - `openbao_admin_secret_id_ttl` / `openbao_iac_agent_secret_id_ttl` /
   `openbao_jenkins_secret_id_ttl` / `openbao_eso_secret_id_ttl` /
-  `openbao_eso_dev_secret_id_ttl` / `openbao_backup_secret_id_ttl` —
-  the `secret_id_ttl` each AppRole declares: how long a secret_id
-  minted for it lives. Default `0`, never expires. The AppRole write
-  sends it and the drift check compares it, so a converge applies a
-  change.
+  `openbao_eso_dev_secret_id_ttl` / `openbao_backup_secret_id_ttl` /
+  `openbao_rotator_secret_id_ttl` — the `secret_id_ttl` each AppRole
+  declares: how long a secret_id minted for it lives. Default `0`,
+  never expires. The AppRole write sends it and the drift check
+  compares it, so a converge applies a change. Keep it `0`:
+  SecretRotator mints each secret_id with an expiry of its own, and
+  under a nonzero `secret_id_ttl` OpenBao refuses (HTTP 400) a mint
+  whose ttl exceeds it.
+- `openbao_approle_max_lease_ttl` — the approle auth method's
+  `max_lease_ttl`, which caps every secret_id's ttl without an error.
+  Default `8640h`, which covers SecretRotator's longest mint, 360 days.
+- `openbao_rotator_bound_hostname` — the host the `rotator` AppRole's
+  secret_ids are bound to, resolved to its address at converge.
+  Default `srviac.home`. OpenBao sees a client of the 443 HAProxy front
+  door as `127.0.0.1`, so the rotator logs in on the listener port,
+  8200.
 - `openbao_credential_staging_dir` — controller-side directory where
   rotation runs drop one `<approle>-role-id` and one
   `<approle>-secret-id` file per operator-facing AppRole, mode `0600`.
@@ -182,6 +201,10 @@ Backup pipeline inputs:
 - `openbao_backup_staging_dir` — controller-side directory the three
   backup inputs are staged through (default: the playbook's `tmp/`).
   See §Backup pipeline.
+- `openbao_backup_secret_id` — the `backup` secret_id that
+  `playbooks/openbao-backup-secret-id.yml` proves and writes on every
+  node. Passed in an extra-vars file, never on the command line. See
+  §Backup pipeline, "SecretRotator's delivery".
 
 The pipeline takes no group_vars/vault input of its own: it consumes
 the `backup` AppRole creds (provisioned by the auth tasks) and the
@@ -203,8 +226,8 @@ can capture the admin AppRole creds into vault between them.
    ```
 
    `approle.yml` writes the freshly minted role_ids + secret_ids for
-   `openbao-admin`, `iac-agent`, `jenkins`, `eso` and `eso-dev` to mode-`0600`
-   files in `openbao_credential_staging_dir`
+   `openbao-admin`, `iac-agent`, `jenkins`, `eso`, `eso-dev` and
+   `rotator` to mode-`0600` files in `openbao_credential_staging_dir`
    (`ansible/tmp/openbao-credentials/` by default). Nothing is printed
    to stdout. `backup` is excluded — `backup.yml` delivers its creds
    directly to each node.
@@ -222,7 +245,10 @@ can capture the admin AppRole creds into vault between them.
 3. **Paste the iac-agent creds** into `srviac:/etc/iac/secrets.yaml`
    (`OPENBAO_ROLE_ID`, `OPENBAO_SECRET_ID`). Paste the jenkins,
    eso and eso-dev creds into their respective consumer configs (Jenkins Vault
-   plugin, ESO SecretStore CR). Source each value from the matching
+   plugin, ESO SecretStore CR). Write the rotator's into the KV leaf
+   `iac/rotator-approle` (keys `role_id` and `secret_id`), as
+   [`secret-rotator-go-live.md`](../../../docs/runbooks/secret-rotator-go-live.md)
+   does. Source each value from the matching
    `<approle>-role-id` / `<approle>-secret-id` file under
    `tmp/openbao-credentials/`.
 
@@ -398,7 +424,10 @@ login's answer decides the rest:
 
 - **200** — the secret_id is delivered.
 - **400** (the AppRole rejects the pair) — the run fails at `Refuse a
-  staged backup secret_id the backup AppRole rejects`, naming
+  staged backup secret_id the backup AppRole rejects`. A staged
+  secret_id goes stale once SecretRotator has delivered a newer one;
+  the message says to delete `tmp/openbao-backup-secret-id` then, and
+  otherwise to mint for `backup` alone with
   `-e openbao_rotate_secret_ids=true`. Nothing is re-minted without
   that flag.
 - **403 `permission denied`** (no AppRole auth mounted, as on a
@@ -410,6 +439,19 @@ login's answer decides the rest:
   with the status and OpenBao's error text.
 
 With no staged secret_id, a node that already holds one keeps it.
+
+**SecretRotator's delivery.** SecretRotator rotates the `backup`
+secret_id: it mints the new one itself and hands it to
+`playbooks/openbao-backup-secret-id.yml` (tag
+`openbao_backup_secret_id`) as `openbao_backup_secret_id`, in a `0600`
+extra-vars file. The playbook runs `tasks/backup-secret-id.yml` on
+every node and nothing else of the role: it mints nothing and
+converges nothing. Each node logs in with its own
+`/etc/openbao/backup-role-id` and the secret_id, revokes that token,
+then writes `/etc/openbao/backup-secret-id`. A node without
+`backup-role-id`, whose pipeline `backup.yml` has not configured, is
+refused. The play is `any_errors_fatal`, so a node that fails before
+the write leaves all three as they were.
 
 **When a backup fails.** The unit fails, and its journal
 (`journalctl -u openbao-backup`) names the call that broke. An OpenBao

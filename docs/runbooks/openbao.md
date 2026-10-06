@@ -198,11 +198,19 @@ and the latest backup's Raft snapshot is restored into it.
    rotator's own pair needs nothing: it lives in
    `kv/iac/rotator-approle`, restored together with its AppRole.
 
-5. **The admin AppRole.** From the Ansible checkout:
+5. **The admin AppRole.** From the Ansible checkout, define `drop`,
+   which steps 5 to 8 use, then log in:
 
    ```bash
+   drop() { for a in $(bao list -format=json "auth/approle/role/$1/secret-id" | jq -r '.[]'); do
+       bao write "auth/approle/role/$1/secret-id-accessor/destroy" secret_id_accessor="$a"; done; }
    . scripts/bao-login.sh
    ```
+
+   `drop` destroys every secret_id an AppRole holds. Run it only for
+   an AppRole whose consumer is rejected: then no consumer holds any
+   of them, and the rotator's mint for `openbao-admin`, `iac-agent`,
+   `jenkins` and `backup` fails while the role holds more than one.
 
    `bao-login: BAO_ADDR=…` means the inventory's `openbao-admin`
    secret_id still logs in: go to step 6. `approle login failed`
@@ -218,16 +226,10 @@ and the latest backup's Raft snapshot is restored into it.
    export BAO_TOKEN=$(bao operator generate-root -decode=<encoded token> -otp=<otp>)
    ```
 
-   `drop` destroys every secret_id an AppRole holds. Run it only for
-   an AppRole whose consumer is rejected: then no consumer holds any
-   of them, and the rotator's mint for `openbao-admin`, `iac-agent`,
-   `jenkins` and `backup` fails while the role holds more than one.
    Drop the admin's, then mint a fresh one straight into the vault
    format:
 
    ```bash
-   drop() { for a in $(bao list -format=json "auth/approle/role/$1/secret-id" | jq -r '.[]'); do
-       bao write "auth/approle/role/$1/secret-id-accessor/destroy" secret_id_accessor="$a"; done; }
    drop openbao-admin
    bao write -f -field=secret_id auth/approle/role/openbao-admin/secret-id \
        | (cd ansible && poetry run ansible-vault encrypt_string --stdin-name openbao_admin_secret_id)

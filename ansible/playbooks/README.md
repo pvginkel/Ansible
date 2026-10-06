@@ -32,6 +32,10 @@ ansible-playbook playbooks/site.yml --check --diff
   certificate renewal (SSH host certs; `internal_tls` X.509 leaves).
   Both are threshold-gated no-ops outside the renewal window, and
   `IaC/Scheduled Certs` runs both weekly.
+- `openbao-backup-secret-id.yml` — delivers a `backup` AppRole
+  secret_id that its caller minted to every srvvault, each proving it
+  with a login first, and does nothing else. SecretRotator runs it when
+  it rotates `backup` (the `openbao` role README, §Backup pipeline).
 - `reissue-host-cert.yml` — recovery for a host whose SSH host
   certificate already lapsed; connects over a bootstrap channel that
   does not depend on it.
