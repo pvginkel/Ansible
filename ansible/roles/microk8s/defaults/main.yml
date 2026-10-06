@@ -76,12 +76,12 @@ microk8s_metallb_advertisement_name: default-advertise-all-pools
 microk8s_metallb_pool_addresses: []
 
 # Memory requests for the addon-owned workloads (tasks/addon-resources.yml).
-# Values come from the same derivation support/recommend-resources uses —
-# p90 of the container's max working set over Prometheus history, rounded up
-# to the next quarter-power-of-two. Re-derive them when a channel bump moves
-# a component's footprint. An `addon:` key restricts an entry to clusters
-# where that addon installed the workload; entries without one are the
-# bundled CNI, present everywhere.
+# These numbers are Ansible's own, set to protect the components: Kyverno's
+# memory-requests policy on prd skips kube-system and metallb-system (argo-cd
+# D65 as amended 2026-10-06). Revisit them when a channel bump moves a
+# component's footprint. An `addon:` key restricts an entry to clusters where
+# that addon installed the workload; entries without one are the bundled CNI,
+# present everywhere.
 microk8s_addon_resource_requests:
   - kind: DaemonSet
     namespace: kube-system
