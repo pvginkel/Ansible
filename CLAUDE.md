@@ -107,7 +107,8 @@ provenance.
 On every microk8s channel bump, re-check whether the per-node `dqlite-watchdog.timer` (microk8s
 role) can be retired — it works around an unreleased upstream bug. Removal checklist in
 [`docs/runbooks/k8s-upgrade.md`](docs/runbooks/k8s-upgrade.md) and
-[`docs/runbooks/dqlite-watch-freeze.md`](docs/runbooks/dqlite-watch-freeze.md).
+[`docs/runbooks/dqlite-watch-freeze.md`](docs/runbooks/dqlite-watch-freeze.md). The whole bump, in
+order, is the SOP [`microk8s-channel-bump.md`](../SOPs/sops/microk8s-channel-bump.md).
 
 ## When in doubt
 

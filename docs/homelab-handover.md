@@ -305,9 +305,9 @@ itself is silent; its heartbeat to healthchecks.io then stops, and healthchecks.
 Telegram.
 
 That happened on 2026-09-25. After a power cut, the `dhcp` pod stayed not-Ready and there was no
-DHCP for 2h45m (AnsibleSpecs `handovers/dhcp-outage-2026-09-25/`). A minimal DHCP floor outside
-the cluster is the open mitigation. The recovery checks and break-glass are in
-[`runbooks/cold-boot.md`](runbooks/cold-boot.md).
+DHCP for 2h45m (AnsibleSpecs `handovers/dhcp-outage-2026-09-25/`). A DHCP floor outside the
+cluster was considered after it and ruled out (2026-09-25), so there is still no fallback. The
+recovery checks and break-glass are in [`runbooks/cold-boot.md`](runbooks/cold-boot.md).
 
 ### Current headroom warnings
 

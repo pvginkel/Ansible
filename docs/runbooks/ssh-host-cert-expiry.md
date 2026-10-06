@@ -105,5 +105,8 @@ cd ansible && poetry run ansible srvk8s1,srvk8s2,srviac -m ping
 - A certificate that is *missing* rather than expired (cloud-init regenerating
   host keys on a new instance-id) has the same symptom and the same fix.
 - For a brand-new VM, use `rebuild-k8s.yml` — full bootstrap — not this.
+- **srvk8sdev** is off more than it is on, and `IaC/Scheduled Certs` skips a dev host it cannot
+  reach, so its certificate lapses while it is off. Re-issue it when it is back:
+  `-e reissue_target=srvk8sdev`, by the "VMs Terraform builds from scratch" path above.
 - Renewal design and the role's inputs: `ansible/roles/ssh_host_cert/README.md`.
   CA-side provisioner setup: [`step-ca-bootstrap.md`](step-ca-bootstrap.md).
