@@ -3,18 +3,15 @@
   // and it works when Kubernetes is down. SecretRotator is installed in the iac image from its prd
   // branch. `ssh -t` gives `iac` the TTY it needs to add `-it`, and `run` prompts on it. `sudo`
   // because only pvginkel is in srviac's docker group. No SSH options: the operator's login script
-  // has the keys in ssh-agent, and the pod's known_hosts trusts the homelab SSH CA.
+  // has the keys in ssh-agent, and the pod's known_hosts trusts the homelab SSH CA. A task's whole
+  // command line is its `command`, with no `args`: VS Code wraps an `args` entry holding a space in
+  // '…' around its own quotes, and iac-impl then gets -c with several arguments (test_tasks.py).
   "version": "2.0.0",
   "tasks": [
     {
       "label": "secret-rotator ui (srviac)",
       "type": "shell",
-      "command": "ssh",
-      "args": [
-        "-t",
-        "ansible@srviac",
-        "sudo iac -c 'secret-rotator ui'"
-      ],
+      "command": "ssh -t ansible@srviac \"sudo iac -c 'secret-rotator ui'\"",
       "presentation": {
         "reveal": "always",
         "panel": "dedicated",
@@ -26,12 +23,7 @@
     {
       "label": "secret-rotator run (srviac)",
       "type": "shell",
-      "command": "ssh",
-      "args": [
-        "-t",
-        "ansible@srviac",
-        "sudo iac -c 'secret-rotator run ${input:secretRotatorLeaf}'"
-      ],
+      "command": "ssh -t ansible@srviac \"sudo iac -c 'secret-rotator run ${input:secretRotatorLeaf}'\"",
       "presentation": {
         "reveal": "always",
         "panel": "dedicated",
@@ -43,12 +35,7 @@
     {
       "label": "secret-rotator plan (srviac)",
       "type": "shell",
-      "command": "ssh",
-      "args": [
-        "-t",
-        "ansible@srviac",
-        "sudo iac -c 'secret-rotator plan ${input:secretRotatorLeaf}'"
-      ],
+      "command": "ssh -t ansible@srviac \"sudo iac -c 'secret-rotator plan ${input:secretRotatorLeaf}'\"",
       "presentation": {
         "reveal": "always",
         "panel": "dedicated",

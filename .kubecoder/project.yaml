@@ -19,6 +19,7 @@ projects:
       - python3 -m unittest discover -s support/recommend-resources
       - python3 -m unittest discover -s ansible/roles/dhcp_probe/tests
       - python3 -m unittest discover -s scripts/rotation
+      - python3 -m unittest discover -s .vscode
 
   ansible:
     description: >-
