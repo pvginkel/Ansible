@@ -7,7 +7,7 @@ Host glue for `srviac`, the homelab's IaC orchestrator VM. Part of the Ansible r
 | Path | What it is |
 |---|---|
 | `bin/iac` | The host shim. Runs `iac-impl` inside the `iac` container (`registry:5000/iac:latest`, built from this repo's `support/iac-image/`); bind-mounts four paths in — `iac-impl`, `/etc/iac/secrets.yaml`, `check-protected-vms.sh` and `check-ansible-drift.sh`. |
-| `bin/iac-impl` | The in-container entrypoint. Parses secrets, clones the Ansible repo, starts the `terraform-backend-git` daemon on `127.0.0.1:6061` (terraform reaches state through it via each config's `backend.tf` http block), runs `poetry install`, then executes the caller's command. Bind-mounted in from `/usr/local/bin/iac-impl` on the host (so changes don't require an `iac` image rebuild). |
+| `bin/iac-impl` | The in-container entrypoint. Parses secrets, clones the Ansible repo, starts the `terraform-backend-git` daemon on `127.0.0.1:6061` (terraform reaches state through it via each config's `backend.tf` http block), warns when the clone's `poetry.lock` differs from the one the image's venv was baked from, then executes the caller's command. Bind-mounted in from `/usr/local/bin/iac-impl` on the host (so changes don't require an `iac` image rebuild). |
 | `bin/jenkins-agent-launch.sh` | Wrapper invoked by the systemd unit; extracts `JENKINS_AGENT_SECRET` from `/etc/iac/secrets.yaml` and launches the Jenkins inbound-agent container. |
 | `bin/check-protected-vms.sh` | Used by the on-push, apply and drift Jenkins jobs, against the `terraform/prd` plan JSON. Fails (exit 1) when the plan deletes or replaces any VM; exits 2 on a usage error or an unreadable plan. The second rail: while `managed-vm`'s VM resource carries `prevent_destroy`, `terraform plan` refuses such a plan before the guard runs. |
 | `bin/check-ansible-drift.sh` | Used by the drift job. Wraps `ansible-playbook --check --diff` and fails when the recap reports any pending changes. |
@@ -52,14 +52,14 @@ iac -v -c '<shell script>'       # same, with iac-impl's setup-progress prints
 
 Neither form takes a host lock. Terraform state is locked per state by `terraform-backend-git`'s `locks/<state-path>` branches, and the `IaC Agent` node's single executor queues the Jenkins jobs behind one another. The accepted loss: hand-run Ansible on srviac no longer interlocks with a running job (terraform still does, via lock branches). Each call is a fresh container and clone, so compose multi-step work into a single `iac -c '…'` rather than chaining calls.
 
-Inside the container `ansible-playbook` and friends are on `$PATH` directly — `iac-impl` runs `poetry install` and resolves the venv via `poetry env info --path`, so callers don't need `poetry run`.
+Inside the container `ansible-playbook` and friends are on `$PATH` directly, from the venv baked into the image at build time (`/app/.venv`, from this repo's `pyproject.toml`/`poetry.lock`) — `iac-impl` installs nothing at runtime, so callers don't need `poetry run`.
 
 Inside the container, `iac-impl` (bind-mounted in from this tree's `bin/iac-impl`):
 
 1. Parses `/etc/iac/secrets.yaml` — exports `env:` entries; writes `files:` entries at their declared mode.
 2. Clones `pvginkel/Ansible` into `/work/`.
 3. Starts the `terraform-backend-git` daemon on `127.0.0.1:6061`; terraform reaches state via the `backend.tf` http block in `terraform/{prd,scratch}/`. The daemon does the git pull/push against `pvginkel/TerraformState` itself and encrypts state at rest with sops + age.
-4. Runs `poetry install --no-root` in `/work/Ansible/ansible/` so `ansible-playbook` is on `$PATH`.
+4. Warns (doesn't fail) when `/work/Ansible/poetry.lock` differs from the image's baked `/app/poetry.lock`: the baked venv may then lack a dependency until the `iac` image rebuild lands.
 5. Exec's `bash` (interactive) or `sh -c "$SCRIPT"` (the `-c` form).
 
 ## Operator workstation parity
