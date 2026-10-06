@@ -85,7 +85,9 @@ cexec iac kubectl -n kyverno-prd get configmap memory-requests -o json | jq '.da
 ```
 
 A run ends with `table kyverno-prd/memory-requests: <n> rows, <n> new, <n> gone`, or with
-`table kyverno-prd/memory-requests left as it is: <reason>` and exit 1.
+`table kyverno-prd/memory-requests left as it is: <reason>` and exit 1 when Prometheus returned no
+rows or too few. A run that Prometheus or the API server fails ends in a Python traceback instead,
+with the table left as it is too.
 
 ### Refreshing it by hand
 
