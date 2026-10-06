@@ -173,7 +173,7 @@ and the latest backup's Raft snapshot is restored into it.
    cluster has no AppRole auth to prove a staged backup secret_id
    against, so it prints `Backup AppRole secret_id not delivered`, or
    `OpenBao backup pipeline not configured` when none is staged.
-   Step 5 delivers it.
+   Step 7 delivers it.
 
 4. **Restore the snapshot.** Copy `raft.snap` to `srvvault1`, then:
 
@@ -184,14 +184,91 @@ and the latest backup's Raft snapshot is restored into it.
 
    The restore replaces cluster state with the snapshot's. The fresh
    root token is overwritten in the process; from here authenticate
-   with the `openbao-admin` AppRole (its creds are in the snapshot,
-   unchanged) or mint a root token from the Shamir recovery keys.
-   The fresh init file at `/dev/shm/openbao-init.json` is now stale —
-   leave it; tmpfs clears on reboot and the keys it holds are inert.
+   as the `openbao-admin` AppRole (step 5). The fresh init file at
+   `/dev/shm/openbao-init.json` is now stale — leave it; tmpfs clears
+   on reboot and the keys it holds are inert.
 
-5. **Converge again, to deliver the backup credential.** The rebuilt
+   Every AppRole is back with the secret_ids it held at the snapshot.
+   A consumer outside OpenBao keeps the secret_id it was last given,
+   so a consumer whose AppRole was rotated after the snapshot is
+   rejected. Steps 5 to 8 give each rejected consumer a fresh one:
+   `openbao-admin` first, because the playbook logs in with it; then
+   `iac-agent` by the playbook, because srviac resolves the rotator's
+   own credentials through it; then the rest with the rotator. The
+   rotator's own pair needs nothing: it lives in
+   `kv/iac/rotator-approle`, restored together with its AppRole.
+
+5. **The admin AppRole.** From the Ansible checkout:
+
+   ```bash
+   . scripts/bao-login.sh
+   ```
+
+   `bao-login: BAO_ADDR=…` means the inventory's `openbao-admin`
+   secret_id still logs in: go to step 6. `approle login failed`
+   means the snapshot predates the admin's last rotation. The
+   `openbao` role then skips every auth task without failing, so the
+   playbook runs below would deliver nothing. Mint a root token from
+   the Shamir recovery keys in Roboform, 3 of 5:
+
+   ```bash
+   export BAO_ADDR=https://secrets
+   bao operator generate-root -init                  # prints the nonce and the OTP
+   bao operator generate-root -nonce=<nonce>         # three times, one recovery key each, at its prompt
+   export BAO_TOKEN=$(bao operator generate-root -decode=<encoded token> -otp=<otp>)
+   ```
+
+   `drop` destroys every secret_id an AppRole holds. Run it only for
+   an AppRole whose consumer is rejected: then no consumer holds any
+   of them, and the rotator's mint for `openbao-admin`, `iac-agent`,
+   `jenkins` and `backup` fails while the role holds more than one.
+   Drop the admin's, then mint a fresh one straight into the vault
+   format:
+
+   ```bash
+   drop() { for a in $(bao list -format=json "auth/approle/role/$1/secret-id" | jq -r '.[]'); do
+       bao write "auth/approle/role/$1/secret-id-accessor/destroy" secret_id_accessor="$a"; done; }
+   drop openbao-admin
+   bao write -f -field=secret_id auth/approle/role/openbao-admin/secret-id \
+       | (cd ansible && poetry run ansible-vault encrypt_string --stdin-name openbao_admin_secret_id)
+   ```
+
+   Replace the `openbao_admin_secret_id: !vault |` block in
+   `ansible/inventories/prd/group_vars/openbao.yml` with the printed
+   one, commit and push. Then retire the root token and log in as the
+   admin:
+
+   ```bash
+   bao token revoke -self
+   unset BAO_TOKEN && . scripts/bao-login.sh
+   ```
+
+   Steps 6 to 8 use `drop` under this admin session.
+
+6. **The `iac-agent` AppRole.**
+
+   ```bash
+   ssh ansible@srviac 'sudo iac -c true'
+   ```
+
+   Exit 0 means srviac's `OPENBAO_SECRET_ID` still logs in: go to
+   step 7. A failed OpenBao login means `iac-agent` was rotated after
+   the snapshot. Drop its secret_ids and mint it alone:
+
+   ```bash
+   drop iac-agent
+   cd ansible && poetry run ansible-playbook playbooks/site-openbao.yml \
+       -e openbao_rotate_secret_ids=true -e '{"openbao_rotate_secret_id_roles": ["iac-agent"]}'
+   ```
+
+   Put `tmp/openbao-credentials/iac-agent-secret-id` into srviac's
+   `/etc/iac/secrets.yaml` as the `OPENBAO_SECRET_ID` literal, wipe
+   the staging files with the `shred -u` the run's closing message
+   prints, and run `iac -c true` again.
+
+7. **Converge again, to deliver the backup credential.** The rebuilt
    nodes hold no backup secret_id: step 3 had no `backup` AppRole to
-   prove one against. This converge authenticates with the restored
+   prove one against. This converge authenticates as the
    `openbao-admin` AppRole, re-stages the restored `backup` role_id,
    and logs in with the staged secret_id before installing it:
 
@@ -210,29 +287,51 @@ and the latest backup's Raft snapshot is restored into it.
      run completes with `OpenBao backup pipeline not configured`, and
      no timer is installed.
 
-   For either of the last two, converge once more with the rotation
-   flag:
+   For either of the last two, drop the `backup` secret_ids (no node
+   holds one) and converge once more, minting for `backup` alone:
 
    ```bash
+   drop backup
    cd ansible && poetry run ansible-playbook playbooks/site-openbao.yml \
-       -e openbao_rotate_secret_ids=true
+       -e openbao_rotate_secret_ids=true -e '{"openbao_rotate_secret_id_roles": ["backup"]}'
    ```
 
    It mints and stages a fresh `backup` secret_id, which every node
-   proves and receives. It also mints a fresh secret_id for the
-   other five AppRoles and revokes none, so every consumer keeps its
-   restored pair. The credentials it stages for capture need no
-   redistribution; wipe them with the `shred -u` its closing message
-   prints. The unused secret_ids stay valid until
-   `accessor_cleanup.py` destroys them (§5).
+   proves and receives. Once the nodes hold it, delete the staged
+   copy: the rotator's next `backup` rotation makes it stale, and a
+   converge from a checkout holding a stale one fails at its login.
 
-6. **Verify.**
+   ```bash
+   shred -u tmp/openbao-backup-secret-id
+   ```
+
+8. **The rotations made since the snapshot.** The restore undid in
+   OpenBao every rotation made after the snapshot, while the
+   consumers may hold the newer values. The nightly job's log lists
+   them. In each `IaC/Scheduled Secret Rotation` build since the
+   snapshot's date, a plan starts with a line
+   `── <kind> plan of <leaf> (<keys>) · …`, and a plan that ran ends
+   in `rotated`. Add the rotations made by hand since, with
+   `secret-rotator run <leaf>`, which no log lists: the vendor tokens
+   pasted since are among them, and the store holds their
+   predecessors. Run each again, on srviac:
+
+   ```bash
+   ssh -t ansible@srviac "sudo iac -c 'secret-rotator run <leaf>'"
+   ```
+
+   For an AppRole leaf, `rotator/approle/<role>`, run `drop <role>`
+   first: its consumer holds a secret_id the store does not know.
+   Steps 5 to 7 have done `openbao-admin`, `iac-agent` and `backup`,
+   and `iac/rotator-approle` needs nothing, so skip those.
+
+9. **Verify.**
 
    ```bash
    export BAO_ADDR=https://secrets
    bao operator raft list-peers      # three voters
    bao secrets list                  # kv/ present
-   bao policy list                   # the six role policies present
+   bao policy list                   # the seven role policies present
    bao kv get kv/<a known path>      # a real secret reads back
    ```
 
@@ -246,9 +345,10 @@ and the latest backup's Raft snapshot is restored into it.
    Expect `openbao-backup: backup uploaded (…)`. A failed run names
    the call that broke.
 
-   Consumers (iac-agent, Jenkins, ESO) need **no** credential
-   redistribution — their AppRole `role_id`/`secret_id` pairs are
-   part of the restored state.
+   Each consumer logs in again: `iac -c true` on srviac exits 0
+   (iac-agent), ClusterSecretStore `openbao-prd` reads `Valid` (eso),
+   a `withVault` build passes (jenkins), and the backup run above
+   uploaded (backup).
 
 ## 4 — Break-glass: read a secret without a cluster
 
@@ -267,72 +367,144 @@ through the snapshot (§3).
 
 ## 5 — Rotation
 
+SecretRotator rotates the secrets of the `kv` mount, by the
+annotations of
+[`secret-rotation/design.md`](../../../AnsibleSpecs/secret-rotation/design.md)
+§5 on each leaf (below). Every night at 04:30,
+`IaC/Scheduled Secret Rotation` runs it on srviac: it rotates each
+key that is due, rolls the new value out to its consumers and stamps
+the key. Its findings and failures go on one standing YouTrack card
+tagged `Secret Rotator`, and to Telegram. Its switches (`dry_run`,
+`paused`, `kinds_enabled`, `max_rotations_per_run`) are committed in
+SecretRotator's `src/secret_rotator/switches.yaml`. Disabling the job
+stops it at once. Bringing it up is
+[`secret-rotator-go-live.md`](secret-rotator-go-live.md).
+
+Its commands run on srviac, because its AppRole is bound to srviac's
+address. The VS Code tasks `secret-rotator run (srviac)` and
+`secret-rotator plan (srviac)` run the last two:
+
+```bash
+ssh -t ansible@srviac "sudo iac -c 'secret-rotator audit'"             # the whole mount against the annotation contract
+ssh -t ansible@srviac "sudo iac -c 'secret-rotator annotate'"          # dry run: the annotations the seed adds or changes
+ssh -t ansible@srviac "sudo iac -c 'secret-rotator annotate --apply'"  # writes them, and creates the marker leaves
+ssh -t ansible@srviac "sudo iac -c 'secret-rotator plan <leaf>'"       # the leaf's plans: when each falls due, every step
+ssh -t ansible@srviac "sudo iac -c 'secret-rotator run <leaf>'"        # runs one of them, its operator steps as prompts
+```
+
+`run <leaf>` rotates a key by hand. It is also the only way a plan
+with an operator step runs: a `manual` key, and the `iac-agent` and
+`openbao-admin` AppRoles. The nightly run starts no such plan; it
+marks the leaf manual-due and says so in Telegram. A plan that failed
+stays stopped where it failed; `run <leaf>` offers Retry, Abort (roll
+back) and Details. A value is typed at a hidden prompt, never on a
+command line.
+
 - **Backup upload token** — `terraform taint
   homelab_backup_credential.openbao`, then re-apply Terraform and
   `site-openbao.yml`. The role rewrites `/etc/openbao/backup-token`.
-- **AppRole secret-ids** — re-run `site-openbao.yml` with
-  `-e openbao_rotate_secret_ids=true`; recapture the printed creds
-  per the role README §First-apply procedure. The run mints a new
-  secret_id for each of the six AppRoles and destroys none. Once
+- **AppRole secret-ids** — the rotator's `approle` kind rotates the
+  seven AppRoles, from `iac/rotator-approle` for its own and from the
+  marker leaves `rotator/approle/<role>` for the rest. It mints a
+  secret_id that expires after four times the role's interval, and
+  never sooner than 90 days. It delivers the new secret_id, proves it
+  with a login, then destroys the one the consumer held. Every
+  AppRole keeps `secret_id_ttl` `0`. A role's first secret_id, and
+  recovery (§3), go through the playbook instead:
+
+  ```bash
+  cd ansible && poetry run ansible-playbook playbooks/site-openbao.yml \
+      -e openbao_rotate_secret_ids=true -e '{"openbao_rotate_secret_id_roles": ["<role>"]}'
+  ```
+
+  It mints a secret_id that never expires, for each role listed (all
+  seven without the list), and destroys none. Recapture the staged
+  creds per the role README §First-apply procedure. While `jenkins`,
+  `backup`, `iac-agent` or `openbao-admin` holds more than one
+  secret_id, the rotator's mint for it fails before minting. Once
   every consumer holds its new secret_id,
   `scripts/rotation/accessor_cleanup.py` destroys each accessor that
-  no consumer holds: run it dry first, then with `--apply`
-  ([`scripts/rotation/README.md`](../../scripts/rotation/README.md)).
-  How long a newly minted secret_id lives is its AppRole's
-  `openbao_<approle>_secret_id_ttl`, which defaults to `0` (never
-  expires).
+  no consumer holds: run it dry first, then with `--apply` (its
+  header gives the rest).
 - **Static seal key** — generate a new key, bump
   `openbao_seal_current_key_id`, and follow the seal-rekey path; the
   old key id must stay declared until every node has migrated.
 
-### Custom metadata: the rotation annotations and `rotated_at`
+### Custom metadata: the rotation annotations and the per-key stamps
 
 OpenBao KV-v2 supports per-path `custom_metadata` — string→string
 pairs that travel alongside the secret data but are invisible to
 consumers (ESO, the Jenkins Vault plugin, the iac-impl `!bao`
-resolver). The rotation annotations of
-[`secret-rotation/design.md`](../../../AnsibleSpecs/secret-rotation/design.md)
-§4 live there: the leaf's kind, its interval, how a new value is
-activated, and per-key overrides. `scripts/rotation/annotate.py`
-writes them from `scripts/rotation/seed.yaml`. It also checks the
-whole mount against that contract, which flags a leaf that has no
-annotations
-([`scripts/rotation/README.md`](../../scripts/rotation/README.md)).
-[`openbao-hygiene-cutover.md`](openbao-hygiene-cutover.md) is the
-one-off cutover that first applies them. The same cutover deletes the
-orphan leaves and destroys the stale secret_id accessors.
+resolver). The rotator keeps two things there.
+
+**The annotations**: the leaf's kind, its interval, how a new value
+is activated, and per-key overrides. Their values come from
+[`secret-rotation/catalog.md`](../../../AnsibleSpecs/secret-rotation/catalog.md).
+`secret-rotator annotate --apply` writes them by metadata patch from
+SecretRotator's seed, `src/secret_rotator/seed.yaml`, which is
+transcribed from the catalog: a change to a catalog row is made in
+the seed too. `secret-rotator audit`, and every nightly run, check
+the whole mount against the contract; a leaf or key without its
+annotations is a finding on the standing card.
+[`openbao-hygiene-cutover.md`](openbao-hygiene-cutover.md) first
+applied them, on 2026-10-04.
+
+**The stamps**, one per key:
 
 | Key | Meaning |
 |---|---|
-| `rotated_at` | ISO-date the value was last rotated to a freshly-minted secret. The leaf is exempt from the next slice-close rotation pass — its value isn't in any transcript or scratch file. |
+| `rotated_at_<key>` | ISO date (`YYYY-MM-DD`) the key was last rotated. The key is due at its stamp plus its interval: `interval_<key>`, else the leaf's `rotation_interval`. A key with no stamp is due at once. |
+| `rotator_*` | The rotator's state for the leaf: the plan in flight (`rotator_step`), its last outcome (`rotator_status`), a minted credential's expiry (`rotator_expires_at`). The rotator writes them; never by hand. |
 
-Apply pattern (after a `bao kv put` of a freshly-minted value):
+There is no leaf-level `rotated_at`. A rotation stamps exactly the
+keys it rotated, in one metadata patch. A key that is a copy or
+`none` carries no stamp: a copy is written with its primary.
+
+A key rotated outside the rotator gets its stamp the same way, after
+the `bao kv put` of its new value:
 
 ```
-bao kv metadata patch -mount=kv -custom-metadata=rotated_at="$(date -I)" <path>
+bao kv metadata patch -mount=kv -custom-metadata=rotated_at_<key>="$(date -I)" <leaf>
 ```
 
 Never use `bao kv metadata put` here. It replaces the leaf's whole
-custom metadata, so the leaf loses its rotation annotations.
+custom metadata, so the leaf loses its annotations and its stamps.
 
-Inspect with `bao kv metadata get -mount=kv <path>` or, in bulk:
+Inspect one leaf with `secret-rotator plan <leaf>`, which says when
+each key falls due, or the stamps in bulk:
 
 ```
 for leaf in $(bao kv list -format=json kv/iac | jq -r '.[]'); do
   printf '%-40s ' "kv/iac/$leaf"
   bao kv metadata get -mount=kv -format=json "iac/$leaf" \
-    | jq -r '.data.custom_metadata.rotated_at // "(no rotated_at)"'
+    | jq -c '.data.custom_metadata // {} | with_entries(select(.key | startswith("rotated_at_")))'
 done
 ```
 
-Inverse: a leaf without `rotated_at` carries a value that was
-transcript-exposed during migration (Jenkins-credentials-dump,
-HelmCharts configs, the iac-impl `secrets.yaml` capture during the
-runtime-secrets-sweep slice). Rotate at slice close, then set
-`rotated_at` to today's date.
+At go-live no key had a stamp, the values exposed during the
+migration among them (Jenkins-credentials-dump, HelmCharts configs,
+the iac-impl `secrets.yaml` capture during the runtime-secrets-sweep
+slice). The rotator's first pass rotates them, at most
+`max_rotations_per_run` a night, kind by kind as each is enabled.
+
+#### A new leaf
+
+A leaf written to the store also needs:
+
+1. a catalog row;
+2. its entry in SecretRotator's `src/secret_rotator/seed.yaml`, and
+   its key names in `src/secret_rotator/store-keys.json`, which
+   SecretRotator's tests hold the seed to. A push to SecretRotator's
+   `main` reaches srviac once its green build has rebuilt the `iac`
+   image;
+3. `secret-rotator annotate --apply` on srviac, once the leaf exists.
+
+Until the apply has run, the audit reports the leaf. Its keys have no
+stamp, so they are due at once: stamp a freshly minted value with
+today's date, as above, unless it should rotate at the next run.
 
 `notes` is freeform context — where to re-mint, what consumer it
-serves, scope grants on a PAT. The check requires `notes` on a leaf
+serves, scope grants on a PAT. The audit requires `notes` on a leaf
 whose interval is `never`. Where the seed carries a leaf's `notes`,
 change them in the seed.
 
@@ -428,8 +600,10 @@ Timings from the recovery drills:
 - **A converge fails at `Refuse a staged backup secret_id the backup
   AppRole rejects`** — the checkout's `tmp/openbao-backup-secret-id`
   is a leftover the live `backup` AppRole no longer accepts, and
-  nothing was installed. Converge with
-  `-e openbao_rotate_secret_ids=true`, at the cost §3 step 5 names.
+  nothing was installed. When the rotator has delivered a `backup`
+  secret_id since it was staged, delete the file: the nodes keep the
+  one they hold. Otherwise mint one for `backup` alone, as §3 step 7
+  does.
 - **A nightly backup failed** — once two nights in a row have not
   landed a backup, `BackupOverdue` fires for the `openbao` scope;
   [`backup-freshness.md`](backup-freshness.md) §1 is its triage.
@@ -437,7 +611,8 @@ Timings from the recovery drills:
   the call that broke, with its HTTP status and OpenBao's error text.
   `POST auth/approle/login failed: HTTP 400: invalid role or secret
   ID` means the AppRole rejected the nodes'
-  backup credentials: converge with the rotation flag, as above. An
+  backup credentials: deliver a fresh one with
+  `secret-rotator run rotator/approle/backup` on srviac (§5). An
   upload that fails with `HTTP 401` has a bad upload token: rotate it
   per §5.
 - **Snapshot endpoint returns 403** — the `backup` AppRole policy is

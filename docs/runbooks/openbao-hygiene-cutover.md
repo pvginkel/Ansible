@@ -13,13 +13,17 @@ Elasticsearch superuser password out of git. In order, it:
 The operator runs every step, from top to bottom. Each step gives the commands, what to hand back,
 and the reading that must hold before the next step starts.
 
+The operator ran steps 1–14 on 2026-10-04. The two follow-ups at the end remain, carried by
+Operator Action ANS-234.
+
 Context:
 
 - Slice 044's [`plan.md`](../../../AnsibleSpecs/slices/completed/044_openbao_hygiene_before_rotation/plan.md)
   holds the rulings behind every step (S1–S13, D1, B1–B3, A2).
 - [`secret-rotation/design.md`](../../../AnsibleSpecs/secret-rotation/design.md) and
   [`catalog.md`](../../../AnsibleSpecs/secret-rotation/catalog.md).
-- [`scripts/rotation/README.md`](../../scripts/rotation/README.md) describes the tools.
+- `scripts/rotation/accessor_cleanup.py`'s header describes that tool. The annotation tool that
+  steps 13 and 14 ran is SecretRotator's `annotate` and `audit` now ([openbao.md](openbao.md) §5).
 
 Facts are as of 2026-10-04.
 
@@ -181,7 +185,6 @@ k -n elasticsearch-prd get pods,jobs
 curl -sS -H @<(gitpw | basic elastic) "$ES/_security/user" | jq -r 'keys[]'
 for u in elastic kibana_system logstash_internal; do gitpw | esauth $u; done
 for l in elastic kibana-system kibana-encryption-key; do bao kv metadata get -mount=kv eso/prd/elasticsearch/prd/$l </dev/null 2>&1 | head -1; done
-scripts/rotation/annotate.py | grep -E '^(absent|not in the seed|would patch)'
 ```
 
 **Hand back:** the full output. Note the Elasticsearch and Kibana pod names, because step 5 must
@@ -197,9 +200,6 @@ leave both pods as they are.
 - The logins read `elastic 200`, `kibana_system 200` and `logstash_internal 200`: the git value is
   live for all three. Steps 6, 9 and 10 end that.
 - Each of the three new leaves reads `No value found at kv/metadata/…`.
-- The annotation dry run lists the three new leaves as `absent from the store, skipped`.
-  - Its `not in the seed:` lines name exactly the 13 orphans and the two composites of step 11.
-  - If `jenkins/keycloak-da-admin` has already been deleted, that leaf is a fourth `absent` line.
 
 ## 2 — The `openbao` converge (D1, B1)
 
@@ -696,46 +696,14 @@ scripts/rotation/accessor_cleanup.py $roles
 
 ## 13 — The annotations
 
-```sh
-scripts/rotation/annotate.py
-```
-
-**Hand back:** the full output, which lists every leaf with the keys it would add or change.
-
-**Reading.**
-
-- The last line reads `would patch (dry run; --apply writes) 106 leaf(s); 0 unchanged, 0 absent
-  from the store, 0 live leaf(s) not in the seed`.
-- Once `jenkins/keycloak-da-admin` has been deleted, the count is 105, plus the line
-  `absent from the store, skipped: jenkins/keycloak-da-admin`.
-- A `not in the seed:` line names a leaf this cutover should have deleted: stop.
-
-```sh
-scripts/rotation/annotate.py --apply
-scripts/rotation/annotate.py | tail -n 1
-```
-
-**Hand back:** the full output.
-
-**Reading.**
-
-- The apply prints `patching 106 leaf(s); …`, then one `patched <leaf>` line per leaf, and exits 0.
-- The second dry run reads `would patch (dry run; --apply writes) 0 leaf(s); 106 unchanged, …`.
-- `stopped at <leaf>: OpenBao refused the write … lacks the patch capability …` means step 2's
-  grant is not on this token. Re-source `scripts/bao-login.sh`, read
-  `bao policy read openbao-admin`, and run the apply again. It patches only what is left.
+Ran on 2026-10-04 with the annotation tool this repo held then, which SecretRotator has since taken
+over as `secret-rotator annotate` ([openbao.md](openbao.md) §5). The apply patched 106 leaves, with
+0 absent from the store and 0 not in the seed, and the dry run after it read 0 to patch.
 
 ## 14 — The check, last
 
-```sh
-scripts/rotation/annotate.py --check; echo "exit $?"
-```
-
-**Hand back:** the full output.
-
-**Reading:** `0 finding(s) on 0 of 106 leaf(s)` and `exit 0` (V10), or 105 once `jenkins/keycloak-da-admin` is deleted.
-A finding line names a leaf and a key. The fix goes into the seed or the store; then run steps 13
-and 14 again.
+Ran on 2026-10-04 with the same tool, now `secret-rotator audit`. It read `0 finding(s) on 0 of 106
+leaf(s)` and exit 0 (V10).
 
 The cutover is done. `kv` holds only live leaves, every one annotated. The Elasticsearch superuser
 password left git, and its value in git history authenticates as no user. ElasticsearchDeploy's

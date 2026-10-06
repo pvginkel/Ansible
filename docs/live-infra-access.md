@@ -189,6 +189,6 @@ shred -u /tmp/kv.json
 A leaf's custom metadata is not secret material, so it is fine inline:
 `bao kv metadata patch -custom-metadata=<key>=<value>`. Never use `bao kv metadata put`, which
 replaces the leaf's whole custom metadata and so drops its rotation annotations. A new leaf needs
-those annotations too: [`scripts/rotation/README.md`](../scripts/rotation/README.md) § A new leaf.
+those annotations too: [`runbooks/openbao.md`](runbooks/openbao.md#a-new-leaf) §5, "A new leaf".
 
 Reading values is a different matter — see `CLAUDE.md`'s "What Claude doesn't read on its own".
