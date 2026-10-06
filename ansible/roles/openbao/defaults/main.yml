@@ -119,8 +119,9 @@ openbao_rotator_token_max_ttl: 1h
 # AppRole secret_id expiry: the secret_id_ttl each role carries, the
 # lifetime OpenBao gives a secret_id minted for it. 0 = never expires.
 # Sent in the role write and compared in its drift check, so the role
-# converges it. A role's nonzero secret_id_ttl caps the per-secret_id
-# ttl the SecretRotator mints with.
+# converges it. Under a role's nonzero secret_id_ttl, OpenBao refuses
+# (HTTP 400) any mint whose ttl exceeds it, the SecretRotator's
+# 90 d / 360 d mints included.
 openbao_admin_secret_id_ttl: 0
 openbao_iac_agent_secret_id_ttl: 0
 openbao_jenkins_secret_id_ttl: 0
