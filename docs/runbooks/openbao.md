@@ -372,7 +372,7 @@ through the snapshot (§3).
 SecretRotator rotates the secrets of the `kv` mount, by the
 annotations of
 [`secret-rotation/design.md`](../../../AnsibleSpecs/secret-rotation/design.md)
-§5 on each leaf (below). Every night at 04:30,
+§5 on each leaf (below). Every night at 05:30,
 `IaC/Scheduled Secret Rotation` runs it on srviac: it rotates each
 key that is due, rolls the new value out to its consumers and stamps
 the key. Its findings and failures go on one standing YouTrack card

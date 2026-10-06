@@ -339,13 +339,13 @@ curl -fsS -u "$JENKINS_USER:$JENKINS_TOKEN" "$job/config.xml" | grep -A1 TimerTr
 - `SUCCESS`.
 - `secret-rotator run, commit <sha>` names the commit `prd` held, then
   `secret-rotator run, <date> (dry run): kinds random, at most 10 rotation(s)`.
-- The trigger's spec reads `30 4 * * *`.
+- The trigger's spec reads `30 5 * * *`.
 - An open ANS card tagged `Secret Rotator` exists, marked as a dry run, and Homelab Alerts has the
   rotator's digest, marked as a dry run.
 
 ## The dry-run week
 
-The job runs every night at 04:30 in dry run. Each morning, read the night's console, the card and
+The job runs every night at 05:30 in dry run. Each morning, read the night's console, the card and
 the digest. They show the plans the run would have executed, each with its steps, and the manual
 rotations that are due. A finding on the card is fixed in the seed or in the store
 ([`openbao.md`](openbao.md) §5). Go live after a week whose nights raised nothing unexplained.
@@ -359,8 +359,13 @@ has rebuilt the image. The next run's first line names the commit it runs.
 1. **`dry_run: false`**, with `kinds_enabled: [random]` and `max_rotations_per_run: 10` as
    committed. From the next night on, the run rotates at most 10 due `random` plans a night, so the
    first pass drains over the nights after.
-2. **One kind per commit**, added to `kinds_enabled` once the kinds before it rotate cleanly.
-3. **Before `approle`**, `jenkins`, `backup`, `iac-agent` and `openbao-admin` each hold at most one
+2. **`manual` next**, in the commit after `random`'s first clean night. It executes nothing, since a
+   plan with an operator step never runs at night. What it turns on is the manual-due status, the
+   Telegram lines and the card lines for the manual rotations, which are all due at go-live because
+   none has a stamp.
+3. **One kind per commit** after that, added to `kinds_enabled` once the kinds before it rotate
+   cleanly.
+4. **Before `approle`**, `jenkins`, `backup`, `iac-agent` and `openbao-admin` each hold at most one
    secret_id. The rotator cannot read which one their consumers hold, so its mint for a role with
    more fails before it mints:
 
