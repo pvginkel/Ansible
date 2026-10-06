@@ -20,6 +20,10 @@ repos:
   # SecretRotator: the OpenBao rotation platform, run nightly on srviac as an
   # `iac` pipeline (AnsibleSpecs secret-rotation/design.md).
   - url: https://github.com/pvginkel/SecretRotator
+  # SOPs: the operator's standard operating procedures from every project, built
+  # with a mirror of this repo's docs/runbooks into the GitHub Pages site
+  # https://pvginkel.github.io/SOPs/ (ANS-239).
+  - url: https://github.com/pvginkel/SOPs
 
 capabilities:
   github: rw

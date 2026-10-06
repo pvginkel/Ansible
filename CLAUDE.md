@@ -11,6 +11,12 @@ relevant slice under [`/work/AnsibleSpecs/slices/`](../AnsibleSpecs/slices/). Op
 are in [`docs/runbooks/`](docs/runbooks/). If a decision changes, update `decisions.md` rather than
 leaving a stale note elsewhere.
 
+**SOPs go in [`/work/SOPs`](../SOPs/)**, from any project: a procedure the operator does by hand
+when a trigger fires ("after a Claude Code release", "before powering off a PVE host"). It is a
+public repo, published as a static site at https://pvginkel.github.io/SOPs/ so it stays readable
+with the homelab down; its README has the format. Runbooks stay in `docs/runbooks/`: the site
+mirrors them at build time, and an SOP links to one instead of copying its steps.
+
 ## Your role: do the work, slice the managed changes
 
 This repo overrides the stock orchestrator posture. **Most of the work here is orchestrator work**
@@ -79,8 +85,9 @@ the `releases` AppProject and the `argocd-hooks` namespace),
 (the architecture-as-code contract: `pipeline-producers.yaml`, the element/relation schema, the
 shared product catalog and the producer manual),
 `JenkinsPipelineUtils` (the shared library every Jenkinsfile in the estate loads, and the source
-of the Jenkins pipeline style guide served at `https://pipelines.home/docs/`) and `SecretRotator`
-(the OpenBao rotation platform, run nightly on srviac as an `iac` pipeline; YouTrack `SR`). The set is
+of the Jenkins pipeline style guide served at `https://pipelines.home/docs/`), `SecretRotator`
+(the OpenBao rotation platform, run nightly on srviac as an `iac` pipeline; YouTrack `SR`) and `SOPs`
+(the standard operating procedures and their GitHub Pages site, above). The set is
 declared in `.kubecoder/config.yaml`; adding an ordinary entry needs no restart — clone it to the
 path the entry resolves to, run `kc project setup` in it, and add it to `Ansible.code-workspace` in
 the same commit (a `shared: true` entry is mounted, so it takes `kc env restart` and is never
