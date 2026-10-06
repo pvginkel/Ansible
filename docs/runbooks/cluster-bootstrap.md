@@ -172,9 +172,20 @@ need them. `--part upstream` and `--part companion` split an upstream app in two
     else in the registry deploys in the same pass. Done when every Application is Synced and
     Healthy ([`cold-boot.md`](cold-boot.md) step 8).
 
-Afterwards: KubeCoder's cluster identities need re-minting after a full cluster loss (the
-KubeCoder repo's `docs/operations/cluster-identity-remint.md`), and the Argo `kubecoder`
-account's token was re-minted at step 3.
+Afterwards:
+
+- KubeCoder's cluster identities need re-minting after a full cluster loss (the KubeCoder repo's
+  `docs/operations/cluster-identity-remint.md`), and the Argo `kubecoder` account's token was
+  re-minted at step 3.
+- `kubernetes.home` reaches the microk8s dashboard only through nginx's annotations on the addon's
+  Service, which no app applies (NginxDeploy's README, "kubernetes.home"). Re-add them:
+
+  ```sh
+  kubectl $KC patch service kubernetes-dashboard -n kube-system --patch '{"metadata": {"annotations": {
+    "nginx.webathome.org/server-name": "kubernetes.home, kubernetes",
+    "nginx.webathome.org/enable-ssl": "yes",
+    "nginx.webathome.org/target-port": "443/ssl"}}}'
+  ```
 
 ## charts.home broken on a running cluster
 
