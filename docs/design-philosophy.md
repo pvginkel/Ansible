@@ -58,11 +58,11 @@ document down to what remains operationally useful.
 
 The Ansible roles and the Terraform have no runnable test suite. `kc project test` runs yamllint,
 ansible-lint and `terraform fmt -check` over them — that is a syntax and style gate, and passing it
-proves nothing about behaviour. `support/recommend-resources` carries unit
-tests, which the root component's `test` runs. The Jenkins build tracker `track_build.py` and its
-unit tests live in DockerImages `kube-coder-dev-local-home/`, not here. Behaviour is proven by the
-operator applying the change against real infrastructure and reporting the output back. Never
-describe a change as verified on the strength of a green lint.
+proves nothing about behaviour. The root component's `test` runs the repo's Python unit tests
+(`ansible/roles/dhcp_probe/tests`, `scripts/rotation`, `.vscode`). The Jenkins build tracker
+`track_build.py` and its unit tests live in DockerImages `kube-coder-dev-local-home/`, not here.
+Behaviour is proven by the operator applying the change against real infrastructure and reporting
+the output back. Never describe a change as verified on the strength of a green lint.
 
 The full picture is in [slice-testing-strategy.md](slice-testing-strategy.md).
 

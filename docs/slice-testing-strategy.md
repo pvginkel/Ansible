@@ -6,17 +6,18 @@ execute it".
 **The Ansible roles and the Terraform have no runnable test suite, and that is a decision, not a
 gap.** What Ansible and Terraform do is converge real machines; the only honest proof is a run
 against them, and those runs are the operator's. So this procedure is short, and it ends with work
-owed to the operator rather than a green tick. One Python tool under `support/`,
-`recommend-resources`, is the exception: it carries unit tests.
+owed to the operator rather than a green tick. The Python beside them is the exception: the root
+component runs the unit tests in `ansible/roles/dhcp_probe/tests`, `scripts/rotation` and
+`.vscode`.
 
 ## 1. The gates
 
 `kc project test` across every repo the slice touched. In this repo that is yamllint +
 ansible-lint over `ansible/`, `terraform fmt -check` over `terraform/`, the architecture
-validator, and the root component's unit tests of those two tools. Red is a finding; route it per
-the bar in your dispatch.
+validator, and the root component's unit tests. Red is a finding; route it per the bar in your
+dispatch.
 
-Treat a green gate as what it is: syntax and style, and those two tools' own logic. It says
+Treat a green gate as what it is: syntax and style, and the unit-tested Python's own logic. It says
 nothing about whether the role converges, whether it is idempotent, or whether it does the right
 thing. **Never record a verification item as satisfied on the strength of a green gate alone.**
 

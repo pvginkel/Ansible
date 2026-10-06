@@ -45,7 +45,11 @@ The kubectl lines work from KubeCoder (`cexec iac kubectl --kubeconfig ~/.kube/c
    so it joins only after step 6. The apiserver VIP is
    10.1.0.37:16443. `kubectl get nodes` should show srvk8s1–3 Ready. Check that the Ceph CSI
    nodeplugins are Running (`-n ceph-csi-rbd-prd`, `-n ceph-csi-cephfs-prd`): without them no PV
-   mounts.
+   mounts. Check that Kyverno's admission controller is Ready, one replica per node on srvk8s1–3
+   (`kubectl -n kyverno-prd get pods -l app.kubernetes.io/component=admission-controller`): until
+   a replica answers, every new pod its policy covers is refused
+   ([`kyverno.md`](kyverno.md#what-it-does-to-pod-creation)), `dnsmasq-prd`'s and `registry-prd`'s
+   included. Its images come from Kyverno's own registries, not `registry:5000`.
 5. **Registry**: `registry-prd`, LB 10.2.1.9, ClusterIP 172.17.0.3. The nodes pin that ClusterIP
    in `/etc/hosts`, so image pulls don't wait on dnsmasq. Its storage is the static PV
    `registry-pv`. `curl -s http://10.2.1.9:5000/v2/_catalog` answers.
@@ -86,6 +90,10 @@ kubectl -n dnsmasq-prd patch svc dhcp -p '{"spec":{"publishNotReadyAddresses":tr
 The chart pins the field to `false`, so Argo shows the patch as drift. With `selfHeal` off it
 stays until the next DnsmasqDeploy sync, which reverts it. Don't push DnsmasqDeploy while DHCP
 depends on the patch. Once the pod is Ready, sync or patch it back.
+
+**New pods refused by Kyverno's webhook.** Rollouts and Jobs create nothing, and their
+`FailedCreate` events name `mpol.validate.kyverno.svc-fail`. Delete the webhook registration as
+[`kyverno.md`](kyverno.md#break-glass) says; Kyverno registers it again when it comes back.
 
 **A pinned image missing from the registry** (Keycloak's digest on 2026-09-25): the pod sits in
 `ImagePullBackOff` with `NotFound`. Repin the deploy repo to the image's newest per-build tag,
