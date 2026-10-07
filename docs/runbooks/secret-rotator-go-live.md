@@ -36,15 +36,18 @@ Context:
 
 ## Before step 1
 
-SecretRotator's `prd` branch exists, and Ansible's `main` carries slice 045, so the `iac` image
-srviac pulls installs `secret-rotator` from `prd`:
+SecretRotator's `prd` branch exists and carries slice 054, and Ansible's `main` carries slice 045,
+so the `iac` image srviac pulls installs `secret-rotator` from `prd`:
 
 ```sh
 git -C /work/SecretRotator ls-remote --heads origin prd
 srviac 'command -v secret-rotator'
+srviac 'secret-rotator stamp --help'
 ```
 
-**Reading:** one `refs/heads/prd` line, then `/usr/local/bin/secret-rotator`.
+**Reading:** one `refs/heads/prd` line, then `/usr/local/bin/secret-rotator`, then the help of the
+`stamp` command step 6 uses, whose options end with `--clear-expires-at`. An
+`invalid choice: 'stamp'` error means the image predates slice 054: stop.
 
 ## 1 — The `rotator` AppRole and `kv/iac/rotator-approle`
 
@@ -137,10 +140,12 @@ srviac 'secret-rotator audit'
 **Reading.**
 
 - `3`.
-- The audit runs to its end: one finding line per leaf or key the seed has not annotated yet, the
-  leaves of steps 1 and 2 among them, then the keys that never rotate. It exits 1, which is
-  expected until step 6. Its login proves the AppRole from srviac's address, and its orphan check
-  proves the ServiceAccount token.
+- The audit runs to its end and exits 1, which is expected until step 6: no key has its entry
+  yet. Each data key reads `<leaf>: rotation_<key>: missing`, the keys of the leaves of steps 1
+  and 2 among them. Each old-layout key that starts with `rotation_` reads
+  `<leaf>: rotation_<name>: stale: the leaf has no key '<name>'`, which blocks nothing. The
+  summary line ends `0 key(s) never rotate`. Its login proves the AppRole from srviac's address,
+  and its orphan check proves the ServiceAccount token.
 - An error from OpenBao or from the cluster instead of findings: stop and read it.
 
 ## 4 — The Telegram bot and `rotator/telegram`
@@ -221,25 +226,52 @@ yt 'admin/projects?fields=shortName&$top=500' | jq -r '.[].shortName' | grep -x 
 
 ## 6 — The annotations, and the stamps of the new leaves
 
-The seed is the one SecretRotator's `prd` carries, regenerated from the corrected catalog. Its
-apply also creates the 12 marker leaves, `rotator/approle/*` and `rotator/bootstrap/*`. Dry run
-first:
+The seed is the one SecretRotator's `prd` carries, transcribed from the catalog. Its apply makes
+each seed leaf's custom metadata exactly the layout of design §5: one `rotation_<key>` entry per
+data key, and nothing else. It also creates the 12 marker leaves, `rotator/approle/*` and
+`rotator/bootstrap/*`. Dry run first:
 
 ```sh
 srviac 'secret-rotator annotate'
 ```
 
-**Hand back:** the full output, which lists every leaf with the keys it would add or change.
+**Hand back:** the full output. It lists each leaf it would write, then under it one line per
+write:
+
+- `  create  marker leaf, data key <key>`, on a marker leaf.
+- `  add     rotation_<key>=<json>`, one per data key: the key's `kind`, then its `interval`,
+  `args`, `activate` and `notes` where it has them.
+- `  remove  <name>=<value>`, one per other key the leaf's metadata holds.
+- `  set     max_versions=20  (was <n>)`, on an automatic leaf: one with a key whose kind is
+  neither `manual` nor `none`.
 
 **Reading.**
 
-- The marker leaves read `create  marker leaf, data key …`.
-- The last line reads `would patch (dry run; --apply writes) N leaf(s), 12 of them new marker
-  leaves; M unchanged, 0 absent from the store, 0 live leaf(s) not in the seed`.
+- No line is a `change`: no entry exists before the first apply.
+- The `remove` lines name only what follows. A `remove` of any other name is metadata the apply
+  would delete: stop and read it.
+  - The old layout: `rotation_mechanism`, `rotation_interval`, `rotation_activate`,
+    `rotation_args`, `key_<key>` and `interval_<key>`.
+  - The sweep's trust class: `rotation=coordinated`, `rotation=external` or
+    `rotation=unrestricted`.
+  - Every leaf `notes`. A note the seed keeps for a key is now in that key's entry, as
+    `"notes":"…"`. The rest go: the "Transcript-migrated" provenance and the sweep's "at slice
+    close" plans, those of `eso/prd/filebeat/prd/elastic-credentials` and
+    `eso/prd/iot/prd/elastic-credentials` among them.
+- `set     max_versions=20  (was 0)` on the automatic leaves, the six `rotator/approle/*` markers
+  among them. The `rotator/bootstrap/*` markers are `manual` and keep the mount's default.
+- The last line reads `would patch (dry run; --apply writes) 123 leaf(s), 12 of them new marker
+  leaves; 0 unchanged, 0 absent from the store, 0 live leaf(s) not in the seed`. That is every leaf
+  of the seed, since none holds an entry yet.
 - An `absent from the store` line names a seed leaf the store lacks. When it is one of the leaves
   of steps 1 to 5, finish that step first.
-- A `not in the seed` line names a leaf written since the seed was regenerated. The apply leaves it
-  alone, and the audit reports it until the seed covers it ([`openbao.md`](openbao.md#a-new-leaf)).
+- A `not in the seed` line names a leaf the seed does not cover yet. The apply leaves it whole, old
+  keys included, and the audit reports it until the seed covers it
+  ([`openbao.md`](openbao.md#a-new-leaf)).
+- A `no kind in the seed, no entry: <leaf>#<key>` or `named in the seed, not held by the leaf:
+  <leaf>#<key>` line names a key on which the seed and the leaf disagree. The audit then reports
+  that key, so fix the seed first.
+- No `cannot write:` line. With one, the dry run ends `nothing written` and exits 1.
 
 ```sh
 srviac 'secret-rotator annotate --apply'
@@ -248,16 +280,24 @@ srviac 'secret-rotator annotate' | tail -n 1
 
 **Hand back:** the full output.
 
-**Reading:** the apply prints `patching N leaf(s), 12 of them new marker leaves; …`, then one
-`patched <leaf>` or `created and patched <leaf>` line per leaf, and exits 0. The dry run after it
-reads `would patch (dry run; --apply writes) 0 leaf(s), …`.
+**Reading.**
+
+- The apply lists the dry run's writes again, then prints `patching 123 leaf(s), 12 of them new
+  marker leaves; …`. Then it prints one `patched <leaf>` or `created and patched <leaf>` line per
+  leaf, and exits 0.
+- The dry run after it reads `would patch (dry run; --apply writes) 0 leaf(s), 0 of them new
+  marker leaves; 123 unchanged, …`.
+- A `stopped at <leaf>: …` line ends the apply partway, with exit 1. The leaves before it are
+  written. Run the apply again once its cause is fixed: those leaves then read unchanged.
 
 A key without a stamp is due at once. Stamp every key of the leaves steps 1 to 5 created, each
-with the date its value was written, so that none is due on the day it was made:
+with the date its value was written, so that none is due on the day it was made. A stamp goes into
+the rotator's state leaf, `kv/rotator/state`, which the first one creates. None of the five
+credentials expires, so no key takes `--expires-at`:
 
 ```sh
 stamp() { local d; d=$(bao kv metadata get -mount=kv -format=json "$1" </dev/null | jq -r '.data.versions[.data.current_version | tostring].created_time[:10]')
-  bao kv metadata patch -mount=kv -custom-metadata="rotated_at_$2=$d" "$1" </dev/null && echo "$1: rotated_at_$2=$d"; }
+  srviac "secret-rotator stamp $1 $2 --rotated-at $d"; }
 stamp iac/rotator-approle secret_id
 stamp iac/rotator-k8s-token token
 stamp rotator/telegram token
@@ -271,11 +311,14 @@ srviac 'secret-rotator plan iac/rotator-approle'
 
 **Reading.**
 
-- Five `Success! Data written to: kv/metadata/…` lines, each followed by its stamp. Each date is
-  the day of the step that wrote the leaf.
+- Five `<leaf>#<key>: rotation stamp <date>, was none` lines. Each date is the day of the step
+  that wrote the leaf.
+- An `error: no leaf <leaf>` or `error: no key <key> in the current version of <leaf>` line means
+  that stamp wrote nothing: the leaf or key is not the one its step wrote.
 - No finding line of the audit names a leaf under `rotator/` or `iac/rotator-`. The nightly run
   puts any other finding on the standing card.
-- The plan of `iac/rotator-approle` is due 14 days after its stamp.
+- The plan of `iac/rotator-approle` reads `approle plan of secret_id · due <date>`, 14 days after
+  its stamp.
 
 ## 7 — `IaC/Scheduled Secret Rotation`
 
@@ -375,8 +418,8 @@ has rebuilt the image. The next run's first line names the commit it runs.
 
    **Reading:** each role reads `1`. For a role with more, `scripts/rotation/accessor_cleanup.py
    --role <role>` destroys the ones no consumer holds: dry first, then with `--apply`. The
-   `approle` expiries start with that kind's first rotations. Until the rotator replaces a role's
-   secret_id, it keeps the playbook's, which never expires.
+   `approle` keys' `expires_at` start with that kind's first rotations. Until the rotator replaces
+   a role's secret_id, it keeps the playbook's, which never expires.
 
 **The stops.** The immediate stop is disabling the job. `enable` in place of `disable` reverses it:
 
