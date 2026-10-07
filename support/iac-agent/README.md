@@ -7,15 +7,16 @@ Host glue for `srviac`, the homelab's IaC orchestrator VM. Part of the Ansible r
 | Path | What it is |
 |---|---|
 | `bin/iac` | The host shim. Runs `iac-impl` inside the `iac` container (`registry:5000/iac:latest`, built from this repo's `support/iac-image/`); bind-mounts four paths in — `iac-impl`, `/etc/iac/secrets.yaml`, `check-protected-vms.sh` and `check-ansible-drift.sh`. |
-| `bin/iac-impl` | The in-container entrypoint. Parses secrets, clones the Ansible repo, starts the `terraform-backend-git` daemon on `127.0.0.1:6061` (terraform reaches state through it via each config's `backend.tf` http block), warns when the clone's `poetry.lock` differs from the one the image's venv was baked from, then executes the caller's command. Bind-mounted in from `/usr/local/bin/iac-impl` on the host (so changes don't require an `iac` image rebuild). |
-| `bin/jenkins-agent-launch.sh` | Wrapper invoked by the systemd unit; extracts `JENKINS_AGENT_SECRET` from `/etc/iac/secrets.yaml` and launches the Jenkins inbound-agent container. |
+| `bin/iac-impl` | The in-container entrypoint. Parses secrets, clones the Ansible repo (the GitHub token through a `GIT_ASKPASS` helper, never in a clone URL), starts the `terraform-backend-git` daemon on `127.0.0.1:6061` (terraform reaches state through it via each config's `backend.tf` http block), warns when the clone's `poetry.lock` differs from the one the image's venv was baked from, then executes the caller's command. Bind-mounted in from `/usr/local/bin/iac-impl` on the host (so changes don't require an `iac` image rebuild). |
+| `bin/jenkins-agent-launch.sh` | Wrapper invoked by the systemd unit; extracts `JENKINS_AGENT_SECRET` from `/etc/iac/secrets.yaml` and launches the Jenkins inbound-agent container. The secret reaches the agent as a file, never on a command line: the script writes it to `agent-secret` in the unit's runtime directory (mode 0600, owned by the agent's uid 1000), bind-mounts that read-only at `/run/secrets/jenkins-agent` and passes `-secret @/run/secrets/jenkins-agent`. A malformed secret fails the start without echoing the value. |
 | `bin/check-protected-vms.sh` | Used by the on-push, apply and drift Jenkins jobs, against the `terraform/prd` plan JSON. Fails (exit 1) when the plan deletes or replaces any VM; exits 2 on a usage error or an unreadable plan. The second rail: while `managed-vm`'s VM resource carries `prevent_destroy`, `terraform plan` refuses such a plan before the guard runs. |
 | `bin/check-ansible-drift.sh` | Used by the drift job. Wraps `ansible-playbook --check --diff` and fails when the recap reports any pending changes. |
 | `etc/iac/secrets.example.yaml` | Placeholder for `/etc/iac/secrets.yaml`. The Ansible role places this on a fresh srviac and fails loudly until the operator copies it to `secrets.yaml` and fills in real values. |
 | `etc/docker/daemon.json` | Declares `registry:5000` as an insecure registry. |
 | `etc/cron.d/iac-prune` | Daily `docker image prune -f` (dangling-only). |
-| `systemd/jenkins-agent.service` | Long-running container for the Jenkins inbound agent. |
+| `systemd/jenkins-agent.service` | Long-running container for the Jenkins inbound agent. `RuntimeDirectory=jenkins-agent` (`/run/jenkins-agent`, 0700, removed when the unit stops) holds the agent secret file. |
 | `install.sh` | Idempotent installer. Run as root; the Ansible `iac_agent` role calls it via a handler. |
+| `tests/` | Unit tests for `iac-impl`'s clone and for `jenkins-agent-launch.sh`: no token or secret on an argv, in output or in `.git/config`. Run by the root component's `kc project test`. |
 
 The Jenkins pipelines that drive `srviac` live at the root of this repo as
 `Jenkinsfile.*`; the controller jobs check them out from there and run on
@@ -57,7 +58,7 @@ Inside the container `ansible-playbook` and friends are on `$PATH` directly, fro
 Inside the container, `iac-impl` (bind-mounted in from this tree's `bin/iac-impl`):
 
 1. Parses `/etc/iac/secrets.yaml` — exports `env:` entries; writes `files:` entries at their declared mode.
-2. Clones `pvginkel/Ansible` into `/work/`.
+2. Clones `pvginkel/Ansible` into `/work/` (or the repos a top-level `repos:` list in `secrets.yaml` names). git asks a `GIT_ASKPASS` helper for the credential, which answers with `GIT_API_TOKEN` from the clone's environment, so the token is on no argv and in no clone URL, `.git/config` or failed-clone message. The helper lives in a temporary directory that is gone once the clones finish.
 3. Starts the `terraform-backend-git` daemon on `127.0.0.1:6061`; terraform reaches state via the `backend.tf` http block in `terraform/{prd,scratch}/`. The daemon does the git pull/push against `pvginkel/TerraformState` itself and encrypts state at rest with sops + age.
 4. Warns (doesn't fail) when `/work/Ansible/poetry.lock` differs from the image's baked `/app/poetry.lock`: the baked venv may then lack a dependency until the `iac` image rebuild lands.
 5. Exec's `bash` (interactive) or `sh -c "$SCRIPT"` (the `-c` form).

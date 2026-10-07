@@ -34,11 +34,13 @@ ssh-add -L                       # confirm "pve-root" is listed
 ssh -o IdentitiesOnly=no root@pve true   # exit 0 → terraform's SSH will work
 ```
 
-One-time known_hosts setup: the bpg provider has its own SSH client and reads `~/.ssh/known_hosts` (the system default — Ansible's `UserKnownHostsFile=files/known_hosts.d/homelab` doesn't apply to it). PVE nodes serve step-ca-signed host certificates via the `ssh_host_cert` role, so the workstation needs the homelab CA's `@cert-authority` line in `~/.ssh/known_hosts` or the provider rejects the handshake with `ssh: no authorities for hostname`. Append it once:
+The homelab host CA in `~/.ssh/known_hosts`: the bpg provider has its own SSH client and reads `~/.ssh/known_hosts` (the system default — Ansible's `UserKnownHostsFile=files/known_hosts.d/homelab` doesn't apply to it). PVE nodes serve step-ca-signed host certificates via the `ssh_host_cert` role, so the workstation needs the homelab CA's `@cert-authority` line in `~/.ssh/known_hosts` or the provider rejects the handshake with `ssh: no authorities for hostname`. Run, from the checkout:
 
 ```sh
-cat ansible/files/known_hosts.d/homelab >> ~/.ssh/known_hosts
+./scripts/kubecoder-keys.sh
 ```
+
+With none of its key variables set, the script writes no key, only the `@cert-authority` lines of `ansible/files/known_hosts.d/homelab`, and it removes a homelab CA line that file no longer carries. Run it again whenever that file changes, as an [SSH host CA rotation](ssh-host-ca-rotation.md) does twice.
 
 ### `ansible` service key — used by Ansible to reach managed VMs as `ansible`
 
@@ -62,7 +64,7 @@ The two identities have different lifecycles and blast radii. The `ansible` key 
 
 ## ansible-vault passphrase
 
-A few fleet secrets are ansible-vault'd in the repo — today the shared VRRP password in `ansible/inventories/prd/group_vars/all/vips.yml`; the OpenBao seal key and step-ca JWK password follow in later slices. One passphrase decrypts all of them; the source of truth is Roboform.
+A few fleet secrets are ansible-vault'd in the repo — among them the shared VRRP password and the step-ca JWK provisioner password in `ansible/inventories/prd/group_vars/all/vips.yml`, the OpenBao seal key (`ansible/roles/openbao/files/static.key`), and step-ca's keys, passwords and configuration in `ansible/roles/step_ca/files/`. One passphrase decrypts all of them; the source of truth is Roboform.
 
 Cache it on this workstation in `ansible/.vault_pass` — a single line, gitignored:
 

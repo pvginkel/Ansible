@@ -16,8 +16,9 @@ host-key *verification* fails.
 ## Cause
 
 Every managed host serves a step-ca SSH host certificate (the `ssh_host_cert`
-role); clients trust them through the single `@cert-authority` line in
-`ansible/files/known_hosts.d/homelab`. The certificates last **47 days** and
+role); clients trust them through the `@cert-authority` line in
+`ansible/files/known_hosts.d/homelab` (two lines while an
+[SSH host CA rotation](ssh-host-ca-rotation.md) is under way). The certificates last **47 days** and
 `ssh_host_cert` re-signs inside the last **14**, so an apply has to reach each
 host at least every 33 days. When none does, the certificate lapses and ssh
 refuses the host.
@@ -109,4 +110,5 @@ cd ansible && poetry run ansible srvk8s1,srvk8s2,srviac -m ping
   reach, so its certificate lapses while it is off. Re-issue it when it is back:
   `-e reissue_target=srvk8sdev`, by the "VMs Terraform builds from scratch" path above.
 - Renewal design and the role's inputs: `ansible/roles/ssh_host_cert/README.md`.
-  CA-side provisioner setup: [`step-ca-bootstrap.md`](step-ca-bootstrap.md).
+  CA-side provisioner setup: [`step-ca-bootstrap.md`](step-ca-bootstrap.md). Replacing the CA's
+  key: [`ssh-host-ca-rotation.md`](ssh-host-ca-rotation.md).

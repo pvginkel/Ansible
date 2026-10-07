@@ -36,6 +36,11 @@ ansible-playbook playbooks/site.yml --check --diff
   secret_id that its caller minted to every srvvault, each proving it
   with a login first, and does nothing else. SecretRotator runs it when
   it rotates `backup` (the `openbao` role README, §Backup pipeline).
+- `step-ca.yml` — writes step-ca's five Secrets on the prd cluster
+  from the `step_ca` role's files, and restarts step-ca when their
+  data changed. The single entry point for step-ca's material: cluster
+  bring-up runs it before step-ca is first applied, and every
+  procedure that changes the material runs it. No job runs it.
 - `reissue-host-cert.yml` — recovery for a host whose SSH host
   certificate already lapsed; connects over a bootstrap channel that
   does not depend on it.

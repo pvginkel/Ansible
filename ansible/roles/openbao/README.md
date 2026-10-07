@@ -79,7 +79,18 @@ Design context:
     `openbao.hcl`. OpenBao 2.5 rejects the API enable path; audit
     devices must be declarative. The parent directory is created
     by `dirs.yml` ahead of the config render so the daemon can open
-    the log on first restart.
+    the log on first restart. logrotate rotates the log daily
+    (`/etc/logrotate.d/openbao`, run by the stock `logrotate.timer`),
+    keeps `openbao_audit_log_retention_days` rotated logs gzipped one
+    rotation late, and skips a day the log stayed empty, as an idle
+    standby's does. Its postrotate `systemctl reload openbao` sends the
+    SIGHUP on which OpenBao reopens the path and creates the new file
+    itself. With an unchanged `openbao.hcl` that reload is node-local,
+    so nothing staggers the peers' rotations, unlike the `Reload
+    openbao` handler. Two `logrotate.service` failures are the audit
+    log's own: postrotate fails when OpenBao is down, and, with no
+    `missingok`, the run after a rotation OpenBao never reopened finds
+    no `audit.log`.
 13. **Configure ufw** on each node with the documented allow-list
     (22/tcp from `srviac`, 443/tcp from `k8s_prd` + `srviac`,
     8200/tcp from peers + `srviac`, 8201/tcp + VRRP from peers).
@@ -117,6 +128,8 @@ Optional (defaults in [`defaults/main.yml`](defaults/main.yml)):
 
 Auth + audit + ufw inputs:
 
+- `openbao_audit_log_retention_days` — how many daily rotated audit
+  logs logrotate keeps. Default 90.
 - `openbao_admin_token` — operator-supplied (via `-e`) on the first
   apply (root token from init) and any rescue run. Leave unset for
   steady-state — the role logs in via the admin AppRole instead.

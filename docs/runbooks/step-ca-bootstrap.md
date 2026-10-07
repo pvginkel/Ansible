@@ -8,6 +8,8 @@ cannot or should not be automated:
   CA's material to the `step_ca` role.
 - [Enabling the SSH host CA](#enabling-the-ssh-host-ca) — extend the CA
   to also issue SSH host certificates, for the `ssh_host_cert` role.
+  Replacing its key later is
+  [`ssh-host-ca-rotation.md`](ssh-host-ca-rotation.md).
 - [Windows trust install](#windows-trust-install) — one-shot per Windows
   machine the operator uses.
 - [Intermediate rotation](#intermediate-rotation) — when the intermediate
