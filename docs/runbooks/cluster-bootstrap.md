@@ -39,6 +39,10 @@ then Argo adopts it all and deploys everything else.
   nodes' `/etc/hosts`. CoreDNS pins `secrets.home` to OpenBao's VIP, so External Secrets reaches
   OpenBao before dnsmasq is up — check with
   `cexec iac kubectl $KC -n kube-system get cm coredns -o yaml | grep secrets.home`.
+- Ansible has written step-ca's five Secrets, which StepCaDeploy does not carry, so step-ca's
+  pod can start whether step 8 applies it by hand or Argo does at step 10. The playbook creates
+  `step-ca-prd` and needs ansible-vault and the cluster, nothing from OpenBao:
+  `cd ansible && cexec iac poetry run ansible-playbook playbooks/step-ca.yml`.
 - OpenBao is unsealed and Ceph is `HEALTH_OK` ([`cold-boot.md`](cold-boot.md) steps 2 and 3).
 - Checkouts under `/work`: `Charts`, `ArgoCDDeploy`, and each chain app's deploy repo at the
   revision its stage tracks (`main` unless ArgoCDDeploy's `releases/values.yaml` sets
@@ -160,7 +164,7 @@ need them. `--part upstream` and `--part companion` split an upstream app in two
    certificates for `charts.home` and `tfmirror.home` are on its volume. If they have expired,
    first render and apply `ceph-csi-rbd`, create `step-ca-db-pv` (claim `step-ca-prd/step-ca-db-pvc`, RBD image `step-ca-prd-db` in
    pool `k8s`, 1Gi, ext4, `ReadWriteOnce`, node-stage Secret
-   `ceph-csi-rbd-prd/csi-rbd-secret-user`; the live PV is the shape to copy), render and apply `step-ca`, and let certbot re-issue.
+   `ceph-csi-rbd-prd/csi-rbd-secret-user`; the live PV is the shape to copy), render and apply `step-ca` (its Secrets are the step-ca playbook's, from Before you start), and let certbot re-issue.
    Apply step-ca after dnsmasq and nginx, because it takes a dynamic LoadBalancer address.
 
 9. **charts**: render and apply `charts`. `curl -sL https://charts.home/index.yaml` answers.

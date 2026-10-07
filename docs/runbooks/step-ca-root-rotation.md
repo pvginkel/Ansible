@@ -59,7 +59,9 @@ duplicate of:
 
 It is public, PEM-armored, and committed. `baseline` distributes it to every
 managed host, and the step-ca bootstrap ceremony exports it here (step 6 of
-[`step-ca-bootstrap.md`](step-ca-bootstrap.md)).
+[`step-ca-bootstrap.md`](step-ca-bootstrap.md)). The `step_ca` role hands it to
+step-ca as the root step-ca serves
+([the one-change-window rule](#the-one-change-window-rule)).
 
 **Ten out-of-repo copies are on this inventory**, all byte-identical to it,
 and a rotation updates all ten. Four are in deploy repos not cloned under
@@ -131,6 +133,13 @@ window has an ordering constraint:
 and pins its own TLS handshake to the in-repo copy, so a CA that serves a root
 the repos do not carry both fails the comparison and can fail the fetch. Adding
 first and publishing second keeps drift quiet through the transition.
+
+Publishing is a run of `ansible/playbooks/step-ca.yml`. step-ca's `/roots.pem`
+serves the canonical copy itself: the `step_ca` role writes
+`ansible/roles/baseline/files/homelab-root.crt` into `step-ca-certs`'
+`root_ca.crt`, and the run restarts step-ca on it. So once an edit to that file
+is in a checkout, the next run of the playbook from it publishes the edit,
+whichever procedure started the run.
 
 Removing the outgoing root is the mirror image, and comes only after the fleet
 has demonstrably picked up the incoming one: retire it from step-ca last, and
