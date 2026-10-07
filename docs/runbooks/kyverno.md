@@ -59,7 +59,7 @@ pods to Kyverno and creates them while Kyverno is down:
 | Skipped | Why |
 | --- | --- |
 | `kube-system`, `metallb-system` | Ansible books their requests (`microk8s` role) |
-| `argocd-prd`, `argocd-hooks` | Argo CD and its hooks stay able to repair Kyverno from Git |
+| `argocd-prd`, `argocd-hooks` | Argo CD and its hooks stay able to repair Kyverno from Git. Argo CD's pods carry requests committed in ArgoCDDeploy |
 | `kyverno-prd` | Kyverno's own pods and the snapshot job carry requests committed in KyvernoDeploy |
 | pods labelled `app.kubernetes.io/managed-by: kubecoder` | KubeCoder's environment pods, booked at 0 on purpose |
 
