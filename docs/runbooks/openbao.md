@@ -372,7 +372,7 @@ through the snapshot (§3).
 SecretRotator rotates the secrets of the `kv` mount, by the
 annotations of
 [`secret-rotation/design.md`](../../../AnsibleSpecs/secret-rotation/design.md)
-§5 on each leaf (below). Every night at 05:30,
+§5 on each key (below). Every night at 05:30,
 `IaC/Scheduled Secret Rotation` runs it on srviac: it rotates each
 key that is due, rolls the new value out to its consumers and stamps
 the key. Its findings and failures go on one standing YouTrack card
@@ -388,8 +388,9 @@ address. The VS Code tasks `secret-rotator run (srviac)` and
 
 ```bash
 ssh -t ansible@srviac "sudo iac -c 'secret-rotator audit'"             # the whole mount against the annotation contract
-ssh -t ansible@srviac "sudo iac -c 'secret-rotator annotate'"          # dry run: the annotations the seed adds or changes
+ssh -t ansible@srviac "sudo iac -c 'secret-rotator annotate'"          # dry run: the entries the seed adds or changes, the keys it removes
 ssh -t ansible@srviac "sudo iac -c 'secret-rotator annotate --apply'"  # writes them, and creates the marker leaves
+ssh -t ansible@srviac "sudo iac -c 'secret-rotator stamp <leaf> <key> --rotated-at <date>'"  # a key's rotation stamp (below)
 ssh -t ansible@srviac "sudo iac -c 'secret-rotator plan <leaf>'"       # the leaf's plans: when each falls due, every step
 ssh -t ansible@srviac "sudo iac -c 'secret-rotator run <leaf>'"        # runs one of them, its operator steps as prompts
 ```
@@ -402,6 +403,13 @@ stays stopped where it failed; `run <leaf>` offers Retry, Abort (roll
 back) and Details. A value is typed at a hidden prompt, never on a
 command line.
 
+A `manual` key's prompt shows the standard instructions of its
+credential type, the `type` in its entry's `args` (SecretRotator's
+`src/secret_rotator/kinds/manual/types/<type>.md`), with the key's
+`notes` below them. For a type whose credential expires it asks the
+new credential's expiry too, `expires on (YYYY-MM-DD, blank for
+none)`.
+
 - **Backup upload token** — `terraform taint
   homelab_backup_credential.openbao`, then re-apply Terraform and
   `site-openbao.yml`. The role rewrites `/etc/openbao/backup-token`.
@@ -409,8 +417,9 @@ command line.
   seven AppRoles, from `iac/rotator-approle` for its own and from the
   marker leaves `rotator/approle/<role>` for the rest. It mints a
   secret_id that expires after four times the role's interval, and
-  never sooner than 90 days. It delivers the new secret_id, proves it
-  with a login, then destroys the one the consumer held. Every
+  never sooner than 90 days, and records that date as the key's
+  `expires_at`. It proves the new secret_id with a login, delivers
+  it, then destroys the one the consumer held. Every
   AppRole keeps `secret_id_ttl` `0`. A role's first secret_id, and
   recovery (§3), go through the playbook instead:
 
@@ -432,55 +441,79 @@ command line.
   `openbao_seal_current_key_id`, and follow the seal-rekey path; the
   old key id must stay declared until every node has migrated.
 
-### Custom metadata: the rotation annotations and the per-key stamps
+### Custom metadata: the rotation entries; the run state
 
 OpenBao KV-v2 supports per-path `custom_metadata` — string→string
 pairs that travel alongside the secret data but are invisible to
 consumers (ESO, the Jenkins Vault plugin, the iac-impl `!bao`
-resolver). The rotator keeps two things there.
+resolver). The rotator keeps the annotations there: one entry per
+data key, and nothing else.
 
-**The annotations**: the leaf's kind, its interval, how a new value
-is activated, and per-key overrides. Their values come from
+**The entries**: `rotation_<key>`, `<key>` the data key's name, a
+JSON object of the key's `kind`, `interval` (`14d` when absent),
+`args`, `activate`, `expires_at` and `notes` — for example
+`{"kind":"random","activate":"auto"}`. A copy's entry holds its
+`kind` and `activate`, a `none` key's its `kind`, each with any
+`notes`. Their values come from
 [`secret-rotation/catalog.md`](../../../AnsibleSpecs/secret-rotation/catalog.md).
 `secret-rotator annotate --apply` writes them by metadata patch from
 SecretRotator's seed, `src/secret_rotator/seed.yaml`, which is
 transcribed from the catalog: a change to a catalog row is made in
-the seed too. `secret-rotator audit`, and every nightly run, check
-the whole mount against the contract; a leaf or key without its
-annotations is a finding on the standing card.
-[`openbao-hygiene-cutover.md`](openbao-hygiene-cutover.md) first
-applied them, on 2026-10-04.
+the seed too. The apply makes a seed leaf's custom metadata exactly
+its entries: it removes every other key, which its dry run lists
+first, and sets `max_versions` 20 on a leaf with a key whose kind is
+neither `manual` nor `none`. `secret-rotator audit`, and every
+nightly run, check the whole mount against the contract; a key
+without its entry is a finding on the standing card. Until the
+go-live's apply
+([`secret-rotator-go-live.md`](secret-rotator-go-live.md) §6), the
+live leaves still carry the layout
+[`openbao-hygiene-cutover.md`](openbao-hygiene-cutover.md) wrote on
+2026-10-04 (`rotation_mechanism`, `rotation_interval`,
+`rotation_activate`, `key_<key>`, …), which that apply removes.
 
-**The stamps**, one per key:
+A key's `expires_at` is the date its current credential stops
+working; the key falls due 7 days before it. Rotations write it:
+`approle` the expiry of the secret_id it minted, a `manual` rotation
+of a type that expires the date the operator enters, every other
+rotation clears it. `annotate` writes the seed's `expires_at` only
+when it creates the key's entry.
 
-| Key | Meaning |
-|---|---|
-| `rotated_at_<key>` | ISO date (`YYYY-MM-DD`) the key was last rotated. The key is due at its stamp plus its interval: `interval_<key>`, else the leaf's `rotation_interval`. A key with no stamp is due at once. |
-| `rotator_*` | The rotator's state for the leaf: the plan in flight (`rotator_step`), its last outcome (`rotator_status`), a minted credential's expiry (`rotator_expires_at`). The rotator writes them; never by hand. |
+**The run state** is not on a secret leaf. It is the rotator's own
+leaf, `kv/rotator/state`, one JSON object per secret leaf: each
+scheduled key's rotation stamp (the date it was last rotated), the
+leaf's status, last run, last error, consumers and backoff. The
+rotator writes it, by check-and-set. A key is due at its stamp plus
+its interval, or 7 days before its `expires_at` when that comes
+first; a key with no stamp is due at once. A rotation stamps exactly
+the keys it rotated. A key that is a copy or `none` carries no
+stamp: a copy is written with its primary. A plan in flight is its
+staging leaf, `kv/rotator/staging/<kind>/<leaf>`, which lasts until
+the plan is stamped or rolled back.
 
-There is no leaf-level `rotated_at`. A rotation stamps exactly the
-keys it rotated, in one metadata patch. A key that is a copy or
-`none` carries no stamp: a copy is written with its primary.
-
-A key rotated outside the rotator gets its stamp the same way, after
-the `bao kv put` of its new value:
+A key rotated outside the rotator gets its stamp from
+`secret-rotator stamp`, after the `bao kv put` of its new value:
 
 ```
-bao kv metadata patch -mount=kv -custom-metadata=rotated_at_<key>="$(date -I)" <leaf>
+ssh -t ansible@srviac "sudo iac -c 'secret-rotator stamp <leaf> <key> --rotated-at $(date -uI)'"
 ```
+
+It prints `<leaf>#<key>: rotation stamp <date>, was <date|none>`.
+`--rotated-at` takes the date the value was written, never after
+today (UTC). `--expires-at <date>` sets the key's `expires_at`, and
+`--clear-expires-at` clears it, for a credential whose expiry
+changed outside a rotation; either goes with `--rotated-at` or
+alone.
 
 Never use `bao kv metadata put` here. It replaces the leaf's whole
-custom metadata, so the leaf loses its annotations and its stamps.
+custom metadata, so the leaf loses its entries.
 
 Inspect one leaf with `secret-rotator plan <leaf>`, which says when
 each key falls due, or the stamps in bulk:
 
 ```
-for leaf in $(bao kv list -format=json kv/iac | jq -r '.[]'); do
-  printf '%-40s ' "kv/iac/$leaf"
-  bao kv metadata get -mount=kv -format=json "iac/$leaf" \
-    | jq -c '.data.custom_metadata // {} | with_entries(select(.key | startswith("rotated_at_")))'
-done
+bao kv get -mount=kv -format=json rotator/state \
+  | jq '.data.data | map_values(fromjson | .stamps // {})'
 ```
 
 At go-live no key had a stamp, the values exposed during the
@@ -494,21 +527,24 @@ slice). The rotator's first pass rotates them, at most
 A leaf written to the store also needs:
 
 1. a catalog row;
-2. its entry in SecretRotator's `src/secret_rotator/seed.yaml`, and
+2. its leaf in SecretRotator's `src/secret_rotator/seed.yaml`, and
    its key names in `src/secret_rotator/store-keys.json`, which
    SecretRotator's tests hold the seed to. A push to SecretRotator's
    `main` reaches srviac once its green build has rebuilt the `iac`
    image;
 3. `secret-rotator annotate --apply` on srviac, once the leaf exists.
 
-Until the apply has run, the audit reports the leaf. Its keys have no
-stamp, so they are due at once: stamp a freshly minted value with
-today's date, as above, unless it should rotate at the next run.
+Until the apply has run, the audit reports each of the leaf's keys as
+`rotation_<key>: missing`. Its keys have no stamp, so they are due
+at once: stamp a freshly minted value with today's date, as above,
+unless it should rotate at the next run.
 
-`notes` is freeform context — where to re-mint, what consumer it
-serves, scope grants on a PAT. The audit requires `notes` on a leaf
-whose interval is `never`. Where the seed carries a leaf's `notes`,
-change them in the seed.
+A key's `notes` are freeform context in its entry — what consumer it
+serves, the account, scopes or project a re-mint needs. A `manual`
+key's prompt shows them below its type's standard instructions. The
+audit requires `notes` on a key whose interval is `never`. Change
+them in the seed: the apply replaces a live note with the seed's, and
+removes one the seed does not carry.
 
 ## Consumer cold-boot
 

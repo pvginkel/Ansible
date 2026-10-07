@@ -269,8 +269,9 @@ write:
   keys included, and the audit reports it until the seed covers it
   ([`openbao.md`](openbao.md#a-new-leaf)).
 - A `no kind in the seed, no entry: <leaf>#<key>` or `named in the seed, not held by the leaf:
-  <leaf>#<key>` line names a key on which the seed and the leaf disagree. The audit then reports
-  that key, so fix the seed first.
+  <leaf>#<key>` line names a key on which the seed and the leaf disagree: fix the seed first. The
+  first is a key the apply writes no entry for, which the audit then reports as `missing`; the
+  second, a seed key the leaf lacks, which gets no entry.
 - No `cannot write:` line. With one, the dry run ends `nothing written` and exits 1.
 
 ```sh
