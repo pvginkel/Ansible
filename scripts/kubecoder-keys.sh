@@ -91,7 +91,7 @@ write_secret SSH_KEY_PVE     "$HOME/.ssh/id_ed25519_pve"
 # homelab-ssh-host-ca, the comment every homelab host CA key is generated with.
 # Every other line is left as it is.
 ensure_host_ca() {
-    local src dest=$HOME/.ssh/known_hosts tmp line
+    local src dest=$HOME/.ssh/known_hosts tmp line w keep
     local -a want=()
     src=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)/ansible/files/known_hosts.d/homelab
     mkdir -p -- "$HOME/.ssh"
@@ -106,7 +106,14 @@ ensure_host_ca() {
     while IFS= read -r line || [ -n "$line" ]; do
         case "$line" in
             '@cert-authority '*' homelab-ssh-host-ca')
-                if ! printf '%s\n' "${want[@]}" | grep -qxF -- "$line"; then
+                # A loop, not printf | grep -q: grep -q can exit before
+                # printf's last write, and under pipefail printf's SIGPIPE
+                # would count a wanted line as retired.
+                keep=false
+                for w in "${want[@]}"; do
+                    if [ "$w" = "$line" ]; then keep=true; break; fi
+                done
+                if [ "$keep" = false ]; then
                     printf 'keys: removed a retired homelab host CA from %s\n' "$dest" >&2
                     continue
                 fi
