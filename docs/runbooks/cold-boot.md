@@ -92,8 +92,9 @@ stays until the next DnsmasqDeploy sync, which reverts it. Don't push DnsmasqDep
 depends on the patch. Once the pod is Ready, sync or patch it back.
 
 **New pods refused by Kyverno's webhook.** Rollouts and Jobs create nothing, and their
-`FailedCreate` events name `mpol.validate.kyverno.svc-fail`. Delete the webhook registration as
-[`kyverno.md`](kyverno.md#break-glass) says; Kyverno registers it again when it comes back.
+`FailedCreate` events name `mpol.validate.kyverno.svc-fail`. Scale Kyverno to zero and delete its
+webhook registrations as [`kyverno.md`](kyverno.md#break-glass) says; Kyverno registers them again
+once it is scaled back up.
 
 **A pinned image missing from the registry** (Keycloak's digest on 2026-09-25): the pod sits in
 `ImagePullBackOff` with `NotFound`. Repin the deploy repo to the image's newest per-build tag,

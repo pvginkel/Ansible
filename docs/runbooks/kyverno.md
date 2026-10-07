@@ -178,36 +178,38 @@ but the fix is in the policy. What Kyverno itself is doing:
 cexec iac kubectl -n kyverno-prd get pods -l app.kubernetes.io/component=admission-controller -o wide
 ```
 
-**Restore pod creation** by deleting the registration:
+**Restore pod creation** by scaling Kyverno to zero, then deleting every webhook registration it
+owns. Scale first, every time. A replica that leads rewrites the registrations every 10 seconds
+(Kyverno v1.19.1), and a crash-looping replica re-creates them on its next restart before it dies
+again, so a deletion holds only while no replica runs. A replica that shuts down cleanly with the
+Deployment at zero deletes the registrations itself; a crashed one leaves them, and the label
+delete takes whatever still stands. The label covers the pod webhook and the `failurePolicy: Fail`
+webhooks that guard Kyverno's own objects: `kyverno-policy-validating-webhook-cfg` on its policies
+and `kyverno-global-context-validating-webhook-cfg` on its GlobalContextEntries. A KyvernoDeploy
+sync applies both kinds, so it would be refused while they stand.
 
 ```sh
-cexec iac kubectl $KC delete mutatingwebhookconfiguration kyverno-resource-mutating-webhook-cfg
+cexec iac kubectl $KC -n kyverno-prd scale deployment kyverno-admission-controller --replicas=0
+cexec iac kubectl -n kyverno-prd wait --for=delete pod -l app.kubernetes.io/component=admission-controller --timeout=2m
+cexec iac kubectl $KC delete mutatingwebhookconfiguration,validatingwebhookconfiguration -l webhook.kyverno.io/managed-by=kyverno
 ```
 
-When the API token or the apiserver VIP is the broken thing, do it on a control-plane node, by IP
-if DNS is down too ([cold-boot.md](cold-boot.md#break-glass), "SSH by IP"):
+A pod that hangs in Terminating on a dead node doesn't run; go on to the delete when the wait
+times out. When the API token or the apiserver VIP is the broken thing, do it on a control-plane
+node, by IP if DNS is down too ([cold-boot.md](cold-boot.md#break-glass), "SSH by IP"):
 
 ```sh
-ssh ansible@srvk8s1 sudo microk8s kubectl delete mutatingwebhookconfiguration kyverno-resource-mutating-webhook-cfg
+ssh ansible@srvk8s1 sudo microk8s kubectl -n kyverno-prd scale deployment kyverno-admission-controller --replicas=0
+ssh ansible@srvk8s1 sudo microk8s kubectl delete mutatingwebhookconfiguration,validatingwebhookconfiguration -l webhook.kyverno.io/managed-by=kyverno
 ```
 
 Then run the probe again: it is admitted.
 
-The deletion holds only while no Kyverno replica leads: the leader rewrites its webhook
-registrations every 10 seconds (Kyverno v1.19.1). If the registration is back within seconds,
-Kyverno is running but not answering. Scale it to zero: a replica that shuts down cleanly with the
-Deployment at zero deletes Kyverno's registrations itself. If the registration still stands once the
-pods are gone, delete it again. Pods in `kyverno-prd` are never refused, so scaling back up works
-while the registration stands. With `selfHeal` off, Argo leaves the Deployment at zero until it is
-scaled back or KyvernoDeploy syncs.
-
-```sh
-cexec iac kubectl $KC -n kyverno-prd scale deployment kyverno-admission-controller --replicas=0
-```
-
-**Bring Kyverno back.** Neither its namespace nor Argo CD's is refused, so a fix pushed to
-KyvernoDeploy syncs as usual. Scale it back to three if it was scaled down. Once a replica leads,
-it registers the webhook again; check the entry and its owner:
+**Bring Kyverno back.** With its registrations gone, nothing of Kyverno's refuses an apply, so a
+fix pushed to KyvernoDeploy syncs as usual. Kyverno doesn't come back by itself after the
+break-glass: with `selfHeal` off, Argo leaves the Deployment at zero until it is scaled back or
+KyvernoDeploy syncs. Pods in `kyverno-prd` are never refused, so scaling up always works. Once a
+replica leads, it registers the webhooks again; check the pod entry and its owner:
 
 ```sh
 cexec iac kubectl $KC -n kyverno-prd scale deployment kyverno-admission-controller --replicas=3
@@ -235,7 +237,7 @@ a covered namespace is refused.
 1. Save the registration, scale the admission controller to zero and wait for its pods to go. The
    registration is gone.
 2. Create the saved copy. The probe is refused.
-3. Delete the registration. The probe is admitted.
+3. Delete Kyverno's registrations by label, Restore's last command. The probe is admitted.
 4. Scale back to three. Once a replica is Ready, the registration is back with its entry and its
    owner, and the probe is admitted through Kyverno.
 
