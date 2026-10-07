@@ -208,10 +208,16 @@ srvk8sdev, wrkdev, srviac and srvvault1–3. It does not reach:
 - **srvk8sdev while it is off**, which it is by default. The run
   reports it UNREACHABLE and re-signs the others. Re-sign it when it
   is next on, with the same command and `--limit srvk8sdev`. Once
-  step 6 has removed the old line, that run cannot connect. Use
-  `playbooks/reissue-host-cert.yml -e reissue_target=srvk8sdev`
-  instead, which connects through the host's pinned key
-  ([`ssh-host-cert-expiry.md`](ssh-host-cert-expiry.md)).
+  step 6 has removed the old line, that run cannot connect. Run
+  `playbooks/reissue-host-cert.yml` instead, which connects through
+  the host's pinned key
+  ([`ssh-host-cert-expiry.md`](ssh-host-cert-expiry.md)), with the
+  same threshold. Without it, the role keeps a certificate that has
+  more than 14 days left, whichever key signed it:
+
+  ```sh
+  poetry run ansible-playbook playbooks/reissue-host-cert.yml -e reissue_target=srvk8sdev -e ssh_host_cert_renewal_threshold_days=48
+  ```
 - **KubeCoder environments.** The KubeCoder controller signs their
   certificates through step-ca, and Ansible never touches them.
   Step 5 covers them.
