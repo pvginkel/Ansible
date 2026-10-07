@@ -675,11 +675,14 @@ When to do this:
 - Routine rotation.
 
 The password encrypts `ansible-jwk`'s private key, which `ca.json`
-holds as the provisioner's `encryptedKey`. `ca.json` has no
-`authority.enableAdmin`, so step-ca offers no remote provisioner API:
-the key is re-encrypted in the `step_ca` role's `ca.json` and reaches
-step-ca through the role's playbook. The fleet's copy of the password
-is `internal_tls_jwk_provisioner_password` in
+holds as the provisioner's `encryptedKey`. That ciphertext is public:
+step-ca serves it at `https://ca.home/provisioners`, and StepCaDeploy's
+history holds it. A key only re-encrypted under a new password still
+signs for whoever holds the old one, so the rotation replaces the key
+pair. `ca.json` has no `authority.enableAdmin`, so step-ca offers no
+remote provisioner API: the key is replaced in the `step_ca` role's
+`ca.json` and reaches step-ca through the role's playbook. The fleet's
+copy of the password is `internal_tls_jwk_provisioner_password` in
 `ansible/inventories/prd/group_vars/all/vips.yml`, which the
 `internal_tls` and `ssh_host_cert` roles read. The two change together:
 once step-ca runs on the new `ca.json`, only the new password signs.
@@ -693,26 +696,28 @@ openssl rand -base64 32
 Save to Roboform under a temporary name like
 `homelab-ca JWK provisioner password (new)`.
 
-### 2. Re-encrypt the key in the role's `ca.json`
+### 2. Replace the key in the role's `ca.json`
 
 ```sh
 cd ~/source/Ansible/ansible
 t=$(mktemp -d)
 poetry run ansible-vault decrypt --output "$t/ca.json" roles/step_ca/files/ca.json
-jq -r '.authority.provisioners[] | select(.name == "ansible-jwk") | .encryptedKey' \
-  "$t/ca.json" > "$t/old.jwe"
-step crypto change-pass "$t/old.jwe" --out "$t/new.jwe"   # prompts for the old password, then the new one
-step crypto jose format < "$t/new.jwe" > "$t/new.compact"
-jq --rawfile key "$t/new.compact" \
-  '(.authority.provisioners[] | select(.name == "ansible-jwk") | .encryptedKey) = ($key | rtrimstr("\n"))' \
+step crypto jwk create "$t/pub.json" "$t/priv.json"   # prompts for the new password
+step crypto jose format < "$t/priv.json" > "$t/priv.compact"
+jq --slurpfile pub "$t/pub.json" --rawfile key "$t/priv.compact" \
+  '(.authority.provisioners[] | select(.name == "ansible-jwk"))
+     |= (.key = $pub[0] | .encryptedKey = ($key | rtrimstr("\n")))' \
   "$t/ca.json" > "$t/ca.new.json"
 poetry run ansible-vault encrypt --output roles/step_ca/files/ca.json "$t/ca.new.json"
 shred -u "$t"/* && rmdir "$t"
 ```
 
-`change-pass` keeps the key itself, so the provisioner's public key
-and `kid` stay as they are. It writes the JWE in JSON serialization;
-`jose format` turns it into the compact form `ca.json` holds.
+`jwk create` makes an EC P-256 key, the kind `provisioner add --create`
+makes (day-zero step 5), and writes its private half as a JWE in JSON
+serialization; `jose format` turns it into the compact form `ca.json`
+holds. The new key has a new `kid`. The `internal_tls` and
+`ssh_host_cert` roles look the provisioner up by name, so nothing pins
+the old one.
 
 ### 3. Re-encrypt the ansible-vault entry
 
