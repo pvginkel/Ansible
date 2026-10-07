@@ -36,8 +36,10 @@ if [ -z "$_bao_role_id" ] || [ -z "$_bao_secret_id" ]; then
 fi
 
 : "${BAO_ADDR:=https://secrets}"
-_bao_token=$(BAO_ADDR="$BAO_ADDR" cexec iac bao write -field=token auth/approle/login \
-    role_id="$_bao_role_id" secret_id="$_bao_secret_id")
+# secret_id=- reads the value from stdin, so it is on no argv; printf is a
+# builtin.
+_bao_token=$(printf '%s' "$_bao_secret_id" | BAO_ADDR="$BAO_ADDR" cexec iac bao write -field=token \
+    auth/approle/login role_id="$_bao_role_id" secret_id=-)
 if [ -z "$_bao_token" ]; then
     echo "bao-login: approle login failed" >&2
     unset _bao_repo _bao_src _bao_creds _bao_role_id _bao_secret_id _bao_token

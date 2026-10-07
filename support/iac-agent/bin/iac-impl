@@ -34,6 +34,7 @@ import os
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -57,6 +58,19 @@ BAKED_LOCK = Path("/app/poetry.lock")
 # git pull/push + sops activity survives for inspection within the
 # container's lifetime. `iac -v` mirrors it to the console instead.
 BACKEND_LOG = Path("/var/log/terraform-backend-git.log")
+
+# git runs GIT_ASKPASS with its prompt as the only argument and reads the
+# answer from stdout. The token reaches the helper through the environment,
+# so it is on no argv and in no clone URL, and so in no .git/config and no
+# CalledProcessError. GitHub authenticates a PAT by the password and ignores
+# the username; the username must not be the token, because git repeats it
+# in the Password prompt, which is the helper's argv.
+GIT_ASKPASS_HELPER = """#!/bin/sh
+case "$1" in
+    Username*) echo x-access-token ;;
+    *) printf '%s\\n' "$GIT_API_TOKEN" ;;
+esac
+"""
 
 # Env names that MUST resolve to literals — !bao on any of these is a
 # hard error because they gate the path that fetches every other
@@ -296,10 +310,13 @@ def materialise_files(file_entries: list[dict[str, Any]]) -> None:
 # ----- repo clone + state sync -------------------------------------------
 
 
-def _run(*argv: str, cwd: Path | None = None) -> subprocess.CompletedProcess:
+def _run(
+    *argv: str, cwd: Path | None = None, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess:
     return subprocess.run(
         argv,
         cwd=str(cwd) if cwd else None,
+        env=env,
         check=True,
         text=True,
     )
@@ -371,17 +388,23 @@ def parse_repos(parsed: dict[str, Any]) -> tuple[str, ...]:
 def clone_repos(token: str, repos: tuple[str, ...]) -> None:
     WORK.mkdir(parents=True, exist_ok=True)
     _run("git", "config", "--global", "init.defaultBranch", "main")
-    for name in repos:
-        step(f"cloning pvginkel/{name}")
-        _run(
-            "git",
-            "clone",
-            "--quiet",
-            "--depth",
-            "1",
-            f"https://{token}@{GIT_OWNER}/{name}.git",
-            str(WORK / name),
-        )
+    with tempfile.TemporaryDirectory(prefix="iac-askpass-") as tmp:
+        askpass = Path(tmp) / "askpass"
+        askpass.write_text(GIT_ASKPASS_HELPER, encoding="utf-8")
+        askpass.chmod(0o700)
+        env = {**os.environ, "GIT_ASKPASS": str(askpass), "GIT_API_TOKEN": token}
+        for name in repos:
+            step(f"cloning pvginkel/{name}")
+            _run(
+                "git",
+                "clone",
+                "--quiet",
+                "--depth",
+                "1",
+                f"https://{GIT_OWNER}/{name}.git",
+                str(WORK / name),
+                env=env,
+            )
 
 
 def check_baked_venv() -> None:

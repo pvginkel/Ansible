@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Launches the Jenkins inbound-agent container. The agent secret lives
-# in /etc/iac/secrets.yaml; this script extracts it at start time so
-# the systemd unit stays declarative and there's no second secret file.
+# in /etc/iac/secrets.yaml; this script extracts it at start time into a
+# file the agent reads with `-secret @file`, so the secret is on no argv:
+# neither `ps` nor `docker inspect` shows it.
 
 set -euo pipefail
 
-SECRETS_FILE="/etc/iac/secrets.yaml"
+SECRETS_FILE="${SECRETS_FILE:-/etc/iac/secrets.yaml}"
 CONTROLLER_URL="https://jenkins.webathome.org/"
 AGENT_NAME="IaC Agent"
 # Inbound-agent image runs as user `jenkins` (uid 1000) whose $HOME is
@@ -13,6 +14,11 @@ AGENT_NAME="IaC Agent"
 # The pipelines don't use this workspace — every step shells into the
 # iac container, which has its own /work — so anywhere writable works.
 AGENT_WORKDIR="/home/jenkins/agent"
+AGENT_UID=1000
+# The unit's RuntimeDirectory=: root-only 0700, removed when the unit
+# stops. The bind mount below is the only path into it.
+SECRET_FILE="$RUNTIME_DIRECTORY/agent-secret"
+AGENT_SECRET_PATH="/run/secrets/jenkins-agent"
 AGENT_IMAGE="jenkins/inbound-agent:latest"
 CONTAINER_NAME="jenkins-agent"
 
@@ -34,11 +40,15 @@ fi
 # as an incorrect secret. (A literal is also required so the agent comes
 # up at cold boot when OpenBao is down.) Fail loudly instead.
 if [[ ! "$secret" =~ ^[0-9a-fA-F]{64}$ ]]; then
-    echo "jenkins-agent-launch: JENKINS_AGENT_SECRET must be a literal 64-char hex secret," >&2
-    echo "  not '$secret'. Replace any '!bao …' reference with the literal from the" >&2
-    echo "  controller's 'IaC Agent' node page, then restart jenkins-agent." >&2
+    echo "jenkins-agent-launch: JENKINS_AGENT_SECRET must be a literal 64-char hex secret." >&2
+    echo "  Replace any '!bao …' reference with the literal from the controller's" >&2
+    echo "  'IaC Agent' node page, then restart jenkins-agent." >&2
     exit 1
 fi
+
+# printf is a builtin, so the secret is on no argv on its way to the file.
+(umask 077 && printf '%s\n' "$secret" >"$SECRET_FILE")
+chown "$AGENT_UID:$AGENT_UID" "$SECRET_FILE"
 
 # --group-add grants the container's user access to the host docker
 # socket without running the container as root.
@@ -65,9 +75,10 @@ exec docker run --rm \
     -v /usr/bin/docker:/usr/bin/docker:ro \
     -v /usr/local/bin/iac:/usr/local/bin/iac:ro \
     -v /usr/local/bin/iac-impl:/usr/local/bin/iac-impl:ro \
+    -v "$SECRET_FILE:$AGENT_SECRET_PATH:ro" \
     "$AGENT_IMAGE" \
     -url "$CONTROLLER_URL" \
     -name "$AGENT_NAME" \
     -workDir "$AGENT_WORKDIR" \
     -webSocket \
-    -secret "$secret"
+    -secret "@$AGENT_SECRET_PATH"
