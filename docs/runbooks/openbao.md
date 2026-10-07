@@ -71,9 +71,15 @@ session. For interactive administration:
 
   ```bash
   export BAO_ADDR=https://secrets
-  export BAO_TOKEN=$(bao write -field=token auth/approle/login \
-      role_id=<openbao-admin role_id> secret_id=<openbao-admin secret_id>)
+  read -rs secret_id    # paste the openbao-admin secret_id, then Enter
+  export BAO_TOKEN=$(printf '%s' "$secret_id" | bao write -field=token auth/approle/login \
+      role_id=<openbao-admin role_id> secret_id=-)
+  unset secret_id
   ```
+
+  `secret_id=-` reads the value from stdin, and `printf` is a shell
+  builtin, so the secret_id is in neither the host's shell history nor
+  its process table — the same route `scripts/bao-login.sh` takes.
 
   AppRole login is `bao write auth/approle/login`, not
   `bao login -method=` — the CLI's `-method` flag has no approle

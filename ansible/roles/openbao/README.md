@@ -250,8 +250,11 @@ can capture the admin AppRole creds into vault between them.
 
    ```
    ansible-vault encrypt_string --name openbao_admin_role_id   "$(cat tmp/openbao-credentials/openbao-admin-role-id)"
-   ansible-vault encrypt_string --name openbao_admin_secret_id "$(cat tmp/openbao-credentials/openbao-admin-secret-id)"
+   printf '%s' "$(cat tmp/openbao-credentials/openbao-admin-secret-id)" | ansible-vault encrypt_string --stdin-name openbao_admin_secret_id
    ```
+
+   The secret_id goes in on stdin (`--stdin-name`; `printf` is a shell
+   builtin), so it is on no process's argv.
 
    Commit. The drift cycle now authenticates via the admin AppRole.
 
