@@ -1,0 +1,19 @@
+---
+- name: Ensure logrotate is installed
+  ansible.builtin.apt:
+    name: logrotate
+    state: present
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
+# Run by the stock logrotate.timer. Unlike the Reload openbao handler,
+# its SIGHUP is not throttled across the peers: with an unchanged
+# openbao.hcl a reload is node-local on 2.5.4 (listener cert re-read,
+# file audit reopen, no Raft write).
+- name: Render the audit log logrotate entry
+  ansible.builtin.template:
+    src: openbao-audit.logrotate.j2
+    dest: /etc/logrotate.d/openbao
+    owner: root
+    group: root
+    mode: "0644"

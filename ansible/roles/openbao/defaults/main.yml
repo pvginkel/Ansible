@@ -156,11 +156,12 @@ openbao_eso_dev_kv_paths: []
 openbao_kv_mount: "kv"
 
 # File audit device — append-only log on each srvvaultN. Captures every
-# OpenBao request + response (decisions.md "Secrets — OpenBao"). The
-# parent directory is created by the audit task; rotation is on the
-# operator (logrotate is out of scope for this card).
+# OpenBao request + response (decisions.md "Secrets — OpenBao").
+# logrotate rotates it daily, compressed, keeping
+# openbao_audit_log_retention_days files.
 openbao_audit_path: "file"
 openbao_audit_file_path: /var/log/openbao/audit.log
+openbao_audit_log_retention_days: 90
 
 # ufw — firewall on each srvvaultN. Default-deny inbound; allow-list
 # matches decisions.md "Secrets — OpenBao" network boundary, narrowed

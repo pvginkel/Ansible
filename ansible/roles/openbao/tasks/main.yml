@@ -115,6 +115,9 @@
 - name: Apply systemd hardening drop-in
   ansible.builtin.import_tasks: hardening.yml
 
+- name: Rotate the file audit log
+  ansible.builtin.import_tasks: audit-logrotate.yml
+
 # Admin-side blocks (approle.yml + oidc.yml) target the leader-tracking
 # VIP, not the local listener. On a greenfield bootstrap run
 # keepalived.yml has only just started the service above, so the

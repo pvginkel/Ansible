@@ -1,0 +1,16 @@
+# Managed by the openbao Ansible role.
+{{ openbao_audit_file_path }} {
+    daily
+    rotate {{ openbao_audit_log_retention_days }}
+    compress
+    # OpenBao writes to the renamed file until its SIGHUP reopen, which
+    # systemctl reload (ExecReload=kill -HUP) does not wait for;
+    # compressing a day late keeps those lines.
+    delaycompress
+    notifempty
+    # OpenBao creates the new file, with its own owner and mode, on reopen.
+    nocreate
+    postrotate
+        systemctl reload openbao.service
+    endscript
+}
