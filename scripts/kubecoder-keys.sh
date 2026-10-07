@@ -83,21 +83,52 @@ write_secret SSH_KEY_PVE     "$HOME/.ssh/id_ed25519_pve"
 # authorities for hostname: pve.home:22", and a snippet replace has by then
 # already deleted the old file. The iac image bakes the same line into root's
 # known_hosts (support/iac-image/Dockerfile); this is the environment's half.
+#
+# The repo file's @cert-authority lines are the host CAs to trust. A homelab
+# line the repo file no longer carries is a retired CA and is removed, so a
+# rotation (docs/runbooks/ssh-host-ca-rotation.md) can take its old line out
+# again. A homelab line is an @cert-authority line whose key comment is
+# homelab-ssh-host-ca, the comment every homelab host CA key is generated with.
+# Every other line is left as it is.
 ensure_host_ca() {
-    local src dest=$HOME/.ssh/known_hosts line
+    local src dest=$HOME/.ssh/known_hosts tmp line
+    local -a want=()
     src=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)/ansible/files/known_hosts.d/homelab
     mkdir -p -- "$HOME/.ssh"
     chmod 700 -- "$HOME/.ssh"
     touch -- "$dest"
+
     while IFS= read -r line; do
-        case "$line" in '@cert-authority '*) ;; *) continue ;; esac
-        if grep -qxF -- "$line" "$dest"; then
+        case "$line" in '@cert-authority '*) want+=("$line") ;; esac
+    done <"$src"
+
+    tmp=$(mktemp "$HOME/.ssh/.known_hosts.XXXXXX")
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in
+            '@cert-authority '*' homelab-ssh-host-ca')
+                if ! printf '%s\n' "${want[@]}" | grep -qxF -- "$line"; then
+                    printf 'keys: removed a retired homelab host CA from %s\n' "$dest" >&2
+                    continue
+                fi
+                ;;
+        esac
+        printf '%s\n' "$line"
+    done <"$dest" >"$tmp"
+
+    for line in "${want[@]}"; do
+        if grep -qxF -- "$line" "$tmp"; then
             printf 'keys: homelab host CA already in %s\n' "$dest" >&2
         else
-            printf '%s\n' "$line" >>"$dest"
+            printf '%s\n' "$line" >>"$tmp"
             printf 'keys: added the homelab host CA to %s\n' "$dest" >&2
         fi
-    done <"$src"
+    done
+
+    if cmp -s -- "$tmp" "$dest"; then
+        rm -f -- "$tmp"
+    else
+        mv -f -- "$tmp" "$dest"
+    fi
 }
 
 ensure_host_ca
