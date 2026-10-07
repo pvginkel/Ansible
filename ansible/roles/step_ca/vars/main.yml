@@ -1,0 +1,35 @@
+---
+# step-ca runs on the prd cluster only, as StepCaDeploy's Argo app.
+step_ca_namespace: step-ca-prd
+step_ca_statefulset: step-ca
+step_ca_kubeconfig: /var/snap/microk8s/current/credentials/client.config
+
+# The five Secrets the upstream step-certificates chart mounts in
+# existingSecrets mode (StepCaDeploy config/prd/values.yaml), each key
+# mapped to the file whose bytes it carries. A bare name is in this
+# role's files/.
+#
+# Vaulted whole-file with ansible-vault: ca.json, defaults.json, the two
+# encrypted keys and their two passwords. Plain: the intermediate
+# certificate, the SSH host CA public key, and the root — baseline's
+# homelab-root.crt, so step-ca serves the root every managed host trusts.
+step_ca_secrets:
+  - name: step-ca-config
+    files:
+      ca.json: ca.json
+      defaults.json: defaults.json
+  - name: step-ca-certs
+    files:
+      intermediate_ca.crt: intermediate_ca.crt
+      root_ca.crt: "{{ role_path }}/../baseline/files/homelab-root.crt"
+      ssh_host_ca_key.pub: ssh_host_ca_key.pub
+  - name: step-ca-secrets
+    files:
+      intermediate_ca_key: intermediate_ca_key
+      ssh_host_ca_key: ssh_host_ca_key
+  - name: step-ca-ca-password
+    files:
+      password: intermediate_ca_password
+  - name: step-ca-ssh-host-ca-password
+    files:
+      password: ssh_host_ca_password

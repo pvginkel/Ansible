@@ -1,0 +1,33 @@
+---
+# step-ca.yml — step-ca's keys, passwords, certificates, ca.json and
+# defaults.json, from the step_ca role's files into the five Secrets in
+# step-ca-prd.
+#
+# The single entry point for step-ca's material: cluster bring-up, before
+# step-ca is first applied, and every procedure that changes a piece of it
+# (edit the role's file, then run this). A run restarts step-ca only when
+# a Secret's data changed.
+#
+#   ansible-playbook playbooks/step-ca.yml
+#
+# prd only: step-ca does not run on dev. The elected microk8s primary
+# reaches the API with its node kubeconfig, the one credential a fresh
+# bring-up already has.
+
+- name: Converge step-ca's Secrets on the prd cluster
+  hosts: k8s_prd
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Elect this cluster's primary
+      ansible.builtin.import_role:
+        name: microk8s
+        tasks_from: elect-primary
+
+    - name: Skip non-primary peers
+      ansible.builtin.meta: end_host
+      when: inventory_hostname != microk8s_primary_host
+
+    - name: Converge step-ca's Secrets
+      ansible.builtin.import_role:
+        name: step_ca

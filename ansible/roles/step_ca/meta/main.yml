@@ -1,0 +1,16 @@
+---
+galaxy_info:
+  role_name: step_ca
+  author: pvginkel
+  description: >-
+    Materialise step-ca's five Secrets on the prd cluster from this role's
+    files, the private ones ansible-vault'd.
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - noble
+        - resolute
+
+dependencies: []

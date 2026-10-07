@@ -1,0 +1,80 @@
+---
+# step_ca — step-ca's five Secrets in step_ca_namespace, from this role's
+# files. Runs on one host whose step_ca_kubeconfig reaches the prd
+# cluster; playbooks/step-ca.yml elects it.
+#
+# `validate_certs: false` on every kubernetes.core call: the reason is at
+# the top of roles/microk8s/tasks/metallb.yml.
+
+- name: Read Namespace {{ step_ca_namespace }}
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ step_ca_kubeconfig }}"
+    validate_certs: false
+    kind: Namespace
+    name: "{{ step_ca_namespace }}"
+  register: _step_ca_namespace_info
+
+# Only when missing, the bring-up case before Argo. An existing Namespace
+# is StepCaDeploy's (Prune=false) and stays Argo's.
+- name: Create Namespace {{ step_ca_namespace }}
+  kubernetes.core.k8s:
+    kubeconfig: "{{ step_ca_kubeconfig }}"
+    validate_certs: false
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ step_ca_namespace }}"
+  when: _step_ca_namespace_info.resources | length == 0
+
+- name: Start with step-ca's material unchanged
+  ansible.builtin.set_fact:
+    _step_ca_material_changed: false
+
+- name: Converge Secret
+  ansible.builtin.include_tasks: secret.yml
+  loop: "{{ step_ca_secrets }}"
+  loop_control:
+    loop_var: step_ca_secret
+    label: "{{ step_ca_secret.name }}"
+  vars:
+    # Lookups keep every byte (rstrip=false): a Secret value is the
+    # file's exact content, trailing newline or not.
+    _step_ca_secret_data: >-
+      {{ dict(step_ca_secret.files.keys()
+              | zip(query('ansible.builtin.file', *step_ca_secret.files.values(), rstrip=false)
+                    | map('b64encode'))) }}
+
+- name: Read StatefulSet {{ step_ca_statefulset }}
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ step_ca_kubeconfig }}"
+    validate_certs: false
+    api_version: apps/v1
+    kind: StatefulSet
+    namespace: "{{ step_ca_namespace }}"
+    name: "{{ step_ca_statefulset }}"
+  register: _step_ca_statefulset_info
+
+# step-ca reads its material at process start only. The StatefulSet is
+# absent at bring-up until Argo first syncs StepCaDeploy, and its pod then
+# starts on the Secrets above.
+- name: Restart step-ca on its changed material
+  kubernetes.core.k8s:
+    kubeconfig: "{{ step_ca_kubeconfig }}"
+    validate_certs: false
+    state: patched
+    api_version: apps/v1
+    kind: StatefulSet
+    namespace: "{{ step_ca_namespace }}"
+    name: "{{ step_ca_statefulset }}"
+    definition:
+      spec:
+        template:
+          metadata:
+            annotations:
+              kubectl.kubernetes.io/restartedAt: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
+    wait: true
+    wait_timeout: 300
+  when:
+    - _step_ca_material_changed
+    - _step_ca_statefulset_info.resources | length > 0
