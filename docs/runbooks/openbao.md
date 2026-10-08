@@ -382,7 +382,7 @@ annotations of
 `IaC/Scheduled Secret Rotation` runs it on srviac: it rotates each
 key that is due, rolls the new value out to its consumers and stamps
 the key. Its findings and failures go on one standing YouTrack card
-tagged `Secret Rotator`, and to Telegram. Its switches (`dry_run`,
+tagged `Rotator Standing Card`, and to Telegram. Its switches (`dry_run`,
 `paused`, `kinds_enabled`, `max_rotations_per_run`) are committed in
 SecretRotator's `src/secret_rotator/switches.yaml`. Disabling the job
 stops it at once. Bringing it up is

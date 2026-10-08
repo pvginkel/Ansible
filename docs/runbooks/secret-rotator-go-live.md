@@ -211,14 +211,15 @@ YouTrack scope, on Jeeves's Account Security page. Store it:
 read -rs tok && printf %s "$tok" | bao kv put -mount=kv rotator/youtrack token=-; unset tok
 ```
 
-Then share the `Secret Rotator` tag with Jeeves, in the tag's settings in YouTrack, so that Jeeves
-sees it and can add it to an issue. The run finds the open card, and tags a new one, only through
-tags its token sees. Check what the token sees:
+Then share the `Rotator Standing Card` tag with Jeeves, in the tag's settings in YouTrack, so that
+Jeeves sees it and can add it to an issue. The run finds the open card, and tags a new one, only
+through tags its token sees. The tag marks that one card and no other: a run takes the oldest open
+ANS card carrying it as the standing card and rewrites its description. Check what the token sees:
 
 ```sh
 yt() { bao kv get -mount=kv -field=token rotator/youtrack </dev/null | sed 's/^/Authorization: Bearer /' | curl -sS -H @- "https://issues.webathome.org/api/$1"; }
 yt 'users/me?fields=login' | jq -r .login
-yt 'tags?fields=name&$top=500' | jq -r '.[].name' | grep -x 'Secret Rotator'
+yt 'tags?fields=name&$top=500' | jq -r '.[].name' | grep -x 'Rotator Standing Card'
 yt 'admin/projects?fields=shortName&$top=500' | jq -r '.[].shortName' | grep -x ANS
 ```
 
@@ -228,9 +229,9 @@ yt 'admin/projects?fields=shortName&$top=500' | jq -r '.[].shortName' | grep -x 
 
 - Each `kv put` answers with `version 1`.
 - Jenkins reads the admin's user id, then `true`.
-- YouTrack reads Jeeves's login, then `Secret Rotator`, then `ANS`. A missing tag line means the
-  tag is not shared with Jeeves yet. With it missing, every run fails with
-  `YouTrack shows its token no tag Secret Rotator`.
+- YouTrack reads Jeeves's login, then `Rotator Standing Card`, then `ANS`. A missing tag line means
+  the tag is not shared with Jeeves yet. With it missing, every run fails with
+  `YouTrack shows its token no tag Rotator Standing Card`.
 
 ## 6 — The annotations, and the stamps of the new leaves
 
@@ -430,7 +431,7 @@ k -n prometheus-prd exec prometheus-prd-alertmanager-0 -c alertmanager -- \
 - `metrics: pushed state, audit, nightly`. A `metrics: the <group> group is not pushed: <error>`
   line is a push that failed. It changes nothing in the run, but stop and read it: while the
   `nightly` group never lands, `SecretRotatorStale` keeps firing.
-- An open ANS card tagged `Secret Rotator` exists, marked as a dry run, and Homelab Alerts has the
+- An open ANS card tagged `Rotator Standing Card` exists, marked as a dry run, and Homelab Alerts has the
   rotator's digest, marked as a dry run.
 - The alert query lists no `SecretRotatorStale`. It has fired since its rule went live, because no
   nightly run had pushed yet, and this run's push resolves it.
