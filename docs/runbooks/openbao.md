@@ -471,6 +471,14 @@ none)`.
   `scripts/rotation/accessor_cleanup.py` destroys each accessor that
   no consumer holds: run it dry first, then with `--apply` (its
   header gives the rest).
+- **OIDC client secret** — the rotator's `keycloak-client` kind
+  rotates it in the leaf `rotator/oidc-auth-client`, which the
+  `openbao` role reads its client secret from: Keycloak regenerates client
+  `openbao`'s secret in realm `homelab`, which ends the old one, and
+  the rotator writes the new one to the leaf, then into
+  `auth/oidc/config`. OIDC login fails between the two. Nothing else
+  follows: the role's next converge writes the same secret (role
+  README §OIDC).
 - **Static seal key** — generate a new key, bump
   `openbao_seal_current_key_id`, and follow the seal-rekey path; the
   old key id must stay declared until every node has migrated.

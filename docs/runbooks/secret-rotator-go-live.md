@@ -458,7 +458,9 @@ time.
 Wave 1 starts once SecretRotator's `prd` carries slice 047, before step 6 or at any point after
 it. Until W4, `srviac 'secret-rotator annotate'` then prints `absent from the store, skipped:
 rotator/oidc-auth-client`. From then on, W1 comes before any `annotate --apply`, step 6's
-included.
+included. W4 comes after step 1, whose check expects the converge to declare the `rotator` AppRole
+and its policy, and W5 after step 6: it runs `secret-rotator` on srviac, which needs steps 1 to 3,
+and it stamps with step 6's `stamp`.
 
 Until W5's apply, the audit and the nightly card report on wave 1's keys. None of these findings
 touches an enabled kind:
@@ -627,7 +629,8 @@ cd /work/Ansible/ansible && cexec iac poetry run ansible-playbook playbooks/site
 
 - Neither prints `holds no client_secret`.
 - `failed=0`. Where the `rotator` policy lacks the `auth/oidc/config` grant, both report a change
-  of `Write consumer policies (only when text differs)` for `rotator` alone. A change for anything
+  for `rotator` alone: the check under `Report the policy writes a real run would perform (check
+  mode)`, the run under `Write consumer policies (only when text differs)`. A change for anything
   else: stop.
 - The run's `Write the OIDC config (Keycloak realm)` reads `ok`: a write that changes only the
   secret reports no change.
@@ -663,9 +666,11 @@ srviac 'secret-rotator annotate'
     jenkins-mcp's leaf then reads `add     rotation_token=…`, `add     rotation_user=…` and
     `remove  rotation_authorization=…`.
   - `jenkins/grafana-api` (slice 046), where it was stored after step 6 and not annotated since.
-- The last line counts those leaves: 4 where step 6 ran on slice 047's seed after W1, 19 where it
-  ran on the seed before it, and `0 live leaf(s) not in the seed`.
-- No `absent from the store` line but `jenkins/grafana-api`'s while that leaf is not stored. No
+- The last line counts those leaves: 19 where step 6 ran on the seed before slice 047. Where it ran
+  on slice 047's seed, it counts the four new leaves less those step 6 found already created: 4
+  where step 6 ran before W2, none where it ran after W4. Then `0 live leaf(s) not in the seed`.
+- No `absent from the store` line but `jenkins/grafana-api`'s while that leaf is not stored, and
+  `jenkins/keycloak-da-admin`'s once it is deleted. No
   `no kind in the seed`, `named in the seed, not held by the leaf` or `cannot write:` line.
 
 ```sh
@@ -749,7 +754,7 @@ takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, 
      takes two nights.
    - `jenkins/keycloak-iotsupport-admin`'s copies roll the KubeCoder controllers of `prd` and
      `dev`, which restarts every KubeCoder environment (design R65).
-   - `jenkins/keycloak-da-admin` rotates only while it exists (ANS-229 deletes it). Once it is
+   - `jenkins/keycloak-da-admin` rotates only while it exists; it is to be deleted. Once it is
      gone, its `plan` reads `error: no leaf jenkins/keycloak-da-admin`.
    - `eso/dev/electronics-inventory/dev/oidc` rotates as a KV write: the dev cluster takes it when
      it next boots. Its `homelab-dev` regenerate runs all the same, since `keycloak-dev` runs on

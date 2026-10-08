@@ -190,8 +190,10 @@ Auth + audit + ufw inputs:
 
 OIDC inputs (Keycloak-backed login — see §OIDC below):
 
-- `openbao_oidc_client_secret` — vaulted Keycloak client secret. Empty
-  default makes the whole OIDC provisioning skip cleanly.
+- `openbao_oidc_client_secret_leaf` — the leaf under `openbao_kv_mount`
+  whose `client_secret` key holds the Keycloak client secret. Default
+  `rotator/oidc-auth-client`, SecretRotator's leaf. While the leaf is
+  absent or holds no `client_secret`, the whole OIDC provisioning skips.
 - `openbao_oidc_discovery_url` — Keycloak realm issuer URL
   (`https://<keycloak>/realms/<realm>`). Set in
   `group_vars/openbao.yml` plaintext.
@@ -310,9 +312,14 @@ to break-glass.
 
 ## OIDC (Keycloak-backed UI + CLI login)
 
-OIDC is opt-in. `tasks/oidc.yml` no-ops until `openbao_oidc_client_secret`
-is set, so the role stays committable with the secret absent. The
-defaults wire a 1:1 mapping: the Keycloak group `openbao-admin` →
+OIDC is opt-in. `tasks/oidc.yml` reads the client secret from the KV
+leaf `openbao_oidc_client_secret_leaf` (`kv/rotator/oidc-auth-client`)
+with the role's token, in check mode too. While that leaf is absent
+or holds no `client_secret`, it prints `… holds no client_secret
+(HTTP <status>)` and `OIDC provisioning skipped`, and leaves the OIDC
+auth method, config and admin role as they are: it never writes an
+empty secret. A read answered with anything but 200 or 404 fails the
+run. The defaults wire a 1:1 mapping: the Keycloak group `openbao-admin` →
 OpenBao OIDC role `openbao-admin` → OpenBao policy `openbao-admin`. Adding
 a second persona later means another group + another OIDC role + another
 policy; the defaults are parameterised so a sibling task file can stand
@@ -331,20 +338,17 @@ Prerequisites on the Keycloak side (one-time, done out of band):
 
 First-apply procedure:
 
-1. **Vault the client secret** into
-   `inventories/prd/group_vars/openbao.yml`. From the project root:
+1. **Store the client secret** in the leaf, key `client_secret`: the
+   secret on the `openbao` client's Credentials tab in Keycloak.
+   [`secret-rotator-go-live.md`](../../../docs/runbooks/secret-rotator-go-live.md)
+   § W4 copies it there through the rotator's Keycloak client; by hand:
 
    ```
-   cd ansible && poetry run ansible-vault encrypt_string \
-       --name openbao_oidc_client_secret '<paste from Keycloak Credentials tab>'
+   read -rs s && printf %s "$s" | bao kv put -mount=kv rotator/oidc-auth-client client_secret=-; unset s
    ```
 
-   Paste the resulting `openbao_oidc_client_secret: !vault | …` block
-   into `group_vars/openbao.yml` alongside the existing admin AppRole
-   creds.
-
-2. **Set the discovery URL** in the same file (plaintext — it's not a
-   secret):
+2. **Set the discovery URL** in `inventories/prd/group_vars/openbao.yml`
+   (plaintext — it's not a secret):
 
    ```yaml
    openbao_oidc_discovery_url: "https://<keycloak-host>.home/realms/<realm>"
@@ -353,7 +357,7 @@ First-apply procedure:
    Use the realm's issuer URL — the same value Keycloak prints under
    *Realm settings → OpenID Endpoint Configuration*'s `issuer` field.
 
-3. **Commit** both changes.
+3. **Commit** it.
 
 4. **Apply.** Same playbook, no extra flags:
 
@@ -364,7 +368,7 @@ First-apply procedure:
    The provisioning runs on the bootstrap host; reads/writes go through
    Raft and replicate to followers. Every real run re-writes the
    config (the client secret isn't readable through the API, so we
-   always write — cheap server-side, keeps the vault content
+   always write — cheap server-side, keeps the leaf's secret
    authoritative), but reports changed only when the discovery URL,
    client id or default role differ. The admin role is written only
    when it differs. A `--check` run reports either difference as a
@@ -377,9 +381,19 @@ First-apply procedure:
 
    For CLI: `BAO_ADDR=https://secrets bao login -method=oidc`.
 
-Rotation: re-vault `openbao_oidc_client_secret` (after rotating in
-Keycloak) and re-apply. No flag required. The apply writes the new
-secret but reports the config task ok, as nothing readable changed.
+Rotation is SecretRotator's, by its `keycloak-client` kind, every 14
+days once the rotator's `kinds_enabled` lists that kind. Its plan of
+`rotator/oidc-auth-client` has Keycloak regenerate the `openbao`
+client's secret, which ends the old one, writes the new one to the
+leaf, then writes it into `auth/oidc/config`, keeping every other
+field of the config it reads first. OIDC login fails between the
+regenerate and that write. The `rotator` policy's `read` and `update`
+on `auth/oidc/config` (`templates/rotator-policy.hcl.j2`) allow it,
+so a converge must have written that policy before the kind first
+rotates the leaf. No re-apply follows a rotation: the next converge
+writes the same secret from the leaf. A secret changed in Keycloak by
+hand goes into the leaf, then a re-apply writes it; the apply reports
+the config task ok, as nothing readable changed.
 
 ## Backup pipeline
 
