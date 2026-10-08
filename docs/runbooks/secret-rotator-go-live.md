@@ -496,7 +496,8 @@ bao kv get -mount=kv -format=json eso/prd/jenkins-mcp/prd/config </dev/null \
 
 **Reading:** the patch answers with the leaf's new version, then `admin` and `true`.
 
-Then push JenkinsDeploy's `main`, which holds the change. Once Argo CD has synced it:
+Then merge JenkinsDeploy's `secret-rotator` branch, which holds the change, into `main` and push
+`main`. Once Argo CD has synced it:
 
 ```sh
 k -n argocd-prd get application jenkins-prd -o jsonpath='{.status.sync.revision} {.status.sync.status} {.status.health.status}{"\n"}'
@@ -545,9 +546,10 @@ bao kv get -mount=kv -format=json eso/prd/infra-statistics/prd/jenkins </dev/nul
 
 **Reading:** `version 1`, then `admin` and `true`.
 
-Then push InfraStatisticsDeploy's `main`, which holds the change. Its sync changes the
-Deployment's pod template, so Argo CD restarts infra-statistics. The new pod starts once ESO has
-written the token into the Secret. Once it has synced:
+Then merge InfraStatisticsDeploy's `secret-rotator` branch, which holds the change, into `main`
+and push `main`. Its sync changes the Deployment's pod template, so Argo CD restarts
+infra-statistics. The new pod starts once ESO has written the token into the Secret. Once it has
+synced:
 
 ```sh
 k -n argocd-prd get application infra-statistics-prd -o jsonpath='{.status.sync.revision} {.status.sync.status} {.status.health.status}{"\n"}'
