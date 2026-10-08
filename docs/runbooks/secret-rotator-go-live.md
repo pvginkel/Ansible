@@ -526,7 +526,8 @@ cmp -s <(bao kv get -mount=kv -format=json eso/prd/jenkins-mcp/prd/config </dev/
   and read it.
 
 The leaf's `token` carries "Claude" over. It stays unstamped, so it falls due at once when
-`jenkins-token` is enabled, and that first rotation revokes "Claude".
+`jenkins-token` is enabled. That first rotation leaves "Claude" alive: you revoke it by hand
+afterwards (item 8 of § Going live).
 
 ### W2 — infra-statistics' own token leaf
 
@@ -558,8 +559,8 @@ cmp -s <(bao kv get -mount=kv -field=token eso/prd/infra-statistics/prd/jenkins 
 **Reading:** the pushed commit and `Synced Healthy`, then `successfully rolled out`, then `same`.
 
 The leaf's `token` carries "OpenBao" over. It stays unstamped, so it falls due at once when
-`jenkins-token` is enabled, and that first rotation revokes "OpenBao".
-`shared/jenkins/admin-password` stays until then (item 8 of § Going live).
+`jenkins-token` is enabled. That first rotation leaves "OpenBao" alive: you revoke it by hand
+afterwards, and `shared/jenkins/admin-password` stays until then (item 8 of § Going live).
 
 ### W3 — The Keycloak counterparts
 
@@ -658,16 +659,13 @@ srviac 'secret-rotator annotate'
     - the `realm` in the args of the `keycloak-client` keys of
       `eso/prd/{dnsmasq,electronics-inventory,fieldnotes,grafana,iot,pgadmin,zigbee2mqtt}/prd/oidc`
       and `jenkins/iotsupport-pipeline-oidc`;
-    - the `legacy` token name in the args of the `jenkins-token` keys of
-      `eso/prd/jenkins-telegram-bot/prd/config`, `eso/prd/kubecoder/prd/catalog`,
-      `eso/prd/version-poller/prd/jenkins` and `rotator/jenkins`;
     - `"job":"AaC/IoTSupport"` on `eso/prd/iot/prd/architecture-pipeline`;
     - `shared/jenkins/admin-password`'s `password`, now `manual` at interval `never`.
 
     jenkins-mcp's leaf then reads `add     rotation_token=…`, `add     rotation_user=…` and
     `remove  rotation_authorization=…`.
   - `jenkins/grafana-api` (slice 046), where it was stored after step 6 and not annotated since.
-- The last line counts those leaves: 19 where step 6 ran on the seed before slice 047. Where it ran
+- The last line counts those leaves: 15 where step 6 ran on the seed before slice 047. Where it ran
   on slice 047's seed, it counts the four new leaves less those step 6 found already created: 4
   where step 6 ran before W2, none where it ran after W4. Then `0 live leaf(s) not in the seed`.
 - No `absent from the store` line but `jenkins/grafana-api`'s while that leaf is not stored, and
@@ -780,44 +778,37 @@ takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, 
      cannotReconcile, and its rollback puts the old password back.
    - The `dev` leaves rotate as KV writes: the dev cluster takes them when it next boots.
 8. **Before `jenkins-token`**, W1 and W2 are done and their pushes synced. Before W1's push,
-   jenkins-mcp's Secret takes its header from the stored `authorization`, not from `token`, and
-   the first rotation's revoke of "Claude" would cut jenkins-mcp off.
-
-   "JenkinsTelegramBot" and "VersionPoller" are matched to their leaves by name only. Confirm
-   each: twenty calls with the leaf's token raise that token's use count by twenty on the admin's
-   Security page, https://jenkins.webathome.org/user/admin/security/. Read the page before and
-   after each burst:
+   jenkins-mcp's Secret takes its header from the stored `authorization`, not from `token`: after
+   the first rotation jenkins-mcp would go on sending "Claude", and the revoke of "Claude" below
+   would cut it off.
 
    ```sh
-   burst() { bao kv get -mount=kv -format=json "$1" </dev/null \
-       | jq -r --arg k "$2" '.data.data | "user = \"\(.user // "admin"):\(.[$k])\"", (range(20) | "url = \"https://jenkins.webathome.org/whoAmI/api/json\"")' \
-       | curl -sS -K - | jq -r .name | sort | uniq -c; }
-   burst eso/prd/jenkins-telegram-bot/prd/config jenkins-token
-   burst eso/prd/version-poller/prd/jenkins token
    for l in eso/prd/{infra-statistics/prd/jenkins,jenkins-mcp/prd/config,jenkins-telegram-bot/prd/config,kubecoder/prd/catalog,version-poller/prd/jenkins} \
        rotator/jenkins; do srviac "secret-rotator plan $l"; done
    ```
 
    **Reading.**
 
-   - `20 admin` for each burst. Over the first, `JenkinsTelegramBot`'s count rose by at least 20,
-     since the bot polls as well. Over the second, `VersionPoller`'s rose by 20. No other token's
-     rose by as many. Where the twenty landed on another token: stop. The leaf's `legacy` then
-     names the wrong token, and its first rotation would revoke a token another consumer holds.
-   - Each plan's `jenkins_token.revoke` names, beside its own token name `<leaf>#<key>`, the
-     legacy token of its leaf: OpenBao, Claude, JenkinsTelegramBot, wrkdev, VersionPoller and
-     secret-rotator.
+   - Each plan's `jenkins_token.revoke` reads `revoke any other token named <leaf>#<key>`, and
+     names no other token.
 
    What its first night does:
 
    - The five keys without a stamp are due at once. `rotator/jenkins` falls due a year after its
      stamp of step 6.
    - The KubeCoder catalog's rotation rolls its controller, which restarts every KubeCoder
-     environment (design R65), each then with the new token. It revokes "wrkdev" without other
-     checks: anything else that still uses that token gets a 401 from Jenkins.
+     environment (design R65), each then with the new token.
+   - No rotation revokes a token the operator made by hand: each leaf's first rotation mints its
+     own `<leaf>#<key>` token beside the one the leaf held before.
 
-   After their first rotations, the Security page lists none of OpenBao, Claude,
-   JenkinsTelegramBot, wrkdev and VersionPoller. Then `shared/jenkins/admin-password` goes, which nothing reads any more:
+   After the first rotations, revoke the hand-made tokens on the admin's Security page,
+   https://jenkins.webathome.org/user/admin/security/: OpenBao, Claude, JenkinsTelegramBot, wrkdev
+   and VersionPoller. Revoke each once its leaf's first rotation is done and the page shows the
+   token's use count no longer rising. A count that still rises means something else uses the
+   token: find it before you revoke. "secret-rotator", the token of `rotator/jenkins`, goes the
+   same way after that leaf's first rotation, a year after its stamp of step 6.
+
+   Then `shared/jenkins/admin-password` goes, which nothing reads any more:
 
    ```sh
    k get externalsecrets.external-secrets.io -A -o json \
