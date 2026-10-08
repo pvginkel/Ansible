@@ -403,8 +403,11 @@ alerts on the series, all three at warning:
   run too.
 - `SecretRotationFailed`: while a leaf's status is `failed` or
   `failed-activation`.
-- `SecretRotationOverdue`: a key the rotator has stamped is over 7
-  days past its due day, and its leaf's status is not `skipped`.
+- `SecretRotationOverdue`: a key is over 7 days past its due day,
+  and its leaf's status is not `skipped`. A `never` key falls due at
+  its expiry less 7 days whether the rotator has stamped it or not; a
+  key never stamped that has an interval has no due day and never
+  fires it.
 
 The last two fire only while the nightly run's push says the rotator
 is out of dry run. Grafana's `Secret rotation` dashboard charts the
