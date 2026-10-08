@@ -396,7 +396,9 @@ ServiceAccount token. A nightly run also pushes the audit's findings
 and its own run health; one that found the lock held or that
 `paused` stopped pushes the run health alone (design §3.4). A push
 that fails is one line of the output, `metrics: the <group> group is
-not pushed: <error>`, and changes nothing else. PrometheusDeploy
+not pushed: <error>`, and changes nothing else. `secret-rotator ui`
+pushes nothing: what it changes reaches Prometheus with the next
+nightly run, `run <leaf>` or `stamp`. PrometheusDeploy
 alerts on the series, all three at warning:
 
 - `SecretRotatorStale`: no nightly run has pushed for 48 h, in dry
@@ -420,8 +422,9 @@ stored that token, the stage fails and the dashboard is not
 published. A change made in Grafana's UI is lost at the next publish.
 
 Its commands run on srviac, because its AppRole is bound to srviac's
-address. The VS Code tasks `secret-rotator run (srviac)` and
-`secret-rotator plan (srviac)` run the last two:
+address. The VS Code tasks `secret-rotator plan (srviac)`,
+`secret-rotator run (srviac)` and `secret-rotator ui (srviac)` run the
+last three:
 
 ```bash
 ssh -t ansible@srviac "sudo iac -c 'secret-rotator audit'"             # the whole mount against the annotation contract
@@ -430,22 +433,43 @@ ssh -t ansible@srviac "sudo iac -c 'secret-rotator annotate --apply'"  # writes 
 ssh -t ansible@srviac "sudo iac -c 'secret-rotator stamp <leaf> <key> --rotated-at <date>'"  # a key's rotation stamp (below)
 ssh -t ansible@srviac "sudo iac -c 'secret-rotator plan <leaf>'"       # the leaf's plans: when each falls due, every step
 ssh -t ansible@srviac "sudo iac -c 'secret-rotator run <leaf>'"        # runs one of them, its operator steps as prompts
+ssh -t ansible@srviac "sudo iac -c 'secret-rotator ui'"                # every plan with an operator step, worked one at a time
 ```
 
-`run <leaf>` rotates a key by hand. It is also the only way a plan
-with an operator step runs: a `manual` key, and the `iac-agent` and
-`openbao-admin` AppRoles. The nightly run starts no such plan; it
-marks the leaf manual-due and says so in Telegram. A plan that failed
-stays stopped where it failed; `run <leaf>` offers Retry, Abort (roll
-back) and Details. A value is typed at a hidden prompt, never on a
-command line.
+A plan with an operator step runs only by hand: a `manual` or
+`external` key's (below), the `iac-agent` and `openbao-admin`
+AppRoles', and one whose activation has a `manual:` text, such as
+`eso/prd/argocd/prd/webhook`'s. The nightly run starts no such plan;
+it marks the leaf manual-due and says so in Telegram.
+`secret-rotator ui` is where they are worked. It lists every such plan, due or not: the plans in flight
+and failed first, then by when they fall due, the earliest first, then
+those of keys with no due date, which read `no due date configured`.
+It runs one plan at a time as a wizard: each operator step is a
+screen, and the tool steps between them show their progress.
+`f` narrows the list to the selected box's type (a `manual` key's
+credential type, else its kind), and `f` again shows every box.
+`run <leaf>` runs one plan of a leaf in the terminal, any plan, so it
+also rotates a key by hand. A plan that failed stays stopped where it
+failed; both offer Retry, Abort (roll back) and Details. Neither heeds
+`dry_run`, `paused` or `kinds_enabled`. A value is pasted into a
+masked field or typed at a hidden prompt, never on a command line.
 
-A `manual` key's prompt shows the standard instructions of its
-credential type, the `type` in its entry's `args` (SecretRotator's
-`src/secret_rotator/kinds/manual/types/<type>.md`), with the key's
-`notes` below them. For a type whose credential expires it asks the
-new credential's expiry too, `expires on (YYYY-MM-DD, blank for
-none)`.
+A `manual` key's screen, or its prompt, shows the standard
+instructions of its credential type, the `type` in its entry's `args`
+(SecretRotator's `src/secret_rotator/kinds/manual/types/<type>.md`),
+with the key's `notes` below them. For a type whose credential
+expires it asks the new credential's expiry too: the UI's `expires`
+field comes filled with today plus the key's interval, and
+`run <leaf>` asks `expires on (YYYY-MM-DD, blank for none)`. A blank
+expiry means the credential never expires.
+
+An `external` key is one the tool never rotates: its value changes by
+a procedure of its own, which the key's `notes` give or point at. The
+bootstrap tier is `external`; the catalog lists the rest. It falls due
+like any key; once `external` is among `kinds_enabled`, the nightly
+run announces it as it does a `manual` key. Its box in
+`secret-rotator ui` shows the notes and **Done**, which stamps the key
+and writes no value: [`external-key-due.md`](external-key-due.md).
 
 - **Backup upload token** — `terraform taint
   homelab_backup_credential.openbao`, then re-apply Terraform and
@@ -536,8 +560,9 @@ stamp: a copy is written with its primary. A plan in flight is its
 staging leaf, `kv/rotator/staging/<kind>/<leaf>`, which lasts until
 the plan is stamped or rolled back.
 
-A key rotated outside the rotator gets its stamp from
-`secret-rotator stamp`, after the `bao kv put` of its new value:
+A key whose value was written outside a rotation gets its stamp from
+`secret-rotator stamp`, after the `bao kv put` of the value (an
+`external` key's Done stamps it instead):
 
 ```
 ssh -t ansible@srviac "sudo iac -c 'secret-rotator stamp <leaf> <key> --rotated-at $(date -uI)'"

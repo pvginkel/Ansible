@@ -196,12 +196,18 @@ Bootstrap any Ubuntu box: install Poetry + the standard SSH keys from the cloud-
 
 ## Secret rotation
 
+SecretRotator never rotates `JENKINS_AGENT_SECRET`, `GIT_API_TOKEN` or the state keypair's private
+half: they are `external` keys, the markers `rotator/bootstrap/jenkins-agent-secret` and
+`rotator/bootstrap/git-api-token` and `iac/tf-backend#age_secret_key`. Each falls due 365 days after
+its last stamp. Rotate it by its section below, then press Done on its box in `secret-rotator ui`
+([`external-key-due.md`](external-key-due.md)).
+
 ### `OPENBAO_SECRET_ID` (the `iac-agent` AppRole) and SecretRotator's entries
 
 SecretRotator rotates the `iac-agent` secret_id every 90 days, with the operator
 ([`openbao.md`](openbao.md) §5). The nightly run never starts that rotation: once `approle` is among
-its enabled kinds, it announces the rotation in Telegram as it falls due. Run it on srviac with
-`secret-rotator run rotator/approle/iac-agent`. It shows the new secret_id; paste it over the
+its enabled kinds, it announces the rotation in Telegram as it falls due. Run it on srviac in
+`secret-rotator ui`, or with `secret-rotator run rotator/approle/iac-agent`. It shows the new secret_id; paste it over the
 `OPENBAO_SECRET_ID` literal in `/etc/iac/secrets.yaml`. No restart: each `iac` call starts a fresh
 container that reads the file. The three `SECRET_ROTATOR_*` entries are `!bao` refs to leaves the
 rotator rewrites itself, so they need no edit.

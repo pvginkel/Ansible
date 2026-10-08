@@ -14,10 +14,11 @@ in the doc that holds it. This runbook is only what comes around it.
 ## How it falls due
 
 A key falls due at its rotation stamp plus its interval, and at once while it has no stamp
-([openbao.md §5](openbao.md#5--rotation), the run state). The nightly run announces it as it does a
-`manual` key, and never starts it. A Telegram line comes 28, 21 and 14 days before the key falls
-due, then every night from 13 days before it until the key is done. Once the key is due, it is also
-on the standing `Secret Rotator` card, under *Manual rotations due*.
+([openbao.md §5](openbao.md#5--rotation), the run state). Once `external` is among the nightly
+run's `kinds_enabled` ([go-live](secret-rotator-go-live.md#going-live)), the nightly run announces
+it as it does a `manual` key, and never starts it. A Telegram line comes 28, 21 and 14 days before
+the key falls due, then every night from 13 days before it until the key is done. Once the key is
+due, it is also on the standing card tagged `Rotator Standing Card`, under *Manual rotations due*.
 
 ## What to do
 
@@ -34,9 +35,10 @@ on the standing `Secret Rotator` card, under *Manual rotations due*.
    value it changes, in OpenBao too. Examples: the new Wi-Fi password into `shared/wifi-iot`, and
    the Terraform states' age key into `iac/tf-backend` and its copies in the KubeCoder catalog bags.
 4. Press **Done** once the work is done, and not before. The stamp is the only record that the key
-   was rotated. Done stamps the key with today's date and restarts its interval. Nothing else
-   happens: no value is written, no copy is rewritten, nothing is restarted, and a marker leaf
-   stays as it is. The box shows `done` and leaves the list.
+   was rotated. Done stamps the key with today's date and restarts its interval, and clears an
+   `expires_at` the key's entry carries. Nothing else happens: no value is written, no copy is
+   rewritten, nothing is restarted, and a marker leaf stays as it is. The box shows `done` and
+   leaves the list.
 5. Press Done on each key that the procedure rotated, one box at a time.
 
 Every `external` key is in the list, whether it is due or not. Done on a key that is not due yet

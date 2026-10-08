@@ -267,8 +267,8 @@ write:
     `"notes":"…"`. The rest go: the "Transcript-migrated" provenance and the sweep's "at slice
     close" plans, those of `eso/prd/filebeat/prd/elastic-credentials` and
     `eso/prd/iot/prd/elastic-credentials` among them.
-- `set     max_versions=20  (was 0)` on the automatic leaves, the six `rotator/approle/*` markers
-  among them. The `rotator/bootstrap/*` markers are `manual` and keep the mount's default.
+- `set     max_versions=20  (was 0)` on the automatic leaves, the 12 marker leaves among them: the
+  `rotator/approle/*` markers are `approle`, the `rotator/bootstrap/*` markers `external`.
 - The last line reads `would patch (dry run; --apply writes) 123 leaf(s), 12 of them new marker
   leaves; 0 unchanged, 1 absent from the store, 0 live leaf(s) not in the seed`. That is every leaf
   of the seed's 124 but the absent one, since none holds an entry yet.
@@ -706,10 +706,12 @@ takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, 
    committed. From the next night on, the run rotates at most 10 due `random` plans a night, so the
    first pass drains over the nights after. From that night's push on, `SecretRotationFailed` and
    `SecretRotationOverdue` can fire too ([`openbao.md`](openbao.md) §5).
-2. **`manual` next**, in the commit after `random`'s first clean night. It executes nothing, since a
-   plan with an operator step never runs at night. What it turns on is the manual-due status, the
-   Telegram lines and the card lines for the manual rotations, which are all due at go-live because
-   none has a stamp.
+2. **`manual` and `external` next**, together, in the commit after `random`'s first clean night.
+   They execute nothing, since a plan with an operator step never runs at night. What they turn on
+   is the manual-due status, the Telegram lines and the card lines for the manual rotations and the
+   `external` keys, which are all due at go-live because none has a stamp. Until then the nightly
+   log only counts them among its `due key(s) of kinds not enabled`. The operator works them in
+   `secret-rotator ui` ([`openbao.md`](openbao.md) §5).
 3. **One kind per commit** after that, added to `kinds_enabled` once the kinds before it rotate
    cleanly.
 4. **Before `approle`**, `jenkins`, `backup`, `iac-agent` and `openbao-admin` each hold at most one
