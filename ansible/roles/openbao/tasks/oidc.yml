@@ -1,28 +1,49 @@
 ---
 # OIDC provisioning — Keycloak-backed web UI / CLI login. Runs only on
 # the bootstrap host; OIDC config, role, and the underlying auth mount
-# live in the Raft store and replicate to followers. Gated on a
-# non-empty `openbao_oidc_client_secret`: when unset (default), the
-# entire file no-ops so a drift cycle stays quiet before OIDC is wired
-# in. The same gate handles the unexercised-config concern — set the
-# secret in ansible-vault when you actually wire it up.
+# live in the Raft store and replicate to followers. The client secret
+# is the SecretRotator's leaf, openbao_oidc_client_secret_leaf: until
+# it holds a client_secret the file leaves OIDC untouched, so it never
+# writes an empty secret.
 
 - name: Acquire the controller's OpenBao token
   ansible.builtin.import_tasks: auth-token.yml
 
-- name: Skip OIDC provisioning when no client secret is configured
+# Read-only, so it runs in check mode too: without the secret the
+# block below skips and `--check` would report no OIDC drift.
+- name: Read the OIDC client secret from the rotator's leaf
+  ansible.builtin.uri:
+    url: "{{ openbao_admin_api_addr }}/v1/{{ openbao_kv_mount }}/data/{{ openbao_oidc_client_secret_leaf }}"
+    method: GET
+    headers:
+      X-Vault-Token: "{{ _openbao_token }}"
+    status_code: [200, 404]
+    validate_certs: true
+  register: _openbao_oidc_client_secret_read
+  no_log: true
+  check_mode: false
+  when: _openbao_token | length > 0
+
+- name: Take the OIDC client secret from the leaf
+  ansible.builtin.set_fact:
+    _openbao_oidc_client_secret: "{{ _openbao_oidc_client_secret_read.json.data.data.client_secret | default('') }}"
+  no_log: true
+
+- name: Skip OIDC provisioning while the rotator's leaf holds no client secret
   ansible.builtin.debug:
     msg: >-
-      No openbao_oidc_client_secret configured. Vault the Keycloak
-      client secret into inventories/prd/group_vars/openbao.yml and
-      set openbao_oidc_discovery_url to the Keycloak realm issuer URL.
-      OIDC provisioning skipped.
-  when: openbao_oidc_client_secret | length == 0
+      {{ openbao_kv_mount }}/{{ openbao_oidc_client_secret_leaf }} holds
+      no client_secret (HTTP {{ _openbao_oidc_client_secret_read.status }}).
+      Store the Keycloak {{ openbao_oidc_client_id }} client's secret
+      there. OIDC provisioning skipped; the OIDC config is left untouched.
+  when:
+    - _openbao_token | length > 0
+    - _openbao_oidc_client_secret | length == 0
 
 - name: Provision OIDC auth method, config, and admin role
   when:
-    - openbao_oidc_client_secret | length > 0
     - _openbao_token | length > 0
+    - _openbao_oidc_client_secret | length > 0
   vars:
     _bao_headers:
       X-Vault-Token: "{{ _openbao_token }}"
@@ -80,7 +101,7 @@
     # POST replaces the whole config. The readback redacts
     # oidc_client_secret, so a strict drift comparison would never
     # match — we always write instead. Server-side write is cheap and
-    # the vault-sourced secret stays in sync without an explicit
+    # the leaf's secret stays in sync without an explicit
     # rotation flag. Changed reports only a difference in the readable
     # fields: a rotation of the client secret alone is written but
     # reports ok.
@@ -118,7 +139,7 @@
         body:
           oidc_discovery_url: "{{ openbao_oidc_discovery_url }}"
           oidc_client_id: "{{ openbao_oidc_client_id }}"
-          oidc_client_secret: "{{ openbao_oidc_client_secret }}"
+          oidc_client_secret: "{{ _openbao_oidc_client_secret }}"
           default_role: "{{ openbao_oidc_default_role }}"
         status_code: [200, 204]
         validate_certs: true

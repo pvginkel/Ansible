@@ -59,3 +59,9 @@ path "auth/approle/role/+/secret-id-accessor/lookup" {
 path "auth/approle/role/+/secret-id-accessor/destroy" {
   capabilities = ["update"]
 }
+
+# The keycloak-client kind: OpenBao's own OIDC client secret. A write
+# replaces the whole config, so the kind reads it before it writes.
+path "auth/oidc/config" {
+  capabilities = ["read", "update"]
+}

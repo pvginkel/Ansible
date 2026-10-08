@@ -151,8 +151,8 @@
     - openbao_auth
 
 # Keycloak-backed OIDC auth for the web UI + CLI. Bootstrap-host only;
-# gated internally on openbao_oidc_client_secret being non-empty so the
-# role stays a no-op for environments that haven't wired Keycloak yet.
+# gated internally on openbao_oidc_client_secret_leaf holding the
+# client secret, so the role no-ops until that leaf exists.
 - name: Provision OIDC auth + admin role
   ansible.builtin.import_tasks: oidc.yml
   when: inventory_hostname == openbao_bootstrap_host

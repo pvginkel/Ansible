@@ -191,10 +191,8 @@ openbao_ufw_https_source_groups:
 
 # ----- OIDC (Keycloak-backed UI / CLI login) --------------------------
 #
-# OIDC is opt-in per environment. tasks/oidc.yml gates the whole
-# provisioning on a non-empty openbao_oidc_client_secret, so leaving
-# these defaults empty keeps the role no-op until Keycloak is wired in
-# group_vars.
+# OIDC is opt-in per environment: tasks/oidc.yml no-ops until the KV
+# leaf openbao_oidc_client_secret_leaf holds a client_secret.
 
 # Keycloak realm issuer URL — `https://<keycloak>/realms/<realm>`. The
 # OIDC discovery endpoint hangs off `.well-known/openid-configuration`
@@ -205,8 +203,10 @@ openbao_oidc_discovery_url: ""
 # field in the Keycloak admin UI.
 openbao_oidc_client_id: "openbao"
 
-# Vaulted client secret. Empty default → oidc.yml no-ops entirely.
-openbao_oidc_client_secret: ""
+# The leaf under openbao_kv_mount whose client_secret key holds the
+# client secret. It is the SecretRotator's: its keycloak-client kind
+# rotates the secret in Keycloak, in this leaf and in auth/oidc/config.
+openbao_oidc_client_secret_leaf: "rotator/oidc-auth-client"
 
 # Default OIDC role — what the UI's "Sign in with OIDC" button maps to
 # when no role is supplied. 1:1 with the OpenBao policy name so a
