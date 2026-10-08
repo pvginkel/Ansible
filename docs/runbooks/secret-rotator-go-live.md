@@ -2,6 +2,7 @@
 
 This runbook brings SecretRotator up on srviac. First part: its credentials, its annotations and
 its nightly job, which runs in dry run. Then a week of dry run. Then going live, one kind at a time.
+[§ Wave 1](#wave-1) prepares the kinds of slice 047, before the go-live or after it.
 
 The operator runs every step, from top to bottom. Each step gives the commands, what to hand back,
 and the reading that must hold before the next step starts.
@@ -78,6 +79,10 @@ cd /work/Ansible/ansible && cexec iac poetry run ansible-playbook playbooks/site
 - The first run reads `failed=0`. Its closing message names `tmp/openbao-credentials/` with
   `rotator → kv/iac/rotator-approle (keys role_id / secret_id)`, and no other AppRole.
 - The second run's recap reads `changed=0` on every host.
+- Where Ansible's `main` carries slice 047, the check and both runs print `kv/rotator/oidc-auth-client
+  holds no client_secret (HTTP 404)` and `OIDC provisioning skipped; the OIDC config is left
+  untouched`. That is expected until W4 of [§ Wave 1](#wave-1) stores the secret. OpenBao's OIDC
+  login keeps the config it has.
 
 Capture the credentials into their leaf, then wipe the staging files:
 
@@ -281,6 +286,23 @@ write:
   second, a seed key the leaf lacks, which gets no entry.
 - No `cannot write:` line. With one, the dry run ends `nothing written` and exits 1.
 
+**With slice 047's seed.** Where `prd` carries slice 047, the dry run also prints what wave 1
+changes by design ([§ Wave 1](#wave-1)). These lines are expected, and none of them asks for a
+seed fix:
+
+- `absent from the store, skipped:` for `eso/prd/infra-statistics/prd/jenkins`,
+  `rotator/keycloak-client/homelab`, `rotator/keycloak-client/homelab-dev` and
+  `rotator/oidc-auth-client`, which W2 to W4 create. The four add four leaves to the seed. Each
+  the store lacks adds one to the last line's `absent from the store`, and leaves its leaf count
+  as it is. One the store already holds is written with the others.
+- On jenkins-mcp's leaf: `named in the seed, not held by the leaf:
+  eso/prd/jenkins-mcp/prd/config#token` and `…#user`, and among the leaf's writes
+  `add     rotation_authorization={"kind":"random",…}`. **Do W1 before the apply**, then run the
+  dry run again. The seed has no entry for the stored header `authorization`, so the apply would
+  give it the leaf's kind, `random`, and `random`'s first live night would replace the header
+  jenkins-mcp sends to Jenkins. After W1 the leaf reads `add     rotation_token=…` (kind
+  `jenkins-token`) and `add     rotation_user={"kind":"none"}`, and these three lines are gone.
+
 ```sh
 srviac 'secret-rotator annotate --apply'
 srviac 'secret-rotator annotate' | tail -n 1
@@ -426,6 +448,250 @@ leaves, once SecretRotator's build has published it, which waits on Jenkins' Gra
 alert fires in dry run but `SecretRotatorStale`. Go live after a week whose nights raised nothing
 unexplained.
 
+## Wave 1
+
+Slice 047's kinds are `keycloak-client`, `cnpg-role`, `jenkins-token`, `jenkins-job-token` and
+`grafana-admin`. They ship switched off. W1 to W5 create the leaves they need, land the pushes
+held for them, and annotate. Item 5 of [§ Going live](#going-live) then enables them one at a
+time.
+
+Wave 1 starts once SecretRotator's `prd` carries slice 047, before step 6 or at any point after
+it. Until W4, `srviac 'secret-rotator annotate'` then prints `absent from the store, skipped:
+rotator/oidc-auth-client`. From then on, W1 comes before any `annotate --apply`, step 6's
+included.
+
+Until W5's apply, the audit and the nightly card report on wave 1's keys. None of these findings
+touches an enabled kind:
+
+- `rotation_<key>: missing` on each key W1 to W4 add, and `(consumers): an orphan: …` on
+  `eso/prd/infra-statistics/prd/jenkins` until W2's push has synced.
+- Where step 6 ran on the seed before slice 047, also:
+  - `args: realm: not homelab or homelab-dev` on each `keycloak-client` key whose entry names no
+    realm;
+  - `args: job: not a Jenkins job's full name` on `eso/prd/iot/prd/architecture-pipeline`;
+  - `kind: unknown kind 'jenkins-admin-password': …` on `shared/jenkins/admin-password`;
+  - `args: type: 'jenkins-basic-auth' is not a credential type manual documents` on jenkins-mcp's
+    `rotation_authorization`, which W1 turns into `stale: the leaf has no key 'authorization'`.
+
+### W1 — jenkins-mcp's header becomes a template
+
+jenkins-mcp sends Jenkins the header its leaf stores as `authorization`:
+`Basic <base64(user:token)>`, with the admin account's API token "Claude". JenkinsDeploy's slice
+047 change has its ExternalSecret build that header from the leaf's `user` and `token`, which the
+leaf does not hold yet. So the keys come first, then the push, and the stored header goes last.
+The header jenkins-mcp sends stays the same throughout.
+
+Split the stored header into the two keys, and check that they rebuild it:
+
+```sh
+bao kv get -mount=kv -format=json eso/prd/jenkins-mcp/prd/config </dev/null \
+  | jq '.data.data.authorization | ltrimstr("Basic ") | @base64d | index(":") as $i | {user: .[:$i], token: .[$i+1:]}' \
+  | bao kv patch -mount=kv eso/prd/jenkins-mcp/prd/config -
+bao kv get -mount=kv -format=json eso/prd/jenkins-mcp/prd/config </dev/null \
+  | jq -r '.data.data | .user, (.authorization == "Basic " + ("\(.user):\(.token)" | @base64))'
+```
+
+**Reading:** the patch answers with the leaf's new version, then `admin` and `true`.
+
+Then push JenkinsDeploy's `main`, which holds the change. Once Argo CD has synced it:
+
+```sh
+k -n argocd-prd get application jenkins-prd -o jsonpath='{.status.sync.revision} {.status.sync.status} {.status.health.status}{"\n"}'
+k -n jenkins-prd get externalsecret jenkins-mcp-secrets -o json \
+  | jq -r '(.spec.target.template.data | keys | join(" ")), (.status.conditions[] | select(.type == "Ready") | .reason)'
+```
+
+**Reading:** the pushed commit and `Synced Healthy`, then `authorization bearer-token` and
+`SecretSynced`.
+
+Last, the stored header goes. A forced sync then shows the Secret built without it:
+
+```sh
+bao kv patch -mount=kv -remove-data=authorization eso/prd/jenkins-mcp/prd/config </dev/null
+bao kv get -mount=kv -format=json eso/prd/jenkins-mcp/prd/config </dev/null | jq -r '.data.data | keys | join(" ")'
+k -n jenkins-prd annotate externalsecret jenkins-mcp-secrets force-sync="$(date +%s)" --overwrite
+k -n jenkins-prd get externalsecret jenkins-mcp-secrets -o jsonpath='{.status.refreshTime} {.status.conditions[?(@.type=="Ready")].reason}{"\n"}'
+cmp -s <(bao kv get -mount=kv -format=json eso/prd/jenkins-mcp/prd/config </dev/null | jq -j '.data.data | "Basic " + ("\(.user):\(.token)" | @base64)') \
+  <(k -n jenkins-prd get secret jenkins-mcp-secrets -o jsonpath='{.data.authorization}' | base64 -d) && echo same || echo differs
+```
+
+**Reading.**
+
+- `bearer-token token user`.
+- A refresh time after the annotate, and `SecretSynced`.
+- `same`: the Secret's header is the one the leaf's keys build. `differs` or another reason: stop
+  and read it.
+
+The leaf's `token` carries "Claude" over. It stays unstamped, so it falls due at once when
+`jenkins-token` is enabled, and that first rotation revokes "Claude".
+
+### W2 — infra-statistics' own token leaf
+
+infra-statistics calls Jenkins with `shared/jenkins/admin-password#password`. That is no password
+but the admin account's API token "OpenBao". InfraStatisticsDeploy's slice 047 change has it read
+`eso/prd/infra-statistics/prd/jenkins#token` instead. The rotator creates no leaf outside
+`rotator/`, so the leaf is the operator's to create, holding the same token:
+
+```sh
+bao kv get -mount=kv -field=password shared/jenkins/admin-password </dev/null | bao kv put -mount=kv eso/prd/infra-statistics/prd/jenkins token=-
+bao kv get -mount=kv -format=json eso/prd/infra-statistics/prd/jenkins </dev/null \
+  | jq -r '.data.data | "user = \"admin:\(.token)\""' \
+  | curl -sS -K - https://jenkins.webathome.org/whoAmI/api/json | jq -r '.name, .authenticated'
+```
+
+**Reading:** `version 1`, then `admin` and `true`.
+
+Then push InfraStatisticsDeploy's `main`, which holds the change. Its sync changes the
+Deployment's pod template, so Argo CD restarts infra-statistics. The new pod starts once ESO has
+written the token into the Secret. Once it has synced:
+
+```sh
+k -n argocd-prd get application infra-statistics-prd -o jsonpath='{.status.sync.revision} {.status.sync.status} {.status.health.status}{"\n"}'
+k -n infra-statistics-prd rollout status deployment/infra-statistics --timeout=5m
+cmp -s <(bao kv get -mount=kv -field=token eso/prd/infra-statistics/prd/jenkins </dev/null) \
+  <(k -n infra-statistics-prd get secret infra-statistics-secrets -o json | jq -j '.data["jenkins-token"] | @base64d') && echo same || echo differs
+```
+
+**Reading:** the pushed commit and `Synced Healthy`, then `successfully rolled out`, then `same`.
+
+The leaf's `token` carries "OpenBao" over. It stays unstamped, so it falls due at once when
+`jenkins-token` is enabled, and that first rotation revokes "OpenBao".
+`shared/jenkins/admin-password` stays until then (item 8 of § Going live).
+
+### W3 — The Keycloak counterparts
+
+The `keycloak-client` kind logs in to each realm as a service-account client of its own, with
+`manage-clients`, from the leaf `rotator/keycloak-client/<realm>`. The kind rotates
+`iotsupport-admin`, so that client is not one of them. Create the client in each realm's admin
+console, `homelab` on https://auth.ginbov.nl and `homelab-dev` on http://keycloak-dev.home:
+
+1. Clients → Create client: client ID `secret-rotator`, Client authentication on, and of the
+   authentication flows only Service accounts roles.
+2. The client's Service accounts roles tab → Assign role → filter by clients: `realm-management`
+   `manage-clients`.
+3. Copy the secret from its Credentials tab, and store it:
+
+   ```sh
+   read -rs tok && printf %s "$tok" | bao kv put -mount=kv rotator/keycloak-client/homelab client_id=secret-rotator client_secret=-; unset tok
+   ```
+
+   For `homelab-dev`, the same with `rotator/keycloak-client/homelab-dev`.
+
+Check each the way the kind uses it: a client-credentials login, then the admin API's client
+lookup. `kcapi <realm> <path>` calls a realm's admin API as its counterpart:
+
+```sh
+kcapi() { local base=https://auth.ginbov.nl; [ "$1" = homelab-dev ] && base=http://keycloak-dev.home
+  bao kv get -mount=kv -format=json "rotator/keycloak-client/$1" </dev/null \
+    | jq -r '.data.data | "grant_type=client_credentials&client_id=\(.client_id | @uri)&client_secret=\(.client_secret | @uri)"' \
+    | curl -fsS --data @- "$base/realms/$1/protocol/openid-connect/token" | jq -r .access_token \
+    | sed 's/^/Authorization: Bearer /' | curl -fsS -H @- "$base/admin/realms/$1/$2"; }
+kcapi homelab 'clients?clientId=openbao' | jq -r '.[].clientId'
+kcapi homelab-dev 'clients?clientId=iotsupport-admin' | jq -r '.[].clientId'
+```
+
+**Reading.**
+
+- Each `kv put` answers with `version 1`.
+- `openbao`, then `iotsupport-admin`.
+- `curl: (22) … 401` first means the login failed: the stored id or secret is not the client's. A
+  `403` means the client lacks `manage-clients`.
+
+### W4 — OpenBao's OIDC client secret
+
+Since slice 047, the `openbao` role takes OpenBao's OIDC client secret from
+`rotator/oidc-auth-client#client_secret`. Until that leaf holds it, `site-openbao.yml` skips OIDC
+provisioning and leaves OpenBao's OIDC config as it is. Copy the secret Keycloak holds for client
+`openbao` into the leaf, through W3's counterpart:
+
+```sh
+id=$(kcapi homelab 'clients?clientId=openbao' | jq -r '.[0].id')
+kcapi homelab "clients/$id/client-secret" | jq -j .value | bao kv put -mount=kv rotator/oidc-auth-client client_secret=-
+cmp -s <(kcapi homelab "clients/$id/client-secret" | jq -j .value) <(bao kv get -mount=kv -field=client_secret rotator/oidc-auth-client </dev/null) && echo same || echo differs
+```
+
+**Reading:** `version 1`, then `same`.
+
+The converge then writes OpenBao's OIDC config from the leaf. It comes before `keycloak-client` is
+enabled: it writes the rotator policy's `read` and `update` on `auth/oidc/config`, without which
+the kind's write of the config fails after a regenerate that has no undo. Check first:
+
+```sh
+cd /work/Ansible/ansible && cexec iac poetry run ansible-playbook playbooks/site-openbao.yml --check
+cd /work/Ansible/ansible && cexec iac poetry run ansible-playbook playbooks/site-openbao.yml
+```
+
+**Hand back:** the full output of both.
+
+**Reading.**
+
+- Neither prints `holds no client_secret`.
+- `failed=0`. Where the `rotator` policy lacks the `auth/oidc/config` grant, both report a change
+  of `Write consumer policies (only when text differs)` for `rotator` alone. A change for anything
+  else: stop.
+- The run's `Write the OIDC config (Keycloak realm)` reads `ok`: a write that changes only the
+  secret reports no change.
+
+### W5 — Wave 1's annotations
+
+Once W1 to W4 are done:
+
+```sh
+srviac 'secret-rotator annotate'
+```
+
+**Hand back:** the full output.
+
+**Reading.**
+
+- It writes no leaf but these, each one no apply has written yet:
+  - `eso/prd/infra-statistics/prd/jenkins`, `rotator/keycloak-client/homelab`,
+    `rotator/keycloak-client/homelab-dev` and `rotator/oidc-auth-client`. Each reads an `add` per
+    key, a counterpart's `client_id` with kind `none` and its `client_secret` with
+    `keycloak-client` at `365d`, and `set     max_versions=20  (was 0)`.
+  - Where step 6 ran on the seed before slice 047, also the entries slice 047 changed, each a
+    `change`:
+    - the `realm` in the args of the `keycloak-client` keys of
+      `eso/prd/{dnsmasq,electronics-inventory,fieldnotes,grafana,iot,pgadmin,zigbee2mqtt}/prd/oidc`
+      and `jenkins/iotsupport-pipeline-oidc`;
+    - the `legacy` token name in the args of the `jenkins-token` keys of
+      `eso/prd/jenkins-telegram-bot/prd/config`, `eso/prd/kubecoder/prd/catalog`,
+      `eso/prd/version-poller/prd/jenkins` and `rotator/jenkins`;
+    - `"job":"AaC/IoTSupport"` on `eso/prd/iot/prd/architecture-pipeline`;
+    - `shared/jenkins/admin-password`'s `password`, now `manual` at interval `never`.
+
+    jenkins-mcp's leaf then reads `add     rotation_token=…`, `add     rotation_user=…` and
+    `remove  rotation_authorization=…`.
+  - `jenkins/grafana-api` (slice 046), where it was stored after step 6 and not annotated since.
+- The last line counts those leaves: 4 where step 6 ran on slice 047's seed after W1, 19 where it
+  ran on the seed before it, and `0 live leaf(s) not in the seed`.
+- No `absent from the store` line but `jenkins/grafana-api`'s while that leaf is not stored. No
+  `no kind in the seed`, `named in the seed, not held by the leaf` or `cannot write:` line.
+
+```sh
+srviac 'secret-rotator annotate --apply'
+srviac 'secret-rotator annotate' | tail -n 1
+```
+
+**Reading:** one `patched <leaf>` line per leaf of the dry run, and exit 0. The dry run after it
+reads `would patch (dry run; --apply writes) 0 leaf(s), …`.
+
+The counterparts' secrets are freshly minted: stamp them with `stamp` as step 6 defines it. The
+keys that carry an existing credential over stay unstamped: `rotator/oidc-auth-client`'s, the
+infra-statistics leaf's and jenkins-mcp's `token`. Each falls due at once when its kind is
+enabled, and its first rotation replaces the credential.
+
+```sh
+stamp rotator/keycloak-client/homelab client_secret
+stamp rotator/keycloak-client/homelab-dev client_secret
+srviac 'secret-rotator audit'
+```
+
+**Hand back:** the full output.
+
+**Reading:** two `<leaf>#client_secret: rotation stamp <date>, was none` lines, each with W3's
+date. No finding line of the audit names a leaf of wave 1.
+
 ## Going live
 
 Each switch change is a commit to SecretRotator's `main`, in `src/secret_rotator/switches.yaml`. It
@@ -454,6 +720,155 @@ takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, 
    --role <role>` destroys the ones no consumer holds: dry first, then with `--apply`. The
    `approle` keys' `expires_at` start with that kind's first rotations. Until the rotator replaces
    a role's secret_id, it keeps the playbook's, which never expires.
+5. **Wave 1**, once W1 to W5 of [§ Wave 1](#wave-1) are done. Its kinds go in like any other, one
+   per commit, in any order, each once its own item below holds. Each item reads the plans of the
+   kind's leaves against the live store, from srviac: slice 047 built them only against a
+   snapshot of `prd`.
+
+   **Reading**, for every leaf: its `<kind> plan of <key> · due: …` with the kind's steps. Each
+   `eso.sync` names an ExternalSecret that reads the leaf or a copy of it, and each `k8s.rollout`
+   a workload that consumes one. A `cannot be built:` line: stop and read it.
+   The kind's first night reads like a night of the dry-run week: a consumer that did not come
+   back is on the card.
+6. **Before `keycloak-client`**, both counterparts answer `kcapi` (W3), and W4's
+   `site-openbao.yml` run has read `rotator/oidc-auth-client`:
+
+   ```sh
+   for l in eso/prd/{argocd,dnsmasq,electronics-inventory,fieldnotes,grafana,iot,pgadmin,zigbee2mqtt}/prd/oidc \
+       eso/prd/iot/prd/keycloak-admin eso/dev/electronics-inventory/dev/oidc \
+       jenkins/{iotsupport-pipeline-oidc,keycloak-da-admin,keycloak-iotsupport-admin} \
+       rotator/keycloak-client/{homelab,homelab-dev} rotator/oidc-auth-client; do srviac "secret-rotator plan $l"; done
+   ```
+
+   What its first nights do:
+
+   - Keycloak ends a client's old secret as it makes the new one. Each consumer fails its
+     Keycloak calls from the regenerate until its rollout (design §9, "Rollout windows"), and
+     OpenBao's OIDC login fails until the plan's `keycloak.openbao_oidc_config`.
+   - Its 14 keys at 14 days have no stamp and are all due at once, so at 10 a night the first pass
+     takes two nights.
+   - `jenkins/keycloak-iotsupport-admin`'s copies roll the KubeCoder controllers of `prd` and
+     `dev`, which restarts every KubeCoder environment (design R65).
+   - `jenkins/keycloak-da-admin` rotates only while it exists (ANS-229 deletes it). Once it is
+     gone, its `plan` reads `error: no leaf jenkins/keycloak-da-admin`.
+   - `eso/dev/electronics-inventory/dev/oidc` rotates as a KV write: the dev cluster takes it when
+     it next boots. Its `homelab-dev` regenerate runs all the same, since `keycloak-dev` runs on
+     `prd`.
+7. **Before `cnpg-role`**, read the state of the Cluster's managed roles:
+
+   ```sh
+   k -n postgres-pas-prd get cluster postgres -o json | jq '.status.managedRolesStatus | {byStatus, cannotReconcile}'
+   for l in eso/{prd,dev}/postgres-pas/{pgadmin-admin,terraform-admin}; do srviac "secret-rotator plan $l"; done
+   ```
+
+   **Reading.**
+
+   - On 2026-10-08 both `pgadmin_admin` and `terraform_admin` stood under
+     `pending-reconciliation`, and `cannotReconcile` held `terraform_admin` with `could not
+     perform UPDATE_MEMBERSHIPS on role terraform_admin: `. Another error under
+     `cannotReconcile`: stop and read it.
+   - CNPG applies a role's password only when its Cluster changes, which each `prd` plan's
+     `cnpg.reconcile` makes. Per CNPG's source, the memberships failure does not hold a password
+     back; no rotation has witnessed that yet. The first live rotation is the proof: its
+     `cnpg.reconcile` waits within a bound, a failed wait names the role's byStatus and
+     cannotReconcile, and its rollback puts the old password back.
+   - The `dev` leaves rotate as KV writes: the dev cluster takes them when it next boots.
+8. **Before `jenkins-token`**, W1 and W2 are done and their pushes synced. Before W1's push,
+   jenkins-mcp's Secret takes its header from the stored `authorization`, not from `token`, and
+   the first rotation's revoke of "Claude" would cut jenkins-mcp off.
+
+   "JenkinsTelegramBot" and "VersionPoller" are matched to their leaves by name only. Confirm
+   each: twenty calls with the leaf's token raise that token's use count by twenty on the admin's
+   Security page, https://jenkins.webathome.org/user/admin/security/. Read the page before and
+   after each burst:
+
+   ```sh
+   burst() { bao kv get -mount=kv -format=json "$1" </dev/null \
+       | jq -r --arg k "$2" '.data.data | "user = \"\(.user // "admin"):\(.[$k])\"", (range(20) | "url = \"https://jenkins.webathome.org/whoAmI/api/json\"")' \
+       | curl -sS -K - | jq -r .name | sort | uniq -c; }
+   burst eso/prd/jenkins-telegram-bot/prd/config jenkins-token
+   burst eso/prd/version-poller/prd/jenkins token
+   for l in eso/prd/{infra-statistics/prd/jenkins,jenkins-mcp/prd/config,jenkins-telegram-bot/prd/config,kubecoder/prd/catalog,version-poller/prd/jenkins} \
+       rotator/jenkins; do srviac "secret-rotator plan $l"; done
+   ```
+
+   **Reading.**
+
+   - `20 admin` for each burst. Over the first, `JenkinsTelegramBot`'s count rose by at least 20,
+     since the bot polls as well. Over the second, `VersionPoller`'s rose by 20. No other token's
+     rose by as many. Where the twenty landed on another token: stop. The leaf's `legacy` then
+     names the wrong token, and its first rotation would revoke a token another consumer holds.
+   - Each plan's `jenkins_token.revoke` names, beside its own token name `<leaf>#<key>`, the
+     legacy token of its leaf: OpenBao, Claude, JenkinsTelegramBot, wrkdev, VersionPoller and
+     secret-rotator.
+
+   What its first night does:
+
+   - The five keys without a stamp are due at once. `rotator/jenkins` falls due a year after its
+     stamp of step 6.
+   - The KubeCoder catalog's rotation rolls its controller, which restarts every KubeCoder
+     environment (design R65), each then with the new token. It revokes "wrkdev" without other
+     checks: anything else that still uses that token gets a 401 from Jenkins.
+
+   After their first rotations, the Security page lists none of OpenBao, Claude,
+   JenkinsTelegramBot, wrkdev and VersionPoller. Then `shared/jenkins/admin-password` goes, which nothing reads any more:
+
+   ```sh
+   k get externalsecrets.external-secrets.io -A -o json \
+     | jq -r '.items[] | select(any(.spec.data[]?; .remoteRef.key == "shared/jenkins/admin-password")) | .metadata.namespace + "/" + .metadata.name'
+   bao kv metadata delete -mount=kv shared/jenkins/admin-password </dev/null
+   ```
+
+   **Reading:** the query lists nothing; before W2's push it listed
+   `infra-statistics-prd/infra-statistics-secrets`. The delete answers `Success! Data deleted (if
+   it existed)`. From then on `annotate` reads `absent from the store, skipped:
+   shared/jenkins/admin-password` until the seed drops the leaf.
+9. **Before `jenkins-job-token`**, nothing is created: it calls Jenkins as `rotator/jenkins`. Its
+   plan stops before any write unless `AaC/IoTSupport`'s `authToken` is the token in
+   `eso/prd/iot/prd/architecture-pipeline#trigger_url`. Check that first:
+
+   ```sh
+   cmp -s <(curl -fsS -u "$JENKINS_USER:$JENKINS_TOKEN" "$JENKINS_URL/job/AaC/job/IoTSupport/config.xml" | sed -n 's:.*<authToken>\(.*\)</authToken>.*:\1:p' | tr -d '\n') \
+     <(bao kv get -mount=kv -field=trigger_url eso/prd/iot/prd/architecture-pipeline </dev/null | sed -n 's/.*[?&]token=\([^&]*\).*/\1/p' | tr -d '\n') && echo same || echo differs
+   srviac 'secret-rotator plan eso/prd/iot/prd/architecture-pipeline'
+   ```
+
+   **Reading.**
+
+   - `same`. `differs`: the job takes another token than iotsupport sends, so iotsupport's
+     trigger fails today. Bring the two into line before enabling the kind.
+   - The plan generates, writes, syncs `iot-prd/iot-architecture-pipeline`, rolls out
+     `iot-prd/deployment/iotsupport`, and then sets the job's token.
+
+   Its rotation has a window: from iotsupport's rollout until `jenkins_job_token.set`, the job
+   does not take iotsupport's new URL. A device or model change in that window triggers no
+   architecture build.
+10. **Before `grafana-admin`**, nothing is created: the kind logs in as the leaf's own
+    `admin-user`. Its plan stops before any write unless Grafana takes the leaf's password from a
+    server admin, which nothing has checked yet. The chart once generated a new password on every
+    render, and Grafana keeps the one it created its database with. Check it:
+
+    ```sh
+    bao kv get -mount=kv -format=json eso/prd/grafana/prd/admin </dev/null \
+      | jq -r '.data.data | "user = \"\(.["admin-user"]):\(.["admin-password"])\""' \
+      | curl -sS -K - http://grafana.home/api/user | jq -r '.login, .isGrafanaAdmin'
+    srviac 'secret-rotator plan eso/prd/grafana/prd/admin'
+    ```
+
+    **Reading.**
+
+    - The admin's login, then `true`.
+    - `null` twice: Grafana refused the password. Set Grafana's to the leaf's, then check again.
+      The `k` helper passes no input, so the command is written out:
+
+      ```sh
+      bao kv get -mount=kv -field=admin-password eso/prd/grafana/prd/admin </dev/null \
+        | cexec iac kubectl --kubeconfig "$HOME/.kube/config-prd-write" --context prd -n grafana-prd exec -i deploy/grafana -c grafana -- \
+            grafana cli --homepath /usr/share/grafana --config /etc/grafana/grafana.ini admin reset-admin-password --password-from-stdin
+      ```
+
+    - The plan logs in, generates, writes, syncs `grafana-prd/grafana-admin`, and then sets the
+      password in Grafana.
 
 **The stops.** The immediate stop is disabling the job. `enable` in place of `disable` reverses it:
 
