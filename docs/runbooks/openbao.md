@@ -389,16 +389,14 @@ stops it at once. Bringing it up is
 [`secret-rotator-go-live.md`](secret-rotator-go-live.md).
 
 Its state is in Prometheus too. At its end, every nightly run,
-`run <leaf>` and `stamp` push the run state (each key's due day and
-rotation stamp, each leaf's status) to the Pushgateway in
-`prometheus-prd`, through the Kubernetes API with the rotator's
-ServiceAccount token. A nightly run also pushes the audit's findings
-and its own run health; one that found the lock held or that
+`run <leaf>`, `stamp` and `secret-rotator ui` push the run state (each
+key's due day and rotation stamp, each leaf's status) to the
+Pushgateway in `prometheus-prd`, through the Kubernetes API with the
+rotator's ServiceAccount token. A nightly run also pushes the audit's
+findings and its own run health; one that found the lock held or that
 `paused` stopped pushes the run health alone (design §3.4). A push
 that fails is one line of the output, `metrics: the <group> group is
-not pushed: <error>`, and changes nothing else. `secret-rotator ui`
-pushes nothing: what it changes reaches Prometheus with the next
-nightly run, `run <leaf>` or `stamp`. PrometheusDeploy
+not pushed: <error>`, and changes nothing else. PrometheusDeploy
 alerts on the series, all three at warning:
 
 - `SecretRotatorStale`: no nightly run has pushed for 48 h, in dry
