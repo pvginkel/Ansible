@@ -38,6 +38,9 @@ Convergence is `IaC/Apply`, started by hand once the validation is green. The jo
 3. Runs `site-openbao.yml`.
 4. Runs `site-k8s.yml --limit k8s_prd`.
 5. Converges `srvk8sdev` last, in a stage that can only ever downgrade the build to UNSTABLE.
+   srvk8sdev is off by default, so `IaC/Scheduled Update` is UNSTABLE most weeks on that stage
+   alone. The operator reads that as green and wants it left as it is (2026-10-04): no card, no
+   change. Any other stage UNSTABLE or failed is still a finding.
 
 All ansible stages pass `--skip-tags os_update`: patch posture belongs to `IaC/Scheduled Update`.
 

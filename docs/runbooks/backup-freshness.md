@@ -57,7 +57,7 @@ Streams watched today:
 | Scope | Stream (`filename`) | Uploader | Runs | Validity | Kept |
 |---|---|---|---|---|---|
 | `openbao` | `openbao-backup.tgz` | `openbao-backup.timer` on each `srvvaultN`; only the Raft leader uploads | 02:00, plus up to 1 h random delay | 52 h | 14 |
-| `postgres-pas` | `<db>.dump`, one per database but `postgres` and `app` | `postgres-backup` CronJob in `postgres-pas-prd` | 02:00 | 52 h | 90 across all databases, about ten nights |
+| `postgres-pas` | `<db>.dump`, one per database but `postgres` and `app` | `postgres-backup` CronJob in `postgres-pas-prd` | 01:00 | 52 h | 90 across all databases, about ten nights |
 | `youtrack` | `youtrack.tar.gz` | `youtrack-backup` CronJob in `youtrack-prd` | 01:30 | 52 h | 30 |
 
 With 52 h, one missed night stays quiet and two in a row alert.

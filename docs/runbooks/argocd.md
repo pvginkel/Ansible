@@ -1086,6 +1086,12 @@ the recipient committed in `config/prd/values.yaml`.
 
 ## Known behaviours
 
+- **A change pushed to every deploy repo at once: JenkinsDeploy and NginxDeploy last.** Their
+  syncs restart Jenkins and nginx, so every build in flight dies and every webhook GitHub sends
+  meanwhile gets a 502 and is lost — the pushes that landed before them would never build. Seen
+  at the Kyverno memory-request cleanup of 2026-10-07, pushed unbatched to 47 repos, where the
+  operator had to take over the failing pipelines. Push the rest first, let their builds and
+  syncs finish, then those two.
 - **A manual sync by `kubectl patch` inherits the last operation's fields.** A
   patch that sets `.operation` without `sync.revision` or `sync.resources` does
   not clear them: the controller keeps the previous operation's values in

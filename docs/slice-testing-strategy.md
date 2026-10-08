@@ -49,6 +49,16 @@ These need no operator gate and are worth running when the slice touched somethi
   credentials are not here, so it fails on missing variables. Do not report that failure as a
   finding; it is the environment, not the slice.
 - SSH read-only inspection on managed hosts (`qm config`, `lsblk`, file reads).
+- **OpenBao role scripts against a throwaway dev server.** `bao` lives in the `iac` sidecar and
+  `curl`/`jq` only in the dev container, but both share the pod's network namespace, so
+  `cexec iac timeout 900 bao server -dev -dev-root-token-id=root -dev-listen-address=127.0.0.1:18200`
+  (backgrounded; the timeout makes it exit even if the kill misses) is reachable from either side.
+  Seed it with `cexec iac sh -c 'export BAO_ADDR=http://127.0.0.1:18200 BAO_TOKEN=root; bao kv put secret/…'`
+  — the dev server's KV-v2 mount is `secret/`, not prd's `kv/` — then run the role's bash with its
+  Jinja variables sed-substituted, and stop it with
+  `cexec iac pkill -f "server -dev -dev-root-token-id=root"`. Its storage is inmem, not Raft
+  (`sys/leader` reports `is_self: false`, no snapshot), so exercise wrapper sections, not a whole
+  backup script.
 
 See [live-infra-access.md](live-infra-access.md) for the mechanics.
 

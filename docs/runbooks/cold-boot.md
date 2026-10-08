@@ -80,6 +80,17 @@ The kubectl lines work from KubeCoder (`cexec iac kubectl --kubeconfig ~/.kube/c
 
 ## Break-glass
 
+**The front door is down while the cluster is up.** `nginx-prd/nginx` (LB `10.2.1.7`) fronts
+every `webathome.org` and `.home` host, Jenkins included, and Jenkins builds on GitHub's webhook
+alone. So while nginx is down, pushing a fix ships nothing: the webhook has nowhere to land and
+is not retried. Restore out of band first, then push the durable fix, then **start the build by
+hand** for every push whose webhook was lost. The 2026-08-19 case: a KubeCoder environment
+published a hostname over nginx's `server_names_hash_bucket_size`, and nginx-configurator's
+reload is a rollout restart, so the running master was gone with it (the bucket size is 128 in
+NginxDeploy since). The cheapest restore there was deleting the offending front Service with
+`config-prd-write` — not the environment: `reconcile_front_services` only runs when the env
+recomposes, so the deletion sticks and the env pod keeps running.
+
 **DHCP down because the `dhcp` pod is not Ready.** Publish the not-ready endpoint, and MetalLB
 announces 10.2.1.10 again:
 

@@ -94,6 +94,20 @@ Non-zero `changed` here means either a baseline imperfection in a role (idempote
 
 Phase 5 will produce concrete playbooks for steps 1, 6. Until then, this outline is forward-looking — don't try to rebuild a Ceph node by hand without the playbook backing.
 
+## Removing a prd VM — the first one proves V11
+
+Removal follows the same destroy-on-Proxmox-first path (decisions.md "Production execution
+model"): `qm destroy <vm_id>` on the owning PVE node, drop the VM's `vms.tf` entry, push, and read
+the `IaC/Apply` plan — the refresh should find the VM gone, plan no destroy for it, and delete only
+its companions (the DNS reservation, the cloud-init snippet). **That removal half has only been
+reasoned, never run.** Slice 017's verification.json still carries V11 as owed
+(AnsibleSpecs `slices/completed/017_iac_pipeline_safety_rails_and_signalling/`), and the operator
+asked to be reminded rather than to schedule a proof. So the first real removal doubles as the
+proof: hand back the full plan output, and tick V11 off. If the plan instead fails with
+`Error: Instance cannot be destroyed`, decisions.md's removal path and
+`terraform/prd/README.md` "Rebuilding or removing a VM" are wrong and need fixing before the
+apply.
+
 ## Disk passthrough — replacing a failing OSD disk
 
 When a Ceph OSD's underlying SSD fails and is swapped for a new physical disk, the `/dev/disk/by-id/<serial>` path changes. Procedure (operator runs as root on the PVE host that owns the VM):

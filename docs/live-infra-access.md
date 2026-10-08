@@ -12,6 +12,20 @@ The toolchain lives in the `iac` sidecar, not the dev container: `cexec iac <cmd
 needing poetry, ansible, terraform, kubectl, helm, `bao` or `step`. Curated entry points are
 `kc project setup|lint|test` (`kc project info` lists them).
 
+**`bao` needs a login first, in the same Bash call.** `. scripts/bao-login.sh && cexec iac bao …`
+from `/work/Ansible`: the script logs in as the openbao-admin AppRole (credentials from
+ansible-vault) and exports `BAO_ADDR=https://secrets` and `BAO_TOKEN`, which `cexec` carries over.
+A bare `cexec iac bao` either talks to `127.0.0.1:8200` (no `BAO_ADDR`) or gets 403 on the
+sidecar's stale `~/.vault-token`. Environment does not persist between Bash calls, so source it
+every time. Listing, metadata and policy reads are fine; a value read is still a per-path ask
+(`CLAUDE.md`).
+
+**The sidecar sets `TF_PLUGIN_CACHE_DIR`**, so a `terraform init` measured here says nothing about
+what a fresh `iac` container on srviac or the Argo CD PreSync hook downloads: both start with an
+empty cache, and a committed lock plus pinned providers still fetches `SHA256SUMS` and its `.sig`
+on every init. Before measuring init or network behaviour meant for those, run it as
+`cexec iac sh -c 'unset TF_PLUGIN_CACHE_DIR; …'` and grep `TF_LOG=trace` output for `SHA256SUMS`.
+
 **Ansible** runs from the `ansible/` directory, where `ansible.cfg` lives. Default inventory is
 `inventories/prd` (every production-grade host); `inventories/scratch` holds the disposable scratch
 fleet, reached with `-i inventories/scratch`.
@@ -106,6 +120,15 @@ Read-only Ansible is fine when it is clearly read-only: `ansible -m setup`, or
 `ansible-playbook --check --diff` against a host where the role itself has no side effects. When in
 doubt, hand the command to the operator.
 
+**Probe `.home` hosts over http, with `curl -sL`.** Internal `.home` hosts are HTTP-only behind
+`nginx-prd/nginx`; a few (`charts.home`) redirect to https and serve there. There is no per-host
+TLS server for the rest, so `https://<anything>.home` lands on nginx's *default* TLS server and
+returns a healthy-looking 200 from an unrelated app (`CN=architecture.webathome.org` as of
+2026-10-08, for `kibana`, `grafana` and `headlamp` alike). Check the status and redirect over http
+first; if you must use https, confirm the certificate subject
+(`openssl s_client -connect <h>:443 -servername <h>`) is the host you asked for, or the body says
+nothing about your service.
+
 ## Canonical command shape
 
 When handing a command to the operator, use this exact shape:
@@ -178,6 +201,34 @@ The dev cluster is the other case. `~/.kube/config-dev-write` addresses `srvk8sd
 SSH. Cluster-scoped reads on dev do not: the base `~/.kube/config` makes them with `--context dev`.
 When srvk8sdev is running it answers from this pod on 22, 16443 and RGW's 80 (checked 2026-09-15);
 docs written before then call it unreachable from here.
+
+srvk8sdev is VM 919 on PVE node `pve`, and **off by default** (`on_boot = false` in
+`terraform/prd/vms.tf`, restored 2026-10-03; Terraform ignores `started`). `qm status 919` saying
+`stopped` is the normal state: ask before starting it. `IaC/Scheduled Update` goes UNSTABLE on its
+srvk8sdev stage while it is off, by design ([iac-agent.md](runbooks/iac-agent.md)). When SSH to it
+times out while it is up (seen 2026-09-11, cause not found), the guest agent runs commands as
+root from the PVE side:
+
+```
+ssh <homelab CA options> -i ~/.ssh/id_ed25519_pve root@pve \
+  "qm guest exec 919 --timeout 90 -- bash -c 'echo <base64 script> | base64 -d | bash'"
+```
+
+It returns JSON; decode `out-data` on pve with
+`perl -MJSON -0777 -ne 'print decode_json($_)->{"out-data"}'`. Base64 the script to get past the
+nested quoting. `qm status`, `qm reset` and `qm agent <id> ping` are the PVE-side controls; after a
+reset, read `journalctl -b -1` rather than the serial console, which captured nothing.
+
+**The prd Ceph nodes are not Ansible-managed yet** (`site-ceph.yml` targets `ceph_dev` only), so
+`srvceph1/2/3` have neither the `ansible` user nor the host CA: SSH from the pod fails with "Host
+key verification failed" then "Permission denied". Read them the same way through their PVE host —
+srvceph1 is VM 113 on `pve1`:
+
+```
+ssh -i ~/.ssh/id_ed25519_pve root@pve1 "qm guest exec 113 --timeout 60 -- sh -c 'radosgw-admin bucket stats'"
+```
+
+Filter `radosgw-admin user info` through `jq 'del(.keys)'`: it returns the user's secret keys.
 
 ```
 cd ansible && ssh -o UserKnownHostsFile=files/known_hosts.d/homelab -o GlobalKnownHostsFile=/dev/null \
