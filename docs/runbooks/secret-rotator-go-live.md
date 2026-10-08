@@ -179,9 +179,12 @@ srviac 'secret-rotator audit'
 
 - The `kv put` answers with `version 1`.
 - The chat list holds `Homelab Alerts` with a negative id.
-- `IaC/SecretRotator` builds the push green, resets `prd` to it, and starts
-  `IaC/IaC Docker Image`, which is green too. Until that image is built, a run has no chat id and
-  posts nothing to Telegram.
+- `IaC/SecretRotator` passes its lint and tests, resets `prd` to the push, and starts
+  `IaC/IaC Docker Image`, which is green. Until that image is built, a run has no chat id and posts
+  nothing to Telegram.
+- The build's last stage, `Publish dashboards`, publishes the rotator's Grafana dashboard with
+  Jenkins' Grafana token, `kv/jenkins/grafana-api`. Until that token is stored, the stage fails
+  and the build ends red after `prd` has moved; the go-live does not wait for it.
 
 ## 5 — The Jenkins and YouTrack tokens, and the tag
 
@@ -261,10 +264,14 @@ write:
 - `set     max_versions=20  (was 0)` on the automatic leaves, the six `rotator/approle/*` markers
   among them. The `rotator/bootstrap/*` markers are `manual` and keep the mount's default.
 - The last line reads `would patch (dry run; --apply writes) 123 leaf(s), 12 of them new marker
-  leaves; 0 unchanged, 0 absent from the store, 0 live leaf(s) not in the seed`. That is every leaf
-  of the seed, since none holds an entry yet.
+  leaves; 0 unchanged, 1 absent from the store, 0 live leaf(s) not in the seed`. That is every leaf
+  of the seed's 124 but the absent one, since none holds an entry yet.
 - An `absent from the store` line names a seed leaf the store lacks. When it is one of the leaves
-  of steps 1 to 5, finish that step first.
+  of steps 1 to 5, finish that step first. One is expected, `jenkins/grafana-api`: Jenkins' Grafana
+  token for publishing dashboards, absent until the operator creates it in Grafana and stores it,
+  which the go-live does not wait for. Stored before this step, it is written with the others, and
+  the last line reads `124 leaf(s)` and `0 absent from the store`. Stored after it, it is a new leaf
+  ([`openbao.md`](openbao.md#a-new-leaf)).
 - A `not in the seed` line names a leaf the seed does not cover yet. The apply leaves it whole, old
   keys included, and the audit reports it until the seed covers it
   ([`openbao.md`](openbao.md#a-new-leaf)).
@@ -283,11 +290,11 @@ srviac 'secret-rotator annotate' | tail -n 1
 
 **Reading.**
 
-- The apply lists the dry run's writes again, then prints `patching 123 leaf(s), 12 of them new
-  marker leaves; …`. Then it prints one `patched <leaf>` or `created and patched <leaf>` line per
-  leaf, and exits 0.
+- The apply lists the dry run's writes again, then prints `patching <n> leaf(s), 12 of them new
+  marker leaves; …`, `<n>` the dry run's count. Then it prints one `patched <leaf>` or `created and
+  patched <leaf>` line per leaf, and exits 0.
 - The dry run after it reads `would patch (dry run; --apply writes) 0 leaf(s), 0 of them new
-  marker leaves; 123 unchanged, …`.
+  marker leaves; <n> unchanged, …`.
 - A `stopped at <leaf>: …` line ends the apply partway, with exit 1. The leaves before it are
   written. Run the apply again once its cause is fixed: those leaves then read unchanged.
 
@@ -316,6 +323,9 @@ srviac 'secret-rotator plan iac/rotator-approle'
   that wrote the leaf.
 - An `error: no leaf <leaf>` or `error: no key <key> in the current version of <leaf>` line means
   that stamp wrote nothing: the leaf or key is not the one its step wrote.
+- Each stamp then pushes the run state to the Pushgateway (`openbao.md` §5) and says nothing when
+  the push lands. A `metrics: the state group is not pushed: <error>` line is a push that failed:
+  the stamp is written all the same, and the next stamp or run pushes the state again.
 - No finding line of the audit names a leaf under `rotator/` or `iac/rotator-`. The nightly run
   puts any other finding on the standing card.
 - The plan of `iac/rotator-approle` reads `approle plan of secret_id · due <date>`, 14 days after
@@ -374,6 +384,17 @@ job="$JENKINS_URL/job/IaC/job/Scheduled%20Secret%20Rotation"
 curl -fsS -u "$JENKINS_USER:$JENKINS_TOKEN" "$job/lastBuild/api/json?tree=result" | jq -r .result
 curl -fsS -u "$JENKINS_USER:$JENKINS_TOKEN" "$job/lastBuild/consoleText" | grep -m 2 'secret-rotator run, '
 curl -fsS -u "$JENKINS_USER:$JENKINS_TOKEN" "$job/config.xml" | grep -A1 TimerTrigger
+curl -fsS -u "$JENKINS_USER:$JENKINS_TOKEN" "$job/lastBuild/consoleText" | grep 'metrics: '
+```
+
+A few minutes later, once Prometheus has scraped the run's push, read `SecretRotatorStale` and any
+silence on it:
+
+```sh
+k -n prometheus-prd exec prometheus-prd-alertmanager-0 -c alertmanager -- \
+  amtool --alertmanager.url=http://localhost:9093 alert query alertname=SecretRotatorStale
+k -n prometheus-prd exec prometheus-prd-alertmanager-0 -c alertmanager -- \
+  amtool --alertmanager.url=http://localhost:9093 silence query alertname=SecretRotatorStale
 ```
 
 **Hand back:** the full output, the build's console, the standing card and the Telegram message.
@@ -384,25 +405,37 @@ curl -fsS -u "$JENKINS_USER:$JENKINS_TOKEN" "$job/config.xml" | grep -A1 TimerTr
 - `secret-rotator run, commit <sha>` names the commit `prd` held, then
   `secret-rotator run, <date> (dry run): kinds random, at most 10 rotation(s)`.
 - The trigger's spec reads `30 5 * * *`.
+- `metrics: pushed state, audit, nightly`. A `metrics: the <group> group is not pushed: <error>`
+  line is a push that failed. It changes nothing in the run, but stop and read it: while the
+  `nightly` group never lands, `SecretRotatorStale` keeps firing.
 - An open ANS card tagged `Secret Rotator` exists, marked as a dry run, and Homelab Alerts has the
   rotator's digest, marked as a dry run.
+- The alert query lists no `SecretRotatorStale`. It has fired since its rule went live, because no
+  nightly run had pushed yet, and this run's push resolves it.
+- The silence query lists no silence. Expire one set on the alert before the go-live, with
+  `amtool silence expire <id>`: left in place, it hides the one alert that says the nightly job
+  stopped.
 
 ## The dry-run week
 
 The job runs every night at 05:30 in dry run. Each morning, read the night's console, the card and
 the digest. They show the plans the run would have executed, each with its steps, and the manual
 rotations that are due. A finding on the card is fixed in the seed or in the store
-([`openbao.md`](openbao.md) §5). Go live after a week whose nights raised nothing unexplained.
+([`openbao.md`](openbao.md) §5). Grafana's `Secret rotation` dashboard shows the state each night
+leaves, once SecretRotator's build has published it, which waits on Jenkins' Grafana token. No
+alert fires in dry run but `SecretRotatorStale`. Go live after a week whose nights raised nothing
+unexplained.
 
 ## Going live
 
 Each switch change is a commit to SecretRotator's `main`, in `src/secret_rotator/switches.yaml`. It
-takes effect once its green build (`IaC/SecretRotator`) has reset `prd` and `IaC/IaC Docker Image`
-has rebuilt the image. The next run's first line names the commit it runs.
+takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, has reset `prd` and
+`IaC/IaC Docker Image` has rebuilt the image. The next run's first line names the commit it runs.
 
 1. **`dry_run: false`**, with `kinds_enabled: [random]` and `max_rotations_per_run: 10` as
    committed. From the next night on, the run rotates at most 10 due `random` plans a night, so the
-   first pass drains over the nights after.
+   first pass drains over the nights after. From that night's push on, `SecretRotationFailed` and
+   `SecretRotationOverdue` can fire too ([`openbao.md`](openbao.md) §5).
 2. **`manual` next**, in the commit after `random`'s first clean night. It executes nothing, since a
    plan with an operator step never runs at night. What it turns on is the manual-due status, the
    Telegram lines and the card lines for the manual rotations, which are all due at go-live because
@@ -429,4 +462,6 @@ curl -fsS -u "$JENKINS_USER:$JENKINS_TOKEN" -X POST "$JENKINS_URL/job/IaC/job/Sc
 ```
 
 `paused: true`, committed, stops every run before it does anything, once its build has rebuilt the
-image.
+image. A paused night still pushes its run health, with `secret_rotator_paused` 1, so
+`SecretRotatorStale` stays quiet. A disabled job pushes nothing, and `SecretRotatorStale` fires
+once its last run is 48 h old.

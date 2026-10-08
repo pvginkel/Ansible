@@ -388,6 +388,34 @@ SecretRotator's `src/secret_rotator/switches.yaml`. Disabling the job
 stops it at once. Bringing it up is
 [`secret-rotator-go-live.md`](secret-rotator-go-live.md).
 
+Its state is in Prometheus too. At its end, every nightly run,
+`run <leaf>` and `stamp` push the run state (each key's due day and
+rotation stamp, each leaf's status) to the Pushgateway in
+`prometheus-prd`, through the Kubernetes API with the rotator's
+ServiceAccount token. A nightly run also pushes the audit's findings
+and its own run health; one that found the lock held or that
+`paused` stopped pushes the run health alone (design §3.4). A push
+that fails is one line of the output, `metrics: the <group> group is
+not pushed: <error>`, and changes nothing else. PrometheusDeploy
+alerts on the series, all three at warning:
+
+- `SecretRotatorStale`: no nightly run has pushed for 48 h, in dry
+  run too.
+- `SecretRotationFailed`: while a leaf's status is `failed` or
+  `failed-activation`.
+- `SecretRotationOverdue`: a key the rotator has stamped is over 7
+  days past its due day, and its leaf's status is not `skipped`.
+
+The last two fire only while the nightly run's push says the rotator
+is out of dry run. Grafana's `Secret rotation` dashboard charts the
+same series: when each key falls due and last rotated, the keys
+never stamped, each leaf's status, the findings and the nightly
+run's health. SecretRotator's build publishes it from
+`dashboards/secret-rotation.json` as its last stage, with Jenkins'
+Grafana token from `kv/jenkins/grafana-api`; until the operator has
+stored that token, the stage fails and the dashboard is not
+published. A change made in Grafana's UI is lost at the next publish.
+
 Its commands run on srviac, because its AppRole is bound to srviac's
 address. The VS Code tasks `secret-rotator run (srviac)` and
 `secret-rotator plan (srviac)` run the last two:
@@ -509,7 +537,8 @@ It prints `<leaf>#<key>: rotation stamp <date>, was <date|none>`.
 today (UTC). `--expires-at <date>` sets the key's `expires_at`, and
 `--clear-expires-at` clears it, for a credential whose expiry
 changed outside a rotation; either goes with `--rotated-at` or
-alone.
+alone. Then it pushes the run state, so the dashboard shows the
+stamp at once.
 
 Never use `bao kv metadata put` here. It replaces the leaf's whole
 custom metadata, so the leaf loses its entries.
@@ -536,8 +565,8 @@ A leaf written to the store also needs:
 2. its leaf in SecretRotator's `src/secret_rotator/seed.yaml`, and
    its key names in `src/secret_rotator/store-keys.json`, which
    SecretRotator's tests hold the seed to. A push to SecretRotator's
-   `main` reaches srviac once its green build has rebuilt the `iac`
-   image;
+   `main` reaches srviac once its build, green at its lint and
+   tests, has rebuilt the `iac` image;
 3. `secret-rotator annotate --apply` on srviac, once the leaf exists.
 
 Until the apply has run, the audit reports each of the leaf's keys as

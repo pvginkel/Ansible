@@ -81,8 +81,9 @@ replay, or a build with no image-input change, skips.
 `IaC/SecretRotator` starts it the same way. A push to SecretRotator's `main` that passes its lint
 and tests resets SecretRotator's `prd` branch to that commit, then starts `IaC/IaC Docker Image`
 with `image=iac`. Every build installs SecretRotator from `prd`'s tip, so every rebuild, the weekly
-one included, carries the rotator's last green commit, and a red SecretRotator build changes nothing
-on srviac.
+one included, carries the rotator's last commit whose lint and tests were green, and a SecretRotator
+build red at those changes nothing on srviac. Its last stage, the dashboard publish, runs after
+the reset and the image build's start, so a build red there has already moved `prd`.
 
 ### Routine: manual run from `srviac`
 
