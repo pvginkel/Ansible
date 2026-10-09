@@ -69,12 +69,16 @@ $name: WARNING: $patched is neither pullable nor cached here.
 $name: Starting the STOCK backend, $stock, which has two state bugs:
 $name:  1. A first read while any other state's lock branch is held can
 $name:     wedge the daemon: every request then fails "non-fast-forward
-$name:     update" until it restarts ('docker rm -f $name', rerun this script).
+$name:     update". A stale lock branch is enough: a hook or IaC job killed
+$name:     mid-run leaves its locks/<state> branch in TerraformState. A restart
+$name:     ('docker rm -f $name', rerun this script) helps only once that
+$name:     branch is deleted or main has moved on; until then every new
+$name:     daemon wedges the same way.
 $name:  2. A save that loses a push race to another writer fails, and so does
 $name:     every request after it: the change never reaches TerraformState
-$name:     (Terraform leaves it in errored.tfstate).
-$name: Both need another writer of TerraformState running at the same time:
-$name: an Argo CD hook, an IaC job or a second terraform run.
+$name:     (Terraform leaves it in errored.tfstate). It needs another writer
+$name:     of TerraformState running at the same time: an Argo CD hook, an
+$name:     IaC job or a second terraform run.
 $name: ======================================================================
 EOF
 fi
