@@ -2,7 +2,8 @@
 
 This runbook brings SecretRotator up on srviac. First part: its credentials, its annotations and
 its nightly job, which runs in dry run. Then a week of dry run. Then going live, one kind at a time.
-[§ Wave 1](#wave-1) prepares the kinds of slice 047, and [§ Wave 3](#wave-3) those of slice 052,
+[§ Wave 1](#wave-1) prepares the kinds of slice 047, [§ Wave 2](#wave-2) those of slice 049, and
+[§ Wave 3](#wave-3) those of slice 052,
 each before the go-live or after it.
 
 The operator runs every step, from top to bottom. Each step gives the commands, what to hand back,
@@ -98,12 +99,14 @@ shred -u tmp/openbao-credentials/*
 
 SecretRotator's `k8s/cluster-identity.yaml` declares the `secret-rotator` ServiceAccount, its
 binding to `cluster-admin`, and the Secret holding its long-lived token. Nothing reconciles it, so
-it is applied once, by hand:
+it is created once, by hand. Since slice 049 the Secret has a `generateName` in place of a name,
+which `apply` refuses: the `k8s-sa-token` kind replaces it yearly with one named the same way. So
+it is created with `create`, and the token is read from the Secret the create names:
 
 ```sh
-k apply -f /work/SecretRotator/k8s/cluster-identity.yaml
-k -n kube-system get secret secret-rotator-token -o jsonpath='{.data.token}' | base64 -d | wc -c
-k -n kube-system get secret secret-rotator-token -o jsonpath='{.data.token}' | base64 -d | bao kv put -mount=kv iac/rotator-k8s-token token=-
+s=$(k create -f /work/SecretRotator/k8s/cluster-identity.yaml -o name | tee /dev/stderr | grep '^secret/')
+k -n kube-system get "$s" -o jsonpath='{.data.token}' | base64 -d | wc -c
+k -n kube-system get "$s" -o jsonpath='{.data.token}' | base64 -d | bao kv put -mount=kv iac/rotator-k8s-token token=-
 ```
 
 **Hand back:** the full output.
@@ -111,9 +114,14 @@ k -n kube-system get secret secret-rotator-token -o jsonpath='{.data.token}' | b
 **Reading.**
 
 - `serviceaccount/secret-rotator`, `clusterrolebinding.rbac.authorization.k8s.io/secret-rotator-admin`
-  and `secret/secret-rotator-token`, each `created`.
-- The token's length in bytes, not `0`.
+  and `secret/secret-rotator-token-<5 characters>`. A checkout before slice 049 names the Secret
+  `secret/secret-rotator-token`.
+- The token's length in bytes, not `0`. `0` means the token controller has not filled the Secret
+  yet: run that line again, then the `kv put`.
 - The `kv put` answers with `version 1`.
+- `AlreadyExists` on the ServiceAccount and the binding means step 2 ran before: keep the leaf as
+  it is. Since slice 049 the same create has still made one more token Secret, which `$s` names:
+  delete it with `k -n kube-system delete "$s"`.
 
 ## 3 — srviac's `secrets.yaml` entries
 
@@ -206,7 +214,9 @@ bao kv get -mount=kv -format=json rotator/jenkins </dev/null \
 ```
 
 **YouTrack.** The standing card is written as Jeeves. Make a permanent token for Jeeves, with the
-YouTrack scope, on Jeeves's Account Security page. Store it:
+YouTrack scope, on Jeeves's Account Security page. Name it `secret-rotator`, or any name none of
+Jeeves's other tokens has: the `youtrack-token` kind ([§ Wave 2](#wave-2)) finds the token a leaf
+holds by its name. Store it:
 
 ```sh
 read -rs tok && printf %s "$tok" | bao kv put -mount=kv rotator/youtrack token=-; unset tok
@@ -304,6 +314,13 @@ seed fix:
   give it the leaf's kind, `random`, and `random`'s first live night would replace the header
   jenkins-mcp sends to Jenkins. After W1 the leaf reads `add     rotation_token=…` (kind
   `jenkins-token`) and `add     rotation_user={"kind":"none"}`, and these three lines are gone.
+
+**With slice 049's seed.** Where `prd` carries slice 049, the dry run also prints `absent from the
+store, skipped:` for `rotator/github` and `rotator/youtrack-token/credentials`, which
+[§ Wave 2](#the-counterparts-and-the-grants) creates. Each the store lacks adds one to the last
+line's `absent from the store`, and leaves its leaf count as it is. One the store already holds is
+written with the others, and [wave 2's annotations](#wave-2s-annotations) stamp it. Neither asks
+for a seed fix.
 
 ```sh
 srviac 'secret-rotator annotate --apply'
@@ -699,6 +716,420 @@ srviac 'secret-rotator audit'
 **Reading:** two `<leaf>#client_secret: rotation stamp <date>, was none` lines, each with W3's
 date. No finding line of the audit names a leaf of wave 1.
 
+## Wave 2
+
+Slice 049's kinds are `youtrack-token`, `github-webhook-secret`, `home-assistant-token`,
+`google-sa-key`, `elastic-user`, `kubecoder-client` and `k8s-sa-token`. They ship switched off. The
+sections below create the two leaves and the grants they need, annotate, read their plans, and check
+from srviac what no offline run could reach. Item 11 of [§ Going live](#going-live) then enables
+them one at a time.
+
+Wave 2 starts once SecretRotator's `prd` carries slice 049, before step 6 or at any point after it.
+[The counterparts and the grants](#the-counterparts-and-the-grants) need only OpenBao and three
+consoles. [Wave 2's annotations](#wave-2s-annotations) come after step 6: they run `secret-rotator`
+on srviac, which needs steps 1 to 3, and they stamp with step 6's `stamp`. The plans and the checks
+from srviac come after them.
+
+`kinds_enabled` gates the nightly run alone. `secret-rotator run <leaf>` runs a wave-2 plan as soon
+as the image carries slice 049, whatever `switches.yaml` holds, built from the store's entries. Run
+none by hand before [the checks from srviac](#the-checks-from-srviac) read as they should.
+
+Until wave 2's apply, the audit and the nightly card report on wave 2's keys. None of these findings
+touches an enabled kind:
+
+- `rotation_token: missing` on `rotator/github` and `rotator/youtrack-token/credentials`, once they
+  are stored.
+- Where step 6 ran on the seed before slice 049, also these, each blocking its key's plan:
+  - `args: clusters: missing; the clusters whose tokens the key holds, of dev and prd` on
+    `eso/prd/kubecoder/prd/catalog`'s `rotation_kubeconfig`, `rotation_kubeconfig-dev-write` and
+    `rotation_kubeconfig-prd-write`, and on `iac/rotator-k8s-token`'s `rotation_token`;
+  - `args: client: missing; the KubeCoder client whose credential it is` on
+    `eso/prd/fieldnotes/prd/kubecoder-controller`'s `rotation_token`.
+
+  `eso/prd/fieldnotes/prd/github-webhook-secret` raises no finding, but until the apply its `plan`
+  reads `cannot be built: … no entry the plan writes names the GitHub hook …`.
+
+### The counterparts and the grants
+
+The rotator creates nothing outside its own staging, so the go-live creates what wave 2 needs: two
+leaves under `rotator/`, and a grant on each of two Google service accounts. Store the leaves before
+[wave 2's annotations](#wave-2s-annotations). One stored after them is a new leaf
+([`openbao.md`](openbao.md#a-new-leaf)): run the annotations again.
+
+**YouTrack's Hub token.** The `youtrack-token` kind lists, mints and revokes its leaves' owners'
+permanent tokens through Hub, as the operator's YouTrack admin account. Logged in to YouTrack as
+that account, add a permanent token on its Account Security page with the scope YouTrack
+Administration. Name it `secret-rotator-hub`, or any name none of the account's other tokens has:
+the kind rotates this token too, and finds it by its name. Store it:
+
+```sh
+read -rs tok && printf %s "$tok" | bao kv put -mount=kv rotator/youtrack-token/credentials token=-; unset tok
+bao kv get -mount=kv -field=token rotator/youtrack-token/credentials </dev/null | sed 's/^/Authorization: Bearer /' \
+  | curl -sS -H @- 'https://issues.webathome.org/hub/api/rest/users/me?fields=login' | jq -r .login
+```
+
+**Reading:** `version 1`, then the admin account's login.
+
+**GitHub's token.** The `github.webhook` step sets the hook's secret, pings the hook and redelivers
+its deliveries with the token in `rotator/github`, which nothing else reads. Logged in to GitHub as
+pvginkel, generate one under Settings → Developer settings → Personal access tokens → Fine-grained
+tokens:
+
+- named `secret-rotator`, resource owner `pvginkel`, with an expiration a year out;
+- repository access only `pvginkel/Fieldnotes`;
+- of the repository permissions only Webhooks, read and write. GitHub adds Metadata, read-only, to
+  every token.
+
+Note its expiration date: [wave 2's annotations](#wave-2s-annotations) stamp it. Store it, and read
+the hook's config with it. `ghapi` calls GitHub's API with the token, and item 11 of
+[§ Going live](#going-live) uses it again:
+
+```sh
+read -rs tok && printf %s "$tok" | bao kv put -mount=kv rotator/github token=-; unset tok
+ghapi() { bao kv get -mount=kv -field=token rotator/github </dev/null | sed 's/^/Authorization: Bearer /' \
+  | curl -sS -H @- -H 'Accept: application/vnd.github+json' "$@"; }
+ghapi https://api.github.com/repos/pvginkel/Fieldnotes/hooks/682399688/config | jq -r .url
+```
+
+**Reading:** `version 1`, then `https://fieldnotes-hooks.webathome.org/api/webhook`. `null` means
+GitHub refused the token: run the call without `| jq -r .url` and read its `message`.
+
+**The Google grants.** Each `google-sa-key` leaf holds a key of a service account that creates its
+own next key and deletes the key it replaced. Read each account and its project from its key file:
+
+```sh
+bao kv get -mount=kv -field=key_json eso/prd/calendar-support/prd/google-service-account </dev/null | jq -r '"\(.project_id) \(.client_email)"'
+bao kv get -mount=kv -field=firebase-service-account.json eso/prd/media/prd/mydownloads-firebase </dev/null | jq -r '"\(.project_id) \(.client_email)"'
+```
+
+**Reading:** two lines, each a project id and an account's email. For each, in the Google Cloud
+console of its project:
+
+1. APIs & Services: enable the Identity and Access Management (IAM) API.
+2. IAM & Admin → Service Accounts → the account → its Permissions tab → Grant access: the account's
+   own email as principal, with the role Service Account Key Admin. That gives the account
+   `iam.serviceAccountKeys.create`, `.list` and `.delete` on itself, and nothing on any other
+   account.
+
+[The checks from srviac](#the-checks-from-srviac) show both grants.
+
+### Wave 2's annotations
+
+Slice 049 adds two leaves to the seed and changes six entries.
+
+```sh
+srviac 'secret-rotator annotate'
+```
+
+**Hand back:** the full output.
+
+**Reading.**
+
+- `rotator/github` and `rotator/youtrack-token/credentials`, where no apply has written them yet,
+  each read `add     rotation_token=…`: `rotator/github`'s
+  `{"kind":"manual","interval":"365d","args":{"type":"github-pat"},…`, the other's
+  `{"kind":"youtrack-token","interval":"365d",…`, which alone also reads `set     max_versions=20
+  (was 0)`.
+- Where step 6, or an apply after it, ran on a seed before slice 049, also these, each a `change`:
+  - `eso/prd/fieldnotes/prd/github-webhook-secret`: `rotation_secret`, whose `activate` is now
+    `eso,k8s-rollout,github-webhook:pvginkel/Fieldnotes/682399688`, was `auto`;
+  - `eso/prd/fieldnotes/prd/kubecoder-controller`: `rotation_token`, now with
+    `"args":{"client":"fieldnotes"}`;
+  - `eso/prd/kubecoder/prd/catalog`: `rotation_kubeconfig` with `"args":{"clusters":["dev","prd"]}`,
+    `rotation_kubeconfig-dev-write` with `"args":{"clusters":["dev"]}` and
+    `rotation_kubeconfig-prd-write` with `"args":{"clusters":["prd"]}`;
+  - `iac/rotator-k8s-token`: `rotation_token`, with `"args":{"clusters":["prd"]}`.
+
+  Until these are applied, the four `k8s-sa-token` plans stay blocked by `args: clusters: missing`.
+- Where it ran on slice 049's seed, none of the six: that apply wrote them.
+- No `absent from the store` line for the two leaves above, and no `cannot write:` line.
+
+```sh
+srviac 'secret-rotator annotate --apply'
+srviac 'secret-rotator annotate' | tail -n 1
+```
+
+**Reading:** one `patched <leaf>` line per leaf of the dry run, and exit 0. The dry run after it
+reads `would patch (dry run; --apply writes) 0 leaf(s), …`.
+
+Stamp the two new leaves with `stamp` as step 6 defines it, whether this apply or an earlier one
+wrote their entries. A Hub token never expires. The GitHub token's expiration date is its
+`expires_at`, and its key falls due 7 days before it:
+
+```sh
+stamp rotator/youtrack-token/credentials token
+stamp rotator/github token
+srviac 'secret-rotator stamp rotator/github token --expires-at <the token expiration date>'
+srviac 'secret-rotator audit'
+```
+
+**Hand back:** the full output.
+
+**Reading.**
+
+- Two `<leaf>#token: rotation stamp <date>, was none` lines, each with the date its leaf was stored,
+  then `rotator/github#token: expires_at <date>, was none`.
+- No finding line of the audit names a leaf of wave 2.
+- Wave 2's other keys have no stamp but those step 6 gave `rotator/youtrack` and
+  `iac/rotator-k8s-token`. Each falls due at once when its kind is enabled.
+
+### Wave 2's plans
+
+Read the plans the store now builds, from srviac. Slice 049 built them only against a snapshot of
+`prd`. Read each kind's again just before its commit (item 11 of [§ Going live](#going-live)):
+
+```sh
+for l in eso/prd/fieldnotes/prd/{youtrack-token,github-webhook-secret,kubecoder-controller} \
+    eso/prd/youtrack/prd/{mcp,backup} jenkins/youtrack rotator/youtrack rotator/youtrack-token/credentials \
+    eso/prd/homeassistant-mcp/prd/homeassistant jenkins/home-automation-fleet \
+    eso/prd/calendar-support/prd/google-service-account eso/prd/media/prd/mydownloads-firebase \
+    eso/prd/elasticsearch/prd/{elastic,filebeat-reader,kibana-system} eso/prd/{filebeat,iot}/prd/elastic-credentials \
+    eso/prd/kubecoder/prd/catalog iac/rotator-k8s-token; do srviac "secret-rotator plan $l"; done
+```
+
+**Hand back:** the full output.
+
+**Reading**, for each wave-2 kind's `<kind> plan of <key> · due: …`. The leaves' other plans print
+too: `youtrack/prd/mcp`'s `random` plan of `bearer-token`, and those of the catalog's other keys.
+Each `eso.sync` names an ExternalSecret that reads the leaf or a copy of it, and each `k8s.rollout`
+a workload that consumes one. The targets below are those prd held on 2026-10-09.
+
+- `youtrack-token`: `youtrack_token.mint` of a token named `<leaf>#<key>`, `kv.write`, the syncs and
+  rollouts below, the silent `youtrack_token.prove`, then `youtrack_token.revoke` and `kv.stamp`.
+  - `fieldnotes/prd/youtrack-token`: `fieldnotes-prd/fieldnotes-youtrack-token`, then
+    `fieldnotes-prd/deployment/fieldnotes`.
+  - `youtrack/prd/mcp`'s `youtrack-api-key`: `intercom-prd/intercom-mcp-tokens` and
+    `youtrack-mcp-prd/youtrack-mcp`, then `intercom-prd/deployment/intercom` and
+    `youtrack-mcp-prd/deployment/youtrack-mcp`.
+  - `youtrack/prd/backup`: `youtrack-prd/youtrack-backup`, and no rollout. Its activate is `none`,
+    and its sync comes before the revoke all the same.
+  - The catalog's `youtrack-api-key`: `kubecoder-prd/kubecoder-secret-catalog`, then
+    `kubecoder-prd/deployment/kubecoder-controller`.
+  - `jenkins/youtrack`'s `admin-token`, `rotator/youtrack` and `rotator/youtrack-token/credentials`:
+    neither.
+- `github-webhook-secret`: `random.generate`, `kv.write`, the `eso.sync` of
+  `fieldnotes-prd/fieldnotes-github-webhook-secret`, the `k8s.rollout` of
+  `fieldnotes-prd/deployment/fieldnotes`, then, after that rollout, `github.webhook` on
+  `pvginkel/Fieldnotes/682399688`, and `kv.stamp`.
+- `kubecoder-client`: `kubecoder_client.mint` for client `fieldnotes`, `kv.write`, the `eso.sync`
+  of `fieldnotes-prd/fieldnotes-kubecoder-controller`, the `k8s.rollout` of
+  `fieldnotes-prd/deployment/fieldnotes`, the silent `kubecoder_client.prove`, `kv.stamp`.
+- `home-assistant-token`: `home_assistant_token.mint` of a token `that expires in 90 days`,
+  `kv.write`, the silent `home_assistant_token.prove`, `home_assistant_token.delete`, `kv.stamp`.
+  The MCP leaf syncs `homeassistant-mcp-prd/homeassistant-mcp-token` and rolls out
+  `homeassistant-mcp-prd/deployment/homeassistant-mcp` after its `kv.write`. The Jenkins leaf does
+  neither: `AaC/Home Assistant Fleet` reads it when it runs.
+- `google-sa-key`: `google_sa_key.mint`, `kv.write`, one `eso.sync` and one `k8s.rollout`, the
+  silent `google_sa_key.prove`, `google_sa_key.delete`, `kv.stamp`. calendar-support's are
+  `calendar-support-prd/calendar-support-sa-key` and `calendar-support-prd/deployment/calendar-support`,
+  mydownloads' `media-prd/media-mydownloads-firebase` and `media-prd/deployment/mydownloads`.
+- `elastic-user`: the silent `elastic.login`, `random.generate`, `kv.write`, the syncs below, then
+  `elastic.set_password`, then the rollout below, and `kv.stamp`.
+  - `elasticsearch/prd/elastic`: `elasticsearch-prd/elasticsearch-elastic`, then
+    `elasticsearch-prd/deployment/elasticsearch`.
+  - `elasticsearch/prd/filebeat-reader`: a `kv.copy` to the catalog's `elastic-password`,
+    `elasticsearch-prd/elasticsearch-reader` and `kubecoder-prd/kubecoder-secret-catalog`, then
+    `kubecoder-prd/deployment/kubecoder-controller`. Its activate is `none`.
+  - `elasticsearch/prd/kibana-system`: `elasticsearch-prd/elasticsearch-kibana-system`, then
+    `elasticsearch-prd/deployment/kibana`.
+  - `filebeat/prd/elastic-credentials`: `elasticsearch-prd/elasticsearch-filebeat-writer` and
+    `filebeat-prd/filebeat-es-credentials`, then `filebeat-prd/daemonset/filebeat`.
+  - `iot/prd/elastic-credentials`: `elasticsearch-prd/elasticsearch-iotsupport` and
+    `iot-prd/iot-elastic-credentials`, then `iot-prd/deployment/iotsupport`.
+- `k8s-sa-token`, one plan per key:
+  - `kubeconfig`: `k8s.sa_token` on dev, then on prd, `kv.write`, the `kv.copy` to
+    `eso/prd/kubecoder/dev/catalog#kubeconfig`, the `eso.sync` of `kubecoder-secret-catalog` in
+    `kubecoder-prd` and in `kubecoder-dev`, the `k8s.rollout` of both stages'
+    `deployment/kubecoder-controller`, the silent proofs, `k8s.sa_token.delete` on dev, then on
+    prd, and `kv.stamp`.
+  - `kubeconfig-dev-write`: the same on dev alone, and `kubeconfig-prd-write` on prd alone.
+  - `iac/rotator-k8s-token`: `k8s.sa_token` on prd, `kv.write`, the silent proof,
+    `k8s.sa_token.delete` on prd, `kv.stamp`.
+- A `cannot be built:` or `blocked:` line: stop and read it.
+
+### The checks from srviac
+
+Slice 049 tried none of the systems below from srviac. Each check makes the call that the kind's
+first step makes, from srviac's `iac` container, with the rotator's own clients and the credentials
+in the store, and writes nothing. A failure here would fail that kind's first plan before its
+`kv.write`, with nothing changed. The check finds it before the commit instead.
+
+They run in one `iac` shell on srviac. In it, `check` runs a Python snippet logged in to OpenBao as
+the rotator, in which `val("<leaf>#<key>")` is that key's value, never printed:
+
+```sh
+ssh -t ansible@srviac sudo iac
+```
+
+```sh
+py=$(sed -n '1s/^#!//p' /usr/local/bin/secret-rotator)
+check() { "$py" -c 'import os, sys
+from secret_rotator.openbao import OpenBao
+bao = OpenBao()
+bao.login_approle(os.environ["SECRET_ROTATOR_ROLE_ID"], os.environ["SECRET_ROTATOR_SECRET_ID"])
+def val(path):
+    leaf, key = path.split("#")
+    return bao.read(leaf).data[key]
+exec(sys.argv[1])' "$1"; }
+```
+
+**Hand back:** the full output of each check below. A traceback names the call that failed and its
+answer. Read it before the kind's commit.
+
+**Hub**, before `youtrack-token`. For each leaf: whose token it holds, asked with the token itself
+as the kind does, the name its value carries, and how many of the owner's tokens Hub lists by that
+name. A leaf's first plan finds its token by that name, and stops before it mints unless exactly one
+of the owner's tokens has it:
+
+```sh
+check 'from secret_rotator.kinds.youtrack_token import hub
+admin = hub.client(val("rotator/youtrack-token/credentials#token"), None)
+for p in ["eso/prd/fieldnotes/prd/youtrack-token#token", "eso/prd/youtrack/prd/mcp#youtrack-api-key",
+          "eso/prd/youtrack/prd/backup#token", "jenkins/youtrack#admin-token",
+          "eso/prd/kubecoder/prd/catalog#youtrack-api-key", "rotator/youtrack#token",
+          "rotator/youtrack-token/credentials#token"]:
+    owner, carried = hub.owner(val(p), None), hub.carried(val(p))
+    if carried is None:
+        print(f"{p}: {owner.login}: not of the form perm:<login>.<name>.<secret>")
+        continue
+    n = sum(t.name == carried[1] for t in hub.tokens(admin, owner.id))
+    print(f"{p}: {owner.login}, carrying {carried[0]}, token named {carried[1]}: {n} of that name")'
+```
+
+**Reading.**
+
+- Seven lines, `<leaf>#<key>: <owner>, carrying <owner>, token named <name>: 1 of that name`. A
+  line with another count, another login carried, or `not of the form`, is a leaf whose first plan
+  would stop before it mints: stop and read it.
+- No two lines name the same owner and token name. Two leaves holding one token: the first one's
+  plan would revoke the token the other's consumers still use. Stop.
+- The last line is the counterpart's, with the admin account's login. A line with another owner is
+  a leaf whose first plan proves that Hub mints a token for another user (item 11).
+- A traceback from `/hub/api/rest/users/<id>/permanenttokens` means Hub refuses the counterpart:
+  its scope is not YouTrack Administration. One from `/hub/api/rest/users/me` means YouTrack and
+  Hub both refuse that leaf's token.
+
+**Elasticsearch**, before `elastic-user`. Each user logs in at `http://elasticsearch.home` with its
+leaf's password, as each plan's `elastic.login` does:
+
+```sh
+check 'from secret_rotator.kinds.elastic_user import BASE
+from secret_rotator.kinds.elastic_user.elasticsearch import Elasticsearch
+es = Elasticsearch(BASE)
+for leaf, user in [("elasticsearch/prd/elastic", "elastic"), ("elasticsearch/prd/filebeat-reader", "reader"),
+                   ("elasticsearch/prd/kibana-system", "kibana_system"),
+                   ("filebeat/prd/elastic-credentials", "filebeat_writer"),
+                   ("iot/prd/elastic-credentials", "iotsupport")]:
+    print(leaf, es.authenticate(user, val(f"eso/prd/{leaf}#password"))["username"])'
+```
+
+**Reading:** five lines, each a leaf and its user: `elastic`, `reader`, `kibana_system`,
+`filebeat_writer`, `iotsupport`. `HTTP 401` means Elasticsearch refuses that leaf's password: its
+plan would fail at its login. A transport error means srviac does not reach `elasticsearch.home`.
+
+**KubeCoder's controller**, before `kubecoder-client`, at `https://kubecoder.home`. The leaf's own
+credential is the mint's bearer, and the mint asks the controller's client list first:
+
+```sh
+check 'from secret_rotator.kinds.kubecoder_client import BASE
+from secret_rotator.kinds.kubecoder_client.kubecoder import KubeCoder
+print(KubeCoder(BASE).clients(val("eso/prd/fieldnotes/prd/kubecoder-controller#token")).get("fieldnotes"))'
+```
+
+**Reading:** `minted`. `static` means the chart provisions the name, and the controller refuses to
+mint it. `None` means it lists no client `fieldnotes`, and `HTTP 401` that it refuses the leaf's
+credential. Each would stop the plan at its mint, before anything changes.
+
+**Home Assistant's websocket**, before `home-assistant-token`, at
+`wss://homeassistant.webathome.org/api/websocket`. Each leaf's token logs in, as its plan's mint
+does, and names the token it is:
+
+```sh
+check 'from secret_rotator.kinds.home_assistant_token import homeassistant
+for p in ["eso/prd/homeassistant-mcp/prd/homeassistant#token", "jenkins/home-automation-fleet#ha_token"]:
+    with homeassistant.connect(val(p)) as session:
+        print(p, [f"{t.name} ({t.type})" for t in session.tokens() if t.current])'
+```
+
+**Reading.**
+
+- Two lines, each a leaf and its token, `[<name> (long_lived_access_token)]`.
+- Two different names. One token for both leaves: the first one's plan would delete the token the
+  other's consumer still uses. Stop.
+- `login refused` names a leaf whose token Home Assistant refuses. A transport error is srviac's
+  reach of the websocket, or its TLS.
+
+**Google**, before `google-sa-key`. Each leaf's key logs in to its account at Google's token
+endpoint, `https://oauth2.googleapis.com/token`, and lists the account's keys through the IAM API,
+`https://iam.googleapis.com/v1`:
+
+```sh
+check 'from secret_rotator.kinds.google_sa_key import google
+for p in ["eso/prd/calendar-support/prd/google-service-account#key_json",
+          "eso/prd/media/prd/mydownloads-firebase#firebase-service-account.json"]:
+    key = google.parse(val(p))
+    ids = google.Google().login(key).key_ids()
+    print(f"{p}: {key.email}, key {key.id}: {len(ids)} user-managed key(s), the leaf key listed: {key.id in ids}")'
+```
+
+**Reading.**
+
+- Two lines, two accounts, each ending `True`.
+- Each account with fewer than 10 keys: Google holds at most 10 per account, and a plan creates
+  its new key before it deletes the old one.
+- `HTTP 403` on the list (`GET /v1/projects/-/serviceAccounts/…/keys`) means that account lacks its
+  grant, or its project the IAM API ([the grants](#the-counterparts-and-the-grants)). An error on
+  `POST /token` means Google refuses the leaf's key.
+
+**GitHub's API**, before `github-webhook-secret`, with the token of `rotator/github`. The step reads
+the hook's config and its deliveries:
+
+```sh
+check 'from secret_rotator.github import GitHub
+github = GitHub()
+github.authenticate(val("rotator/github#token"))
+print(github.hook_config("pvginkel/Fieldnotes", 682399688)["url"])
+for d in github.deliveries("pvginkel/Fieldnotes", 682399688)[:5]:
+    print(d["delivered_at"], d["event"], d["status_code"], "redelivery" if d["redelivery"] else "")'
+```
+
+**Reading:** `https://fieldnotes-hooks.webathome.org/api/webhook`, then up to five of the hook's
+newest deliveries. `HTTP 403` or `404` means the token does not reach the hook or its deliveries:
+check its repository and its Webhooks permission. The ping before its first night (item 11) proves
+the write.
+
+**The dev apiserver**, while dev is up, before the dev plans of `k8s-sa-token`. The plans reach dev
+at the apiserver `kubeconfig-dev-write` names, `https://10.1.3.3:16443`, over TLS checked against
+the CA it names, with its token. The check calls it the same way, then asks dev who the token is
+and whether it may create, read and delete Secrets in `kube-system`:
+
+```sh
+check 'from secret_rotator.kinds.k8s_sa_token.reach import connect
+from secret_rotator.kinds.k8s_sa_token.tokens import access
+p = "eso/prd/kubecoder/prd/catalog#kubeconfig-dev-write"
+server, ca, token = access(val(p), "dev", p)
+kube = connect(token, server, ca)
+print(server, kube.call("GET", "/version")[1]["gitVersion"])
+review = {"apiVersion": "authentication.k8s.io/v1", "kind": "SelfSubjectReview"}
+print(kube.call("POST", "/apis/authentication.k8s.io/v1/selfsubjectreviews", review)[1]["status"]["userInfo"]["username"])
+for verb in ("create", "get", "delete"):
+    attrs = {"namespace": "kube-system", "verb": verb, "resource": "secrets"}
+    review = {"apiVersion": "authorization.k8s.io/v1", "kind": "SelfSubjectAccessReview", "spec": {"resourceAttributes": attrs}}
+    print(verb, "secrets in kube-system:", kube.call("POST", "/apis/authorization.k8s.io/v1/selfsubjectaccessreviews", review)[1]["status"]["allowed"])'
+```
+
+**Reading.**
+
+- `https://10.1.3.3:16443` and dev's version, then
+  `system:serviceaccount:kube-system:kubecoder-rw`, then `create`, `get` and `delete`, each `True`.
+- `CERTIFICATE_VERIFY_FAILED` means Python refuses the apiserver's certificate under the
+  kubeconfig's CA, which must carry the IP `10.1.3.3`. The dev plans would then fail, not be
+  skipped: stop.
+- `False` for a verb means dev's `edit` does not grant it, and ruling D1 rests on that grant: stop.
+- A transport error while dev is up means srviac does not reach `10.1.3.3:16443`.
+
+`exit` leaves the shell.
+
 ## Wave 3
 
 Slice 052's kinds are `pve-root-password`, `samba-user` and `step-ca-password`. They ship switched
@@ -865,6 +1296,7 @@ secret-rotator-ui` again: it shows the same UI, on the box you left selected. Qu
 Code task, and after a lost session run it again to reattach. `Ctrl-b d` leaves the UI running
 without you, and quitting the UI ends the session. A UI that exits with an error holds its output
 until Enter.
+
 
 ## Going live
 
@@ -1038,6 +1470,149 @@ takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, 
 
     - The plan logs in, generates, writes, syncs `grafana-prd/grafana-admin`, and then sets the
       password in Grafana.
+11. **Wave 2**, once [§ Wave 2](#wave-2)'s counterparts, grants and annotations are done. Its kinds
+    go in one per commit, in any order, each once its own item below holds. Before each commit,
+    read its leaves' plans from srviac again as [Wave 2's plans](#wave-2s-plans) gives them, and
+    its check of [§ The checks from srviac](#the-checks-from-srviac). A wave-2 key without a stamp
+    falls due at once when its kind is enabled. No kind has more than five such keys, within the
+    cap of 10 a night. Each kind's first live plan is the proof of what no offline run tried. The
+    next morning, the night's console shows the plan `rotated`, each of its steps with its `✓`
+    line, and a consumer that did not come back is on the card.
+
+    - **`youtrack-token`**, once the Hub check reads as it should. Its first night rotates the five
+      keys without a stamp: those of `fieldnotes/prd/youtrack-token`, `youtrack/prd/mcp`,
+      `youtrack/prd/backup`, `jenkins/youtrack` and the catalog's `youtrack-api-key`. The catalog's
+      rotation rolls the prd KubeCoder controller, which restarts every prd KubeCoder environment
+      (design R65). `rotator/youtrack` and the counterpart fall due a year after their stamps. Each
+      plan revokes the token its leaf held, a hand-made one on its first rotation, and leaves a token
+      named `<leaf>#<key>` on the owner's Account Security page.
+
+      The proof (R2). Each `✓ mint a new YouTrack permanent token named <leaf>#<key> · token <id> of
+      <login>, with the scope of token <id>` line is a token Hub minted and returned. One whose login
+      is not the admin account's is a token minted for another user. Where the Hub check showed no
+      leaf of another owner but `rotator/youtrack`, Jeeves's, run that plan by hand once after the
+      first clean night, `srviac 'secret-rotator run rotator/youtrack'`. The card's client takes the
+      new token at the plan's `kv.write`.
+
+      A mint Hub refuses, or whose answer carries no token, fails the plan before its `kv.write`,
+      and the run rolls it back. A mint that fails with a transport error may have left a token
+      named `<leaf>#<key>` that no leaf holds. Look on the owner's Account Security page for one
+      created that night, and revoke it: else a later plan of that leaf stops on two tokens of that
+      name.
+    - **`github-webhook-secret`**, once the GitHub check reads as it should. In the three days
+      before its first night, ping the hook with `ghapi` ([§ Wave 2](#the-counterparts-and-the-grants)).
+      GitHub signs the ping with the hook's current secret, and redelivers deliveries of the last
+      three days:
+
+      ```sh
+      ghapi -X POST https://api.github.com/repos/pvginkel/Fieldnotes/hooks/682399688/pings
+      ghapi 'https://api.github.com/repos/pvginkel/Fieldnotes/hooks/682399688/deliveries?per_page=5' \
+        | jq -r '.[] | "\(.id) \(.guid) \(.delivered_at) \(.event) redelivery=\(.redelivery) \(.status_code)"'
+      ```
+
+      **Reading:** the newest line is a `ping`, `redelivery=false`, `200`: note its id. GitHub
+      delivers it within seconds, so a list without it is read again. A JSON `message` from the
+      ping's `POST` means the token lacks the Webhooks permission's write.
+
+      Its first night restarts Fieldnotes, its API and its webhook relay in one pod, then sets the
+      hook's secret. Its line reads `✓ set the secret of GitHub hook pvginkel/Fieldnotes/682399688
+      from eso/prd/fieldnotes/prd/github-webhook-secret#secret · secret set; ping answered HTTP 200;
+      no failed delivery to redeliver`. Pushes that GitHub delivered between the rollout and the
+      change make it read `redelivered <n>: <guid>, …` instead.
+
+      The proof, the morning after: redeliver the ping you sent before the rotation, which GitHub
+      signed with the old secret, and read how Fieldnotes answers it:
+
+      ```sh
+      ghapi -X POST https://api.github.com/repos/pvginkel/Fieldnotes/hooks/682399688/deliveries/<the ping id>/attempts
+      ghapi 'https://api.github.com/repos/pvginkel/Fieldnotes/hooks/682399688/deliveries?per_page=5' \
+        | jq -r '.[] | "\(.id) \(.guid) \(.delivered_at) \(.event) redelivery=\(.redelivery) \(.status_code)"'
+      ```
+
+      **Reading:** the newest line is the redelivery, the ping's guid with `redelivery=true`.
+
+      - `200`: GitHub signs a redelivery with the hook's current secret, so the step's redeliveries
+        reach Fieldnotes.
+      - `401`: GitHub re-sends the original signature. A push it delivered between Fieldnotes'
+        rollout and the hook's change then stays undelivered, the gap of seconds the go-live
+        accepts.
+
+      The step does not judge its redeliveries. Each guid its line names reads the same way in the
+      hook's Recent Deliveries, https://github.com/pvginkel/Fieldnotes/settings/hooks/682399688:
+      its redelivered attempt answered `200` or `401`.
+    - **`home-assistant-token`**, once the Home Assistant check reads as it should. Its first night
+      rotates both keys: homeassistant-mcp restarts, and `AaC/Home Assistant Fleet` takes the new
+      token at its next run. Each plan deletes the token its leaf held, the hand-made one on its
+      first rotation. The user's long-lived tokens in Home Assistant (Profile → Security) then hold
+      a `<leaf>#<key> <UTC time>` token per leaf, each expiring in 90 days, a date its key's
+      `expires_at` carries. The proof: the line `✓ mint a new Home Assistant long-lived access token
+      that expires in 90 days · <name>, which expires <date>` is a successor a long-lived token
+      minted.
+    - **`google-sa-key`**, once both grants are in place and the Google check reads as it should.
+      Its first night rotates both keys: calendar-support and mydownloads restart. The proof: the
+      line `✓ create a new key of the service account · key <id> of <email>` is the account keying
+      itself under its grant, and the plan reaching `✓ delete the key the leaf held` is Google taking
+      the new key within the silent proof's 5 minutes. A refused create fails the plan before its
+      `kv.write`. The delete ends the leaf's old key alone: a key made elsewhere on the account
+      stays, as the account's Keys tab in the console shows.
+    - **`elastic-user`**, once the Elasticsearch check reads as it should. Its first night rotates
+      the five keys. The superuser's plan restarts Elasticsearch, which its rollout gives 10
+      minutes. From each `elastic.set_password` until the rollout after it, that user's consumer is
+      refused (design §9): Kibana, filebeat's writes, iotsupport's, and the prd KubeCoder
+      environments' reads of `reader`, whose rollout of the prd controller restarts them all (design
+      R65). For the superuser it is Elasticsearch's own probes, so Elasticsearch turns unready until
+      it restarts. ElasticsearchDeploy's README holds the superuser's hand procedure, in the plan's
+      order.
+    - **`kubecoder-client`**, once the KubeCoder check reads `minted`. Its first night rotates
+      `fieldnotes/prd/kubecoder-controller`. From the mint until Fieldnotes' rollout, about a minute,
+      Fieldnotes' calls to KubeCoder fail (design §9). The mint has no undo: once it ran, Abort is
+      refused. A mint whose answer is lost has ended Fieldnotes' credential, and a Retry fails with
+      `KubeCoder's controller refuses the credential … holds`. Then mint `fieldnotes` with another
+      named client's credential, the `bot` client's of `eso/prd/kubecoder/prd/client-token-bot`,
+      and write it to the leaf:
+
+      ```sh
+      bao kv get -mount=kv -field=token eso/prd/kubecoder/prd/client-token-bot </dev/null | sed 's/^/Authorization: Bearer /' \
+        | curl -fsS -H @- -H 'Content-Type: application/json' --data '{"name":"fieldnotes"}' https://kubecoder.home/clients \
+        | jq -j .credential | bao kv patch -mount=kv eso/prd/fieldnotes/prd/kubecoder-controller token=-
+      ```
+
+      Then Retry, in `srviac 'secret-rotator run eso/prd/fieldnotes/prd/kubecoder-controller'`.
+    - **`k8s-sa-token`**, once step 2 is done and wave 2's annotations gave its four entries their
+      `clusters`. Its first night rotates `kubeconfig-prd-write`. It mints a token Secret
+      `kube-system/kubecoder-rw-token-<5 characters>` on prd and rolls both stages' KubeCoder
+      controllers, which restarts every KubeCoder environment of both stages (design R65), each
+      then with the new kubeconfig. Last it deletes the old Secret. That plan is the proof that the
+      token controller fills a new Secret within the mint's minute, and that prd takes a delete with
+      a uid precondition.
+
+      `iac/rotator-k8s-token` falls due a year after its stamp of step 6. Its plan switches the
+      running rotator to the new token before it deletes the old one, and the next `iac` container
+      on srviac starts with the new token from the leaf. An `iac` container started before that
+      rotation keeps the old token, and its cluster calls fail: start it again.
+
+      `kubeconfig` and `kubeconfig-dev-write` need dev. While dev is off, the run skips their plans
+      each night the quiet way: no rotation, no rollback, no Telegram. The card lists each, `dev
+      does not answer at https://10.1.3.3:16443: GET /version: transport error: …`, which takes up
+      to 30 s to say. They are due again the next night, and rotate the first night dev is up.
+
+      Or by hand. Start dev, VM 919 on `pve` and off by default
+      ([`live-infra-access.md`](../live-infra-access.md)), with `ssh root@pve qm start 919`. Once the
+      dev check of [§ The checks from srviac](#the-checks-from-srviac) reads as it should, run both
+      plans on srviac. The UI shows no plan without an operator step, so it cannot run them. Each
+      plan restarts the KubeCoder controllers, and with them the environment you work from, so run
+      them in a tmux session on srviac, which outlives yours:
+
+      ```sh
+      ssh -t ansible@srviac 'tmux new-session -s rotate "sudo iac -c \"secret-rotator run eso/prd/kubecoder/prd/catalog\"; read x"'
+      ```
+
+      Pick `kubeconfig-dev-write`'s plan and start it. Once it is done, Enter closes the session.
+      Then the same for `kubeconfig`'s plan. After your environment has restarted, `ssh -t
+      ansible@srviac tmux attach -t rotate` shows the run where it is. The first dev plan is the
+      proof that dev's `edit` lets `kubecoder-rw` create, read and delete Secrets in `kube-system`
+      (ruling D1). A refusal fails it at its mint, before its `kv.write`. Shut dev down after, with
+      `ssh root@pve qm shutdown 919`.
 
 11. **Wave 3**, once [Wave 3's annotations](#wave-3s-annotations) are applied. Its kinds go in
     one per commit, in any order, each once its own item below holds. A wave-3 plan with an
