@@ -4,3 +4,8 @@
 # standalone-class host lands, pick distinct reboot times so the
 # hosts don't reboot simultaneously.
 baseline_os_update_class: standalone
+
+# tmux holds SecretRotator's UI session (support/iac-agent/bin/secret-rotator-ui,
+# installed by the iac_agent role).
+baseline_extra_packages:
+  - tmux

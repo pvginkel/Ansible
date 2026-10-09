@@ -1,4 +1,5 @@
-"""The srviac tasks hand `iac` exactly `-c <script>`, which is all `iac-impl` accepts.
+"""Each srviac task reaches srviac with one command: `plan` and `run` hand `iac` exactly
+`-c <script>`, which is all `iac-impl` accepts, and `ui` runs `secret-rotator-ui`.
 
 The command line is built as VS Code builds a shell task's on Linux: `_buildShellCommandLine`
 in `src/vs/workbench/contrib/tasks/browser/terminalTaskSystem.ts` (tag 1.105.0) with its bash
@@ -74,20 +75,26 @@ def srviac_tasks():
     return [t for t in json.loads(text)["tasks"] if t["label"].endswith(" (srviac)")]
 
 
+REMOTE = {
+    "plan": ["sudo", "iac", "-c", f"secret-rotator plan {LEAF}"],
+    "run": ["sudo", "iac", "-c", f"secret-rotator run {LEAF}"],
+    "ui": ["secret-rotator-ui"],
+}
+
+
 class SrviacTasks(unittest.TestCase):
-    def test_each_task_reaches_iac_with_one_script(self):
+    def test_each_task_reaches_srviac_with_one_command(self):
         tasks = srviac_tasks()
         self.assertEqual(
             sorted(t["label"] for t in tasks),
-            [f"secret-rotator {verb} (srviac)" for verb in ("plan", "run", "ui")],
+            [f"secret-rotator {verb} (srviac)" for verb in REMOTE],
         )
         for task in tasks:
             verb = task["label"].split()[1]
-            script = f"secret-rotator {verb}" + ("" if verb == "ui" else f" {LEAF}")
             with self.subTest(task["label"]):
                 local = words(command_line(task))
                 self.assertEqual(local[:3], ["ssh", "-t", "ansible@srviac"])
-                self.assertEqual(words(" ".join(local[3:])), ["sudo", "iac", "-c", script])
+                self.assertEqual(words(" ".join(local[3:])), REMOTE[verb])
 
 
 if __name__ == "__main__":
