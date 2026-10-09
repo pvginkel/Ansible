@@ -133,6 +133,14 @@ dev deployment's environments carry none of this.
    every run; a retry replaces it, see below). Seen so far:
    - `remote: Invalid username or token` on the clone — the hook's PAT at
      `eso/prd/argocd-hooks/git` is no longer accepted. Rotate it (below).
+   - `[terraform-backend-git]: non-fast-forward update`, then `Error loading
+     state: Failed to get state: … giving up after 3 attempt(s)`, in `terraform
+     init` — the hook ran the stock state backend beside another writer of
+     TerraformState, such as another hook. Only `argocd-hook` 34 and later carry
+     the patched backend, and homelab-shared pins it from 0.5.1, so the app's
+     chart pins an older library or overrides `hook.imageTag`. Sync it again by
+     hand: every run starts a backend of its own. The app's next library bump
+     ends it.
    - `Error: Resource precondition failed` or any other Terraform error — the
      app's own Terraform; the message names the file and line.
    - a Terraform error on a namespace, forbidden or "already exists" — the
