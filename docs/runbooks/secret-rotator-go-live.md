@@ -1143,7 +1143,7 @@ for verb in ("create", "get", "delete"):
 
 Slice 052's kinds are `pve-root-password`, `samba-user` and `step-ca-password`. They ship switched
 off. The three sections below annotate their entries, make the media Samba server read
-`mydownloads-user`, and put `secret-rotator-ui` on srviac. Item 11 of [§ Going live](#going-live)
+`mydownloads-user`, and put `secret-rotator-ui` on srviac. Item 12 of [§ Going live](#going-live)
 then enables the kinds one at a time.
 
 Wave 3 starts once SecretRotator's `prd` carries slice 052, before step 6 or at any point after it.
@@ -1623,7 +1623,7 @@ takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, 
       (ruling D1). A refusal fails it at its mint, before its `kv.write`. Shut dev down after, with
       `ssh root@pve qm shutdown 919`.
 
-11. **Wave 3**, once [Wave 3's annotations](#wave-3s-annotations) are applied. Its kinds go in
+12. **Wave 3**, once [Wave 3's annotations](#wave-3s-annotations) are applied. Its kinds go in
     one per commit, in any order, each once its own item below holds. A wave-3 plan with an
     operator step runs from the UI whether its kind is enabled or not. Enabling the kind adds its
     manual-due lines, and for `samba-user` the nightly rotation of `mydownloads-user`. Each kind's
