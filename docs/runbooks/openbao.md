@@ -431,7 +431,7 @@ ssh -t ansible@srviac "sudo iac -c 'secret-rotator annotate --apply'"  # writes 
 ssh -t ansible@srviac "sudo iac -c 'secret-rotator stamp <leaf> <key> --rotated-at <date>'"  # a key's rotation stamp (below)
 ssh -t ansible@srviac "sudo iac -c 'secret-rotator plan <leaf>'"       # the leaf's plans: when each falls due, every step
 ssh -t ansible@srviac "sudo iac -c 'secret-rotator run <leaf>'"        # runs one of them, its operator steps as prompts
-ssh -t ansible@srviac "sudo iac -c 'secret-rotator ui'"                # every plan with an operator step, worked one at a time
+ssh -t ansible@srviac secret-rotator-ui                                # every plan with an operator step, worked one at a time; run it again to reattach
 ```
 
 A plan with an operator step runs only by hand: a `manual` or

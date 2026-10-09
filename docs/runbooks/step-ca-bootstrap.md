@@ -670,24 +670,27 @@ which reaches every leaf in the fleet.
 
 ## JWK provisioner password rotation
 
-When to do this:
+step-ca has two JWK provisioners. Each one's password encrypts its private key, which `ca.json`
+holds as the provisioner's `encryptedKey`:
 
-- Suspected leak of the password (ansible-vault file mishandled,
-  laptop compromise, etc.).
-- Routine rotation.
+- `ansible-jwk`, the fleet's. The `internal_tls` and `ssh_host_cert` roles sign with it, reading
+  its password from `internal_tls_jwk_provisioner_password` in
+  `ansible/inventories/prd/group_vars/all/vips.yml`. It is rotated by hand, steps 1 to 4, after a
+  suspected leak of the password (ansible-vault file mishandled, laptop compromise, etc.) or as
+  routine.
+- `kubecoder-jwk`, the KubeCoder controller's. Its password is
+  `eso/prd/kubecoder/prd/step-ca-provisioner-password#password` in OpenBao, copied to
+  `eso/prd/kubecoder/dev/step-ca-provisioner-password`. SecretRotator's `step-ca-password` plan
+  rotates it from `secret-rotator ui`, and its operator step points here:
+  [§ kubecoder-jwk](#kubecoder-jwk).
 
-The password encrypts `ansible-jwk`'s private key, which `ca.json`
-holds as the provisioner's `encryptedKey`. That ciphertext is public:
-step-ca serves it at `https://ca.home/provisioners`, and StepCaDeploy's
-history holds it. A key only re-encrypted under a new password still
-signs for whoever holds the old one, so the rotation replaces the key
-pair. `ca.json` has no `authority.enableAdmin`, so step-ca offers no
-remote provisioner API: the key is replaced in the `step_ca` role's
-`ca.json` and reaches step-ca through the role's playbook. The fleet's
-copy of the password is `internal_tls_jwk_provisioner_password` in
-`ansible/inventories/prd/group_vars/all/vips.yml`, which the
-`internal_tls` and `ssh_host_cert` roles read. The two change together:
-once step-ca runs on the new `ca.json`, only the new password signs.
+The `encryptedKey` is public: step-ca serves it at `https://ca.home/provisioners`, and
+StepCaDeploy's history holds it. A key only re-encrypted under a new password still signs for
+whoever holds the old one, so the rotation replaces the key pair. `ca.json` has no
+`authority.enableAdmin`, so step-ca offers no remote provisioner API: the key is replaced in the
+`step_ca` role's `ca.json` and reaches step-ca through the role's playbook. Once step-ca runs on the
+new `ca.json`, only the new password signs. For `ansible-jwk`, `ca.json` and `vips.yml` therefore
+change together.
 
 ### 1. Generate a new password
 
@@ -701,13 +704,14 @@ Save to Roboform under a temporary name like
 ### 2. Replace the key in the role's `ca.json`
 
 ```sh
+p=ansible-jwk    # the provisioner
 cd ~/source/Ansible/ansible
 t=$(mktemp -d)
 poetry run ansible-vault decrypt --output "$t/ca.json" roles/step_ca/files/ca.json
 step crypto jwk create "$t/pub.json" "$t/priv.json"   # prompts for the new password
 step crypto jose format < "$t/priv.json" > "$t/priv.compact"
-jq --slurpfile pub "$t/pub.json" --rawfile key "$t/priv.compact" \
-  '(.authority.provisioners[] | select(.name == "ansible-jwk"))
+jq --arg p "$p" --slurpfile pub "$t/pub.json" --rawfile key "$t/priv.compact" \
+  '(.authority.provisioners[] | select(.name == $p))
      |= (.key = $pub[0] | .encryptedKey = ($key | rtrimstr("\n")))' \
   "$t/ca.json" > "$t/ca.new.json"
 poetry run ansible-vault encrypt --output roles/step_ca/files/ca.json "$t/ca.new.json"
@@ -718,8 +722,8 @@ shred -u "$t"/* && rmdir "$t"
 makes (day-zero step 5), and writes its private half as a JWE in JSON
 serialization; `jose format` turns it into the compact form `ca.json`
 holds. The new key has a new `kid`. The `internal_tls` and
-`ssh_host_cert` roles look the provisioner up by name, so nothing pins
-the old one.
+`ssh_host_cert` roles and the KubeCoder controller look the provisioner
+up by name, so nothing pins the old one.
 
 ### 3. Re-encrypt the ansible-vault entry
 
@@ -764,6 +768,50 @@ update Roboform: delete the old JWK entry, rename `(new)` →
 If the re-issue fails,
 `git restore roles/step_ca/files/ca.json inventories/prd/group_vars/all/vips.yml`
 and run `playbooks/step-ca.yml` again: step-ca restarts on the old key.
+
+### kubecoder-jwk
+
+SecretRotator's `step-ca-password` plan of
+`eso/prd/kubecoder/prd/step-ca-provisioner-password` runs in `secret-rotator ui`. Start the UI
+with `ssh -t ansible@srviac secret-rotator-ui`: the plan restarts the prd KubeCoder controller,
+and with it the environment you work from, and the UI's tmux session outlives that. After a lost
+session, run the command again to reattach.
+
+The plan reads the `kubecoder-jwk` key step-ca serves, generates the new password and opens the
+step *Give kubecoder-jwk a new key pair under the new password*. The password comes from that
+step, by Reveal or Copy, not from `openssl rand`. It goes into neither `vips.yml` nor Roboform:
+it lives in OpenBao, and the rotator writes it there after Done.
+
+1. Run step 2 with `p=kubecoder-jwk`. At `step crypto jwk create`'s prompt, paste the password the
+   step shows.
+2. Apply:
+
+   ```sh
+   poetry run ansible-playbook playbooks/step-ca.yml
+   ```
+
+   step-ca restarts on the new `ca.json`. From here until the plan restarts them, the KubeCoder
+   controllers hold the old password, which signs nothing.
+3. Commit `roles/step_ca/files/ca.json` and push. A run of the playbook from a checkout without
+   the commit puts the old key back.
+4. Press **Done**. Done runs the CA check: step-ca serves a `kubecoder-jwk` key other than the one
+   it served when the plan started, and the new password opens it. A passing check finishes the
+   step. The rotator then writes the password to both leaves, syncs both
+   `kubecoder-step-ca-provisioner-password` ExternalSecrets, and restarts the KubeCoder controllers
+   of `kubecoder-prd` and `kubecoder-dev`.
+
+While the check fails, the step stays open. The password can still be revealed, the screen reads
+`The CA check failed: <reason>. Redo the key pair or the playbook, then press Done again.`, and
+Abort stays enabled. It fails when step-ca still serves the key it served at the start (the
+playbook has not run, or the key was re-encrypted instead of replaced), when the password does not
+open the served key (a key made under a mistyped password), when the opened key is not the served
+one, when step-ca serves no `kubecoder-jwk`, or on an HTTP or transport error from `ca.home`. Redo
+step 1 or 2, then press Done again.
+
+Back out before a passing Done: restore `roles/step_ca/files/ca.json` (`git restore`, or a revert
+once it is committed), run `playbooks/step-ca.yml` again so that step-ca serves the old key, then
+press Abort. Once Done passes, there is no Abort: step-ca serves the new key pair, which only the
+new password opens. A restart that fails after it is retried, not rolled back.
 
 ---
 

@@ -25,7 +25,7 @@ due, it is also on the standing card tagged `Rotator Standing Card`, under *Manu
 1. Open `secret-rotator ui` on srviac, from the VS Code task **secret-rotator ui (srviac)** or with:
 
    ```sh
-   ssh -t ansible@srviac "sudo iac -c 'secret-rotator ui'"
+   ssh -t ansible@srviac secret-rotator-ui
    ```
 
 2. Select the key's box, `○ <leaf>#<key> · external`. The selected box shows the key's `notes`. One
