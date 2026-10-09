@@ -958,7 +958,10 @@ a workload that consumes one. The targets below are those prd held on 2026-10-09
 Slice 049 tried none of the systems below from srviac. Each check makes the call that the kind's
 first step makes, from srviac's `iac` container, with the rotator's own clients and the credentials
 in the store, and writes nothing. A failure here would fail that kind's first plan before its
-`kv.write`, with nothing changed. The check finds it before the commit instead.
+`kv.write`, with nothing changed, except GitHub's: `github-webhook-secret` reaches GitHub last,
+after its `kv.write` and Fieldnotes' rollout, so a bad token there fails the plan once Fieldnotes
+holds a secret the hook does not sign with, until the rollback. The check finds it before the
+commit instead.
 
 They run in one `iac` shell on srviac. In it, `check` runs a Python snippet logged in to OpenBao as
 the rotator, in which `val("<leaf>#<key>")` is that key's value, never printed:
