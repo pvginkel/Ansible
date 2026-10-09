@@ -126,7 +126,7 @@ k -n kube-system get "$s" -o jsonpath='{.data.token}' | base64 -d | wc -c
   Secrets:
 
   ```sh
-  for o in $(k -n kube-system get secret -o name | grep '^secret/secret-rotator-token' | grep -vxF "$s"); do k -n kube-system delete "$o"; done
+  [ -n "$s" ] && for o in $(k -n kube-system get secret -o name | grep '^secret/secret-rotator-token' | grep -vxF "$s"); do k -n kube-system delete "$o"; done
   ```
 
 ## 3 — srviac's `secrets.yaml` entries
