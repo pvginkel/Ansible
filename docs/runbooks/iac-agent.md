@@ -225,7 +225,7 @@ Mint a new PAT with the same scopes as the current one, update `/etc/iac/secrets
 
 ### `TF_VAR_proxmox_password`
 
-Same flow as Phase 0's proxmox-credentials runbook — change on the PVE cluster, update Roboform, then update `/etc/iac/secrets.yaml` on `srviac` and `terraform/prd/terraform.tfvars` on `wrkdev`.
+SecretRotator's `pve-root-password` kind rotates it from `secret-rotator ui`, on the PVE nodes and in OpenBao ([proxmox-credentials.md § Rotation](proxmox-credentials.md#rotation)). `/etc/iac/secrets.yaml` holds it as `!bao kv/iac/proxmox#password`, so it needs no edit: each `iac` call takes the current value. A workstation's `terraform.tfvars` is updated by hand, from Roboform.
 
 ### State encryption keypair (SOPS/age)
 

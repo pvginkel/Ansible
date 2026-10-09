@@ -712,8 +712,9 @@ srviac, which needs steps 1 to 3.
 
 `kinds_enabled` gates the nightly run and its manual-due lines, never the UI. `secret-rotator ui`
 and `run <leaf>` build and run a wave-3 plan as soon as the image carries slice 052, whatever
-`switches.yaml` holds. They build it from the store's entries, not from the seed, so no wave-3 plan
-runs before the annotations are applied.
+`switches.yaml` holds. They build it from the store's entries, not from the seed: until
+[wave 3's annotations](#wave-3s-annotations) are applied, they build a wave-3 plan from the leaf's
+older entry, as that section's readings describe. Start none before then.
 
 - `iac/proxmox#password` (`pve-root-password`), `shared/samba/users#pvginkel` (`samba-user`, the
   personal account) and `eso/prd/kubecoder/prd/step-ca-provisioner-password#password`

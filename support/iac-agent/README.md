@@ -11,12 +11,13 @@ Host glue for `srviac`, the homelab's IaC orchestrator VM. Part of the Ansible r
 | `bin/jenkins-agent-launch.sh` | Wrapper invoked by the systemd unit; extracts `JENKINS_AGENT_SECRET` from `/etc/iac/secrets.yaml` and launches the Jenkins inbound-agent container. The secret reaches the agent as a file, never on a command line: the script writes it to `agent-secret` in the unit's runtime directory (mode 0600, owned by the agent's uid 1000), bind-mounts that read-only at `/run/secrets/jenkins-agent` and passes `-secret @/run/secrets/jenkins-agent`. A malformed secret fails the start without echoing the value. |
 | `bin/check-protected-vms.sh` | Used by the on-push, apply and drift Jenkins jobs, against the `terraform/prd` plan JSON. Fails (exit 1) when the plan deletes or replaces any VM; exits 2 on a usage error or an unreadable plan. The second rail: while `managed-vm`'s VM resource carries `prevent_destroy`, `terraform plan` refuses such a plan before the guard runs. |
 | `bin/check-ansible-drift.sh` | Used by the drift job. Wraps `ansible-playbook --check --diff` and fails when the recap reports any pending changes. |
+| `bin/secret-rotator-ui` | SecretRotator's UI in the tmux session `secret-rotator`, run as `ssh -t ansible@srviac secret-rotator-ui`: attaches to the session when it runs, else creates it running `sudo iac -c 'secret-rotator ui'`. A lost SSH session leaves the UI running, and running it again reattaches. It turns tmux's `set-clipboard` on, so the UI's Copy (OSC 52) reaches the terminal, and holds a UI that exits non-zero on screen until Enter. tmux comes from `baseline_extra_packages` in the prd inventory's `group_vars/iac_agent.yml`. |
 | `etc/iac/secrets.example.yaml` | Placeholder for `/etc/iac/secrets.yaml`. The Ansible role places this on a fresh srviac and fails loudly until the operator copies it to `secrets.yaml` and fills in real values. |
 | `etc/docker/daemon.json` | Declares `registry:5000` as an insecure registry. |
 | `etc/cron.d/iac-prune` | Daily `docker image prune -f` (dangling-only). |
 | `systemd/jenkins-agent.service` | Long-running container for the Jenkins inbound agent. `RuntimeDirectory=jenkins-agent` (`/run/jenkins-agent`, 0700, removed when the unit stops) holds the agent secret file. |
 | `install.sh` | Idempotent installer. Run as root; the Ansible `iac_agent` role calls it via a handler. |
-| `tests/` | Unit tests for `iac-impl`'s clone and for `jenkins-agent-launch.sh`: no token or secret on an argv, in output or in `.git/config`. Run by the root component's `kc project test`. |
+| `tests/` | Unit tests for `iac-impl`'s clone and for `jenkins-agent-launch.sh` (no token or secret on an argv, in output or in `.git/config`), and for `secret-rotator-ui` against a real tmux. Run by the root component's `kc project test`. |
 
 The Jenkins pipelines that drive `srviac` live at the root of this repo as
 `Jenkinsfile.*`; the controller jobs check them out from there and run on
