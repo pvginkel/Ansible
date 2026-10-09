@@ -804,7 +804,7 @@ leaves mydownloads running.
 
 ```sh
 k -n argocd-prd get application media-prd -o jsonpath='{.status.sync.status} {.status.health.status}{"\n"}'
-k -n media-prd get deploy media -o json | jq -c '.spec.template.spec.containers[] | select(.name == "samba") | .env[] | select(.name == "PASSWORD_mydownloads")'
+k -n media-prd get deploy media -o json | jq -c '.spec.template.spec.containers[] | select(.name == "samba") | .env[] | select(.name == "PASSWORD_mydownloads") | .valueFrom // "a literal"'
 k -n media-prd get deploy mydownloads -o jsonpath='{.status.readyReplicas}{"\n"}'
 k -n media-prd exec deploy/mydownloads -c mydownloads -- ls /mnt | head -n 3
 ```
@@ -814,8 +814,8 @@ k -n media-prd exec deploy/mydownloads -c mydownloads -- ls /mnt | head -n 3
 **Reading.**
 
 - `Synced Healthy`.
-- `{"name":"PASSWORD_mydownloads","valueFrom":{"secretKeyRef":{"key":"password","name":"samba-creds"}}}`.
-  A `"value":` in its place means the change is not live: stop.
+- `{"secretKeyRef":{"key":"password","name":"samba-creds"}}`. `"a literal"` means the change is not
+  live: stop.
 - `1`, then the first entries of the share mydownloads mounts at `/mnt`. An error from `ls` means
   the mount is broken: stop.
 
