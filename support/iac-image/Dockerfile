@@ -16,9 +16,13 @@ RUN apt-get update -yqq && \
         python3-pip \
         python3-venv
 
-RUN pip3 install poetry --break-system-packages && \
+# poetry gets a venv of its own: a system-wide pip install has to
+# upgrade Ubuntu's python3-packaging whenever poetry's dependencies
+# outgrow it, and pip cannot uninstall an apt-installed package.
+RUN python3 -m venv "$POETRY_HOME" && \
+    "$POETRY_HOME/bin/pip" install poetry && \
     \
-    poetry install --no-root --no-interaction --no-ansi
+    "$POETRY_HOME/bin/poetry" install --no-root --no-interaction --no-ansi
 
 FROM ubuntu:questing
 
@@ -56,7 +60,9 @@ RUN apt-get update -yqq && \
 # poetry on PATH in the final stage, for manual/interactive operator
 # use: the build stage's poetry never makes it into the final image.
 # Same install as the build stage.
-RUN pip3 install poetry --break-system-packages
+RUN python3 -m venv /opt/poetry && \
+    /opt/poetry/bin/pip install poetry && \
+    ln -s /opt/poetry/bin/poetry /usr/local/bin/poetry
 
 RUN set -o pipefail && curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh
 
