@@ -13,6 +13,9 @@ applied objects in place on its first sync.
 The registry entry (ArgoCDDeploy releases/values.yaml) supplies what Argo
 passes: an upstream app is the upstream chart with the stage's values, followed
 by the deploy repo's companion chart; a local app is the deploy repo's chart.
+An entry with `path:` is an app in that directory of a shared deploy repo: its
+chart and stage values are read under the directory, and the hook gets
+hook.path, as Argo passes them.
 Namespaces and CRDs are moved to the front so a single apply can create them
 before the objects that need them.
 
@@ -74,15 +77,19 @@ def main():
         sys.exit(f"{a.app}: no stage {a.stage} in the registry")
     name = f"{a.app}-{a.stage}"
     checkout = os.path.abspath(a.checkout)
-    values = os.path.join(checkout, "config", a.stage, "values.yaml")
+    path = entry.get("path")
+    app_dir = os.path.join(checkout, path) if path else checkout
+    values = os.path.join(app_dir, "config", a.stage, "values.yaml")
     revision = run(["git", "-C", checkout, "rev-parse", "HEAD"]).strip()
     hook = ["--set", f"hook.repo={entry['repo']}", "--set", f"hook.revision={revision}",
             "--set", f"hook.stage={a.stage}", "--set", f"hook.namespace={name}"]
+    if path:
+        hook += ["--set", f"hook.path={path}"]
 
     with tempfile.TemporaryDirectory() as tmp:
         # A copy of chart/, so the checkout's chart/charts is left as it was.
         chart = os.path.join(tmp, "chart")
-        subprocess.run(["cp", "-r", os.path.join(checkout, "chart"), chart], check=True)
+        subprocess.run(["cp", "-r", os.path.join(app_dir, "chart"), chart], check=True)
         subprocess.run(["rm", "-rf", os.path.join(chart, "charts")], check=True)
         run(["helm", "package", os.path.join(a.charts, "charts", "homelab-shared"),
              "-d", os.path.join(chart, "charts")])
