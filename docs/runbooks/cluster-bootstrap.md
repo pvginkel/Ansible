@@ -69,6 +69,10 @@ cexec iac sh -c "python3 scripts/argo-hand-render.py <app> /work/<DeployRepo> --
 Namespaces and CRDs come first in the output, so one apply creates them before the objects that
 need them. `--part upstream` and `--part companion` split an upstream app in two.
 
+For an app whose entry has `path:`, an app in a directory of a monorepo, the checkout is still
+the repo's root. The script reads the chart and the stage values from `<checkout>/<path>/`, and
+passes the hook `hook.path`, as Argo does.
+
 ## Procedure
 
 1. **External Secrets' AppRole.** Stage the one Secret External Secrets cannot make for

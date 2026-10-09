@@ -55,7 +55,7 @@ actually ran and the Phase A proof drill are recorded in slice 009's
 | Registry Application | `releases`: syncs the registry chart `releases/` from ArgoCDDeploy `main`, automated without prune or self-heal |
 | Webhook edge | `https://deploy-hooks.webathome.org/api/webhook` → relay (2 replicas) → argocd-server |
 | Hook image | `registry:5000/argocd-hook:<n>` and `:latest` from ArgoCDTools; the sync's default pin is in the `homelab-shared` library chart, and the Destroy Stage Job runs `:latest`. Its Terraform is pinned to the version the `iac` images carry (AnsibleSpecs `decisions.md`, "Terraform version") |
-| Terraform state | `pvginkel/TerraformState`, `argocd/<repo>/<stage>/terraform.tfstate`, sops/age |
+| Terraform state | `pvginkel/TerraformState`, `argocd/<repo>/<stage>/terraform.tfstate`, or `argocd/<repo>/<path>/<stage>/terraform.tfstate` for an app in a monorepo's directory; sops/age |
 | Destroy Stage | Jenkins job `IaC/Destroy Stage`, ArgoCDTools `Jenkinsfile.destroy-stage`; the build runs as `jenkins-prd/destroy-stage`, its Job is `argocd-hooks/destroy-stage-<build#>` under `tf-presync` (D66) |
 | Notifications | Alertmanager `prometheus-prd-alertmanager.prometheus-prd:9093`, delivered to Telegram with no "resolved"; `ArgoCDSyncFailed` (critical, with sound), `ArgoCDHealthDegraded` (warning, silent) |
 | Standing alerts | PrometheusDeploy's rule group `argocd`, over the application controller's metrics (Service `argocd-prd-application-controller-metrics`); `ArgoCDSyncStillFailed` (critical), `ArgoCDHealthStillDegraded` and `ArgoCDAlertsBlind` (warning) |
@@ -418,6 +418,20 @@ and each of its stages pins the chart's `version`. A stage may set
 `targetRevision` (default `main`), and `syncOptions` is app-level: every stage's
 Application gets it (D62). The file's header comment names every key, and
 `releases/values.schema.json` refuses anything else. Keep entries alphabetical.
+
+An app in a directory of a monorepo, `PlatformAddOnsDeploy` or `HomelabAppsDeploy`
+(D11 as revised), adds `path:`, the directory relative to the repo's root, named
+after the app's registry key. Its Applications read `<path>/chart`, a local
+app's chart and an upstream app's companion alike, and an upstream app's stage
+values from `$values/<path>/config/<stage>/values.yaml`. The hook gets
+`hook.path` as a fifth parameter, so it applies `<path>/terraform/` with
+`<path>/config/<stage>/*.tfvars` against
+`argocd/<repo>/<path>/<stage>/terraform.tfstate` (D32 as amended). Each of the
+app's Applications carries `argocd.argoproj.io/manifest-generate-paths:
+"/<path>"`, which tells Argo which of a commit's files concern the app (D69).
+The schema refuses a `path` that is not plain segments
+(`[A-Za-z0-9][A-Za-z0-9._-]*`) joined by `/`. An entry without `path:` is its
+deploy repo's root.
 `helm lint releases` checks an edit against the schema, and ArgoCDDeploy's
 `kc project test` runs the render test. Push; the relay webhook refreshes
 `releases`, whose sync creates the Application, and Argo then syncs it on its
@@ -480,11 +494,22 @@ first ([above](#registering-undeploying-and-unregistering-an-app)): delete its
 registry entry, then sync `releases` with *Prune*, so that its Application goes
 and its namespace with it.
 
-*Build with Parameters* takes two:
+*Build with Parameters* takes three:
 
 - `REPO`: the deploy repo exactly as GitHub spells it, `FieldnotesDeploy` and
   not `fieldnotesdeploy`;
+- `APP_PATH`: for an app in a monorepo, its directory, as its registry entry's
+  `path:` named it, e.g. `grafana`. Leave it empty for a dedicated deploy repo,
+  whose app is its root;
 - `STAGE`: the retired stage, e.g. `dev`.
+
+With `APP_PATH`, the build destroys that app's stage and leaves its neighbours'
+alone. Read `argocd/<REPO>/<APP_PATH>/<STAGE>/` for every
+`argocd/<REPO>/<STAGE>/` below, the lock branch included, and
+`<APP_PATH>/config/<STAGE>/` for every `config/<STAGE>/`. The `input` step, the
+guard's failure and the build's description name the app as
+`<REPO>/<APP_PATH>`, and the state commit's subject ends `<STAGE> of
+<REPO>/<APP_PATH> destroyed`.
 
 Every build plans first and asks before it destroys. The yes is the operator's
 keystroke.
@@ -546,11 +571,14 @@ Do not abort a build once you have confirmed it, while its second Job runs
 `Check stage is undeployed` fails the build before any Job starts:
 
 - while the stage is still deployed, by an entry in ArgoCDDeploy's
-  `releases/values.yaml` on `main` that deploys `REPO`'s `STAGE`, or by a live
-  Application in `argocd-prd` that sources `REPO` with the Helm parameter
-  `hook.stage` set to `STAGE`, single- or multi-source. Repo URLs match
-  ignoring case, `.git` and a trailing `/`. The failure names both checks'
-  findings:
+  `releases/values.yaml` on `main` that deploys `REPO`'s `STAGE` with `path:`
+  equal to `APP_PATH`, or by a live Application in `argocd-prd` that sources
+  `REPO` with the Helm parameter `hook.stage` set to `STAGE` and `hook.path`
+  set to `APP_PATH`, single- or multi-source. An entry or Application without
+  a path counts as the repo's root, so without `APP_PATH` only those refuse the
+  build, and a neighbour app in the same monorepo that deploys the same stage
+  never does. Repo URLs match ignoring case, `.git` and a trailing `/`;
+  directories match exactly. The failure names both checks' findings:
 
   ```text
   prd of pvginkel/FieldnotesDeploy is still deployed, by the registry entry apps.fieldnotes.stages.prd in ArgoCDDeploy's releases/values.yaml on main and the live Application argocd-prd/fieldnotes-prd. This build cleans up after an undeployed stage: delete its registry entry and prune its Application first.
@@ -563,9 +591,14 @@ Do not abort a build once you have confirmed it, while its second Job runs
   is filed under: run with REPO=FieldnotesDeploy`. GitHub serves a repo under
   any case of its name, but TerraformState's paths are case-sensitive: another
   case finds no state, and a destroy would still remove `config/<stage>/`;
-- when `REPO` or `STAGE` is empty or not a single path segment. A build without
-  parameters fails here on the empty `REPO` and changes nothing; that is how
-  the job's first build registered its parameters.
+- when `REPO` or `STAGE` is empty or not a single path segment, or when
+  `APP_PATH` is set and is not plain path segments joined by `/`. A build
+  without parameters fails here on the empty `REPO` and changes nothing; that
+  is how the job's first build registered its parameters.
+
+A mistyped `APP_PATH` matches no entry and no Application, so the guard lets it
+through; the plan's Job then fails on `the clone has no <APP_PATH>/terraform/
+for the hook to apply`, having written nothing.
 
 The guard does not check whether the stage's namespace is gone.
 
@@ -813,6 +846,43 @@ branch rather than the default branch. The update clones the `repo:` at its
 default branch and pushes its edits there. `kubecoder-deploy` builds `prd`, and
 its default branch is `main`. So what the update edits is not what the pipeline
 publishes until `prd` is promoted.
+
+### An app in a monorepo
+
+`PlatformAddOnsDeploy` and `HomelabAppsDeploy` each carry the producer files
+once, at the repo root, for every app in them (D50 as amended). An app is a
+top-level directory holding `architecture.yaml`, and its producer id is
+`<app>-deploy`, after that directory. The repo's `Jenkinsfile.architecture`
+runs `generate(stage: 'prd', producer: '<app>-deploy')` inside `dir('<app>')`
+for each app in turn, which writes `<app>/docs/architecture/<app>-deploy.yaml`,
+then archives and validates `*/docs/architecture/*.yaml`. With no app
+directory, both stages are skipped. The stage is `prd` for every app. The job,
+`AaC/<Monorepo>`, already exists. The root `.architecturerc` serves every app:
+its `sources` and `instructions` name `{path}` and `{producer}`, which the
+central architecture update fills with each producer's own. So an app in a
+monorepo brings its `architecture.yaml` and no pipeline, rc or job of its own.
+One app's failing generate or validate fails the build, and AaC/Architecture
+copies each producer from the job's last successful build, so every app's
+model then stays at that build's until the failure is fixed.
+
+Its entry in `pipeline-producers.yaml` names the monorepo, its job and the
+app's directory:
+
+```yaml
+- id: <app>-deploy
+  repo: pvginkel/<Monorepo>
+  jenkinsJob: AaC/<Monorepo>
+  path: <app>
+```
+
+`path:` scopes the producer to its directory. AaC/Architecture copies only its
+`<app>-deploy.yaml` from the job's build. The central update counts only the
+commits under `<app>/`, and hands it the `gap:` lines printed below its own
+`wrote docs/architecture/<app>-deploy.yaml` line, up to the next app's. When
+several producers name one job, every one of them needs `path:`, or
+AaC/Architecture's registry check fails its build. Register a producer only
+after a green `AaC/<Monorepo>` build has archived its `<app>-deploy.yaml`: the
+narrowed copy fails on a build that lacks the file.
 
 ## Previewing a migrating app's diff before its cutover
 

@@ -79,6 +79,11 @@ cd /work/Ansible && ( . scripts/bao-login.sh && . scripts/setup-env.sh prd \
   && cexec iac terraform plan -input=false -var-file=../config/$STAGE/terraform.tfvars )
 ```
 
+- For an app in a directory of a monorepo (its registry entry has `path:`), the state key and the
+  working directory carry that directory, as the hook's do:
+  `state=argocd%2F$REPO%2F<path>%2F$STAGE%2Fterraform.tfstate`, each `/` of `<path>` as `%2F`,
+  and `cd /work/scratch/$REPO/<path>/terraform`. The tfvars stay `../config/$STAGE/`, relative to
+  it.
 - Export, too, every other `TF_VAR_*` of the hook environment in ArgoCDDeploy's
   `config/prd/values.yaml` that the repo's Terraform declares (KubeCoderDeploy's takes
   `TF_VAR_zfs_pools`). A secret one, such as `TF_VAR_github_webhook_secret`, takes a placeholder;
