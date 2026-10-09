@@ -388,6 +388,15 @@ SecretRotator's `src/secret_rotator/switches.yaml`. Disabling the job
 stops it at once. Bringing it up is
 [`secret-rotator-go-live.md`](secret-rotator-go-live.md).
 
+The nightly run skips a due plan whose rollout targets are not Ready
+with their Argo Application Healthy, and one that reaches the dev
+cluster while dev does not answer, as while srvk8sdev is off: the
+`k8s-sa-token` plans of the KubeCoder catalog's `kubeconfig` and
+`kubeconfig-dev-write`. A skipped plan changes nothing and rolls
+nothing back. The standing card lists it with the reason, Telegram
+does not, and it is due again the next night;
+`secret-rotator run <leaf>` runs it by hand.
+
 Its state is in Prometheus too. At its end, every nightly run,
 `run <leaf>`, `stamp` and `secret-rotator ui` push the run state (each
 key's due day and rotation stamp, each leaf's status) to the

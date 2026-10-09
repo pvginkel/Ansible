@@ -1134,7 +1134,7 @@ for verb in ("create", "get", "delete"):
 - `CERTIFICATE_VERIFY_FAILED` means Python refuses the apiserver's certificate under the
   kubeconfig's CA, which must carry the IP `10.1.3.3`. The dev plans would then fail, not be
   skipped: stop.
-- `False` for a verb means dev's `edit` does not grant it, and ruling D1 rests on that grant: stop.
+- `False` for a verb means dev's `edit` does not grant it, and design R112 rests on that grant: stop.
 - A transport error while dev is up means srviac does not reach `10.1.3.3:16443`.
 
 `exit` leaves the shell.
@@ -1620,7 +1620,7 @@ takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, 
       Then the same for `kubeconfig`'s plan. After your environment has restarted, `ssh -t
       ansible@srviac tmux attach -t rotate` shows the run where it is. The first dev plan is the
       proof that dev's `edit` lets `kubecoder-rw` create, read and delete Secrets in `kube-system`
-      (ruling D1). A refusal fails it at its mint, before its `kv.write`. Shut dev down after, with
+      (design R112). A refusal fails it at its mint, before its `kv.write`. Shut dev down after, with
       `ssh root@pve qm shutdown 919`.
 
 12. **Wave 3**, once [Wave 3's annotations](#wave-3s-annotations) are applied. Its kinds go in

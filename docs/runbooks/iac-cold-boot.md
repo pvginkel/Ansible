@@ -48,7 +48,8 @@ the duration of the recovery.
 SecretRotator's three entries (`SECRET_ROTATOR_ROLE_ID`,
 `SECRET_ROTATOR_SECRET_ID`, `SECRET_ROTATOR_K8S_TOKEN`) are the
 exception: they have no Roboform entry, since the rotator rewrites its
-own secret_id in `kv/iac/rotator-approle`. Comment them out instead.
+own secret_id in `kv/iac/rotator-approle` and its own ServiceAccount
+token in `kv/iac/rotator-k8s-token`. Comment them out instead.
 Only `secret-rotator` reads them, and it cannot run while OpenBao is
 down; step 5's restore brings them back.
 
