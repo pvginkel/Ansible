@@ -92,6 +92,19 @@
     recursive: true
     rsync_opts:
       - "--exclude=.git"
+      # bin/iac is rendered from bin/iac.j2 below; the exclude also keeps
+      # `delete` from removing the rendered copy.
+      - "--exclude=/bin/iac"
+      - "--exclude=/bin/iac.j2"
+  notify: Run IaCAgent install.sh
+
+- name: Render bin/iac with the homelab time zone
+  ansible.builtin.template:
+    src: "{{ iac_agent_local_checkout }}/bin/iac.j2"
+    dest: "{{ iac_agent_install_dir }}/bin/iac"
+    owner: root
+    group: root
+    mode: "0755"
   notify: Run IaCAgent install.sh
 
 - name: Ensure IaCAgent install.sh is executable

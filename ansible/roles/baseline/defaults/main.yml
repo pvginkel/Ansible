@@ -1,5 +1,5 @@
 ---
-baseline_timezone: "Europe/Amsterdam"
+baseline_timezone: "{{ homelab_timezone }}"
 
 # Per-host/group additions. Override in host_vars/ or group_vars/ —
 # e.g. baseline_extra_packages: [htop, tmux, jq]

@@ -1,0 +1,8 @@
+---
+# Defaults shared by every host in every inventory. Lives at playbook-level
+# so it applies regardless of which inventory the playbook runs against.
+
+# The homelab's time zone. `baseline` sets it on every managed host
+# (baseline_timezone); `iac_agent` renders it into bin/iac so the iac
+# containers on srviac run in it too.
+homelab_timezone: "Europe/Amsterdam"

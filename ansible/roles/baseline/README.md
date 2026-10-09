@@ -4,7 +4,7 @@ Applies OS hygiene to a managed Ubuntu host. Ported from `/work/Obsidian/Linux.m
 
 ## What it does
 
-- Sets timezone to `Europe/Amsterdam` (override: `baseline_timezone`).
+- Sets the timezone to `homelab_timezone` (`Europe/Amsterdam`, in `playbooks/group_vars/all.yml`; per-host override: `baseline_timezone`).
 - Refreshes the apt cache; optionally runs `apt dist-upgrade` when `baseline_apt_dist_upgrade: true` (off by default — see "Updates" below for the longer story).
 - Installs `qemu-guest-agent` and enables the service.
 - Installs and enables `prometheus-node-exporter` on every managed host **except k8s nodes** — those already run `node_exporter` as an in-cluster DaemonSet bound to `:9100`, so the Debian package's service would collide on the port; they set `baseline_node_exporter: false` and the package is removed there instead. Pointing Prometheus at new targets is a PrometheusDeploy change (`extraScrapeConfigs` in `config/prd/values.yaml`), separate from this role.

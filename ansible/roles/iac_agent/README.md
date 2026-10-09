@@ -9,7 +9,7 @@ Applied to the `iac_agent` group (today: `srviac` only). See [`/work/AnsibleSpec
 - Installs the Docker engine (`docker.io`) and Compose v2.
 - Drops `/etc/docker/daemon.json` declaring `registry:5000` as an insecure registry — the homelab's container registry is HTTP-only.
 - Ensures `/etc/iac/` exists and places `secrets.example.yaml` there. **Never overwrites `/etc/iac/secrets.yaml`** — that file is operator-curated, hand-edited on the host. The role fails loudly if `secrets.yaml` is missing so a fresh host surfaces "you need to populate secrets" before anything else runs against bad credentials.
-- Syncs this repo's `support/iac-agent/` tree into `/opt/IaCAgent/` (via rsync, `.git` excluded). When the tree changes, runs `install.sh` to materialize `bin/iac`, the systemd unit for the Jenkins inbound agent, the `docker image prune` cron, and friends. The tree ships with this repo, so applying the role needs the Ansible checkout and nothing beside it.
+- Syncs this repo's `support/iac-agent/` tree into `/opt/IaCAgent/` (via rsync, `.git` excluded) and renders `bin/iac` there from `bin/iac.j2`, which passes `homelab_timezone` into the iac container as `TZ`. When either changes, runs `install.sh` to materialize `bin/iac`, the systemd unit for the Jenkins inbound agent, the `docker image prune` cron, and friends. The tree ships with this repo, so applying the role needs the Ansible checkout and nothing beside it.
 
 ## Depends on
 

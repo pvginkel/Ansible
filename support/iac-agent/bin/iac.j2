@@ -9,6 +9,9 @@
 # No host lock: terraform state is locked per state by
 # terraform-backend-git's lock branches, and a hand-run Ansible on
 # srviac does not interlock with a running job.
+#
+# A Jinja template: the iac_agent role renders it into
+# /opt/IaCAgent/bin/iac, which install.sh installs.
 
 set -euo pipefail
 
@@ -42,8 +45,12 @@ if [[ -t 0 ]]; then
 fi
 
 # The check-* scripts are bind-mounted so the Jenkins jobs that call them
-# work without baking them into iac.
+# work without baking them into iac. TZ is the homelab's zone as a value
+# rather than a /etc/localtime mount, because this shim also runs inside
+# the Jenkins agent container, which has neither the host's zone nor
+# timedatectl.
 docker run "${docker_flags[@]}" \
+    -e "TZ={{ homelab_timezone }}" \
     --mount "type=bind,source=$SECRETS_FILE,target=$SECRETS_FILE,readonly" \
     -v "$IAC_IMPL:/usr/local/bin/iac-impl:ro" \
     -v /usr/local/bin/check-protected-vms.sh:/usr/local/bin/check-protected-vms.sh:ro \
