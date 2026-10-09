@@ -106,7 +106,7 @@ it is created with `create`, and the token is read from the Secret the create na
 ```sh
 s=$(k create -f /work/SecretRotator/k8s/cluster-identity.yaml -o name | tee /dev/stderr | grep '^secret/')
 k -n kube-system get "$s" -o jsonpath='{.data.token}' | base64 -d | wc -c
-k -n kube-system get "$s" -o jsonpath='{.data.token}' | base64 -d | bao kv put -mount=kv iac/rotator-k8s-token token=-
+[ -n "$s" ] && k -n kube-system get "$s" -o jsonpath='{.data.token}' | base64 -d | bao kv put -mount=kv iac/rotator-k8s-token token=-
 ```
 
 **Hand back:** the full output.
@@ -118,10 +118,16 @@ k -n kube-system get "$s" -o jsonpath='{.data.token}' | base64 -d | bao kv put -
   `secret/secret-rotator-token`.
 - The token's length in bytes, not `0`. `0` means the token controller has not filled the Secret
   yet: run that line again, then the `kv put`.
-- The `kv put` answers with `version 1`.
-- `AlreadyExists` on the ServiceAccount and the binding means step 2 ran before: keep the leaf as
-  it is. Since slice 049 the same create has still made one more token Secret, which `$s` names:
-  delete it with `k -n kube-system delete "$s"`.
+- The last `kv put` answers with `version 1`, one more for each `kv put` that ran before it.
+- `AlreadyExists` on the ServiceAccount and the binding means step 2 ran before. A checkout
+  before slice 049 reports it on the Secret too, leaves `$s` empty and writes nothing: keep the
+  leaf as it is. Since slice 049 the create has still made one more token Secret, which `$s`
+  names, and the `kv put` has written its token to the leaf. Delete the account's other token
+  Secrets:
+
+  ```sh
+  for o in $(k -n kube-system get secret -o name | grep '^secret/secret-rotator-token' | grep -vxF "$s"); do k -n kube-system delete "$o"; done
+  ```
 
 ## 3 — srviac's `secrets.yaml` entries
 
