@@ -165,11 +165,16 @@ RUN curl -fsSL -o /tmp/sops.deb \
 # terraform-backend-git — the Git-backed Terraform HTTP state backend.
 # iac-impl starts it on 127.0.0.1:6061 and terraform/{prd,scratch} reach
 # it via a backend "http" block; the daemon does the pull/push (and
-# sops+age encryption) against pvginkel/TerraformState itself, replacing
-# the old clone-and-sync dance. Pinned (not :latest) so a state-critical
-# component never moves underneath an image rebuild.
-COPY --from=ghcr.io/plumber-cd/terraform-backend-git:v0.1.11 \
+# sops+age encryption) against pvginkel/TerraformState itself. Stock
+# v0.1.11 fails writers of that repository that run at once, so this is
+# DockerImages' terraform-backend-git image: v0.1.11 with the estate's
+# state-race patch. Pinned by that image's build number (not :latest) so
+# a state-critical component never moves underneath an image rebuild;
+# scripts/tf-backend.sh runs the same build. Only the patched build's
+# version carries `+homelab.`.
+COPY --from=registry:5000/terraform-backend-git:2601 \
      /usr/bin/terraform-backend-git /usr/bin/terraform-backend-git
+RUN terraform-backend-git version | grep -F '+homelab.'
 
 # The bpg/proxmox provider opens an SSH client of its own (snippet
 # uploads to /var/lib/vz/snippets/ — the PVE API has no endpoint for

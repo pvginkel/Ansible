@@ -4,6 +4,15 @@
 # host-side `terraform` uses the exact same backend "http" block that
 # srviac's iac container does. Idempotent: a no-op if it's already up.
 #
+# Image: DockerImages' terraform-backend-git, upstream v0.1.11 with the
+# estate's state-race patch, at the build support/iac-image/Dockerfile
+# copies the binary from. Break-glass must not depend on registry:5000:
+# when the pull fails, the copy of that build cached here runs, and when
+# there is none, the stock upstream image runs with a warning on stderr.
+# The stock image is acceptable as the last resort because break-glass
+# runs while CI and the cluster are down, so the concurrent writers that
+# trigger both of its bugs are mostly absent.
+#
 # Credentials: each value is taken from the environment if already set,
 # otherwise read from OpenBao (assumes you're logged in already — run
 # `. scripts/bao-login.sh` first). The state-backend material lives in
@@ -17,7 +26,8 @@
 set -euo pipefail
 
 name=tf-backend
-image=ghcr.io/plumber-cd/terraform-backend-git:v0.1.11
+patched=registry:5000/terraform-backend-git:2601
+stock=ghcr.io/plumber-cd/terraform-backend-git:v0.1.11
 mount=kv
 leaf=iac/tf-backend
 
@@ -46,10 +56,33 @@ export GITHUB_TOKEN;                        GITHUB_TOKEN=$(need GITHUB_TOKEN git
 export TF_BACKEND_HTTP_SOPS_AGE_RECIPIENTS; TF_BACKEND_HTTP_SOPS_AGE_RECIPIENTS=$(need TF_BACKEND_HTTP_SOPS_AGE_RECIPIENTS age_public_key)
 export SOPS_AGE_KEY;                        SOPS_AGE_KEY=$(need SOPS_AGE_KEY age_secret_key)
 
-docker run -d --pull=always --network host --name "$name" \
+if docker pull -q "$patched" >/dev/null; then
+  image=$patched
+elif docker image inspect "$patched" >/dev/null 2>&1; then
+  image=$patched
+  echo "$name: cannot pull $patched; starting the copy cached here" >&2
+else
+  image=$stock
+  cat >&2 <<EOF
+$name: ======================================================================
+$name: WARNING: $patched is neither pullable nor cached here.
+$name: Starting the STOCK backend, $stock, which has two state bugs:
+$name:  1. A first read while any other state's lock branch is held can
+$name:     wedge the daemon: every request then fails "non-fast-forward
+$name:     update" until it restarts ('docker rm -f $name', rerun this script).
+$name:  2. A save that loses a push race to another writer fails, and so does
+$name:     every request after it: the change never reaches TerraformState
+$name:     (Terraform leaves it in errored.tfstate).
+$name: Both need another writer of TerraformState running at the same time:
+$name: an Argo CD hook, an IaC job or a second terraform run.
+$name: ======================================================================
+EOF
+fi
+
+docker run -d --network host --name "$name" \
   -e GIT_USERNAME -e GITHUB_TOKEN \
   -e TF_BACKEND_HTTP_ENCRYPTION_PROVIDER=sops \
   -e TF_BACKEND_HTTP_SOPS_AGE_RECIPIENTS -e SOPS_AGE_KEY \
   "$image" terraform-backend-git --access-logs
 
-echo "$name up on 127.0.0.1:6061 — 'docker rm -f $name' to stop"
+echo "$name up on 127.0.0.1:6061 from $image — 'docker rm -f $name' to stop"
