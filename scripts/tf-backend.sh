@@ -46,7 +46,7 @@ need() {
 }
 
 if [ "$(docker inspect -f '{{.State.Running}}' "$name" 2>/dev/null)" = "true" ]; then
-  echo "$name already running on 127.0.0.1:6061"
+  echo "$name already running on 127.0.0.1:6061 from $(docker inspect -f '{{.Config.Image}}' "$name")"
   exit 0
 fi
 docker rm -f "$name" >/dev/null 2>&1 || true

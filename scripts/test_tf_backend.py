@@ -32,8 +32,9 @@ args = sys.argv[1:]
 with open(os.environ["FAKE_DOCKER_LOG"], "a") as log:
     log.write(json.dumps(args) + "\\n")
 if args[:1] == ["inspect"]:
-    if os.environ.get("FAKE_RUNNING"):
-        print("true")
+    running = os.environ.get("FAKE_RUNNING")  # the image the running container came from
+    if running:
+        print(running if "{{{{.Config.Image}}}}" in args else "true")  # doubled: an f-string
         sys.exit(0)
     sys.exit(1)
 if args[:1] == ["pull"]:
@@ -127,9 +128,19 @@ class ImageChoice(unittest.TestCase):
         self.assertIn("loses a push race", result.stderr)
 
     def test_a_running_backend_is_left_alone(self):
-        result = self.run_script(FAKE_RUNNING="1", FAKE_PULL="1")
-        self.assertEqual(result.stdout, "tf-backend already running on 127.0.0.1:6061\n")
+        result = self.run_script(FAKE_RUNNING=PATCHED, FAKE_PULL="1")
+        self.assertEqual(
+            result.stdout, f"tf-backend already running on 127.0.0.1:6061 from {PATCHED}\n"
+        )
         self.assertEqual(self.calls("pull"), [])
+        self.assertEqual(self.calls("run"), [])
+
+    def test_a_running_stock_backend_is_named_when_left_alone(self):
+        # Started as the last resort during an outage, it outlives the registry's return.
+        result = self.run_script(FAKE_RUNNING=STOCK, FAKE_PULL="1")
+        self.assertEqual(
+            result.stdout, f"tf-backend already running on 127.0.0.1:6061 from {STOCK}\n"
+        )
         self.assertEqual(self.calls("run"), [])
 
 
