@@ -2,7 +2,8 @@
 
 This runbook brings SecretRotator up on srviac. First part: its credentials, its annotations and
 its nightly job, which runs in dry run. Then a week of dry run. Then going live, one kind at a time.
-[§ Wave 1](#wave-1) prepares the kinds of slice 047, before the go-live or after it.
+[§ Wave 1](#wave-1) prepares the kinds of slice 047, and [§ Wave 3](#wave-3) those of slice 052,
+each before the go-live or after it.
 
 The operator runs every step, from top to bottom. Each step gives the commands, what to hand back,
 and the reading that must hold before the next step starts.
@@ -698,6 +699,172 @@ srviac 'secret-rotator audit'
 **Reading:** two `<leaf>#client_secret: rotation stamp <date>, was none` lines, each with W3's
 date. No finding line of the audit names a leaf of wave 1.
 
+## Wave 3
+
+Slice 052's kinds are `pve-root-password`, `samba-user` and `step-ca-password`. They ship switched
+off. The three sections below annotate their entries, make the media Samba server read
+`mydownloads-user`, and put `secret-rotator-ui` on srviac. Item 11 of [§ Going live](#going-live)
+then enables the kinds one at a time.
+
+Wave 3 starts once SecretRotator's `prd` carries slice 052, before step 6 or at any point after it.
+[Wave 3's annotations](#wave-3s-annotations) come after step 6: they run `secret-rotator` on
+srviac, which needs steps 1 to 3.
+
+`kinds_enabled` gates the nightly run and its manual-due lines, never the UI. `secret-rotator ui`
+and `run <leaf>` build and run a wave-3 plan as soon as the image carries slice 052, whatever
+`switches.yaml` holds. They build it from the store's entries, not from the seed, so no wave-3 plan
+runs before the annotations are applied.
+
+- `iac/proxmox#password` (`pve-root-password`), `shared/samba/users#pvginkel` (`samba-user`, the
+  personal account) and `eso/prd/kubecoder/prd/step-ca-provisioner-password#password`
+  (`step-ca-password`) each have an operator step. Their plans run from the UI, never at night.
+- `eso/prd/media/prd/mydownloads-user#password` (`samba-user`, the app account) has none. Once
+  `samba-user` is enabled, the nightly run rotates it every 14 days.
+
+### Wave 3's annotations
+
+Slice 052 changes three entries of the seed. `iac/proxmox` already holds `pve-root-password`, so
+its entry is unchanged.
+
+```sh
+srviac 'secret-rotator annotate'
+```
+
+**Hand back:** the full output.
+
+**Reading.**
+
+- Where step 6, or an apply after it, ran on a seed before slice 052, the dry run writes these three
+  leaves, each with one `change` line:
+  - `eso/prd/kubecoder/prd/step-ca-provisioner-password`: `rotation_password`, whose `activate` is
+    now `auto`, was `eso,k8s-rollout,manual:deploy StepCaDeploy and roll step-ca`. Until the apply,
+    the plan ends with that stale `operator.confirm` after the controllers' restart.
+  - `eso/prd/media/prd/mydownloads-user`: `rotation_password`, now with `"args":{"account":"app"}`
+    and the activate `k8s-rollout:media-prd/deployment/media,media-prd/deployment/mydownloads`.
+    Until the apply, the plan asks the operator to type the password, as the personal account's
+    does, and restarts mydownloads alone.
+  - `shared/samba/users`: `rotation_pvginkel`, whose `manual:` text gains `and restart the
+    KubeCoder environments that mount them`.
+- Where it ran on slice 052's seed, none of the three: that apply wrote them.
+- No `cannot write:` line.
+
+```sh
+srviac 'secret-rotator annotate --apply'
+srviac 'secret-rotator annotate' | tail -n 1
+```
+
+**Reading:** one `patched <leaf>` line per leaf of the dry run, and exit 0. The dry run after it
+reads `would patch (dry run; --apply writes) 0 leaf(s), …`.
+
+None of these leaves is new, so nothing is stamped. A wave-3 key without a stamp falls due at once
+when its kind is enabled. Read the plans the store now builds:
+
+```sh
+for l in iac/proxmox eso/prd/media/prd/mydownloads-user shared/samba/users \
+    eso/prd/kubecoder/prd/step-ca-provisioner-password; do srviac "secret-rotator plan $l"; done
+```
+
+**Hand back:** the full output.
+
+**Reading.**
+
+- `iac/proxmox`: `random.generate`, then `ssh.set_password` on `root@pve`, `root@pve1` and
+  `root@pve2`, then `kv.write`, the `kv.copy` to the KubeCoder catalog, its `eso.sync`, the
+  `k8s.rollout` of `kubecoder-prd/deployment/kubecoder-controller`, a `you` line for the
+  `operator.show` that asks to store the password in Roboform, and `kv.stamp`.
+- `eso/prd/media/prd/mydownloads-user`: no `you` line. `random.generate`, `kv.write`, the
+  `eso.sync` of `media-prd/samba-creds`, the `k8s.rollout` of `media-prd/deployment/media`, then
+  that of `media-prd/deployment/mydownloads`, and `kv.stamp`.
+- `shared/samba/users`: `pvginkel`'s plan opens with a `you` line for the `operator.credential`,
+  where the operator types the password, and has no `random.generate`. Then `kv.write`, six
+  `eso.sync` (`kubecoder-samba-credential` in `kubecoder-dev` and `kubecoder-prd`, and the
+  `<app>-passwords` of media, newsfilter, scantopdf and storage), four `k8s.rollout`
+  (`media-prd/deployment/media`, `newsfilter-prd/deployment/samba`,
+  `scantopdf-prd/deployment/samba` and `storage-prd/deployment/storage`), a `you` line for the
+  Windows `operator.confirm`, and `kv.stamp`. `mvdbovenkamp`'s `manual` plan never falls due.
+- `eso/prd/kubecoder/prd/step-ca-provisioner-password`: the silent `step_ca.read_key`, then
+  `random.generate`, a `you` line for the `operator.show` that points at
+  [`step-ca-bootstrap.md`](step-ca-bootstrap.md#kubecoder-jwk), then `kv.write`, the `kv.copy` to
+  `eso/prd/kubecoder/dev/step-ca-provisioner-password`, two `eso.sync`, two `k8s.rollout` (the
+  `kubecoder-controller` of `kubecoder-prd`, then of `kubecoder-dev`), and `kv.stamp`. No
+  `operator.confirm`.
+- A `cannot be built:` line: stop and read it.
+
+### The media Samba server reads `mydownloads-user`
+
+Before `samba-user` is enabled, the media Samba server takes mydownloads' password from OpenBao.
+While it takes a chart literal, a rotation restarts mydownloads with the new password against a
+server that still holds the old one, and mydownloads' share mount fails.
+
+Slice 052's MediaDeploy change gives the media Deployment's `samba` container its
+`PASSWORD_mydownloads` from the Secret `samba-creds`, which ESO builds from
+`eso/prd/media/prd/mydownloads-user`. It goes live once MediaDeploy's `main` carrying it is pushed
+and Argo syncs `media-prd`. The sync restarts the media pod, Plex and Samba together, once, and
+leaves mydownloads running.
+
+```sh
+k -n argocd-prd get application media-prd -o jsonpath='{.status.sync.status} {.status.health.status}{"\n"}'
+k -n media-prd get deploy media -o json | jq -c '.spec.template.spec.containers[] | select(.name == "samba") | .env[] | select(.name == "PASSWORD_mydownloads")'
+k -n media-prd get deploy mydownloads -o jsonpath='{.status.readyReplicas}{"\n"}'
+k -n media-prd exec deploy/mydownloads -c mydownloads -- ls /mnt | head -n 3
+```
+
+**Hand back:** the full output.
+
+**Reading.**
+
+- `Synced Healthy`.
+- `{"name":"PASSWORD_mydownloads","valueFrom":{"secretKeyRef":{"key":"password","name":"samba-creds"}}}`.
+  A `"value":` in its place means the change is not live: stop.
+- `1`, then the first entries of the share mydownloads mounts at `/mnt`. An error from `ls` means
+  the mount is broken: stop.
+
+### `secret-rotator-ui` on srviac
+
+The operator's `site.yml --limit srviac` run installs `secret-rotator-ui` (the `iac_agent` role,
+through `install.sh`), and declares tmux, which it needs (the baseline role, from
+`group_vars/iac_agent.yml`).
+It comes before the first live `pve-root-password` or `step-ca-password` plan. Both plans restart
+the prd KubeCoder controller, which restarts every prd KubeCoder environment (design R65), the one
+you work from among them, and with it the SSH session the UI runs in. In the tmux session
+`secret-rotator`, the UI carries on with the plan, and reattaching shows it where it is. A UI
+started without it goes with the session, and the plan stops mid-step until a Resume or runs on
+alone, holding the rotator's lock.
+
+```sh
+cd /work/Ansible/ansible && cexec iac poetry run ansible-playbook playbooks/site.yml --limit srviac --check
+```
+
+**Hand back:** the full output.
+
+**Reading:** `changed` on `Sync IaCAgent checkout to the target host` (`bin/secret-rotator-ui`),
+and nothing else. `Install per-host extra packages` reads `ok` while srviac's image carries tmux
+already (3.4, on 2026-10-09). Read any other change before the apply. The apply is the same command
+without `--check`, and its handler runs `install.sh`, which prints
+`installed /usr/local/bin/secret-rotator-ui`.
+
+```sh
+ssh ansible@srviac 'command -v tmux secret-rotator-ui'
+```
+
+**Reading:** `/usr/bin/tmux`, then `/usr/local/bin/secret-rotator-ui`.
+
+Then open the UI with `ssh -t ansible@srviac secret-rotator-ui`, or with the VS Code task
+**secret-rotator ui (srviac)**, which runs it. Close that terminal without quitting the UI, then:
+
+```sh
+ssh ansible@srviac 'tmux list-sessions'
+```
+
+**Reading:** one line, for the session `secret-rotator`. Run `ssh -t ansible@srviac
+secret-rotator-ui` again: it shows the same UI, on the box you left selected. Quit it with `q`, and
+`tmux list-sessions` reads `no server running on …`.
+
+**The rule.** Always start the UI with `ssh -t ansible@srviac secret-rotator-ui`, or with the VS
+Code task, and after a lost session run it again to reattach. `Ctrl-b d` leaves the UI running
+without you, and quitting the UI ends the session. A UI that exits with an error holds its output
+until Enter.
+
 ## Going live
 
 Each switch change is a commit to SecretRotator's `main`, in `src/secret_rotator/switches.yaml`. It
@@ -870,6 +1037,39 @@ takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, 
 
     - The plan logs in, generates, writes, syncs `grafana-prd/grafana-admin`, and then sets the
       password in Grafana.
+
+11. **Wave 3**, once [Wave 3's annotations](#wave-3s-annotations) are applied. Its kinds go in
+    one per commit, in any order, each once its own item below holds. A wave-3 plan with an
+    operator step runs from the UI whether its kind is enabled or not. Enabling the kind adds its
+    manual-due lines, and for `samba-user` the nightly rotation of `mydownloads-user`. Each kind's
+    first live plan is the proof no offline run gives: it runs green and its consumers come back
+    healthy.
+
+    - **`pve-root-password`**. Its first live plan waits for `secret-rotator-ui` on srviac
+      ([§ Wave 3](#secret-rotator-ui-on-srviac)), enabled or not, and is the proof of SSH from
+      srviac's `iac` container to `pve`, `pve1` and `pve2` by their short names, as `ansible` with
+      sudo, each host key checked against the homelab SSH host CA. A node it cannot reach fails its
+      `ssh.set_password` before anything changes there, and Abort sets the nodes the plan changed
+      back. The procedure is [`proxmox-credentials.md`](proxmox-credentials.md#rotation).
+    - **`step-ca-password`**. Its first live plan waits for `secret-rotator-ui` on srviac too, and
+      is the proof of the step-ca check against `ca.home`: the read of `kubecoder-jwk`'s key at
+      the plan's start, then Done's check, where step-cli in the `iac` container opens the served
+      `encryptedKey`. `ca.home` out of reach at the start fails the plan before it generates a
+      password, and Abort then cancels it. The procedure is
+      [`step-ca-bootstrap.md`](step-ca-bootstrap.md#kubecoder-jwk).
+    - **`samba-user`**, only once the media Samba server reads `mydownloads-user`
+      ([§ Wave 3](#the-media-samba-server-reads-mydownloads-user)): the nightly `mydownloads-user`
+      plan is the one that would break the share. Its first night rotates `mydownloads-user`,
+      which has no stamp. The plan restarts the media pod, so Plex and the media shares go down
+      briefly, at 05:30 every 14 days, then mydownloads, which mounts the share with the new
+      password. A media pod that does not come back fails the plan before mydownloads restarts,
+      and the failure is on the card. The next morning, the night's console shows the plan
+      `rotated`, and the checks of [§ Wave 3](#the-media-samba-server-reads-mydownloads-user) read
+      as they did. `shared/samba/users#pvginkel` then has its manual-due lines and is worked in the
+      UI. The operator types the new password, the plan restarts the four Samba servers, and its
+      last screen asks to set the password in the Windows environments that mount the shares and
+      to restart the KubeCoder environments that mount them. The rotator restarts no environment
+      pod.
 
 **The stops.** The immediate stop is disabling the job. `enable` in place of `disable` reverses it:
 
