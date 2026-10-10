@@ -111,8 +111,11 @@ gh api repos/pvginkel/$OLD --jq '"archived: \(.archived)"'
 ### 1. The app's directory
 
 ```sh
-cd /work/scratch/$MONO && git pull --ff-only
-git subtree add --prefix=$APP https://github.com/pvginkel/$OLD.git main
+cd /work/scratch/$MONO && git fetch origin && git merge --ff-only origin/main
+# git subtree needs GNU dirname: uutils coreutils' (Ubuntu 25.10, the KubeCoder dev container)
+# prints `.` for `dirname $APP/.`, and the add fails with `invalid path './<file>'`.
+mkdir -p /tmp/gnubin && ln -sf /usr/bin/gnudirname /tmp/gnubin/dirname
+PATH=/tmp/gnubin:$PATH git subtree add --prefix=$APP https://github.com/pvginkel/$OLD.git main
 ```
 
 The subtree brings `$OLD`'s history under `$APP/`. Then one commit:
@@ -176,7 +179,9 @@ alone, however far the move jumps the library. **Any other object is a stop**: r
 after the switch, so the move stops here instead, before the state rename, and the pushed
 directory deploys nothing.
 
-Then `git push origin main`. The push starts `AaC/$MONO`, which step 8 waits on.
+Then `git push origin HEAD:main`: a slice's run commits on its phase branch, where `git push
+origin main` pushes the untouched local `main` and reports `Everything up-to-date`. The push
+starts `AaC/$MONO`, which step 8 waits on.
 
 ### 2. The image pins
 
