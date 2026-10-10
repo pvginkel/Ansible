@@ -29,14 +29,21 @@ if [[ ! -f "$plan_json" ]]; then
     exit 2
 fi
 
-# One line per change: "snippet <address>" or "other <address> (<actions>)".
+# One line per change: "snippet <address>" or "other <address> (<what>)".
+# A pending move (previous_address) or import (change.importing) is a
+# change even when its actions are ["no-op"]: the plan exits 2 for it.
 if ! changes=$(jq -r '
     ((.resource_changes // [])[]
-        | select(.change.actions != ["no-op"])
+        | ([.change.actions | select(. != ["no-op"]) | join(",")]
+            + (if .change.importing != null then ["import"] else [] end)
+            + (if .previous_address != null then ["moved from " + .previous_address] else [] end))
+            as $what
+        | select($what != [])
         | if .mode == "managed" and .type == "proxmox_virtual_environment_file"
                 and .name == "cloud_init" and .module_address == null
+                and .change.importing == null and .previous_address == null
             then "snippet " + .address
-            else "other " + .address + " (" + (.change.actions | join(",")) + ")"
+            else "other " + .address + " (" + ($what | join(", ")) + ")"
             end),
     ((.output_changes // {}) | to_entries[]
         | select(.value.actions != ["no-op"])

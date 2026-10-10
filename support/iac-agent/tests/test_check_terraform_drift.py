@@ -124,6 +124,34 @@ class CheckTerraformDrift(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("data.http.example (read)", result.stderr)
 
+    def test_a_pending_move_beside_the_snippets_fails(self):
+        moved = vm("srvk8s1")
+        moved["previous_address"] = 'module.old["srvk8s1"].proxmox_virtual_environment_vm.vm'
+        result = self.check(plan([snippet("srvk8s1"), moved]))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(
+            'plan changes module.vm["srvk8s1"].proxmox_virtual_environment_vm.vm'
+            ' (moved from module.old["srvk8s1"].proxmox_virtual_environment_vm.vm)',
+            result.stderr,
+        )
+
+    def test_a_pending_import_beside_the_snippets_fails(self):
+        imported = vm("srvk8s1")
+        imported["change"]["importing"] = {"id": "pve/qemu/101"}
+        result = self.check(plan([snippet("srvk8s1"), imported]))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(
+            'plan changes module.vm["srvk8s1"].proxmox_virtual_environment_vm.vm (import)',
+            result.stderr,
+        )
+
+    def test_a_moved_snippet_fails(self):
+        moved = snippet("srvk8s1")
+        moved["previous_address"] = 'proxmox_virtual_environment_file.old["srvk8s1"]'
+        result = self.check(plan([moved]))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('proxmox_virtual_environment_file.cloud_init["srvk8s1"]', result.stderr)
+
     def test_a_plan_that_lists_no_change_fails(self):
         result = self.check(plan([vm("srvk8s1")]))
         self.assertEqual(result.returncode, 1)
