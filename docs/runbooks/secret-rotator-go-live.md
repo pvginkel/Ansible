@@ -1749,14 +1749,18 @@ of the plan makes first:
 
 ```sh
 check 'from secret_rotator.kinds.rgw_admin import SITES
-from secret_rotator.kinds.rgw_admin.rgw import Gateway, Key
+from secret_rotator.kinds.rgw_admin.rgw import Gateway, Key, Unanswered
 c = os.environ["C"]
 leaf = f"shared/{c}/ceph-rgw/s3"
 site = SITES[leaf]
 key = Key(val(f"{leaf}#access_key_id"), val(f"{leaf}#secret_access_key"))
 gateway = Gateway(site)
 for endpoint in site.endpoints:
-    keys = gateway.admin(endpoint, key).keys(site.uid)
+    try:
+        keys = gateway.admin(endpoint, key).keys(site.uid)
+    except Unanswered as e:
+        print(endpoint, e.error)
+        continue
     print(endpoint, f"{site.uid}: {len(keys)} S3 key(s), the leaf key among them: {key.access in keys}")'
 ```
 
@@ -1768,8 +1772,9 @@ for endpoint in site.endpoints:
 - `HTTP 403: SignatureDoesNotMatch`: RGW computes another signature than the rotator's client.
   Every plan would fail at its mint, before any change. Stop.
 - `HTTP 403: InvalidAccessKeyId`, or `False`: RGW does not hold the leaf's key as `k8s`'s. Stop.
-- A transport error: srviac does not reach that instance on the backplane. A plan passes over an
-  instance that takes no connection, so one down is no stop. All three down is: read why.
+- `<endpoint> GET …: transport error: …` as an instance's line: srviac does not reach that instance
+  on the backplane, and the check goes on to the next. A plan passes over an instance that takes no
+  connection, so one down is no stop. All three down is: read why.
 
 **The self-removal.** The mint's add, then its undo's removal, each signed with the leaf's key: the
 admin user removing a key of its own. The rotator has not seen RGW allow that:
