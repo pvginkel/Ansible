@@ -295,13 +295,16 @@ git push origin main
 
 An app with a volume (a `static-*-pv` module) first records each PersistentVolume, for step 7's
 compare, all of them in one go, one line each. A module's PV is `<name>-pv`, `<name>` being the
-module's `name`; the loop names every module's (jenkins-prd's `jenkins-pv build-cache-pv`):
+module's `name`; the loop names every module's (jenkins-prd's `jenkins-pv build-cache-pv`). The
+line's last fields name what backs the PV: `rootPath` a CephFS subvolume (`static-cephfs-pv`),
+`local` a ZFS dataset (`static-zfs-pv`, a local PV), `handle` an RBD image (`static-rbd-pv`):
 
 ```sh
 for pv in <name>-pv …; do
   cexec iac kubectl get pv $pv -o json | jq -c '{pv: .metadata.name, uid: .metadata.uid,
     created: .metadata.creationTimestamp, claim: .spec.claimRef.name,
-    rootPath: .spec.csi.volumeAttributes.rootPath}'
+    rootPath: .spec.csi.volumeAttributes.rootPath, local: .spec.local.path,
+    handle: .spec.csi.volumeHandle}'
 done > $REC/pv-$NS-before.json
 ```
 
@@ -394,7 +397,7 @@ destroyed.` for a stage whose old tfvars do not set `manage_webhook = true`; `$O
 longer list `https://deploy-hooks.webathome.org/api/webhook`, only its Jenkins one.
 
 An app with a volume: the hook logs `presync: 0 volume(s) reattached`, and step 3's read run again
-into `$REC/pv-$NS-after.json` is the same line for line, so the subvolume and the PV are the
+into `$REC/pv-$NS-after.json` is the same line for line, so the PV and what backs it are the
 objects they were.
 
 ### 8. The producer
