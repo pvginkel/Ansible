@@ -201,6 +201,14 @@ git commit -m "argocd/$OLD/$STAGE → argocd/$MONO/$APP/$STAGE: $APP moves into 
 git push origin main
 ```
 
+An app with a volume (a `static-*-pv` module) first records each PersistentVolume, for step 7's
+compare. The PV is `<name>-pv`, `<name>` being the module's `name`:
+
+```sh
+cexec iac kubectl get pv <name>-pv -o json | jq -c '{uid: .metadata.uid, created: .metadata.creationTimestamp,
+  claim: .spec.claimRef.name, rootPath: .spec.csi.volumeAttributes.rootPath}' > $REC/pv-$NS-before.json
+```
+
 The lock read prints nothing; a lock is a hook run in flight, so wait for it and read again. A
 rejected push is a hook's state write that landed first: `git pull --rebase`, read the lock again,
 push. From the push until step 5, nothing commits to `$OLD` ([Why the order
@@ -276,6 +284,10 @@ gh api repos/pvginkel/$OLD/hooks --jq '.[] | "\(.id) \(.config.url)"'
 `Succeeded Synced Healthy`; the hook read `…//argocd/$MONO/$APP/$STAGE/terraform.tfstate` and
 reports `Resources: 0 added, 0 changed, 1 destroyed.`; `$OLD`'s hooks no longer list
 `https://deploy-hooks.webathome.org/api/webhook`, only its Jenkins one.
+
+An app with a volume: the hook logs `presync: 0 volume(s) reattached`, and step 3's read run again
+into `$REC/pv-$NS-after.json` is the same line for line, so the subvolume and the PV are the
+objects they were.
 
 ### 8. The producer
 
