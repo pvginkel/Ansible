@@ -160,6 +160,10 @@ resource "proxmox_virtual_environment_vm" "scratch" {
       # every time Canonical publishes a new point release. Recreate the VM
       # deliberately (terraform taint / replace) to pick up a newer image.
       disk[0].file_id,
+      # As in the managed-vm module: bpg's ForceNew on the snippet's
+      # `source_raw.data` cascades into a VM replace through this id, and
+      # every rotation of ansible.pub re-renders the snippet.
+      initialization[0].user_data_file_id,
     ]
   }
 }

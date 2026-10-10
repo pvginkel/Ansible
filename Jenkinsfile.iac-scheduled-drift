@@ -203,10 +203,9 @@ pipeline {
                             if [ "$rc" -eq 0 ]; then
                                 exit 0
                             elif [ "$rc" -eq 2 ]; then
-                                echo "DRIFT: terraform plan proposes changes against prd" >&2
                                 terraform show -json /tmp/plan.tfplan > /tmp/plan.json
                                 check-protected-vms.sh /tmp/plan.json
-                                exit 1
+                                check-terraform-drift.sh /tmp/plan.json
                             else
                                 exit $rc
                             fi

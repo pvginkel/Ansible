@@ -55,5 +55,6 @@ docker run "${docker_flags[@]}" \
     -v "$IAC_IMPL:/usr/local/bin/iac-impl:ro" \
     -v /usr/local/bin/check-protected-vms.sh:/usr/local/bin/check-protected-vms.sh:ro \
     -v /usr/local/bin/check-ansible-drift.sh:/usr/local/bin/check-ansible-drift.sh:ro \
+    -v /usr/local/bin/check-terraform-drift.sh:/usr/local/bin/check-terraform-drift.sh:ro \
     "$IMAGE" \
     /usr/local/bin/iac-impl "$@"
