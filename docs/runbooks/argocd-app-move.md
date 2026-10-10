@@ -181,7 +181,8 @@ Then `git push origin main`. The push starts `AaC/$MONO`, which step 8 waits on.
 ### 2. The image pins
 
 Each DockerImages `deploy-pins.json` entry that names `pvginkel/$OLD` (the read above) takes
-`repo: pvginkel/$MONO` and `file: $APP/config/prd/values.yaml`. Commit, push. From here an image
+`repo: pvginkel/$MONO` and its own `file` under `$APP/` (`config/dev/values.yaml` becomes
+`$APP/config/dev/values.yaml`). Commit, push. From here an image
 build writes its pin into the directory, where nothing deploys it until step 7. Empty for both
 pilots: no `deploy-pins.json` names headlamp or pgadmin.
 
