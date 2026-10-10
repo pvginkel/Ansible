@@ -3,10 +3,11 @@
 Day-to-day operation of the Argo CD instance on the prd cluster: reading its
 state, diagnosing a failed sync, webhooks, rotating its tokens,
 upgrading it, getting in when SSO is broken, registering and removing an app,
-destroying what a retired stage left, giving an app its own architecture
-producer, and rebuilding Argo from nothing.
+planning a stage's Terraform, destroying what a retired stage left, giving an
+app its own architecture producer, and rebuilding Argo from nothing.
 Read this when a sync fails, a token or secret changes, or Argo itself needs an
-upgrade or a bootstrap.
+upgrade or a bootstrap. Moving an app out of its own deploy repo into a deploy
+monorepo is a page of its own: [`argocd-app-move.md`](argocd-app-move.md).
 
 Design context: the `argo-cd/` document set in AnsibleSpecs —
 [`brief.md`](../../../AnsibleSpecs/argo-cd/brief.md),
@@ -20,14 +21,19 @@ actually ran and the Phase A proof drill are recorded in slice 009's
 ## Conventions
 
 - The operator's keystroke applies: every sync, every bootstrap command, every
-  `bao kv put`, every deletion. Claude prepares and reads.
+  `bao kv put`, every deletion. Claude prepares and reads. The one exception is
+  the deploy-repo consolidation's per-app move (slices 057 to 059,
+  [`argocd-app-move.md`](argocd-app-move.md)): slice 057's ruling D1 gives
+  Claude every step of it, its state move, plan Job, registry switch, sync and
+  deletions included, and the operator answers its stops. It reaches no other
+  sync.
 - A prd KubeCoder environment reads Argo through the `argocd` CLI in its `iac`
   sidecar, as the read-only `kubecoder` account and with no login step
   ([Reading Argo with the CLI](#reading-argo-with-the-cli)). It writes nothing.
   Every write is the operator's keystroke, in the UI or through `kubectl` with
-  the prd-write kubeconfig. The read-only default kubeconfig can list
-  Applications, ApplicationSets and AppProjects, but not patch or annotate
-  them. Shorthand used throughout:
+  the prd-write kubeconfig, but for the per-app move's. The read-only default
+  kubeconfig can list Applications, ApplicationSets and AppProjects, but not
+  patch or annotate them. Shorthand used throughout:
 
   ```sh
   KC="--kubeconfig $HOME/.kube/config-prd-write --context prd"
@@ -54,7 +60,7 @@ actually ran and the Phase A proof drill are recorded in slice 009's
 | Registry | ArgoCDDeploy `releases/values.yaml`: one entry per app, one Application per stage (D63); `releases/values.schema.json` refuses a malformed entry |
 | Registry Application | `releases`: syncs the registry chart `releases/` from ArgoCDDeploy `main`, automated without prune or self-heal |
 | Webhook edge | `https://deploy-hooks.webathome.org/api/webhook` → relay (2 replicas) → argocd-server |
-| Hook image | `registry:5000/argocd-hook:<n>` and `:latest` from ArgoCDTools; the sync's default pin is in the `homelab-shared` library chart, and the Destroy Stage Job runs `:latest`. Its Terraform is pinned to the version the `iac` images carry (AnsibleSpecs `decisions.md`, "Terraform version") |
+| Hook image | `registry:5000/argocd-hook:<n>` and `:latest` from ArgoCDTools; the sync's default pin is in the `homelab-shared` library chart, and the Destroy Stage Job and the plan Job run `:latest`. Its Terraform is pinned to the version the `iac` images carry (AnsibleSpecs `decisions.md`, "Terraform version") |
 | Terraform state | `pvginkel/TerraformState`, `argocd/<repo>/<stage>/terraform.tfstate`, or `argocd/<repo>/<path>/<stage>/terraform.tfstate` for an app in a monorepo's directory; sops/age |
 | Destroy Stage | Jenkins job `IaC/Destroy Stage`, ArgoCDTools `Jenkinsfile.destroy-stage`; the build runs as `jenkins-prd/destroy-stage`, its Job is `argocd-hooks/destroy-stage-<build#>` under `tf-presync` (D66) |
 | Notifications | Alertmanager `prometheus-prd-alertmanager.prometheus-prd:9093`, delivered to Telegram with no "resolved"; `ArgoCDSyncFailed` (critical, with sound), `ArgoCDHealthDegraded` (warning, silent) |
@@ -431,7 +437,8 @@ app's Applications carries `argocd.argoproj.io/manifest-generate-paths:
 "/<path>"`, which tells Argo which of a commit's files concern the app (D69).
 The schema refuses a `path` that is not plain segments
 (`[A-Za-z0-9][A-Za-z0-9._-]*`) joined by `/`. An entry without `path:` is its
-deploy repo's root.
+deploy repo's root. An app already deployed from a repo of its own gets there
+by the per-app move ([`argocd-app-move.md`](argocd-app-move.md)).
 `helm lint releases` checks an edit against the schema, and ArgoCDDeploy's
 `kc project test` runs the render test. Push; the relay webhook refreshes
 `releases`, whose sync creates the Application, and Argo then syncs it on its
@@ -475,6 +482,93 @@ same way. A webhook made by hand ([Webhooks](#webhooks)) stays on the deploy
 repo after that too, and keeps sending its pushes to the relay for a repo
 nothing deploys: no stage's Terraform holds it, so no build deletes it, and
 removing it is a separate act, by hand.
+
+## Planning a stage's Terraform as its hook applies it
+
+The PreSync hook applies; a sync has no plan step. The argocd-hook image's plan
+mode, `python3 -m presync.plan`, takes the sync hook's arguments and does what
+the hook does before its apply: the clone at the revision, `TF_VAR_stage` and
+`TF_VAR_namespace`, the app's `[<path>/]terraform/` with
+`[<path>/]config/<stage>/*.tfvars`, terraform-backend-git on the stage's state
+key. Then it plans. It applies nothing, reattaches no volume, takes no state
+lock and writes nothing to TerraformState, so it can run beside a sync of the
+same stage and leaves no lock behind when it is killed. It runs as a one-off Job
+in `argocd-hooks` under `tf-presync` with `argocd-hook-credentials`, the way
+Destroy Stage runs the destroy mode: the hook's credentials stay in the cluster,
+and none of them reaches the workspace. The image is `argocd-hook:latest`; every
+build from IaC/ArgoCDTools #38 on carries the mode, and the library chart's
+`:36` does not.
+
+Outside a [per-app move](argocd-app-move.md), starting the Job is a write like
+any other ([Conventions](#conventions)): the operator runs it, or says Claude
+may.
+
+```sh
+# The deploy repo as GitHub spells it; the registry entry's path:, empty for a
+# repo's root; the stage; hook.namespace, <app>-<stage>; where the log goes.
+REPO=HeadlampDeploy APP_PATH= STAGE=prd NS=headlamp-prd LOG=plan-headlamp-prd.log
+# The commit to plan, by its full SHA: the head of the branch the stage tracks.
+REV=$(gh api repos/pvginkel/$REPO/commits/main --jq .sha)
+JOB=tf-plan-$NS
+ARGS="[\"https://github.com/pvginkel/$REPO.git\", \"$REV\", \"$STAGE\", \"$NS\"${APP_PATH:+, \"$APP_PATH\"}]"
+cexec iac kubectl $KC delete job -n argocd-hooks $JOB --ignore-not-found
+cexec iac kubectl $KC create -f - <<EOF
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: $JOB
+  namespace: argocd-hooks
+  labels:
+    app.kubernetes.io/name: tf-plan
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 1800
+  template:
+    spec:
+      serviceAccountName: tf-presync
+      restartPolicy: Never
+      containers:
+        - name: plan
+          image: registry:5000/argocd-hook:latest
+          imagePullPolicy: Always
+          command: ["python3", "-m", "presync.plan"]
+          args: $ARGS
+          envFrom:
+            - secretRef:
+                name: argocd-hook-credentials
+EOF
+cexec iac kubectl $KC wait -n argocd-hooks job/$JOB --for=jsonpath='{.status.conditions[-1:].type}' --timeout=35m
+cexec iac kubectl $KC logs -n argocd-hooks job/$JOB > $LOG
+cexec iac kubectl $KC get pods -n argocd-hooks -l job-name=$JOB \
+  -o jsonpath='{.items[0].status.containerStatuses[0].state.terminated.exitCode}{"\n"}'
+grep '^presync: ' $LOG | sed -n '/^presync: planning against /,$p'
+cexec iac kubectl $KC delete job -n argocd-hooks $JOB
+```
+
+`NS` is what Terraform gets as `var.namespace`, and resource names derive from
+it (pgadmin's CephFS subvolume, `pgadmin-prd-data`): a wrong one plans creates
+beside the live resources. The wait returns at the Job's first status
+condition, which it gets when its run ends (`SuccessCriteriaMet` or
+`FailureTarget`). The log reads, in order:
+
+- terraform-backend-git's `Getting state from …//argocd/<REPO>/[<APP_PATH>/]<STAGE>/terraform.tfstate`,
+  the key as the backend reads it, then Terraform's init;
+- `presync: planning against argocd/<REPO>/[<APP_PATH>/]<STAGE>/terraform.tfstate:
+  nothing is applied`, then Terraform's plan, refresh lines included;
+- `presync: the plan carries no changes`, or `presync: the plan carries N
+  change(s):` and one `presync:   <address>: <action>` line per change, the
+  action `create`, `update`, `destroy`, `read`, `replace (destroy then
+  create)`, `move from <address>` or `import`;
+- last, `presync: plan only: nothing was applied and no volume was reattached`,
+  with exit code `0`.
+
+A plan that could not finish exits `1` instead, its last line `presync: …`
+with Terraform's error above it. Refreshing a namespaced Kubernetes object needs
+the app namespace's `tf-presync` RoleBinding, which the stage's last sync left
+in place (`BeforeHookCreation`), so a stage whose namespace is gone fails there.
+The sheet ran as written on 2026-10-10, against headlamp at `54c0ad2` and
+`argocd/HeadlampDeploy/prd/terraform.tfstate`: `the plan carries no changes`,
+exit `0`.
 
 ## Destroying a retired stage
 
@@ -882,7 +976,9 @@ commits under `<app>/`, and hands it the `gap:` lines printed below its own
 several producers name one job, every one of them needs `path:`, or
 AaC/Architecture's registry check fails its build. Register a producer only
 after a green `AaC/<Monorepo>` build has archived its `<app>-deploy.yaml`: the
-narrowed copy fails on a build that lacks the file.
+narrowed copy fails on a build that lacks the file. An app moving in from a
+deploy repo of its own re-points the entry it already has
+([`argocd-app-move.md`](argocd-app-move.md), step 8).
 
 ## Previewing a migrating app's diff before its cutover
 

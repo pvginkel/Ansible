@@ -59,40 +59,11 @@ cd ansible && ssh <options> ansible@srviac \
 ```
 
 A **deploy repo's** Terraform is applied by Argo CD's PreSync hook on each sync of its stage
-([argocd.md](runbooks/argocd.md)), and the hook has no plan step. A retired stage's Terraform is
-destroyed by an `IaC/Destroy Stage` build, which shows that destroy's plan before it asks
-([argocd.md](runbooks/argocd.md#destroying-a-retired-stage)). Planning it from here takes the
-hook's inputs (the hook environment in ArgoCDDeploy's `config/prd/values.yaml`) plus the
-OpenBao-held provider credentials, which `scripts/setup-env.sh prd` loads after
-`scripts/bao-login.sh`. `setup-env.sh` reads OpenBao values into the environment, so it falls under
-`CLAUDE.md`'s "What Claude doesn't read on its own" — ask first. The command, from a clone of the
-deploy repo at `origin/main`:
-
-```sh
-REPO=KubeCoderDeploy STAGE=prd NS=kubecoder-prd   # the deploy repo, the stage, the stage's namespace
-U="http://127.0.0.1:6061/?type=git&repository=https%3A%2F%2Fgithub.com%2Fpvginkel%2FTerraformState&ref=main&state=argocd%2F$REPO%2F$STAGE%2Fterraform.tfstate"
-cd /work/Ansible && ( . scripts/bao-login.sh && . scripts/setup-env.sh prd \
-  && cd /work/scratch/$REPO/terraform \
-  && export TF_DATA_DIR=$HOME/tf-plan/$REPO-$STAGE TF_VAR_stage=$STAGE TF_VAR_namespace=$NS GITHUB_TOKEN="$GH_TOKEN" \
-  && cexec iac terraform init -input=false -reconfigure -upgrade \
-       -backend-config="address=$U" -backend-config="lock_address=$U" -backend-config="unlock_address=$U" \
-  && cexec iac terraform plan -input=false -var-file=../config/$STAGE/terraform.tfvars )
-```
-
-- For an app in a directory of a monorepo (its registry entry has `path:`), the state key and the
-  working directory carry that directory, as the hook's do:
-  `state=argocd%2F$REPO%2F<path>%2F$STAGE%2Fterraform.tfstate`, each `/` of `<path>` as `%2F`,
-  and `cd /work/scratch/$REPO/<path>/terraform`. The tfvars stay `../config/$STAGE/`, relative to
-  it.
-- Export, too, every other `TF_VAR_*` of the hook environment in ArgoCDDeploy's
-  `config/prd/values.yaml` that the repo's Terraform declares (KubeCoderDeploy's takes
-  `TF_VAR_zfs_pools`). A secret one, such as `TF_VAR_github_webhook_secret`, takes a placeholder;
-  a diff on the attribute it feeds is the placeholder's.
-- The subshell keeps the exported credentials from outliving it. `TF_DATA_DIR` keeps the
-  backend-initialised `.terraform/` out of the working tree, and `-upgrade` resolves the providers
-  as the hook's clone does. `cexec` layers this shell's environment over the sidecar's.
-- KubeCoderDeploy's cutover (2026-09-23) ran this command with its stage filled in; this general
-  form has not run as written.
+([argocd.md](runbooks/argocd.md)). It is planned as that hook applies it by the hook image's plan
+mode, run as a one-off Job in `argocd-hooks` with the hook's own credentials, so none of them
+enters this pod ([argocd.md](runbooks/argocd.md#planning-a-stages-terraform-as-its-hook-applies-it)).
+A retired stage's Terraform is destroyed by an `IaC/Destroy Stage` build, which shows that
+destroy's plan before it asks ([argocd.md](runbooks/argocd.md#destroying-a-retired-stage)).
 
 **Lint before you commit.** There is no pre-commit hook — it was removed because it was breaking
 commits. Run `kc project lint` before proposing a commit. `IaC/Build-Main` runs the same ansible and
