@@ -44,8 +44,9 @@ the VMs are disposable. Claude prepares the change, proposes the exact command, 
 back full output for parsing, not "looks good."
 
 The operator works in this same pod and sees the same `/work/<repo>` paths, so this is a rule about
-**authority, not access**. It holds regardless: `changed=N>0` and terraform state mutations are the
-operator's keystroke.
+**authority, not access**. `changed=N>0` and terraform state mutations are the operator's keystroke.
+A slice may deviate from this where the operator rules so in its plan, and only as far as that
+ruling reaches.
 
 A push to `main` is safe — `IaC/Build-Main` only lints, validates, plans and runs the destroy check,
 and starts the SOPs site's `Publish` workflow when the push touched `docs/runbooks/`. Convergence is the separate manual `IaC/Apply` job; never start it.
