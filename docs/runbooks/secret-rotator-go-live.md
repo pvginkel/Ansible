@@ -2,8 +2,8 @@
 
 This runbook brings SecretRotator up on srviac. First part: its credentials, its annotations and
 its nightly job, which runs in dry run. Then a week of dry run. Then going live, one kind at a time.
-[§ Wave 1](#wave-1) prepares the kinds of slice 047, [§ Wave 2](#wave-2) those of slice 049, and
-[§ Wave 3](#wave-3) those of slice 052,
+[§ Wave 1](#wave-1) prepares the kinds of slice 047, [§ Wave 2](#wave-2) those of slice 049,
+[§ Wave 3](#wave-3) those of slice 052, and [§ Wave 4](#wave-4) the `terraform` kind of slice 048,
 each before the go-live or after it.
 
 The operator runs every step, from top to bottom. Each step gives the commands, what to hand back,
@@ -327,6 +327,15 @@ store, skipped:` for `rotator/github` and `rotator/youtrack-token/credentials`, 
 line's `absent from the store`, and leaves its leaf count as it is. One the store already holds is
 written with the others, and [wave 2's annotations](#wave-2s-annotations) stamp it. Neither asks
 for a seed fix.
+
+**With slice 048's seed.** Where `prd` carries slice 048, the dry run also writes the ten
+`rotator/terraform/*` marker leaves, each with `create  marker leaf, data key <key>`. They add ten
+to the last line's leaf count and to its new marker leaves. It prints `absent from the store,
+skipped: rotator/terraform/credentials` while the store lacks that leaf, which
+[§ Wave 4](#the-terraform-kinds-token) creates, and which adds one to the last line's `absent from
+the store`. Stored already, it is written with the others, and
+[wave 4's annotations](#wave-4s-annotations) stamp it. None of these asks for a seed fix. The apply
+leaves the markers unstamped: item 13 of [§ Going live](#going-live) stamps them.
 
 ```sh
 srviac 'secret-rotator annotate --apply'
@@ -1306,6 +1315,206 @@ Code task, and after a lost session run it again to reattach. `Ctrl-b d` leaves 
 without you, and quitting the UI ends the session. A UI that exits with an error holds its output
 until Enter.
 
+## Wave 4
+
+Slice 048's kind is `terraform`, for the credentials Terraform mints in an app's Argo CD PreSync
+hook. Its plan commits a new keeper to the deploy repo's `config/<stage>/rotation.tfvars` on
+`main`, and waits for the sync whose hook re-mints the credential. Then it proves that the Secret
+Terraform writes changed, and restarts every workload that reads that Secret. Its keys are ten
+marker leaves, `rotator/terraform/<Application>/<keeper>`. It ships switched off. The sections
+below create its GitHub token, annotate, read its plans and check the token from srviac. Item 13 of
+[§ Going live](#going-live) then staggers the markers' first nights and enables the kind.
+
+Wave 4 starts once SecretRotator's `prd` carries slice 048, before step 6 or at any point after it.
+Slice 048 pushed the keeper files to the seven deploy repos' `main`.
+[The token](#the-terraform-kinds-token) needs only OpenBao and GitHub.
+[Wave 4's annotations](#wave-4s-annotations) come after step 6: they run `secret-rotator` on
+srviac, which needs steps 1 to 3, and they stamp with step 6's `stamp`. The plans and the check
+come after them.
+
+`kinds_enabled` gates the nightly run alone. `secret-rotator run <leaf>` runs a `terraform` plan as
+soon as the image carries slice 048, whatever `switches.yaml` holds: it commits to the deploy repo,
+and the sync re-mints the credential. Run none by hand before item 13 of [§ Going live](#going-live).
+
+Until wave 4's apply, the audit and the nightly card report `rotation_token: missing` on
+`rotator/terraform/credentials` once it is stored, which touches no enabled kind. Where step 6 ran
+on slice 048's seed, it created the ten markers without a stamp: the nightly log counts them among
+its `due key(s) of kinds not enabled` until item 13 stamps them.
+
+### The `terraform` kind's token
+
+The kind's `terraform.commit_keeper` step reads and commits each keeper file through GitHub's
+contents API, with the token in `rotator/terraform/credentials`, which nothing else reads. Logged in
+to GitHub as pvginkel, generate one under Settings → Developer settings → Personal access tokens →
+Fine-grained tokens:
+
+- named `secret-rotator-terraform`, resource owner `pvginkel`, with an expiration a year out;
+- repository access only these seven: `pvginkel/ElectronicsInventoryDeploy`, `pvginkel/IotDeploy`,
+  `pvginkel/KeycloakDeploy`, `pvginkel/GuacamoleDeploy`, `pvginkel/StorageDeploy`,
+  `pvginkel/YoutrackDeploy` and `pvginkel/PostgresPasDeploy`;
+- of the repository permissions only Contents, read and write. GitHub adds Metadata, read-only, to
+  every token.
+
+The leaf's notes say the same, and its plan's first step, when the token is due, says it again.
+Note its expiration date: [wave 4's annotations](#wave-4s-annotations) stamp it. Store it before
+them. One stored after them is a new leaf ([`openbao.md`](openbao.md#a-new-leaf)): run the
+annotations again.
+
+```sh
+read -rs tok && printf %s "$tok" | bao kv put -mount=kv rotator/terraform/credentials token=-; unset tok
+```
+
+**Reading:** `version 1`. [Wave 4's check](#wave-4s-check-from-srviac) reads what the token
+reaches.
+
+### Wave 4's annotations
+
+Slice 048 adds eleven leaves to the seed: the token's and the ten markers, which the apply creates.
+
+```sh
+srviac 'secret-rotator annotate'
+```
+
+**Hand back:** the full output.
+
+**Reading.**
+
+- `rotator/terraform/credentials`, where no apply has written it yet, reads `add
+  rotation_token={"kind":"manual","interval":"365d","args":{"type":"github-pat"},…` and no `set`
+  line.
+- Each marker of [wave 4's plans](#wave-4s-plans), where no apply has created it yet, reads:
+  - `create  marker leaf, data key <key>`;
+  - `add     rotation_<key>={"kind":"terraform","interval":"14d","args":{"repo":"pvginkel/<Repo>",
+    "path":"","app":"<app>","keeper":"<keeper>","secret":"<app>/<Secret>"},"activate":"none"}`, on
+    one line;
+  - `set     max_versions=20  (was 0)`.
+- Where step 6, or an apply after it, ran on slice 048's seed, none of these: that apply wrote
+  them.
+- The last line's `<n> of them new marker leaves` counts the markers no apply has created yet: 10
+  where step 6 ran on a seed before slice 048.
+- No `absent from the store` line for `rotator/terraform/credentials`, and no `cannot write:` line.
+
+```sh
+srviac 'secret-rotator annotate --apply'
+srviac 'secret-rotator annotate' | tail -n 1
+```
+
+**Reading:** one `patched <leaf>` or `created and patched <leaf>` line per leaf of the dry run, and
+exit 0. The dry run after it reads `would patch (dry run; --apply writes) 0 leaf(s), 0 of them new
+marker leaves; …`.
+
+Stamp the token with `stamp` as step 6 defines it, whether this apply or an earlier one wrote its
+entry. Its expiration date is its `expires_at`, and its key falls due 7 days before it. The markers
+stay unstamped until item 13 of [§ Going live](#going-live):
+
+```sh
+stamp rotator/terraform/credentials token
+srviac 'secret-rotator stamp rotator/terraform/credentials token --expires-at <the token expiration date>'
+srviac 'secret-rotator audit'
+```
+
+**Hand back:** the full output.
+
+**Reading.**
+
+- `rotator/terraform/credentials#token: rotation stamp <date>, was none`, with the date the leaf
+  was stored, then `rotator/terraform/credentials#token: expires_at <date>, was none`.
+- No finding line of the audit names a leaf under `rotator/terraform/`.
+
+### Wave 4's plans
+
+Read the plans the store now builds, from srviac. Slice 048 built the markers' plans only against a
+snapshot of `prd`. `markers` lists them in the order item 13 of [§ Going live](#going-live)
+staggers them, and item 13 uses it again:
+
+```sh
+markers='electronics-inventory-prd/db#password iot-prd/db#password keycloak-dev/db#password
+  guacamole-prd/db#password keycloak-prd/db#password electronics-inventory-prd/s3#access_key
+  iot-prd/s3#access_key storage-prd/backup_reader#access_key youtrack-prd/backups#token
+  postgres-pas-prd/backups#token'
+for m in credentials#token $markers; do srviac "secret-rotator plan rotator/terraform/${m%#*}"; done
+```
+
+**Hand back:** the full output.
+
+**Reading.**
+
+- `rotator/terraform/credentials`: `manual plan of token · due <date>`, 7 days before the token's
+  expiration date. Its first step is a `you` line for the `operator.credential`.
+- Each marker: `terraform plan of <key> · due: never rotated`, the plan's description, then its
+  steps, none of them a `you` line, so the nightly run takes the plan:
+  `terraform.marker` (silent), `terraform.commit_keeper` (`commit a new <keeper> keeper to
+  pvginkel/<Repo>`), `argocd.sync` (`sync Argo CD Application <app>`), `terraform.prove_remint`
+  (`prove Terraform re-minted Secret <app>/<Secret>`), `kv.write`, one `k8s.rollout` per restart
+  below, and `kv.stamp` (silent). Each Secret is in the namespace named after the Application. The
+  restarts are the workloads that read the Secret on 2026-10-10:
+
+  | Leaf under `rotator/terraform/` | Key | Repo | Secret | Restarts |
+  | --- | --- | --- | --- | --- |
+  | `electronics-inventory-prd/db` | `password` | ElectronicsInventoryDeploy | `electronics-inventory-db` | `electronics-inventory-prd/deployment/electronics-inventory` |
+  | `iot-prd/db` | `password` | IotDeploy | `iotsupport-db` | `iot-prd/deployment/iotsupport` |
+  | `keycloak-dev/db` | `password` | KeycloakDeploy | `keycloak-db` | `keycloak-dev/deployment/keycloak` |
+  | `guacamole-prd/db` | `password` | GuacamoleDeploy | `guacamole-db` | `guacamole-prd/deployment/guacamole` |
+  | `keycloak-prd/db` | `password` | KeycloakDeploy | `keycloak-db` | `keycloak-prd/deployment/keycloak` |
+  | `electronics-inventory-prd/s3` | `access_key` | ElectronicsInventoryDeploy | `s3-credentials` | `electronics-inventory-prd/deployment/electronics-inventory` |
+  | `iot-prd/s3` | `access_key` | IotDeploy | `s3-credentials` | `iot-prd/deployment/iotsupport` |
+  | `storage-prd/backup_reader` | `access_key` | StorageDeploy | `backup-reader-credentials` | none: the CronJob `s3-mirror` reads it |
+  | `youtrack-prd/backups` | `token` | YoutrackDeploy | `youtrack-backup-upload` | none: the CronJob `youtrack-backup` reads it |
+  | `postgres-pas-prd/backups` | `token` | PostgresPasDeploy | `postgres-backup-upload` | none: the CronJob `postgres-backup` reads it |
+
+  Where nothing restarts, the `argocd.sync` itself waits for the Application to be Healthy.
+- A restart the table lacks, or one it has that the plan lacks, is a workload that started or
+  stopped reading the Secret since: read it.
+- A `cannot be built:` line: stop and read it.
+
+### Wave 4's check from srviac
+
+The commit step reads two things before it commits: the Application, whose hook must apply the
+marker's repo at its root from `main`, and the keeper file, with the token. Either failing fails
+the plan before its commit, and the run rolls it back. The check finds it before the first night.
+
+Each Application's source, from the workstation:
+
+```sh
+for a in electronics-inventory-prd iot-prd keycloak-dev keycloak-prd guacamole-prd storage-prd youtrack-prd postgres-pas-prd; do
+  k -n argocd-prd get application "$a" -o json \
+    | jq -r '[.metadata.name, .spec.source.targetRevision, (.spec.source.helm.parameters[] | select(.name | IN("hook.repo", "hook.path", "hook.stage")) | "\(.name)=\(.value)")] | join(" ")'
+done
+```
+
+**Reading:** eight lines, each `<app> main hook.repo=https://github.com/pvginkel/<Repo>.git
+hook.stage=<stage>`, `<Repo>` the table's, `<stage>` `dev` for `keycloak-dev` and `prd` for the
+others, as on 2026-10-10. A `hook.path`, another repo or another branch than `main` fails that
+marker's commit step with `Argo Application <app>'s hook applies …` or `Argo Application <app>
+tracks …`: stop and read it.
+
+Then, in the `iac` shell of [§ The checks from srviac](#the-checks-from-srviac), with its `check`,
+the token reads each keeper file on `main`, as the commit step does, and parses it:
+
+```sh
+check 'from secret_rotator.github import GitHub
+from secret_rotator.kinds.terraform import keepers
+github = GitHub()
+github.authenticate(val("rotator/terraform/credentials#token"))
+for repo, stage in [("ElectronicsInventoryDeploy", "prd"), ("IotDeploy", "prd"), ("KeycloakDeploy", "dev"),
+                    ("KeycloakDeploy", "prd"), ("GuacamoleDeploy", "prd"), ("StorageDeploy", "prd"),
+                    ("YoutrackDeploy", "prd"), ("PostgresPasDeploy", "prd")]:
+    found = github.contents(f"pvginkel/{repo}", f"config/{stage}/rotation.tfvars", "main")
+    print(repo, stage, "not found" if found is None else keepers.parse(found[0])[1])'
+```
+
+**Reading.**
+
+- Eight lines, each a repo, its stage and `{}`: the file's keeper map, empty until the repo's first
+  rotation.
+- `not found`: the seven repositories are private, and GitHub answers a token that lacks one as if
+  the file were not there. The file is on `main` since slice 048, so the token lacks that
+  repository: add it on the token's page. The plan would fail the same way, with
+  `pvginkel/<Repo> has no config/<stage>/rotation.tfvars on main`.
+- A traceback with `HTTP 401` means GitHub refuses the token. A `ValueError` names a keeper file
+  the commit step cannot rewrite.
+- The read proves no write. The first rotation's commit proves Contents' write: GitHub refuses a
+  commit without it, and that plan fails before anything changed.
 
 ## Going live
 
@@ -1655,6 +1864,159 @@ takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, 
       last screen asks to set the password in the Windows environments that mount the shares and
       to restart the KubeCoder environments that mount them. The rotator restarts no environment
       pod.
+
+13. **Wave 4**, once [§ Wave 4](#wave-4)'s token, annotations and check are done. `terraform` goes
+    in alone, in one commit. Before it, read [wave 4's plans](#wave-4s-plans) and
+    [its check](#wave-4s-check-from-srviac) again, then stagger the markers' first nights.
+
+    **The stagger** (slice 048's ruling F5). A marker without a stamp is due at once, so on the
+    kind's first night all ten would rotate, and again every 14 days: ten commits, and five apps
+    restarted in one night. Stamp each marker instead as if it had rotated 14 days before its own
+    first night, one night apart, in the order of `markers`: the five Postgres roles, the three S3
+    keys, then the two backup tokens, `keycloak-dev` two nights before `keycloak-prd`. A rotation
+    stamps the night it runs, so the 14-day interval keeps them a night apart. `first` is the
+    kind's first night: the night after the commit, whose build and image rebuild finish that day.
+    Stamp on the day of the commit, before it, with `markers` as [wave 4's plans](#wave-4s-plans)
+    set it:
+
+    ```sh
+    first=<YYYY-MM-DD>  # the date of the kind's first night
+    i=0; for m in $markers; do
+      srviac "secret-rotator stamp rotator/terraform/${m%#*} ${m#*#} --rotated-at $(date -d "$first $((i - 14)) days" +%F)"
+      i=$((i + 1)); done
+    for m in $markers; do srviac "secret-rotator plan rotator/terraform/${m%#*}" | grep 'plan of'; done
+    ```
+
+    **Hand back:** the full output.
+
+    **Reading.**
+
+    - Ten `rotator/terraform/<leaf>#<key>: rotation stamp <date>, was none` lines, the first dated
+      14 days before `first` and each next one a day later. `--rotated-at` takes no date after
+      today, so `first` is at most 5 days out. An `error:` line wrote nothing for that marker: wave
+      4's annotations create its leaf and key.
+    - Ten `terraform plan of <key> · due <date>` lines, from `first` to 9 days after it, in the same
+      order.
+
+    Then commit `terraform` into `kinds_enabled`. The morning after `first`, the night's console
+    names that commit in `secret-rotator run, commit <sha>`, and `terraform` among the kinds of the
+    line after it. A night that ran an earlier commit ran without the kind: stamp again before the
+    next night, with that night as `first`. The lines then read `was <date>`.
+
+    What its nights do:
+
+    - One marker a night, then each one 14 days after its rotation. A plan that fails before its
+      commit is rolled back and due again the next night, beside that night's own marker.
+    - The commit, `rotate <keeper> (secret-rotator)`, lands on the deploy repo's `main`. Its push
+      starts the Application's auto-sync, whose PreSync hook re-mints the credential. Where no sync
+      of the commit has started within a minute, the `argocd.sync` step requests one itself, of the
+      head of `main`. It waits at most 15 minutes for the sync.
+    - From the hook's re-mint until the restart is Ready, the app's new connections to its database
+      fail, and for an S3 key its requests (slice 048's ruling D1). No rotation has timed that
+      window yet: the readings below do.
+    - The S3 reader and the backup tokens restart nothing: the CronJob that reads each Secret takes
+      the new credential at its next run. A backup token's scope holds no token between the hook's
+      `DELETE` and its `PUT`. A `PUT` that fails errors `credential "<scope>" was deleted but not
+      re-created`, and the sync fails with it.
+
+    The morning after each night, the night's console shows the plan `rotated`, and a consumer that
+    did not come back is on the card. `tfwatch` reads the night's rotation. Its arguments are the
+    Application, the keeper, the repo, the stage, the credential's resource in the hook's
+    Terraform, and the workload the plan restarts. Run its line for the night's marker:
+
+    ```sh
+    job="$JENKINS_URL/job/IaC/job/Scheduled%20Secret%20Rotation"
+    curl -fsS -u "$JENKINS_USER:$JENKINS_TOKEN" "$job/lastBuild/consoleText" | grep -A 20 'terraform plan of'
+    tfwatch() { local app=$1 keeper=$2 repo=$3 stage=$4 resource=$5 restart=$6
+      bao kv get -mount=kv -field=token rotator/terraform/credentials </dev/null | sed 's/^/Authorization: Bearer /' \
+        | curl -fsS -H @- "https://api.github.com/repos/pvginkel/$repo/commits?path=config/$stage/rotation.tfvars&per_page=1" \
+        | jq -r '.[0] | "\(.sha[:7]) \(.commit.committer.date) \(.commit.message)"'
+      k -n argocd-prd get application "$app" -o jsonpath='{.status.sync.revision} {.status.sync.status} {.status.health.status}{"\n"}'
+      k -n argocd-hooks get job "tf-presync-$app" -o jsonpath='{.status.completionTime}{"\n"}'
+      k -n argocd-hooks logs "job/tf-presync-$app" | sed 's/\x1b\[[0-9;]*m//g' \
+        | grep -E "tfvars file|rotation\.tfvars|$resource|Apply complete|No changes"
+      [ -z "$restart" ] || { k -n "$app" get "$restart" -o jsonpath='{.spec.template.metadata.annotations.kubectl\.kubernetes\.io/restartedAt}{"\n"}'
+        k -n "$app" get pods -o custom-columns='NAME:.metadata.name,READY:.status.conditions[?(@.type=="Ready")].lastTransitionTime'; }
+      srviac "secret-rotator plan rotator/terraform/$app/$keeper" | grep 'plan of'; }
+    tfwatch electronics-inventory-prd db ElectronicsInventoryDeploy prd module.db.random_password.this deployment/electronics-inventory
+    tfwatch iot-prd db IotDeploy prd module.db.random_password.this deployment/iotsupport
+    tfwatch keycloak-dev db KeycloakDeploy dev module.db.random_password.this deployment/keycloak
+    tfwatch guacamole-prd db GuacamoleDeploy prd module.db.random_password.this deployment/guacamole
+    tfwatch keycloak-prd db KeycloakDeploy prd module.db.random_password.this deployment/keycloak
+    tfwatch electronics-inventory-prd s3 ElectronicsInventoryDeploy prd module.s3.homelab_s3_storage.this deployment/electronics-inventory
+    tfwatch iot-prd s3 IotDeploy prd module.s3.homelab_s3_storage.this deployment/iotsupport
+    tfwatch storage-prd backup_reader StorageDeploy prd homelab_s3_reader.backup_reader
+    tfwatch youtrack-prd backups YoutrackDeploy prd homelab_backup_credential.backups
+    tfwatch postgres-pas-prd backups PostgresPasDeploy prd homelab_backup_credential.backups
+    ```
+
+    **Hand back:** the full output.
+
+    **Reading.**
+
+    - The console: `terraform plan of rotator/terraform/<app>/<keeper> (<key>)`, then these `✓`
+      lines, then `rotated`:
+      - `commit a new <keeper> keeper to pvginkel/<Repo> · <sha7>: <keeper> = <UTC time> in
+        config/<stage>/rotation.tfvars`;
+      - `sync Argo CD Application <app> · <sha7> synced by auto-sync: Synced`, or `Synced, Healthy`
+        where nothing restarts. `by secret-rotator` is a sync the step requested itself, and the
+        first one is the proof that Argo CD takes the step's request;
+      - `prove Terraform re-minted Secret <app>/<Secret> · Secret <app>/<Secret> changed`;
+      - the `kv.write` of the marker, then one `roll out <app>/deployment/<name> · Ready,
+        Application <app> Healthy` per restart.
+    - The newest commit to the keeper file: the console's `<sha7>`, its time, then
+      `rotate <keeper> (secret-rotator)`. Another commit names another writer of the file: read it.
+    - The Application: the commit or a later head of `main`, then `Synced Healthy`.
+    - The hook Job's completion time, then its log:
+      - `with <n> tfvars file(s)`, and the `terraform … apply` line with the `-var-file` of
+        `config/<stage>/rotation.tfvars`;
+      - the resource's `Refreshing state...` line, its plan line, `# <resource> must be replaced`
+        for a `random_password` or `# <resource> will be updated in-place` for the provider's
+        resources, then its apply lines;
+      - `Apply complete! Resources: …`. `No changes.` is a sync whose Terraform re-minted nothing,
+        and the plan's proof then failed.
+
+      The Job holds its latest run alone: a sync after the night's, an image-pin commit's,
+      replaces it. Read the night's run then in Kibana or through the API
+      ([`argocd.md`](argocd.md#a-replaced-hooks-log-kibana-or-the-api)).
+    - Where the plan restarts: the workload's `restartedAt`, the rotator's restart, after the hook
+      Job's completion time, then the namespace's pods, each with its Ready time. The new pod's
+      Ready time less the hook Job's completion time is about D1's window: hand it back.
+    - `terraform plan of <key> · due <date>`, 14 days after the night: the stamp.
+
+    The S3 reader's and the backup tokens' consumers prove the new credential at their CronJob's
+    next run after the rotation. Read each then:
+
+    ```sh
+    for c in storage-prd/s3-mirror youtrack-prd/youtrack-backup postgres-pas-prd/postgres-backup; do
+      k -n "${c%/*}" get cronjob "${c#*/}" -o jsonpath='{.metadata.name} {.status.lastScheduleTime} {.status.lastSuccessfulTime}{"\n"}'; done
+    ```
+
+    **Reading:** for the night's marker, its CronJob's `lastSuccessfulTime` after its
+    `lastScheduleTime`, both after the rotation. A `lastSuccessfulTime` before its
+    `lastScheduleTime` is a run that failed: read its Job's log.
+
+    A plan that fails:
+
+    - Before its commit, its Telegram line ends `The run rolls it back; the leaf is due again.`
+      Nothing changed. `pvginkel/<Repo> has no config/<stage>/rotation.tfvars on main` can also
+      mean the token lacks the repository ([wave 4's check](#wave-4s-check-from-srviac)).
+    - After its commit, its line says that it is not rolled back and stays stopped for
+      `secret-rotator run <leaf>`. A keeper mints a new credential, so nothing undoes the commit.
+      The nightly run leaves the plan alone: `not started: the leaf has its terraform plan in
+      flight, on the card`. Find the cause by the failed step:
+      - `the sync of <app> at <sha7> ended Failed: …`, or no sync within 15 minutes: the hook's
+        log, as above, and [`argocd.md`](argocd.md). A backup token's `was deleted but not
+        re-created` is mended by the next sync, which creates the token again.
+      - `Secret <app>/<Secret> did not change: the sync of <sha7> took <keeper> = <value> in
+        pvginkel/<Repo> config/<stage>/rotation.tfvars, and its Terraform re-minted nothing`: the
+        repo's `terraform/main.tf` on `main` does not pass `lookup(var.rotation_epoch, "<keeper>",
+        null)` to the credential's resource.
+      - A `roll out` that did not come Ready: the workload's pods and events.
+
+      Then `srviac 'secret-rotator run rotator/terraform/<app>/<keeper>'` takes the plan up where it
+      stopped. Where it stopped before its proof passed, the proof commits a fresh keeper and waits
+      for that commit's sync before the plan can stamp: the credential is re-minted once more.
 
 **The stops.** The immediate stop is disabling the job. `enable` in place of `disable` reverses it:
 
