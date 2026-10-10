@@ -2500,8 +2500,9 @@ How a plan fails:
 - After it, at srviac's copy, the sync, the rollout or the removal: the rollback puts the old public
   half back where a removal took it off, then puts back srviac's copy, the catalog copy and the
   leaf. From the undo of the `kv.write` on, the rotator logs in with the old key again. It commits the old `ansible.pub` back, `revert "rotate the ansible user's SSH
-  key" (secret-rotator)`, which starts Build-Main a second time. Last it takes the new public half
-  off every host. `/var/lib/iac/ansible-ssh-key/id_ed25519_ansible cannot be written` is a build
+  key" (secret-rotator)`, which starts Build-Main a second time. Then it takes the new public half
+  off every host. Last it runs again those of the sync and the rollout that ran: a rollout run again
+  restarts every prd KubeCoder environment a second time. `/var/lib/iac/ansible-ssh-key/id_ed25519_ansible cannot be written` is a build
   whose `iac` container lacks srviac's directory: the agent still runs the old shim.
 - A host that goes down during the plan stops its rollback part-way, with a Telegram message: the
   add run's undo cannot reach it. Once the host is back, run the plan by hand. It restarts the
