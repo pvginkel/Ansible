@@ -41,19 +41,23 @@ microceph_cephfs_subvolume_groups:
   - k8s
 
 # Identities for the dev k8s cluster's ceph-csi drivers and for the TF
-# provider's Ceph connection. Keys are minted by Ceph — read with
-# `ceph auth get-key client.<name>` and paste into the consumer
-# (HelmCharts dev values carry inline dev secrets by design; the dev
-# cluster is isolated and this storage is disposable).
+# provider's Ceph connection. Keys are minted by Ceph when the role
+# creates a missing user; the role never re-keys a user and never writes
+# OpenBao. The dev cluster's ceph-csi ExternalSecrets read the user name
+# and key from OpenBao's shared/dev/ceph-csi (`user_id`, `user_key`);
+# after a rebuild, put `k8s` and its key (`ceph auth get-key client.k8s`)
+# there by hand.
 microceph_cephx_users:
-  # Single consolidated user backing the whole dev cluster's storage:
+  # Single consolidated identity backing the whole dev cluster's storage:
   # enough caps to manage RBD images on the k8s pool *and* CephFS
   # subvolumes on cephfs, so it serves both the HomelabTerraformProvider
-  # connection and the ceph-csi rbd/cephfs drivers at once. This is the
-  # only user wired up today; the scoped per-driver users below are
-  # declared for a later split.
+  # connection and the ceph-csi rbd/cephfs drivers at once. `k8s` and
+  # `k8s-b` are the pair SecretRotator's cephx kind rotates
+  # shared/dev/ceph-csi between, and each rotation gives the entity it
+  # re-keys the other's caps, so both take the same caps here. The
+  # scoped per-driver users below are declared for a later split.
   - name: k8s
-    caps:
+    caps: &microceph_k8s_caps
       # `profile rbd` covers the RBD mon access; CephFS needs a plain
       # `allow r` on top to read the FSMap/MDSMap and drive subvolume
       # ops, so a user serving both surfaces needs both.
@@ -61,6 +65,8 @@ microceph_cephx_users:
       mgr: allow rw
       osd: profile rbd pool=k8s, allow rw tag cephfs data=cephfs
       mds: allow rw
+  - name: k8s-b
+    caps: *microceph_k8s_caps
   # ceph-csi rbd: one user for provisioner + nodeplugin, same shape as
   # the csi-rbd-dev user on prod Ceph that this microceph replaces.
   - name: csi-rbd-dev
@@ -86,8 +92,8 @@ microceph_cephx_users:
 
 # Admin Ops API user for homelab_s3_storage — the HomelabTerraformProvider
 # mints per-release buckets + scoped RGW users through this in the
-# HelmCharts pipeline. Same single `k8s` identity as the cephx user above,
-# keeping the dev cluster to one name across RBD/CephFS/RGW.
+# HelmCharts pipeline. The uid is `k8s`, the name of the first entity of
+# the cephx pair above.
 microceph_rgw_admin_users:
   - uid: k8s
     display_name: k8s storage admin
