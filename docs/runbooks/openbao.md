@@ -513,6 +513,33 @@ and writes no value: [`external-key-due.md`](external-key-due.md).
   `auth/oidc/config`. OIDC login fails between the two. Nothing else
   follows: the role's next converge writes the same secret (role
   README §OIDC).
+- **Ceph client key** — the rotator's `cephx` kind rotates
+  `shared/prd/ceph-csi` and `shared/dev/ceph-csi`, the Ceph client
+  the CSI drivers and Argo CD's Terraform hook authenticate as. Two
+  clients with the same caps, `client.k8s` and `client.k8s-b`, take
+  turns in the leaf. A rotation gives the client the leaf does not
+  hold a new key and the caps of the one it holds, moves the leaf
+  onto it, syncs every reader, and ends no key. Mounted volumes keep
+  the client they were mounted with until their pods restart, so a
+  rotation first asks the monitors whether any client still uses the
+  one it would re-key. If one does, the rotation is **blocked**: the
+  plan fails before any change, and Telegram names the k8s nodes those
+  clients run on. The monitors know a client by its entity and its
+  node's address, never by pod. The nightly run tries again each
+  night, and after three failed nights the standing card holds the
+  leaf. To clear it, restart the Ceph-backed pods on the nodes named,
+  or let the next node update round that reboots them move them. Then
+  close the card: the next night rotates, or `run <leaf>` does it at
+  once.
+
+  A caps change made by hand on prd Ceph goes on both clients:
+  `ceph auth caps client.k8s …`, then the same for `client.k8s-b`.
+  Each rotation gives the client it re-keys the caps of the one the
+  leaf holds, so a change made on the idle client alone is lost. Made
+  on the active client alone, it is missing from the idle one until
+  the next rotation. On dev, both take the caps of one anchor in
+  `ansible/inventories/prd/group_vars/ceph_dev.yml`, which the
+  `microceph` role converges.
 - **Static seal key** — generate a new key, bump
   `openbao_seal_current_key_id`, and follow the seal-rekey path; the
   old key id must stay declared until every node has migrated.

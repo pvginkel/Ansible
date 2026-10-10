@@ -3,7 +3,8 @@
 This runbook brings SecretRotator up on srviac. First part: its credentials, its annotations and
 its nightly job, which runs in dry run. Then a week of dry run. Then going live, one kind at a time.
 [§ Wave 1](#wave-1) prepares the kinds of slice 047, [§ Wave 2](#wave-2) those of slice 049,
-[§ Wave 3](#wave-3) those of slice 052, and [§ Wave 4](#wave-4) the `terraform` kind of slice 048,
+[§ Wave 3](#wave-3) those of slice 052, [§ Wave 4](#wave-4) the `terraform` kind of slice 048, and
+[§ The Ceph kinds](#the-ceph-kinds) those of slice 061,
 each before the go-live or after it.
 
 The operator runs every step, from top to bottom. Each step gives the commands, what to hand back,
@@ -1516,6 +1517,506 @@ for repo, stage in [("ElectronicsInventoryDeploy", "prd"), ("IotDeploy", "prd"),
 - The read proves no write. The first rotation's commit proves Contents' write: GitHub refuses a
   commit without it, and that plan fails before anything changed.
 
+## The Ceph kinds
+
+Slice 061's kinds are `rgw-admin` and `cephx`. They ship switched off. Each rotates one leaf per
+cluster:
+
+- `rgw-admin`: `shared/prd/ceph-rgw/s3` and `shared/dev/ceph-rgw/s3`, the S3 key of RGW's admin
+  user `k8s`. The leaf's key adds a new key to its own user through RGW's admin API, on the storage
+  backplane. The plan writes the new pair, syncs, proves the new key, and removes the old key last.
+- `cephx`: `shared/prd/ceph-csi` and `shared/dev/ceph-csi`, the Ceph client that the CSI drivers
+  and Argo CD's Terraform hook authenticate as. Two clients with the same caps, `client.k8s` and
+  `client.k8s-b`, take turns. A rotation gives the one the leaf does not hold a new key, moves the
+  leaf onto it, syncs and proves it, and ends no key. The rotator reaches Ceph over SSH as
+  `ansible` to the PVE node a Ceph VM runs on, then `sudo -n qm guest exec` into the VM. Keys go in
+  on standard input, never on a command line.
+
+Neither kind restarts anything: CSI reads its Secret at each operation, and the hook at each Job
+run. A dev plan starts srvk8sdev through `pve` when it is off, and shuts it down again after.
+
+The sections below annotate, check from srviac what no offline run reached, bring dev up for its own
+checks and the dev `microceph` role's converge, then switch the kinds on one at a time. They start
+once SecretRotator's `prd` and Ansible's `main` carry slice 061, before step 6 or at any point
+after it. [The Ceph kinds' annotations](#the-ceph-kinds-annotations) come after step 6: they run
+`secret-rotator` on srviac, which needs steps 1 to 3.
+
+`kinds_enabled` gates the nightly run alone. `secret-rotator run <leaf>` runs a Ceph plan as soon
+as the image carries slice 061, whatever `switches.yaml` holds. Run none by hand before
+[the Ceph checks](#the-ceph-checks-from-srviac) and [the dev cluster's](#the-dev-clusters-ceph) read
+as they should.
+
+### The Ceph kinds' annotations
+
+Slice 061 changes one entry of each Ceph leaf: the `user_id` and `access_key_id` the seed marked
+`none` now rotate with their secret, since each rotation moves the leaf to another Ceph client or
+another S3 key.
+
+```sh
+srviac 'secret-rotator annotate'
+```
+
+**Hand back:** the full output.
+
+**Reading.**
+
+- Where step 6, or an apply after it, ran on a seed before slice 061, the dry run writes these four
+  leaves, each with one `change` line:
+  - `shared/prd/ceph-csi` and `shared/dev/ceph-csi`: `change
+    rotation_user_id={"kind":"cephx","interval":"365d","activate":"none"}  (was {"kind":"none"})`;
+  - `shared/prd/ceph-rgw/s3` and `shared/dev/ceph-rgw/s3`: `change
+    rotation_access_key_id={"kind":"rgw-admin","interval":"365d","activate":"none"}  (was
+    {"kind":"none"})`.
+
+  Each leaf's other key keeps its entry, and step 6 already set its `max_versions`. Until the
+  apply, each leaf's `plan` reads `cannot be built: <leaf>: a cephx plan rotates user_id and
+  user_key together, not user_key`, or the `rgw-admin` equivalent for `secret_access_key`.
+- Where it ran on slice 061's seed, none of the four: that apply wrote them.
+- No `cannot write:` line.
+
+```sh
+srviac 'secret-rotator annotate --apply'
+srviac 'secret-rotator annotate' | tail -n 1
+```
+
+**Reading:** one `patched <leaf>` line per leaf of the dry run, and exit 0. The dry run after it
+reads `would patch (dry run; --apply writes) 0 leaf(s), …`.
+
+Nothing is stamped. A Ceph key has no stamp, so it falls due at once when its kind is enabled. Read
+the plans the store now builds:
+
+```sh
+for l in shared/{prd,dev}/ceph-csi shared/{prd,dev}/ceph-rgw/s3; do srviac "secret-rotator plan $l"; done
+```
+
+**Hand back:** the full output.
+
+**Reading**, each plan `due: never rotated`:
+
+- `shared/prd/ceph-csi`: `cephx plan of user_id, user_key`, whose text names `client.k8s and
+  client.k8s-b`. Then `cephx.mint`, `kv.write`, five `eso.sync`, the silent `cephx.prove` and
+  `kv.stamp`. The syncs are of `argocd-hooks/argocd-hook-credentials`,
+  `ceph-csi-cephfs-prd/csi-cephfs-secret`, `ceph-csi-cephfs-prd/csi-cephfs-secret-user`,
+  `ceph-csi-rbd-prd/csi-rbd-secret` and `ceph-csi-rbd-prd/csi-rbd-secret-user`. No rollout, no
+  delete.
+- `shared/dev/ceph-csi`: `vm.start` (`start srvk8sdev if it is off`) first, then `cephx.mint`,
+  `kv.write`, four `eso.sync … on dev`, the silent `cephx.prove` and `kv.stamp`. The four syncs
+  are of the same four CSI names, on the dev cluster. The plan names them itself, because no read
+  of dev finds them while it is off.
+- `shared/prd/ceph-rgw/s3`: `rgw-admin plan of access_key_id, secret_access_key`. Then
+  `rgw_admin.mint`, `kv.write`, the `eso.sync` of `argocd-hooks/argocd-hook-credentials`, the
+  silent `rgw_admin.prove`, `rgw_admin.delete` and `kv.stamp`.
+- `shared/dev/ceph-rgw/s3`: `vm.start` first, then the same steps with no `eso.sync`.
+- A `cannot be built:` line: stop and read it.
+
+### The Ceph checks from srviac
+
+Slice 061 tried none of the paths below live. Each check makes the calls that the kinds' steps
+make, from srviac's `iac` container, with the rotator's own clients and the credentials in the
+store. No check prints a key. Two of them write, each to a key no one holds:
+
+- the import gives `client.k8s-b` a key that exists only in the check's process. That is what the
+  first rotation's mint does to it before it writes the leaf, and that rotation re-keys it again.
+- the self-removal adds an S3 key to `k8s` and removes it again.
+
+They run in one `iac` shell on srviac, with `py` and `check` as
+[§ The checks from srviac](#the-checks-from-srviac) defines them. `C` names the cluster: first
+`prd`, then `dev` in [the dev cluster's checks](#the-dev-clusters-ceph):
+
+```sh
+export C=prd
+```
+
+**Hand back:** the full output of each check. A traceback names the call that failed and its answer.
+
+**The PVE nodes.** Each kind asks the first PVE node that answers which node each VM is on, by
+`sudo -n pvesh` as `ansible`:
+
+```sh
+check 'from secret_rotator.vmsteps import Pve
+pve = Pve()
+for name in ("srvceph1", "srvceph2", "srvceph3", "srvk8sdev"):
+    print(pve.find(name))'
+```
+
+**Reading.**
+
+- Four `Guest(name=…, node=…, vmid=…, status=…)` lines: `srvceph1`, `srvceph2` and `srvceph3`,
+  VMs 113, 114 and 115, each `running`; `srvk8sdev`, VM 919 on `pve`, `stopped` while dev is off.
+  On 2026-10-10 the three Ceph VMs ran on `pve1`, `pve2` and `pve`. Wherever they run now, the
+  kinds look the node up at each use.
+- `no PVE node lists the cluster's VMs: on pve it exited 255: …`: the iac container's SSH to the
+  PVE nodes fails at its key, the host CA or the login. `exited 1: sudo: a password is required`:
+  sudo. Stop.
+
+**The guest agent.** For each Ceph VM in turn, the CLI runs through `sudo -n qm guest exec`, once
+without standard input. Then it runs as `cephx.prove` runs it: as the leaf's client, with the
+leaf's key passed on standard input (`--pass-stdin`). Last, the check compares Ceph's key for that
+client with the leaf's, as the mint does:
+
+```sh
+check 'import dataclasses
+from secret_rotator.vmsteps import Pve
+from secret_rotator.kinds.cephx import SITES
+from secret_rotator.kinds.cephx.ceph import Ceph
+c = os.environ["C"]
+leaf, pve = f"shared/{c}/ceph-csi", Pve()
+site = SITES[leaf]
+user, key = val(f"{leaf}#user_id"), val(f"{leaf}#user_key")
+for name in site.guests:
+    ceph = Ceph(dataclasses.replace(site, guests=(name,)), pve)
+    fsid, proof = ceph.run(["fsid"]).strip(), ceph.authenticates(f"client.{user}", key)
+    print(name, fsid, proof, f"client.{user}", ceph.entity(f"client.{user}").key == key)'
+```
+
+**Reading.**
+
+- One line per Ceph VM, three on prd: `srvceph<n> <fsid> <fsid> client.k8s True`, the cluster's
+  fsid twice. The second fsid is the monitors taking the leaf's key from standard input.
+- `no Ceph VM of prd answers: qm guest exec <vmid> on <node> exited …`: the hop failed. Its last
+  line names what refused: ssh, sudo (`a password is required`), or qm (an unknown option, no guest
+  agent running). Stop.
+- `ceph --name client.k8s fsid in srvceph<n> exited 1` with nothing after it: the `read` got no
+  standard input, so `--pass-stdin` does not pass it through. With a message after it: the monitors
+  refuse the leaf's key. Stop.
+- `False`: Ceph's `client.k8s` does not hold the leaf's key, and the plan's mint would stop before
+  any change. Stop, and find which of the two is current.
+
+**The monitors' sessions.** The mint's check: every monitor's client sessions, by entity, each
+named by the host whose address it comes from, as a blocked rotation names them:
+
+```sh
+check 'from secret_rotator.vmsteps import Pve
+from secret_rotator.kinds.cephx import SITES
+from secret_rotator.kinds.cephx.ceph import HOST_VARS, Ceph, where
+c = os.environ["C"]
+site = SITES[f"shared/{c}/ceph-csi"]
+ceph = Ceph(site, Pve())
+for entity in site.pair:
+    found = ceph.clients(f"client.{entity}")
+    print(f"client.{entity}:", found, where(found, HOST_VARS))'
+```
+
+**Reading.**
+
+- `client.k8s:` the backplane addresses of the k8s nodes whose pods mount Ceph volumes
+  (`192.168.188.27` to `.30` on prd), then the same nodes by name, `srvk8s1` to `srvk8s4`.
+- `client.k8s-b: [] []`: no client uses it.
+- An address that stays an address in the names: a client from a host no host_vars name. A blocked
+  rotation would name it the same way: find what it is.
+- `client.k8s: [] []` while prd's CSI volumes are mounted: the sessions do not carry the entity the
+  check reads, so the check would never block. Stop.
+- `mon.<name> printed no list of sessions`, or a failing `tell`: every plan would fail at its mint,
+  before any change. Stop.
+
+**The import.** The mint's import and the proof's authentication, with a new key. Run it only while
+the sessions check lists no client on `client.k8s-b`, before the kind's first rotation on that
+cluster. It refuses to run otherwise:
+
+```sh
+check 'import datetime
+from secret_rotator.vmsteps import Pve
+from secret_rotator.kinds.cephx import SITES
+from secret_rotator.kinds.cephx.ceph import Ceph, keyring, new_key
+c = os.environ["C"]
+leaf = f"shared/{c}/ceph-csi"
+site, user = SITES[leaf], val(f"{leaf}#user_id")
+ceph, idle = Ceph(site, Pve()), site.other(user, leaf)
+if found := ceph.clients(f"client.{idle}"):
+    raise SystemExit(f"client.{idle} has clients at {found}: nothing imported")
+active = ceph.entity(f"client.{user}")
+key = new_key(datetime.datetime.now(datetime.UTC))
+ceph.run(["auth", "import", "-i", "-"], keyring(f"client.{idle}", key, active.caps))
+imported = ceph.entity(f"client.{idle}")
+print(f"client.{idle}", imported.key == key, imported.caps == active.caps, ceph.authenticates(f"client.{idle}", key))'
+```
+
+**Reading.**
+
+- `client.k8s-b True True <fsid>`. Ceph took the keyring from standard input, with the AES key the
+  rotator makes and the active client's caps, and reads them back as the mint verifies them. Then
+  the monitors take the new key as the proof sends it. On prd, the import created `client.k8s-b`.
+  On dev it replaced the key that the converge gave it.
+- `ceph auth import -i - in <VM> exited …`: Ceph refuses the keyring, and each plan would fail at
+  its mint, its leaf unchanged. On dev this is also squid refusing an AES key. Stop.
+- `False` first: Ceph holds another key than the one imported. `False` second: other caps than the
+  active client's. Each plan would fail at its mint after the import, its leaf unchanged. Stop.
+
+**RGW's admin API.** Each RGW instance on the backplane lists the admin user's keys, signed with
+the leaf's key by the rotator's own client (`kinds/rgw_admin/rgw.py`). That is the call each step
+of the plan makes first:
+
+```sh
+check 'from secret_rotator.kinds.rgw_admin import SITES
+from secret_rotator.kinds.rgw_admin.rgw import Gateway, Key
+c = os.environ["C"]
+leaf = f"shared/{c}/ceph-rgw/s3"
+site = SITES[leaf]
+key = Key(val(f"{leaf}#access_key_id"), val(f"{leaf}#secret_access_key"))
+gateway = Gateway(site)
+for endpoint in site.endpoints:
+    keys = gateway.admin(endpoint, key).keys(site.uid)
+    print(endpoint, f"{site.uid}: {len(keys)} S3 key(s), the leaf key among them: {key.access in keys}")'
+```
+
+**Reading.**
+
+- On prd, three lines, `http://192.168.188.24:7480`, `.25` and `.26`, each `k8s: <n> S3 key(s), the
+  leaf key among them: True`. A plan removes the leaf's old key alone, so any other key of `k8s`
+  stays.
+- `HTTP 403: SignatureDoesNotMatch`: RGW computes another signature than the rotator's client.
+  Every plan would fail at its mint, before any change. Stop.
+- `HTTP 403: InvalidAccessKeyId`, or `False`: RGW does not hold the leaf's key as `k8s`'s. Stop.
+- A transport error: srviac does not reach that instance on the backplane. A plan passes over an
+  instance that takes no connection, so one down is no stop. All three down is: read why.
+
+**The self-removal.** The mint's add, then its undo's removal, each signed with the leaf's key: the
+admin user removing a key of its own. The rotator has not seen RGW allow that:
+
+```sh
+check 'from secret_rotator.kinds.rgw_admin import SITES
+from secret_rotator.kinds.rgw_admin.rgw import Gateway, Key
+c = os.environ["C"]
+leaf = f"shared/{c}/ceph-rgw/s3"
+site = SITES[leaf]
+key = Key(val(f"{leaf}#access_key_id"), val(f"{leaf}#secret_access_key"))
+admin, before = Gateway(site).user(key)
+(added,) = [k.access for k in admin.add_key(site.uid) if k.access not in before]
+print("added", added, "at", admin.endpoint, flush=True)
+admin.remove_key(site.uid, added)
+after = admin.keys(site.uid)
+print(f"removed: {added not in after}; the leaf key kept: {key.access in after}")'
+```
+
+**Reading.**
+
+- `added <access key id> at http://192.168.188.24:7480`, then `removed: True; the leaf key kept:
+  True`. The added key's secret was never printed or stored.
+- A traceback from `PUT …/admin/user?key`: RGW refuses the add. Each plan would fail at its mint,
+  before any change. Stop.
+- A traceback from `DELETE …/admin/user?key` after the `added` line: RGW refuses the admin user
+  removing a key of its own. A plan would then fail at `rgw_admin.delete`. Its rollback would fail
+  at the mint's undo in the same way, the leaf back on the old key and both keys valid. Do not
+  enable `rgw-admin`: stop. Remove the added key by hand through the Ceph VM's guest agent, the
+  node and VM id from [the PVE nodes](#the-ceph-checks-from-srviac). The command takes the access
+  key id, which is not a secret. `radosgw-admin` prints the user's keys, secrets included, so `jq`
+  shows its exit code and its errors alone:
+
+  ```sh
+  ssh -i ~/.ssh/id_ed25519_pve root@<node> "qm guest exec <vmid> --timeout 60 -- microceph.radosgw-admin key rm --uid=k8s --key-type=s3 --access-key=<access key id>" \
+    | jq '{exitcode: .exitcode, err: .["err-data"]}'
+  ```
+
+### The dev cluster's Ceph
+
+Dev is off by default. The dev plans start srvk8sdev through `pve` and shut it down again. Here the
+check does the same through the rotator's own `Pve`, to try that path, and dev's checks run while
+it is up. Keep the `iac` shell of [the Ceph checks](#the-ceph-checks-from-srviac) open beside a
+shell set up as [§ Conventions](#conventions) gives: the converge and the reads of the dev cluster
+run there.
+
+**The start**, as `vm.start` sends it, `sudo -n qm start 919` on the VM's node:
+
+```sh
+check 'from secret_rotator.vmsteps import Pve
+pve = Pve()
+guest = pve.find("srvk8sdev")
+if guest.status != "running":
+    pve.start(guest)
+print(guest, pve.find("srvk8sdev").status)'
+```
+
+**Reading:** `Guest(name='srvk8sdev', node='pve', vmid=919, status='stopped') running`. A
+traceback from `qm start 919 on pve`: PVE refuses the start, and every dev plan would fail at its
+`vm.start`. Stop.
+
+**What `vm.start` waits for**: dev's apiserver, dev's Ceph through the guest agent, and dev's RGW:
+
+```sh
+check 'from secret_rotator.vmsteps import Pve
+from secret_rotator.kinds.cephx import SITES as CEPHX
+from secret_rotator.kinds.cephx.ceph import Ceph
+from secret_rotator.kinds.rgw_admin import SITES as RGW
+from secret_rotator.kinds.rgw_admin.rgw import Gateway
+from secret_rotator.kinds.k8s_sa_token.reach import Dev, connect
+print("apiserver:", Dev(connect).unanswered(bao))
+print("ceph:", Ceph(CEPHX["shared/dev/ceph-csi"], Pve()).unanswered())
+print("rgw:", Gateway(RGW["shared/dev/ceph-rgw/s3"]).unanswered())'
+```
+
+**Reading:** `None` three times. While dev boots, a line says why that part does not answer: run
+the check again a minute later. A dev plan's `vm.start` waits up to 15 min for all three. If one
+still does not answer after that, the nightly run would skip the dev plans: read it before going on.
+
+**The converge** of the dev `microceph` role, from `ansible/` in the pod. It declares
+`client.k8s-b` with `client.k8s`'s caps. It needs SSH to srvk8sdev, whose host certificate lapses
+while it is off:
+
+```sh
+cd /work/Ansible/ansible && cexec iac poetry run ansible-playbook playbooks/site-ceph.yml --limit srvk8sdev
+```
+
+**Reading.**
+
+- `changed` on `Create missing cephx users`, for `client.k8s-b` alone, where no converge, import or
+  rotation has created it yet. That gives it a key Ceph makes, which no one holds, and the import
+  below replaces it. Read any other change.
+- Host key verification failing: srvk8sdev's host certificate lapsed while it was off. Re-issue it
+  with `-e reissue_target=srvk8sdev` ([`ssh-host-cert-expiry.md`](ssh-host-cert-expiry.md)), then
+  converge again.
+
+**Dev's readers**, from the pod, with the base kubeconfig's read-only `dev` context:
+
+```sh
+kd() { cexec iac kubectl --context dev "$@" </dev/null; }
+kd get externalsecrets.external-secrets.io -A -o json | jq -r '.items[] | . as $es
+  | [.spec.data[]?.remoteRef.key, (.spec.dataFrom[]?.extract.key // empty)]
+  | map(select(startswith("shared/dev/ceph-"))) | unique | select(length > 0)
+  | "\($es.metadata.namespace)/\($es.metadata.name) \(join(" "))"'
+```
+
+**Reading.**
+
+- Four lines, each ending `shared/dev/ceph-csi`: `ceph-csi-cephfs-prd/csi-cephfs-secret`,
+  `ceph-csi-cephfs-prd/csi-cephfs-secret-user`, `ceph-csi-rbd-prd/csi-rbd-secret` and
+  `ceph-csi-rbd-prd/csi-rbd-secret-user`. They are the four the dev `cephx` plan syncs
+  (`DEV_READERS`, SecretRotator `kinds/cephx/ceph.py`).
+- Another reader of `shared/dev/ceph-csi`: the dev plan would not sync it. Stop.
+- Any reader of `shared/dev/ceph-rgw/s3`: the dev `rgw-admin` plan syncs nothing, and its
+  `rgw_admin.delete` would cut that reader off. Stop.
+
+**The dev write token's sync.** In the `iac` shell, one of the four synced as each `eso.sync … on
+dev` step syncs it: with the dev write token the KubeCoder catalog holds. The Secret's content
+stays as it is, since the leaf is unchanged:
+
+```sh
+check 'import datetime, types
+from secret_rotator.cluster import Cluster, Ref
+from secret_rotator.k8ssteps import EsoSync
+from secret_rotator.kinds.k8s_sa_token.reach import Dev, connect
+ctx = types.SimpleNamespace(bao=bao, now=datetime.datetime.now(datetime.UTC), progress=print)
+es = Ref("ceph-csi-rbd-prd", "csi-rbd-secret-user")
+print(es, EsoSync(Cluster(Dev(connect).kube(bao)), es).run(ctx))'
+```
+
+**Reading.**
+
+- Perhaps a `waiting for ESO to sync it` line, then `ceph-csi-rbd-prd/csi-rbd-secret-user synced,
+  Ready`.
+- `HTTP 403` on the patch: dev's `edit` does not let `kubecoder-rw` patch ExternalSecrets. A dev
+  `cephx` plan would fail at its first dev sync, after its `kv.write`, and roll back. Stop.
+- `did not sync within …`: its last answer is ESO's message on dev. Read it.
+
+**Dev's Ceph checks.** In the `iac` shell, run the Ceph checks again on dev, from
+[the guest agent](#the-ceph-checks-from-srviac) to the self-removal:
+
+```sh
+export C=dev
+```
+
+**Reading:** as on prd, with one VM, `srvk8sdev`, and one RGW instance, `http://192.168.188.17`.
+`client.k8s` lists `srvk8sdev` while dev's pods mount Ceph volumes. The import replaces the key the
+converge gave `client.k8s-b`.
+
+**The shutdown**, as the executor sends it after a dev plan that started the VM, `sudo -n qm
+shutdown 919 --timeout 300 --forceStop 1`:
+
+```sh
+check 'from secret_rotator.vmsteps import Pve
+pve = Pve()
+pve.shutdown(pve.find("srvk8sdev"))
+print(pve.find("srvk8sdev"))'
+```
+
+**Reading:** within 5 min, `Guest(name='srvk8sdev', node='pve', vmid=919, status='stopped')`. A
+traceback from `qm shutdown 919 on pve`: a dev plan would leave srvk8sdev running after the night,
+its line in the night's console reading `srvk8sdev is not shut down: …`. Read it, then shut dev down
+by hand.
+
+`exit` leaves the shell.
+
+### Switching the Ceph kinds on
+
+Each kind goes into `kinds_enabled` in a commit of its own, in either order (item 14 of
+[§ Going live](#going-live)). Before each commit, read the kind's two plans again as
+[the annotations](#the-ceph-kinds-annotations) give them. A Ceph key has no stamp, so a kind's first
+night rotates both its leaves, prd's and dev's. The dev plan starts srvk8sdev, and the console then
+reads `srvk8sdev shut down on pve` under it. Each kind's first live plans prove what the checks
+could not: the whole plan, in the order it runs.
+
+**`rgw-admin`**, once the RGW checks and the self-removal read as they should on both clusters. Its
+first night, on each cluster:
+
+- The mint adds a key to `k8s`: `✓ add a new S3 key to the RGW admin user k8s on prd · added key
+  <id> to k8s`.
+- `kv.write` writes the new pair. On prd, `argocd-hooks/argocd-hook-credentials` syncs.
+- The silent proof has every instance take the new key.
+- The delete removes the key the leaf held: `✓ remove the key the leaf held · removed key <old id>
+  of k8s`.
+
+The hook takes the new pair at its next Job run. A shell that sourced `scripts/setup-env.sh` before
+the rotation holds the removed key: source it again.
+
+How a plan fails:
+
+- A refused mint fails the plan before its `kv.write`, and nothing changes.
+- A failed proof or delete rolls back: the leaf holds the old key again, re-synced, and the mint's
+  undo removes the added key.
+- A delete RGW refuses fails the undo in the same way, which the self-removal check rules out. Both
+  keys then stay valid, and the leaf holds the old one. Remove the added key by hand, as there, its
+  id from the mint's line.
+
+**`cephx`**, once the guest agent, the sessions, the import, dev's readers and the dev sync read as
+they should. Its first night, on each cluster:
+
+- The mint finds no client on `client.k8s-b`, then gives it a new key and `client.k8s`'s caps: `✓
+  give the idle Ceph client on prd a new key · client.k8s-b re-keyed with client.k8s's caps`.
+- `kv.write` moves the leaf to `client.k8s-b`.
+- The syncs run: on prd the four CSI Secrets and the hook's, on dev dev's four.
+- The silent proof authenticates as `client.k8s-b`.
+
+The plan ends no key. Volumes mounted before it keep `client.k8s` and its old key. New mounts and
+the hook use `client.k8s-b` at once:
+
+```sh
+bao kv get -mount=kv -field=user_id shared/prd/ceph-csi </dev/null
+```
+
+**Reading:** `k8s-b`. The user name is not a secret.
+
+**The second rotation, by hand.** `client.k8s`'s key on prd came from the migration whose
+transcript exposed it, and the first rotation leaves it valid for every volume mounted before. The
+second rotation re-keys `client.k8s`, once no client uses it. Mounts move to `client.k8s-b` as
+their pods restart. All of them move at the next node update round that reboots the nodes:
+`IaC/Scheduled Update` runs weekly, and drains and reboots a node only when its update requires it.
+After such a round, run [the monitors' sessions](#the-ceph-checks-from-srviac) check again with
+`C=prd`.
+
+**Reading:** `client.k8s: [] []`, and `client.k8s-b:` listing the k8s nodes. A node still listed
+for `client.k8s`: restart the Ceph-backed pods on it, or wait for the next round that reboots it.
+
+Then run the plan on srviac, and answer `y` to `Start it?`. It restarts nothing:
+
+```sh
+srviac 'secret-rotator run shared/prd/ceph-csi'
+```
+
+**Reading:** the mint reads `client.k8s re-keyed with client.k8s-b's caps`, every step is done, and
+`user_id` reads `k8s` again. The exposed key is gone. Too early, the mint refuses before any change:
+`the monitors list Ceph clients of client.k8s, which the plan would re-key, on <nodes>: restart the
+Ceph-backed pods there, or let the next update round that reboots them move them`. Abort the plan:
+it changed nothing, and nothing rolls back.
+
+Source `scripts/setup-env.sh` again in any shell that sourced it before the first rotation. Its
+`HOMELAB_CEPH_*` hold `client.k8s` and the exposed key, which Ceph refuses after the second
+rotation.
+
+Dev's `client.k8s` keeps its key until dev's next rotation. To retire it sooner, run `srviac
+'secret-rotator run shared/dev/ceph-csi'` with srvk8sdev off, after dev's first rotation. Dev then
+boots with every Secret on `client.k8s-b`, so its check finds no client on `client.k8s`.
+
+A rotation blocked later, on any night, is in [`openbao.md`](openbao.md) §5.
+
 ## Going live
 
 Each switch change is a commit to SecretRotator's `main`, in `src/secret_rotator/switches.yaml`. It
@@ -2017,6 +2518,12 @@ takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, 
       Then `srviac 'secret-rotator run rotator/terraform/<app>/<keeper>'` takes the plan up where it
       stopped. Where it stopped before its proof passed, the proof commits a fresh keeper and waits
       for that commit's sync before the plan can stamp: the credential is re-minted once more.
+
+14. **The Ceph kinds**, once [§ The Ceph kinds](#the-ceph-kinds)'s annotations are applied and its
+    checks, prd's and dev's, read as they should. `rgw-admin` and `cephx` go in one per commit, in
+    either order, as [Switching the Ceph kinds on](#switching-the-ceph-kinds-on) gives each. After
+    `cephx`'s first night comes its second, hand-run prd rotation, once a node update round has
+    rebooted the nodes.
 
 **The stops.** The immediate stop is disabling the job. `enable` in place of `disable` reverses it:
 
