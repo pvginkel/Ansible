@@ -22,15 +22,17 @@ slice's run hands a stop back as its verdict `question`.
 | Stop | Fires when | The move is left |
 | --- | --- | --- |
 | The render (step 1) | an object other than the hook's Job and RoleBinding and the ConfigMap `tf-presync-revision` differs between the two renders | before the state rename: nothing has changed for Argo |
-| Rule (1), the plan (step 4) | the plan at the new key lists anything but `github_repository_webhook.argocd[0]: destroy`, or fails | the rename reverted ([before the registry switch](#before-the-registry-switch)) before the registry is touched |
+| Rule (1), the plan (step 4) | the plan at the new key fails, or lists anything but `github_repository_webhook.argocd[0]: destroy`; for a stage whose old tfvars do not set `manage_webhook = true`, lists anything at all | the rename reverted ([before the registry switch](#before-the-registry-switch)) before the registry is touched |
 | Rule (2), the diff (step 6) | the Application's diff after the switch shows anything but `tf-presync-revision`'s data | parked: the switch and the rename stay, `autoSync` stays off, nothing applies |
 | A proof (steps 8, 10) | the producer's artifact or the model changes; the annotation proof fails | where it fails: an app that runs from the monorepo stays there |
 
 Rule (2) parks rather than reverts: with the rename reverted, the switched Application's state
 would sit at the old key while it applies at the new one. Rule (1) names the old repo's relay
 webhook, which the old stage's Terraform holds when its tfvars set `manage_webhook = true`. A stage
-that does not set it has no webhook to destroy, and its plan is a stop until the operator rules on
-it.
+whose old tfvars do not set it (keycloak's dev: its prd holds the webhook) has none to destroy, so
+rule (1)'s second expectation is that its plan carries no changes. Wherever this page expects the
+webhook's destroy, or on the way back its create, such a stage expects no change. `grep
+manage_webhook /work/scratch/$OLD/config/$STAGE/terraform.tfvars` says which a stage is.
 
 ## Before a move
 
@@ -43,6 +45,7 @@ this page reads these, set once per move:
 APP=headlamp STAGE=prd                        # the registry key, the stage
 OLD=HeadlampDeploy MONO=PlatformAddOnsDeploy  # the app's deploy repo, the monorepo it moves into
 NS=$APP-$STAGE                                # hook.namespace: the Application's name and namespace
+PROD=$APP-deploy JOB=$OLD                     # the producer, and the old job that publishes it
 REC=/work/AnsibleSpecs/slices/<slice>         # the move's record: renders, logs, the old job's config
 KC="--kubeconfig $HOME/.kube/config-prd-write --context prd"
 J="-u $JENKINS_USER:$JENKINS_TOKEN"
@@ -55,26 +58,45 @@ https://github.com/pvginkel/TerraformState /work/scratch/TerraformState` the fir
 `$REC`, named for what it is.
 
 An app with two stages (keycloak's dev and prd) moves both at once, since its registry entry is
-one: steps 3, 4 and 6 and the reads of step 7 run for each stage, and step 5 sets
-`autoSync: false` on each.
+one. Step 1's prediction, steps 3, 4 and 6, the reads of step 7 and the opening read's state and
+Application lines run for each stage, with `STAGE` and `NS` set to it, and step 5 sets
+`autoSync: false` on each. A difference that only one stage's render shows stops the move all the
+same, before the rename. The dev stage has a producer of its own, `$APP-dev-deploy`, which the old
+repo's second job `AaC/$OLD-dev` publishes and `AaC/$MONO` archives beside `$APP-deploy`
+(keycloak's `keycloak-dev-deploy`, from `AaC/KeycloakDeploy-dev`). The opening read's producer and
+job lines, step 8, step 9's job lines and the rollback windows' producer steps run for each
+producer, the second time with `PROD=$APP-dev-deploy JOB=$OLD-dev`.
 
 ## Where a move stands
 
 A move opens with this read, and so does every return to it: after a timeout, an answered stop, a
 review round. It resumes at the first step whose *done when* does not hold, so no production step
-runs twice or is skipped. The render, the plan and the diff are reads: a return runs them again and
-never takes an earlier round's output. So is step 8's model compare, the `A`/`B` sums of
-`AaC/Architecture`'s builds: step 8 reads done once the re-point is pushed, before the compare has
-run, so a return runs it again while step 9 is not done.
+runs twice or is skipped. The render, step 2's wait, the plan and the diff are reads: a return runs
+them again and never takes an earlier round's output. So is step 8's model compare, the `A`/`B`
+sums of `AaC/Architecture`'s builds: step 8 reads done once the re-point is pushed, before the
+compare has run, so a return runs it again while the producer's old job is not deleted.
 
 ```sh
 raw() { gh api "repos/pvginkel/$1/contents/$2" -H 'Accept: application/vnd.github.raw'; }
 has() { gh api "repos/pvginkel/$1/contents/$2" --silent 2>/dev/null && echo "$1 $2: present" || echo "$1 $2: absent"; }
+# step 2's wait: DockerImages builds that started before the pin push and are still running, and
+# whether $OLD's main has a commit the monorepo's lacks
+pinwait() {
+  { date -u +%FT%TZ
+    curl -s $J "$JENKINS_URL/job/DockerImages/api/json?tree=builds%5Bnumber,timestamp,building%5D%7B0,5%7D" \
+      | jq -c --argjson t "$(cat $REC/pins-pushed-$APP.txt)" '[.builds[] | select(.building and .timestamp < $t) | .number]'
+    git -C /work/scratch/$MONO fetch -q origin
+    git -C /work/scratch/$MONO fetch -q https://github.com/pvginkel/$OLD.git main
+    git -C /work/scratch/$MONO merge-base --is-ancestor FETCH_HEAD origin/main \
+      && echo "$OLD main: in $MONO" || echo "$OLD main: ahead of $MONO"
+  } | tee -a $REC/pins-wait-$APP.log
+}
 # 1: the app's directory on the monorepo's main, and AaC/<Monorepo>'s last green build
 has $MONO $APP
 curl -s $J "$JENKINS_URL/job/AaC/job/$MONO/lastSuccessfulBuild/api/json?tree=number,artifacts%5BrelativePath%5D" | jq -c
-# 2: deploy-pins.json entries that still name the old repo
+# 2: deploy-pins.json entries that still name the old repo; once step 2 pushed, its wait
 git -C /work/DockerImages fetch -q origin && git -C /work/DockerImages grep -l "\"pvginkel/$OLD\"" origin/main -- '*/deploy-pins.json'
+[ -f $REC/pins-pushed-$APP.txt ] && pinwait
 # 3: the state at each key, and any lock held on either
 for key in argocd/$OLD/$STAGE argocd/$MONO/$APP/$STAGE; do
   has TerraformState $key/terraform.tfstate
@@ -89,23 +111,23 @@ cexec iac kubectl get application -n argocd-prd $NS -o json | jq -c '{sync: .sta
   autoSync: (.spec.syncPolicy.automated != null)}'
 cexec iac kubectl logs -n argocd-hooks job/tf-presync-$NS | grep -m1 'Getting state from' | sed 's/.*\/\///'
 # 8: the producer's entry on Architecture's main
-raw Architecture pipeline-producers.yaml | yq -c --arg id $APP-deploy '.producers[] | select(.id == $id)'
-# 9: the old job (200 while it exists, 404 once deleted) and the old repo
-curl -s -o /dev/null -w "AaC/$OLD: %{http_code}\n" $J "$JENKINS_URL/job/AaC/job/$OLD/api/json"
+raw Architecture pipeline-producers.yaml | yq -c --arg id $PROD '.producers[] | select(.id == $id)'
+# 9: the producer's old job (200 while it exists, 404 once deleted) and the old repo
+curl -s -o /dev/null -w "AaC/$JOB: %{http_code}\n" $J "$JENKINS_URL/job/AaC/job/$JOB/api/json"
 gh api repos/pvginkel/$OLD --jq '"archived: \(.archived)"'
 ```
 
 | Step | Done when |
 | --- | --- |
 | 1. The directory | `$MONO $APP: present` |
-| 2. The pins | no `deploy-pins.json` names `pvginkel/$OLD` |
+| 2. The pins | no `deploy-pins.json` names `pvginkel/$OLD`. The wait, once step 2 pushed, is a read: run while step 3 is not done, and it holds at `[]` and `$OLD main: in $MONO` |
 | 3. The state rename | the new key `present`, the old `absent`, no lock on either |
 | 4. The plan | a read: run while step 5 is not done |
 | 5. The registry switch | the entry names `$MONO` and `path: $APP` |
 | 6. The diff | a read: run while the entry carries `autoSync: false` |
 | 7. The sync | the entry has no `autoSync`; the Application reads `$MONO`, `autoSync: true`, `Synced` and `Healthy`; its hook's last run read `argocd/$MONO/$APP/$STAGE/terraform.tfstate` |
-| 8. The producer | the entry names `pvginkel/$MONO`, `AaC/$MONO` and `path: $APP` |
-| 9. The old job and repo | `AaC/$OLD: 404` and `archived: true` |
+| 8. The producer | each producer's entry names `pvginkel/$MONO`, `AaC/$MONO` and `path: $APP` |
+| 9. The old job and repo | `AaC/$JOB: 404` for each producer, and `archived: true` |
 | 10. The annotation proof | the pilots only: their slice's record says |
 
 ## The move
@@ -194,9 +216,38 @@ starts `AaC/$MONO`, which step 8 waits on.
 
 Each DockerImages `deploy-pins.json` entry that names `pvginkel/$OLD` (the read above) takes
 `repo: pvginkel/$MONO` and its own `file` under `$APP/` (`config/dev/values.yaml` becomes
-`$APP/config/dev/values.yaml`). Commit, push. From here an image
-build writes its pin into the directory, where nothing deploys it until step 7. Empty for both
-pilots: no `deploy-pins.json` names headlamp or pgadmin.
+`$APP/config/dev/values.yaml`). Commit, then push and record when the push landed, which the wait
+reads:
+
+```sh
+git -C /work/DockerImages push origin HEAD:main && date +%s000 > $REC/pins-pushed-$APP.txt
+```
+
+From here an image build writes its pin into the directory, where nothing deploys it until step 7.
+An app with no entry pushes nothing and skips the wait; neither pilot had one.
+
+**The wait**, before step 3. A DockerImages build that started before the push can still commit a
+pin to `$OLD`. The job sets `disableConcurrentBuilds()` without `abortPrevious`, under a 180-minute
+`timeout` (DockerImages `Jenkinsfile`, `options`), so the push queues behind a running build
+instead of ending it. That build pins from its own checkout (its `Checkout` stage feeds
+`collectPins`), the entries as they were before the push. A build started after the push reads
+the re-pointed pins. Run the opening read's `pinwait` until it prints `[]` and `$OLD main: in
+$MONO`; its log, `$REC/pins-wait-$APP.log`, is the record that the wait ended before the rename.
+
+- A build number: follow that build to its end, `track_build.py DockerImages --buildnr <n>`, which
+  also waits for Argo CD to roll any pin it pushed. Then read again.
+- `$OLD main: ahead of $MONO`: a commit reached `$OLD` after step 1's subtree took it, a sat-out
+  build's pin. Once the opening read's Application line shows the old Application `Synced` at
+  `$OLD`'s new head (its hook applied at the old key), bring the commit into the directory, in
+  `/work/scratch/$MONO`:
+
+  ```sh
+  PATH=/tmp/gnubin:$PATH git subtree pull --prefix=$APP -m "$APP: $OLD's main since the subtree add" \
+    https://github.com/pvginkel/$OLD.git main
+  ```
+
+  Then step 1's prediction again, `/work/scratch/$OLD` fetched first so that `OLDREV` is that
+  head, the push, and the read again.
 
 ### 3. The state rename
 
@@ -239,10 +290,21 @@ presync:   github_repository_webhook.argocd[0]: destroy
 presync: plan only: nothing was applied and no volume was reattached
 ```
 
-The destroy is the old repo's relay webhook, which `manage_webhook = false` lets go. Planning it
-at all shows that the state is at the new key and that its sops encryption does not bind the path.
-**Anything else is rule (1)'s stop**: another change, no change, a failed plan. Revert the rename
-([before the registry switch](#before-the-registry-switch)) before anything else, then stop.
+The destroy is the old repo's relay webhook, which `manage_webhook = false` lets go. A stage whose
+old tfvars do not set `manage_webhook = true` has no webhook in its state, and its verdict holds no
+change at all, rule (1)'s second expectation:
+
+```text
+presync: planning against argocd/<Monorepo>/<app>/<stage>/terraform.tfstate: nothing is applied
+…
+presync: the plan carries no changes
+presync: plan only: nothing was applied and no volume was reattached
+```
+
+Either plan shows that the state is at the new key, where an empty state would plan a create of
+every resource, and that its sops encryption does not bind the path. **Anything else is rule (1)'s
+stop**: another change, the expected destroy missing, a failed plan. Revert the rename ([before the
+registry switch](#before-the-registry-switch)) before anything else, then stop.
 
 ### 5. The registry switch
 
@@ -293,8 +355,9 @@ gh api repos/pvginkel/$OLD/hooks --jq '.[] | "\(.id) \(.config.url)"'
 ```
 
 `Succeeded Synced Healthy`; the hook read `…//argocd/$MONO/$APP/$STAGE/terraform.tfstate` and
-reports `Resources: 0 added, 0 changed, 1 destroyed.`; `$OLD`'s hooks no longer list
-`https://deploy-hooks.webathome.org/api/webhook`, only its Jenkins one.
+reports `Resources: 0 added, 0 changed, 1 destroyed.`, or `Resources: 0 added, 0 changed, 0
+destroyed.` for a stage whose old tfvars do not set `manage_webhook = true`; `$OLD`'s hooks no
+longer list `https://deploy-hooks.webathome.org/api/webhook`, only its Jenkins one.
 
 An app with a volume: the hook logs `presync: 0 volume(s) reattached`, and step 3's read run again
 into `$REC/pv-$NS-after.json` is the same line for line, so the subvolume and the PV are the
@@ -302,13 +365,14 @@ objects they were.
 
 ### 8. The producer
 
-`AaC/$MONO` has a green build that archived `$APP/docs/architecture/$APP-deploy.yaml` (the read
-above): step 1's push started it. The producer proof is that its artifact is, byte for byte, the
-one the old job published:
+Run for each producer: `$APP-deploy` from `AaC/$OLD`, and a two-stage app's `$APP-dev-deploy`
+from `AaC/$OLD-dev`. `AaC/$MONO` has a green build that archived
+`$APP/docs/architecture/$PROD.yaml` (the read above): step 1's push started it. The producer proof
+is that its artifact is, byte for byte, the one the old job published:
 
 ```sh
-curl -sf $J "$JENKINS_URL/job/AaC/job/$OLD/lastSuccessfulBuild/artifact/docs/architecture/$APP-deploy.yaml" | sha256sum
-curl -sf $J "$JENKINS_URL/job/AaC/job/$MONO/lastSuccessfulBuild/artifact/$APP/docs/architecture/$APP-deploy.yaml" | sha256sum
+curl -sf $J "$JENKINS_URL/job/AaC/job/$JOB/lastSuccessfulBuild/artifact/docs/architecture/$PROD.yaml" | sha256sum
+curl -sf $J "$JENKINS_URL/job/AaC/job/$MONO/lastSuccessfulBuild/artifact/$APP/docs/architecture/$PROD.yaml" | sha256sum
 ```
 
 Equal sums, or the producer proof stops the move. Then Architecture's `pipeline-producers.yaml`:
@@ -321,22 +385,28 @@ build before it, `A`.
 ```sh
 for b in $A $B; do
   curl -sf $J "$JENKINS_URL/job/AaC/job/Architecture/$b/artifact/producer-artifacts.tgz" \
-    | tar -xzO --wildcards "producer-artifacts/$APP-deploy/*$APP-deploy.yaml" | sha256sum
+    | tar -xzO --wildcards "producer-artifacts/$PROD/*$PROD.yaml" | sha256sum
 done
 ```
 
 ### 9. The old job and repo
 
-Only after step 8's green build: until it, the collector copies the producer from `AaC/$OLD`.
+Each producer's old job only after that producer's step 8, its proof, its re-point and its
+compare: until the re-point's green build, the collector copies the producer from `AaC/$JOB`, and
+it copies from every registered producer's job, so a job an entry still names cannot go.
 
 ```sh
-curl -sf $J "$JENKINS_URL/job/AaC/job/$OLD/config.xml" > $REC/AaC-$OLD-config.xml   # a rollback's copy
-curl -sf -X POST $J "$JENKINS_URL/job/AaC/job/$OLD/doDelete"
+curl -sf $J "$JENKINS_URL/job/AaC/job/$JOB/config.xml" > $REC/AaC-$JOB-config.xml   # a rollback's copy
+curl -sf -X POST $J "$JENKINS_URL/job/AaC/job/$JOB/doDelete"
+```
+
+Once every producer's old job is gone, the repo:
+
+```sh
 gh api -X PATCH repos/pvginkel/$OLD -F archived=true --jq .archived
 ```
 
-keycloak's second job, `AaC/KeycloakDeploy-dev`, is saved and deleted the same way. The old repo's
-relay webhook went with step 7.
+The old repo's relay webhook went with step 7.
 
 ### 10. The annotation proof
 
@@ -364,6 +434,10 @@ SHA. Never a hard refresh: it re-renders at HEAD and runs the app's hook (argo-c
   ([argocd.md](argocd.md#registering-undeploying-and-unregistering-an-app)). A commit in that
   window, a DockerImages pin write or a hand edit, syncs it, and its hook applies against an empty
   state at the old key.
+- **The wait (2) before the rename (3):** a DockerImages build that started before the pin push
+  writes its pins from the entries it checked out, into `$OLD`, and the push queues behind it
+  rather than ending it. Before the rename its pin syncs the old Application against the state;
+  after it, against an empty one.
 - **The directory pushed (1) before the plan (4):** the plan clones the monorepo at its SHA.
 - **The rename (3) and a clean plan (4) before the switch (5):** the switched Application's first
   sync applies at the new key, which has to hold the state by then.
@@ -371,8 +445,10 @@ SHA. Never a hard refresh: it re-renders at HEAD and runs the app's hook (argo-c
   before anything applies.
 - **A green `AaC/$MONO` build before the re-point (8):** a registered producer with no archived
   artifact fails the collector's discovery, and a failed collector run publishes nothing.
-- **The old job and repo (9) after the re-point's green build:** until then the collector copies
-  the producer from `AaC/$OLD`.
+- **Each old job (9) after its own producer's re-point and green build:** until then the collector
+  copies that producer from `AaC/$JOB`, and a collection that cannot copy a registered producer
+  fails. keycloak's `AaC/KeycloakDeploy-dev` waits on `keycloak-dev-deploy`'s re-point as
+  `AaC/KeycloakDeploy` waits on `keycloak-deploy`'s.
 
 ## Rollback
 
@@ -411,33 +487,35 @@ off, and the state is at the new key. In this order:
 
 ### After the sync
 
-Step 7 done, 9 not: the app runs from the monorepo, `$OLD` is unarchived and `AaC/$OLD` exists.
-The move in reverse:
+Step 7 done, 9 not: the app runs from the monorepo, `$OLD` is unarchived and each producer's
+`AaC/$JOB` exists; one that step 9 already deleted comes back first, as [after
+archival](#after-archival) does it. The move in reverse:
 
-1. If step 8 is done: the producer's entry back to `repo: pvginkel/$OLD`, `jenkinsJob: AaC/$OLD`,
-   no `path:`. Push; `AaC/Architecture` green.
+1. Each producer whose step 8 is done: its entry back to `repo: pvginkel/$OLD`,
+   `jenkinsJob: AaC/$JOB`, no `path:`. Push; `AaC/Architecture` green.
 2. The registry entry back to `$OLD` with `autoSync: false` on each stage. Push. The Application
    reads `$OLD`, and its diff (step 6's read) is the ConfigMap's `data.revision` alone, back to
    `$OLDREV`.
 3. The state back to the old key, as [above](#before-the-registry-switch). Its plan from `$OLD`'s
    head carries one change, `github_repository_webhook.argocd[0]: create`: `$OLD`'s tfvars still
-   set `manage_webhook = true`, and the move's sync destroyed the webhook.
+   set `manage_webhook = true`, and the move's sync destroyed the webhook. A stage whose tfvars do
+   not set it plans no changes.
 4. `autoSync` on. Push. Argo syncs `$OLDREV`, and the hook's apply at
-   `argocd/$OLD/$STAGE/terraform.tfstate` recreates the webhook: `1 added, 0 changed, 0 destroyed`.
+   `argocd/$OLD/$STAGE/terraform.tfstate` recreates the webhook: `1 added, 0 changed, 0 destroyed`,
+   or `0 added, 0 changed, 0 destroyed` for a stage whose tfvars do not set it.
 5. The pins (2) back to `$OLD`, and `$APP/` and its project out of the monorepo in one commit.
 
 ### After archival
 
-Step 9 done. Unarchive the repo and recreate its job from the saved `config.xml`, the push trigger
-with it; creating a job starts no build, so build it once:
+Step 9 done. Unarchive the repo, then recreate each producer's old job from its saved
+`config.xml`, the push trigger with it; creating a job starts no build, so build it once:
 
 ```sh
 gh api -X PATCH repos/pvginkel/$OLD -F archived=false --jq .archived
-curl -sf -X POST $J -H 'Content-Type: application/xml' --data-binary @$REC/AaC-$OLD-config.xml \
-  "$JENKINS_URL/job/AaC/createItem?name=$OLD"
-curl -sf -X POST $J "$JENKINS_URL/job/AaC/job/$OLD/build"
+curl -sf -X POST $J -H 'Content-Type: application/xml' --data-binary @$REC/AaC-$JOB-config.xml \
+  "$JENKINS_URL/job/AaC/createItem?name=$JOB"
+curl -sf -X POST $J "$JENKINS_URL/job/AaC/job/$JOB/build"
 ```
 
-That build green, with `docs/architecture/$APP-deploy.yaml` archived, then [after the
-sync](#after-the-sync), whose step 1 needs it. keycloak's `AaC/KeycloakDeploy-dev` comes back the
-same way.
+Each build green, with `docs/architecture/$PROD.yaml` archived, then [after the
+sync](#after-the-sync), whose step 1 needs them.
