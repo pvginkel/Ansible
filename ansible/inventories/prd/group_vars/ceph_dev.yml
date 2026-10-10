@@ -1,6 +1,6 @@
 ---
 # Single-node microceph co-located on srvk8sdev. Isolated dev storage so
-# HelmCharts / TF-provider iteration stops churning RBD images and RGW
+# dev deploys and TF-provider iteration stop churning RBD images and RGW
 # users on the prod Ceph cluster. Sized tight on purpose — this node
 # carries no persistent load (decisions.md "Environment mapping").
 
@@ -91,9 +91,7 @@ microceph_cephx_users:
       osd: profile rbd pool=k8s
 
 # Admin Ops API user for homelab_s3_storage — the HomelabTerraformProvider
-# mints per-release buckets + scoped RGW users through this in the
-# HelmCharts pipeline. The uid is `k8s`, the name of the first entity of
-# the cephx pair above.
+# mints per-release buckets + scoped RGW users through this.
 microceph_rgw_admin_users:
   - uid: k8s
     display_name: k8s storage admin
