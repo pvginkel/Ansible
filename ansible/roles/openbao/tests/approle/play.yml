@@ -1,0 +1,25 @@
+---
+# Converges tasks/approle.yml against the throwaway dev OpenBao that
+# run.sh starts; run.sh is the entry point, not this file. The harness_*
+# vars come from run.sh's --extra-vars and have no default, so a run
+# without it fails at the first request instead of reaching
+# secrets.home, the role's default address.
+- name: Converge the openbao role's AppRole tasks against a dev OpenBao
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  vars:
+    # The dev server's root token, fixed by run.sh's -dev-root-token-id.
+    openbao_admin_token: root
+    openbao_admin_api_addr: "{{ harness_bao_addr }}"
+    # The rotator AppRole's CIDR is resolved with getent; localhost keeps
+    # the harness off the homelab's DNS.
+    openbao_rotator_bound_hostname: localhost
+    openbao_backup_staging_dir: "{{ harness_staging_dir }}"
+    openbao_credential_staging_dir: "{{ harness_staging_dir }}/openbao-credentials"
+  tasks:
+    - name: Converge the AppRoles, policies and mounts
+      ansible.builtin.import_role:
+        name: openbao
+        tasks_from: approle

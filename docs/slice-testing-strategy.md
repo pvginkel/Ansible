@@ -6,20 +6,28 @@ execute it".
 **The Ansible roles and the Terraform have no runnable test suite, and that is a decision, not a
 gap.** What Ansible and Terraform do is converge real machines; the only honest proof is a run
 against them, and those runs are the operator's. So this procedure is short, and it ends with work
-owed to the operator rather than a green tick. The Python beside them is the exception: the root
-component runs the unit tests in `ansible/roles/dhcp_probe/tests`, `scripts/rotation`, `scripts`,
-`support/iac-agent/tests` and `.vscode`.
+owed to the operator rather than a green tick. There are two exceptions. The Python beside them:
+the root component runs the unit tests in `ansible/roles/dhcp_probe/tests`, `scripts/rotation`,
+`scripts`, `support/iac-agent/tests` and `.vscode`. And the openbao role's `tasks/approle.yml`: the
+`ansible` component runs `ansible/roles/openbao/tests/approle/run.sh`, which converges that file
+against a throwaway dev OpenBao in the `iac` sidecar, normally and with `--check`. A dev server
+stands in for the API approle.yml talks to, not for the hosts the rest of the role configures.
 
 ## 1. The gates
 
 `kc project test` across every repo the slice touched. In this repo that is yamllint +
-ansible-lint over `ansible/`, `terraform fmt -check` over `terraform/`, the architecture
-validator, and the root component's unit tests. Red is a finding; route it per the bar in your
-dispatch.
+ansible-lint over `ansible/`, the approle.yml harness, `terraform fmt -check` over `terraform/`,
+the architecture validator, and the root component's unit tests. Red is a finding; route it per the
+bar in your dispatch.
 
-Treat a green gate as what it is: syntax and style, and the unit-tested Python's own logic. It says
-nothing about whether the role converges, whether it is idempotent, or whether it does the right
-thing. **Never record a verification item as satisfied on the strength of a green gate alone.**
+The harness starts from an applied server: it applies, re-applies and runs `--check`, each expected
+at `changed=0`, then deletes AppRole `rotator` and expects `--check` to pass (slice 045's HTTP 404
+reading the role_id of an AppRole not yet created), applies again and runs `--check` once more.
+
+Treat a green gate as what it is: syntax and style, the unit-tested Python's own logic, and
+approle.yml's behaviour against a dev server. It says nothing about whether the rest of the roles
+converge, whether they are idempotent, or whether they do the right thing. **Never record a
+verification item as satisfied on the strength of a green gate alone.**
 
 ## 2. Static verification of the things that bite here
 
@@ -51,14 +59,16 @@ These need no operator gate and are worth running when the slice touched somethi
 - SSH read-only inspection on managed hosts (`qm config`, `lsblk`, file reads).
 - **OpenBao role scripts against a throwaway dev server.** `bao` lives in the `iac` sidecar and
   `curl`/`jq` only in the dev container, but both share the pod's network namespace, so
-  `cexec iac timeout 900 bao server -dev -dev-root-token-id=root -dev-listen-address=127.0.0.1:18200`
+  `cexec iac timeout 900 bao server -dev -dev-root-token-id=root -dev-no-store-token -dev-listen-address=127.0.0.1:18200`
   (backgrounded; the timeout makes it exit even if the kill misses) is reachable from either side.
+  Without `-dev-no-store-token` the server writes its root token to `~/.vault-token`, in the home
+  every environment shares.
   Seed it with `cexec iac sh -c 'export BAO_ADDR=http://127.0.0.1:18200 BAO_TOKEN=root; bao kv put secret/…'`
   — the dev server's KV-v2 mount is `secret/`, not prd's `kv/` — then run the role's bash with its
   Jinja variables sed-substituted, and stop it with
   `cexec iac pkill -f "server -dev -dev-root-token-id=root"`. Its storage is inmem, not Raft
   (`sys/leader` reports `is_self: false`, no snapshot), so exercise wrapper sections, not a whole
-  backup script.
+  backup script. approle.yml has its own harness (§ 1); run that rather than building one.
 
 See [live-infra-access.md](live-infra-access.md) for the mechanics.
 

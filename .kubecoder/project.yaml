@@ -31,13 +31,18 @@ projects:
     # .yamllint pointed at explicitly; ansible-lint finds both root configs
     # itself, via the git root. Jenkinsfile.iac-on-push's Lint stage runs
     # these same two commands, and the terraform one below; keep them in step.
-    # test mirrors lint deliberately: there is no runnable suite here, and the
-    # run loop gates on `test`, not `lint`. The anchor keeps the two from
-    # drifting apart. Live verification stays the operator's keystroke.
-    lint: &ansible_gates
+    # test runs lint's two commands too, because the run loop gates on `test`,
+    # not `lint`; keep them in step with lint's. Its one suite is the openbao
+    # role's approle.yml harness, against a throwaway dev OpenBao in the iac
+    # sidecar; Jenkins does not run it. Live verification stays the
+    # operator's keystroke.
+    lint:
       - cexec iac poetry run yamllint -c ../.yamllint .
       - cexec iac poetry run ansible-lint
-    test: *ansible_gates
+    test:
+      - cexec iac poetry run yamllint -c ../.yamllint .
+      - cexec iac poetry run ansible-lint
+      - cexec iac ./roles/openbao/tests/approle/run.sh
 
   terraform:
     description: >-
