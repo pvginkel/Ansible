@@ -24,7 +24,7 @@ terraform plan
 terraform apply
 ```
 
-On first apply Terraform downloads the Ubuntu 24.04 cloud image (~600 MB) to `local`, uploads one cloud-init snippet per VM, then creates and boots each VM. Cloud-init creates the `ansible` user with NOPASSWD sudo and the ed25519 public key. Total time: ~1–2 minutes per VM plus the image download.
+On first apply Terraform downloads the Ubuntu 24.04 cloud image (~600 MB) to `local`, uploads one cloud-init snippet per VM, then creates and boots each VM. Cloud-init creates the `ansible` user with NOPASSWD sudo and its public key, `ansible/roles/bootstrap/files/ansible.pub` from this checkout (or `ansible_ssh_public_key`). A change of that file re-renders the snippets and leaves the VMs alone: they ignore `initialization[0].user_data_file_id`, as prd's `managed-vm` module does. Total time: ~1–2 minutes per VM plus the image download.
 
 Once the VMs are up:
 

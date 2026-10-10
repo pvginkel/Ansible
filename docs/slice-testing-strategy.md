@@ -6,28 +6,34 @@ execute it".
 **The Ansible roles and the Terraform have no runnable test suite, and that is a decision, not a
 gap.** What Ansible and Terraform do is converge real machines; the only honest proof is a run
 against them, and those runs are the operator's. So this procedure is short, and it ends with work
-owed to the operator rather than a green tick. There are two exceptions. The Python beside them:
+owed to the operator rather than a green tick. There are three exceptions. The Python beside them:
 the root component runs the unit tests in `ansible/roles/dhcp_probe/tests`, `scripts/rotation`,
 `scripts`, `support/iac-agent/tests` and `.vscode`. And the openbao role's `tasks/approle.yml`: the
 `ansible` component runs `ansible/roles/openbao/tests/approle/run.sh`, which converges that file
 against a throwaway dev OpenBao in the `iac` sidecar, normally and with `--check`. A dev server
 stands in for the API approle.yml talks to, not for the hosts the rest of the role configures.
+And `ansible/playbooks/rotate-ansible-key.yml`: the `ansible` component runs
+`ansible/playbooks/tests/rotate-ansible-key/run.sh`, which runs it against local stand-ins for its
+hosts, with a fake `qm` and a fake `ssh` that takes the proof's login; a real sshd, sudo on a PVE
+node and the guest agent stay the live run's.
 
 ## 1. The gates
 
 `kc project test` across every repo the slice touched. In this repo that is yamllint +
-ansible-lint over `ansible/`, the approle.yml harness, `terraform fmt -check` over `terraform/`,
-the architecture validator, and the root component's unit tests. Red is a finding; route it per the
-bar in your dispatch.
+ansible-lint over `ansible/`, the approle.yml and rotate-ansible-key.yml harnesses, `terraform
+fmt -check` over `terraform/`, the architecture validator, and the root component's unit tests. Red
+is a finding; route it per the bar in your dispatch.
 
-The harness starts from an applied server: it applies, re-applies and runs `--check`, each expected
-at `changed=0`, then deletes AppRole `rotator` and expects `--check` to pass (slice 045's HTTP 404
-reading the role_id of an AppRole not yet created), applies again and runs `--check` once more.
+The approle.yml harness starts from an applied server: it applies, re-applies and runs `--check`,
+each expected at `changed=0`, then deletes AppRole `rotator` and expects `--check` to pass (slice
+045's HTTP 404 reading the role_id of an AppRole not yet created), applies again and runs `--check`
+once more.
 
-Treat a green gate as what it is: syntax and style, the unit-tested Python's own logic, and
-approle.yml's behaviour against a dev server. It says nothing about whether the rest of the roles
-converge, whether they are idempotent, or whether they do the right thing. **Never record a
-verification item as satisfied on the strength of a green gate alone.**
+Treat a green gate as what it is: syntax and style, the unit-tested Python's own logic,
+approle.yml's behaviour against a dev server and rotate-ansible-key.yml's against stand-ins. It says
+nothing about whether the rest of the roles converge, whether they are idempotent, or whether they
+do the right thing. **Never record a verification item as satisfied on the strength of a green gate
+alone.**
 
 ## 2. Static verification of the things that bite here
 

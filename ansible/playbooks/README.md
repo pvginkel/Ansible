@@ -36,6 +36,15 @@ ansible-playbook playbooks/site.yml --check --diff
   secret_id that its caller minted to every srvvault, each proving it
   with a login first, and does nothing else. SecretRotator runs it when
   it rotates `backup` (the `openbao` role README, §Backup pipeline).
+- `rotate-ansible-key.yml` — authorises one public half of the
+  `ansible` user's SSH key on every host of the `ansible_key` group
+  and logs in to each with its private half, or takes exactly that
+  public half off every one. The always-up hosts are reached over
+  SSH; the VMs that may be off (srvk8sdev, the scratch VMs) through
+  the guest agent of their PVE node, where the caller says they run.
+  SecretRotator's `ssh-key` kind runs it twice per rotation, adding
+  the new key, then removing the old one; the playbook's header lists
+  its extra vars. Not part of `site.yml`.
 - `step-ca.yml` — writes step-ca's five Secrets on the prd cluster
   from the `step_ca` role's files, and restarts step-ca when their
   data changed. The single entry point for step-ca's material: cluster

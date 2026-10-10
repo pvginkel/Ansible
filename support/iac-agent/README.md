@@ -6,10 +6,11 @@ Host glue for `srviac`, the homelab's IaC orchestrator VM. Part of the Ansible r
 
 | Path | What it is |
 |---|---|
-| `bin/iac` | The host shim. Runs `iac-impl` inside the `iac` container (`registry:5000/iac:latest`, built from this repo's `support/iac-image/`); bind-mounts four paths in — `iac-impl`, `/etc/iac/secrets.yaml`, `check-protected-vms.sh` and `check-ansible-drift.sh`. |
+| `bin/iac` | The host shim. Runs `iac-impl` inside the `iac` container (`registry:5000/iac:latest`, built from this repo's `support/iac-image/`); bind-mounts six paths in — `iac-impl`, `/etc/iac/secrets.yaml`, `check-protected-vms.sh`, `check-ansible-drift.sh`, `check-terraform-drift.sh`, and the directory `/var/lib/iac/ansible-ssh-key`, which holds srviac's own copy of the Ansible key (`id_ed25519_ansible`, written by SecretRotator) and is the one path mounted writable. The secrets file and that directory are `--mount` binds, so a missing source fails the run instead of being created empty. |
 | `bin/iac-impl` | The in-container entrypoint. Parses secrets, clones the Ansible repo (the GitHub token through a `GIT_ASKPASS` helper, never in a clone URL), starts the `terraform-backend-git` daemon on `127.0.0.1:6061` (terraform reaches state through it via each config's `backend.tf` http block), warns when the clone's `poetry.lock` differs from the one the image's venv was baked from, then executes the caller's command. Bind-mounted in from `/usr/local/bin/iac-impl` on the host (so changes don't require an `iac` image rebuild). |
 | `bin/jenkins-agent-launch.sh` | Wrapper invoked by the systemd unit; extracts `JENKINS_AGENT_SECRET` from `/etc/iac/secrets.yaml` and launches the Jenkins inbound-agent container. The secret reaches the agent as a file, never on a command line: the script writes it to `agent-secret` in the unit's runtime directory (mode 0600, owned by the agent's uid 1000), bind-mounts that read-only at `/run/secrets/jenkins-agent` and passes `-secret @/run/secrets/jenkins-agent`. A malformed secret fails the start without echoing the value. |
 | `bin/check-protected-vms.sh` | Used by the on-push, apply and drift Jenkins jobs, against the `terraform/prd` plan JSON. Fails (exit 1) when the plan deletes or replaces any VM; exits 2 on a usage error or an unreadable plan. The second rail: while `managed-vm`'s VM resource carries `prevent_destroy`, `terraform plan` refuses such a plan before the guard runs. |
+| `bin/check-terraform-drift.sh` | Used by the drift job, against the `terraform/prd` plan JSON of a plan with changes, after `check-protected-vms.sh`. Exits 0, printing each snippet's address, when every change is to the root `proxmox_virtual_environment_file.cloud_init` — the cloud-init snippets every rotation of `ansible.pub` re-renders, which no running VM reads. Exits 1 with `DRIFT: terraform plan proposes changes against prd` and one `check-terraform-drift: plan changes <address> (<what>)` line per other change, a pending move or import included; 2 on a usage error or an unreadable plan. |
 | `bin/check-ansible-drift.sh` | Used by the drift job. Wraps `ansible-playbook --check --diff` and fails when the recap reports any pending changes. |
 | `bin/secret-rotator-ui` | SecretRotator's UI in the tmux session `secret-rotator`, run as `ssh -t ansible@srviac secret-rotator-ui`: attaches to the session when it runs, else creates it running `sudo iac -c 'secret-rotator ui'`. A lost SSH session leaves the UI running, and running it again reattaches. It turns tmux's `set-clipboard` on, so the UI's Copy (OSC 52) reaches the terminal, and holds a UI that exits non-zero on screen until Enter. tmux comes from `baseline_extra_packages` in the prd inventory's `group_vars/iac_agent.yml`. |
 | `etc/iac/secrets.example.yaml` | Placeholder for `/etc/iac/secrets.yaml`. The Ansible role places this on a fresh srviac and fails loudly until the operator copies it to `secrets.yaml` and fills in real values. |
@@ -17,13 +18,14 @@ Host glue for `srviac`, the homelab's IaC orchestrator VM. Part of the Ansible r
 | `etc/cron.d/iac-prune` | Daily `docker image prune -f` (dangling-only). |
 | `systemd/jenkins-agent.service` | Long-running container for the Jenkins inbound agent. `RuntimeDirectory=jenkins-agent` (`/run/jenkins-agent`, 0700, removed when the unit stops) holds the agent secret file. |
 | `install.sh` | Idempotent installer. Run as root; the Ansible `iac_agent` role calls it via a handler. |
-| `tests/` | Unit tests for `iac-impl`'s clone and for `jenkins-agent-launch.sh` (no token or secret on an argv, in output or in `.git/config`), and for `secret-rotator-ui` against a real tmux. Run by the root component's `kc project test`. |
+| `tests/` | Unit tests for `iac-impl`'s clone and for `jenkins-agent-launch.sh` (no token or secret on an argv, in output or in `.git/config`), for `secret-rotator-ui` against a real tmux, for `check-terraform-drift.sh` over plan JSON, and for `bin/iac`'s mounts (the key directory the only writable one). Run by the root component's `kc project test`. |
 
 The Jenkins pipelines that drive `srviac` live at the root of this repo as
 `Jenkinsfile.*`; the controller jobs check them out from there and run on
 the `iac-controller`-labelled agent, doing their work through `iac -c`.
-They lean on this tree's helpers — `check-protected-vms.sh` and
-`check-ansible-drift.sh` — which `iac` bind-mounts into the container.
+They lean on this tree's helpers — `check-protected-vms.sh`,
+`check-terraform-drift.sh` and `check-ansible-drift.sh` — which `iac`
+bind-mounts into the container.
 Reporting is not one of them: jenkins-telegram-bot watches every build and
 reports FAILURE by itself, and where a job needs to say something the build
 result does not, it calls JenkinsPipelineUtils' `notify` var. Current jobs:

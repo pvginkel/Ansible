@@ -31,6 +31,10 @@ terraform apply -replace='proxmox_virtual_environment_vm.scratch["wrkscratchk8s1
 
 Cloud-init only runs on first boot, so any change that needs to land via cloud-init (host key rotation, user-data edits) requires `-replace` on the VM resource above.
 
+The snippet authorises the `ansible` key from `ansible/roles/bootstrap/files/ansible.pub` in the checkout you apply from (unless `ansible_ssh_public_key` is set). Once SecretRotator's `ssh-key` kind is in its nightly run's `kinds_enabled`, that file changes with every rotation, so apply from an up-to-date `main`: a VM built from an older checkout authorises a retired key, which Ansible no longer logs in with. A rotation re-renders the snippets, which the next `terraform plan` shows as replaced; the VMs ignore it (`ignore_changes` on `initialization[0].user_data_file_id`), so none is rebuilt.
+
+The rotation also reaches the scratch VMs that exist. It starts a stopped one, authorises the new key and takes the old one off through the guest agent of its PVE node (`qm guest exec`), since a VM that was off may come back with a lapsed SSH host certificate, and shuts it down again; one already running is left running.
+
 Poll for SSH readiness:
 
 ```sh
