@@ -1,0 +1,85 @@
+#!/usr/bin/env python3
+"""The harness's ssh, standing in for the proof's login. It refuses a call that lacks an option the
+proof rests on — no ssh config, no agent, no shared connection, one identity, a pinned or CA-checked
+host key — and otherwise logs in when the identity file's key is in the host's authorized_keys,
+$HARNESS_KEYS/<host> (a VM's host key: $HARNESS_KEYS/<host>.hostkey). Every call is logged to
+$HARNESS_LOG/ssh.log, and each identity file it was given to $HARNESS_LOG/identities."""
+
+import json
+import os
+import stat
+import subprocess
+import sys
+
+KEYS = os.environ["HARNESS_KEYS"]
+LOG = os.environ["HARNESS_LOG"]
+args = sys.argv[1:]
+with open(os.path.join(LOG, "ssh.log"), "a") as log:
+    log.write(json.dumps(args) + "\n")
+
+
+def refuse(why: str) -> None:
+    print(f"harness ssh: {why}", file=sys.stderr)
+    sys.exit(255)
+
+
+options, identities, flags = {}, [], {}
+i = 0
+while i < len(args) and args[i].startswith("-"):
+    if args[i] not in ("-F", "-o", "-p"):
+        refuse(f"unexpected {args[i]}")
+    flag, value = args[i], args[i + 1]
+    i += 2
+    if flag != "-o":
+        flags[flag] = value
+    elif value.startswith("IdentityFile="):
+        identities.append(value.split("=", 1)[1])
+    else:
+        key, _, setting = value.partition("=")
+        options.setdefault(key, setting)  # OpenSSH takes an option's first value
+target, command = args[i], args[i + 1 :]
+
+if flags.get("-F") != "none":
+    refuse("no -F none")
+for key, setting in {
+    "BatchMode": "yes",
+    "ControlMaster": "no",
+    "ControlPath": "none",
+    "IdentityAgent": "none",
+    "IdentitiesOnly": "yes",
+    "PreferredAuthentications": "publickey",
+    "GlobalKnownHostsFile": "/dev/null",
+    "StrictHostKeyChecking": "yes",
+}.items():
+    if options.get(key) != setting:
+        refuse(f"{key} is {options.get(key)!r}, not {setting}")
+if command != ["true"]:
+    refuse(f"unexpected command {command}")
+if len(identities) != 1:
+    refuse(f"{len(identities)} identity files, not one")
+(identity,) = identities
+with open(os.path.join(LOG, "identities"), "a") as log:
+    log.write(identity + "\n")
+if stat.S_IMODE(os.stat(identity).st_mode) != 0o600:
+    refuse(f"{identity} is not mode 0600")
+derived = subprocess.run(["ssh-keygen", "-y", "-f", identity], capture_output=True, text=True)
+if derived.returncode != 0:
+    refuse(f"{identity}: {derived.stderr.strip()}")
+
+host = options.get("HostKeyAlias") or target.split("@", 1)[1]
+known = options.get("UserKnownHostsFile", "")
+if "HostKeyAlias" in options:
+    with open(os.path.join(KEYS, f"{host}.hostkey")) as f:
+        pinned = f"{host} {' '.join(f.read().split()[:2])}"
+    with open(known) as f:
+        if pinned not in f.read().splitlines():
+            refuse(f"{known} does not pin {host}'s host key")
+    if options.get("HostKeyAlgorithms") != "ssh-ed25519":
+        refuse("a pinned host key with HostKeyAlgorithms other than ssh-ed25519")
+elif not (known.endswith("/files/known_hosts.d/homelab") and os.path.isfile(known)):
+    refuse(f"UserKnownHostsFile {known!r} is not the homelab host CA's")
+
+with open(os.path.join(KEYS, host)) as f:
+    blobs = {word for line in f for word in line.split()}
+if derived.stdout.split()[1] not in blobs:
+    refuse(f"{target}: Permission denied (publickey).")

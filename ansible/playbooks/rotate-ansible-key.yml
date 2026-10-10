@@ -1,0 +1,244 @@
+---
+# rotate-ansible-key.yml — authorise one public half of the ansible
+# user's SSH key on every host that holds the key and log in with its
+# private half to each, or take exactly that public half off every one;
+# nothing else. The SecretRotator's ssh-key kind runs it twice per
+# rotation (AnsibleSpecs secret-rotation/design.md §4.6): the add run
+# with the new key, the removal run with the old one, each the other's
+# undo. It stays out of site.yml.
+#
+# The hosts are the inventory's ansible_key group: ansible_key_always_up
+# over SSH, ansible_key_may_be_off through the guest agent of their PVE
+# node. Where such a VM runs is never read from the inventory: the caller
+# looks it up and passes key_rotation_vm_<host> for each, "<node>/<vmid>",
+# or "absent" for one that does not exist, which is left alone. A VM it
+# is told nothing about fails the run before any host changes.
+#
+# Extra vars, in a 0600 file, never on the command line:
+#   key_rotation_state     present | absent
+#   key_rotation_public    the public half, "ssh-ed25519 <base64> <comment>"
+#   key_rotation_private   present only: the matching private half
+#   key_rotation_vm_<host> per ansible_key_may_be_off host, as above
+#
+#   ansible-playbook playbooks/rotate-ansible-key.yml --extra-vars @<file>
+
+- name: Check the key rotation's inputs
+  hosts: localhost
+  gather_facts: false
+  become: false
+  tasks:
+    - name: Require a state and a one-line ed25519 public half
+      ansible.builtin.assert:
+        that:
+          - key_rotation_state in ['present', 'absent']
+          - key_rotation_public | trim is match('ssh-ed25519 [A-Za-z0-9+/]+=*( .*)?$')
+        fail_msg: >-
+          Set key_rotation_state to present or absent, and
+          key_rotation_public to one "ssh-ed25519 <base64> <comment>" line.
+        quiet: true
+
+    - name: Require the private half to prove the public half with
+      ansible.builtin.assert:
+        that: key_rotation_state == 'absent' or key_rotation_private is search('-----BEGIN OPENSSH PRIVATE KEY-----')
+        fail_msg: >-
+          key_rotation_state=present needs key_rotation_private, the
+          OpenSSH private half of key_rotation_public.
+        quiet: true
+
+    - name: Require where each VM that may be off runs, or that it is absent
+      ansible.builtin.assert:
+        that: >-
+          _where == 'absent'
+          or (_where is match('[a-z0-9-]+/[0-9]+$') and _where.split('/')[0] in groups['proxmox'])
+        fail_msg: >-
+          key_rotation_vm_{{ item }} must be "<node>/<vmid>", with <node>
+          in the proxmox group, or "absent"; it is "{{ _where }}".
+        quiet: true
+      loop: "{{ groups['ansible_key_may_be_off'] }}"
+      vars:
+        _where: "{{ lookup('ansible.builtin.vars', 'key_rotation_vm_' ~ item, default='') }}"
+
+- name: Set the key for ansible on the hosts reached over SSH
+  hosts: ansible_key_always_up
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Set the key in the authorized_keys file
+      ansible.posix.authorized_key:
+        user: "{{ key_rotation_user }}"
+        key: "{{ key_rotation_public }}"
+        path: "{{ key_rotation_authorized_keys }}"
+        exclusive: false
+        state: "{{ key_rotation_state }}"
+
+- name: Set the key for ansible on the VMs that may be off, through their guest agent
+  hosts: ansible_key_may_be_off
+  gather_facts: false
+  become: true
+  vars:
+    _where: "{{ lookup('ansible.builtin.vars', 'key_rotation_vm_' ~ inventory_hostname) }}"
+    _node: "{{ _where.split('/')[0] }}"
+    _vmid: "{{ _where.split('/')[1] }}"
+  tasks:
+    - name: Leave a VM that does not exist alone
+      ansible.builtin.meta: end_host
+      when: _where == 'absent'
+
+    # Runs under --check too: the script then reports what it would
+    # change and changes nothing.
+    - name: Set the key in the authorized_keys file through the guest agent
+      ansible.builtin.command:
+        argv:
+          - qm
+          - guest
+          - exec
+          - "{{ _vmid }}"
+          - --pass-stdin
+          - "1"
+          - --
+          - sh
+          - -c
+          - "{{ lookup('ansible.builtin.file', 'guest-authorized-key.sh') }}"
+          - sh
+          - "{{ key_rotation_state }}"
+          - "{{ 'check' if ansible_check_mode else 'apply' }}"
+          - "{{ key_rotation_authorized_keys }}"
+        stdin: "{{ key_rotation_public }}"
+      delegate_to: "{{ _node }}"
+      check_mode: false
+      register: _guest_set
+      changed_when: _guest_set.rc == 0 and (_guest_set.stdout | from_json).get('out-data', '') | trim == 'changed'
+      failed_when: _guest_set.rc != 0 or (_guest_set.stdout | from_json).get('exitcode') != 0
+
+    # A VM that was off past its SSH host certificate's validity serves a
+    # lapsed one, so the proof pins the host key read here instead of
+    # trusting the homelab host CA.
+    - name: Read the VM's SSH host key through the guest agent for the proof
+      ansible.builtin.command:
+        argv:
+          - qm
+          - guest
+          - exec
+          - "{{ _vmid }}"
+          - --
+          - cat
+          - /etc/ssh/ssh_host_ed25519_key.pub
+      delegate_to: "{{ _node }}"
+      register: _host_key
+      changed_when: false
+      failed_when: _host_key.rc != 0 or (_host_key.stdout | from_json).get('exitcode') != 0
+      when: key_rotation_state == 'present' and not ansible_check_mode
+
+# The proof is a login of its own: ansible.cfg multiplexes connections
+# for 60 s, so one the old key opened could stand in for the new key.
+- name: Log in with the private half to every host the key is set on
+  hosts: ansible_key
+  gather_facts: false
+  become: false
+  vars:
+    _where: "{{ lookup('ansible.builtin.vars', 'key_rotation_vm_' ~ inventory_hostname) }}"
+    _may_be_off: "{{ inventory_hostname in groups['ansible_key_may_be_off'] }}"
+    # Read from hostvars: in a task delegated to localhost, ansible_host
+    # and ansible_port are localhost's.
+    _address: "{{ hostvars[inventory_hostname]['ansible_host'] | default(inventory_hostname) }}"
+    _port: "{{ hostvars[inventory_hostname]['ansible_port'] | default(22) | string }}"
+  tasks:
+    - name: Leave a VM that does not exist alone
+      ansible.builtin.meta: end_host
+      when: _may_be_off and _where == 'absent'
+
+    - name: Prove the key
+      when: key_rotation_state == 'present' and not ansible_check_mode
+      block:
+        - name: Make a private directory for the proof
+          ansible.builtin.tempfile:
+            state: directory
+            prefix: rotate-ansible-key.
+          delegate_to: localhost
+          run_once: true
+          register: _proof_dir
+          changed_when: false
+
+        - name: Write the private half for the proof
+          ansible.builtin.copy:
+            content: "{{ key_rotation_private | trim }}\n"
+            dest: "{{ _proof_dir.path }}/key"
+            mode: "0600"
+          delegate_to: localhost
+          run_once: true
+          no_log: true
+          diff: false
+          changed_when: false
+
+        - name: Pin the VM's SSH host key for the proof
+          ansible.builtin.copy:
+            content: "{{ inventory_hostname }} {{ (_host_key.stdout | from_json)['out-data'].split()[:2] | join(' ') }}\n"
+            dest: "{{ _proof_dir.path }}/known_hosts.{{ inventory_hostname }}"
+            mode: "0644"
+          delegate_to: localhost
+          changed_when: false
+          when: _may_be_off
+
+        - name: Wait for the VM's SSH
+          ansible.builtin.wait_for:
+            host: "{{ _address }}"
+            port: "{{ _port }}"
+            search_regex: OpenSSH
+            timeout: 300
+          delegate_to: localhost
+          when: _may_be_off
+
+        - name: Log in with the private half alone, on a connection of its own
+          ansible.builtin.command:
+            argv: "{{ _ssh + (_pinned if _may_be_off else _homelab_ca) + [key_rotation_user ~ '@' ~ _address, 'true'] }}"
+          vars:
+            _ssh:
+              - ssh
+              - -F
+              - none
+              - -o
+              - BatchMode=yes
+              - -o
+              - ControlMaster=no
+              - -o
+              - ControlPath=none
+              - -o
+              - IdentityAgent=none
+              - -o
+              - IdentitiesOnly=yes
+              - -o
+              - IdentityFile={{ _proof_dir.path }}/key
+              - -o
+              - PreferredAuthentications=publickey
+              - -o
+              - GlobalKnownHostsFile=/dev/null
+              - -o
+              - StrictHostKeyChecking=yes
+              - -o
+              - ConnectTimeout=30
+              - -p
+              - "{{ _port }}"
+            _homelab_ca:
+              - -o
+              - UserKnownHostsFile={{ playbook_dir }}/../files/known_hosts.d/homelab
+              - -o
+              - HostKeyAlgorithms=ssh-ed25519-cert-v01@openssh.com,ssh-ed25519
+            _pinned:
+              - -o
+              - UserKnownHostsFile={{ _proof_dir.path }}/known_hosts.{{ inventory_hostname }}
+              - -o
+              - HostKeyAlias={{ inventory_hostname }}
+              - -o
+              - HostKeyAlgorithms=ssh-ed25519
+          delegate_to: localhost
+          changed_when: false
+          timeout: 120
+
+      always:
+        - name: Remove the private directory of the proof
+          ansible.builtin.file:
+            path: "{{ _proof_dir.path }}"
+            state: absent
+          delegate_to: localhost
+          run_once: true
+          changed_when: false

@@ -1,0 +1,37 @@
+#!/usr/bin/env python3
+"""The harness's qm. `qm guest exec <vmid> [--pass-stdin 1] -- <command>` runs the command here,
+each absolute path in it moved under the VM's root $HARNESS_GUESTS/<vmid>, and answers as qm does:
+the guest's exit code and output in JSON. Every call is logged to $HARNESS_LOG/qm.log."""
+
+import json
+import os
+import subprocess
+import sys
+
+args = sys.argv[1:]
+with open(os.path.join(os.environ["HARNESS_LOG"], "qm.log"), "a") as log:
+    log.write(json.dumps(args) + "\n")
+
+if args[:2] != ["guest", "exec"] or "--" not in args:
+    sys.exit(f"harness qm: unexpected call {args}")
+vmid = args[2]
+split = args.index("--")
+options, command = args[3:split], args[split + 1 :]
+if options not in ([], ["--pass-stdin", "1"]):
+    sys.exit(f"harness qm: unexpected options {options}")
+root = os.path.join(os.environ["HARNESS_GUESTS"], vmid)
+if not os.path.isdir(root):
+    sys.exit(f"harness qm: VM {vmid} is not running")
+
+ran = subprocess.run(
+    [root + arg if arg.startswith("/") else arg for arg in command],
+    input=sys.stdin.read() if options else "",
+    capture_output=True,
+    text=True,
+)
+answer = {"exitcode": ran.returncode, "exited": 1}
+if ran.stdout:
+    answer["out-data"] = ran.stdout
+if ran.stderr:
+    answer["err-data"] = ran.stderr
+print(json.dumps(answer, indent=3, sort_keys=True))

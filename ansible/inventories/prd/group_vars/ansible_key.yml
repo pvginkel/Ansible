@@ -1,0 +1,5 @@
+---
+# The account playbooks/rotate-ansible-key.yml rotates the key of, and
+# the file it sets the key in.
+key_rotation_user: ansible
+key_rotation_authorized_keys: /home/ansible/.ssh/authorized_keys

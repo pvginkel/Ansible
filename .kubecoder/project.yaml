@@ -32,10 +32,11 @@ projects:
     # itself, via the git root. Jenkinsfile.iac-on-push's Lint stage runs
     # these same two commands, and the terraform one below; keep them in step.
     # test runs lint's two commands too, because the run loop gates on `test`,
-    # not `lint`; keep them in step with lint's. Its one suite is the openbao
+    # not `lint`; keep them in step with lint's. Its suites are the openbao
     # role's approle.yml harness, against a throwaway dev OpenBao in the iac
-    # sidecar; Jenkins does not run it. Live verification stays the
-    # operator's keystroke.
+    # sidecar, and rotate-ansible-key.yml's, against local stand-ins for its
+    # hosts; Jenkins runs neither. Live verification stays the operator's
+    # keystroke.
     lint:
       - cexec iac poetry run yamllint -c ../.yamllint .
       - cexec iac poetry run ansible-lint
@@ -43,6 +44,7 @@ projects:
       - cexec iac poetry run yamllint -c ../.yamllint .
       - cexec iac poetry run ansible-lint
       - cexec iac ./roles/openbao/tests/approle/run.sh
+      - cexec iac ./playbooks/tests/rotate-ansible-key/run.sh
 
   terraform:
     description: >-
