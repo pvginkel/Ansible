@@ -58,6 +58,19 @@
     group: root
     mode: "0755"
 
+# srviac's own copy of the Ansible private key, outside OpenBao: the
+# rotator writes id_ed25519_ansible here when it switches keys, and the
+# cold boot reads it while OpenBao is down. Nothing in this repo writes
+# the key. bin/iac bind-mounts the directory with --mount, which fails
+# every iac invocation while it is missing.
+- name: Ensure the directory of srviac's copy of the Ansible key exists
+  ansible.builtin.file:
+    path: /var/lib/iac/ansible-ssh-key
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
 # Operator-curated secrets file. `force: no` so re-runs of this role
 # never clobber values the operator typed in. On a fresh srviac (no
 # secrets.yaml yet), the role places secrets.example.yaml as a starter

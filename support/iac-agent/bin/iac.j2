@@ -17,6 +17,12 @@ set -euo pipefail
 
 IMAGE="${IAC_IMAGE:-registry:5000/iac:latest}"
 SECRETS_FILE="/etc/iac/secrets.yaml"
+# srviac's own copy of the Ansible private key, id_ed25519_ansible, is in
+# this directory, at the same path inside the container: the one host
+# path the container writes. The iac_agent role creates it; the rotator
+# writes the key. --mount, as for $SECRETS_FILE: -v would create a
+# missing directory instead of failing.
+ANSIBLE_KEY_DIR="/var/lib/iac/ansible-ssh-key"
 IAC_IMPL="/usr/local/bin/iac-impl"
 
 # No host-side existence probe for $SECRETS_FILE — iac is often invoked
@@ -52,6 +58,7 @@ fi
 docker run "${docker_flags[@]}" \
     -e "TZ={{ homelab_timezone }}" \
     --mount "type=bind,source=$SECRETS_FILE,target=$SECRETS_FILE,readonly" \
+    --mount "type=bind,source=$ANSIBLE_KEY_DIR,target=$ANSIBLE_KEY_DIR" \
     -v "$IAC_IMPL:/usr/local/bin/iac-impl:ro" \
     -v /usr/local/bin/check-protected-vms.sh:/usr/local/bin/check-protected-vms.sh:ro \
     -v /usr/local/bin/check-ansible-drift.sh:/usr/local/bin/check-ansible-drift.sh:ro \
