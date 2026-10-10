@@ -390,12 +390,18 @@ stops it at once. Bringing it up is
 
 The nightly run skips a due plan whose rollout targets are not Ready
 with their Argo Application Healthy, or whose Argo Application to sync
-(every `terraform` plan has one) is not Synced and Healthy, and one
-that reaches the dev cluster while dev does not answer, as while
-srvk8sdev is off: the `k8s-sa-token` plans of the KubeCoder catalog's
-`kubeconfig` and `kubeconfig-dev-write`. A skipped plan changes
-nothing and rolls nothing back. The standing card lists it with the
-reason, Telegram does not, and it is due again the next night;
+(every `terraform` plan has one) is not Synced and Healthy. A plan with
+a step on the dev cluster — the `k8s-sa-token` plans of the KubeCoder
+catalog's `kubeconfig` and `kubeconfig-dev-write`, and the dev plans of
+`cephx` and `rgw-admin` — starts with `vm.start`: it starts srvk8sdev,
+off by default, through its PVE node if it is stopped, then waits up to
+15 min until what the plan acts on in it answers. Once the plan is
+done, rolled back or stopped failed, the rotator shuts srvk8sdev down
+again if the plan started it; one it found running stays running. If
+dev does not answer within the 15 min, the nightly run skips the plan,
+and `run <leaf>` fails it. A skipped plan changes nothing and rolls
+nothing back. The standing card lists it with the reason, Telegram
+does not, and it is due again the next night;
 `secret-rotator run <leaf>` runs it by hand.
 
 Its state is in Prometheus too. At its end, every nightly run,

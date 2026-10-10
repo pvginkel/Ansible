@@ -183,7 +183,9 @@ docs written before then call it unreachable from here.
 
 srvk8sdev is VM 919 on PVE node `pve`, and **off by default** (`on_boot = false` in
 `terraform/prd/vms.tf`, restored 2026-10-03; Terraform ignores `started`). `qm status 919` saying
-`stopped` is the normal state: ask before starting it. `IaC/Scheduled Update` goes UNSTABLE on its
+`stopped` is the normal state: ask before starting it. SecretRotator's nightly run starts it for a
+due plan with a step on the dev cluster, and shuts it down again after if it started it
+([openbao.md](runbooks/openbao.md) §5). `IaC/Scheduled Update` goes UNSTABLE on its
 srvk8sdev stage while it is off, by design ([iac-agent.md](runbooks/iac-agent.md)). When SSH to it
 times out while it is up (seen 2026-09-11, cause not found), the guest agent runs commands as
 root from the PVE side:

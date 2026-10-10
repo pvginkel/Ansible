@@ -953,12 +953,13 @@ a workload that consumes one. The targets below are those prd held on 2026-10-09
   - `iot/prd/elastic-credentials`: `elasticsearch-prd/elasticsearch-iotsupport` and
     `iot-prd/iot-elastic-credentials`, then `iot-prd/deployment/iotsupport`.
 - `k8s-sa-token`, one plan per key:
-  - `kubeconfig`: `k8s.sa_token` on dev, then on prd, `kv.write`, the `kv.copy` to
-    `eso/prd/kubecoder/dev/catalog#kubeconfig`, the `eso.sync` of `kubecoder-secret-catalog` in
-    `kubecoder-prd` and in `kubecoder-dev`, the `k8s.rollout` of both stages'
-    `deployment/kubecoder-controller`, the silent proofs, `k8s.sa_token.delete` on dev, then on
-    prd, and `kv.stamp`.
-  - `kubeconfig-dev-write`: the same on dev alone, and `kubeconfig-prd-write` on prd alone.
+  - `kubeconfig`: `vm.start` (`start srvk8sdev if it is off`), `k8s.sa_token` on dev, then on
+    prd, `kv.write`, the `kv.copy` to `eso/prd/kubecoder/dev/catalog#kubeconfig`, the `eso.sync`
+    of `kubecoder-secret-catalog` in `kubecoder-prd` and in `kubecoder-dev`, the `k8s.rollout` of
+    both stages' `deployment/kubecoder-controller`, the silent proofs, `k8s.sa_token.delete` on
+    dev, then on prd, and `kv.stamp`.
+  - `kubeconfig-dev-write`: the same on dev alone, and `kubeconfig-prd-write` on prd alone, with
+    no `vm.start`.
   - `iac/rotator-k8s-token`: `k8s.sa_token` on prd, `kv.write`, the silent proof,
     `k8s.sa_token.delete` on prd, `kv.stamp`.
 - A `cannot be built:` or `blocked:` line: stop and read it.
@@ -2310,10 +2311,13 @@ takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, 
       on srviac starts with the new token from the leaf. An `iac` container started before that
       rotation keeps the old token, and its cluster calls fail: start it again.
 
-      `kubeconfig` and `kubeconfig-dev-write` need dev. While dev is off, the run skips their plans
-      each night the quiet way: no rotation, no rollback, no Telegram. The card lists each, `dev
-      does not answer at https://10.1.3.3:16443: GET /version: transport error: …`, which takes up
-      to 30 s to say. They are due again the next night, and rotate the first night dev is up.
+      `kubeconfig` and `kubeconfig-dev-write` need dev. Each plan's `vm.start` starts srvk8sdev
+      through `pve` if it is off and waits up to 15 min for dev's apiserver to answer. Once the
+      plan ends, the run shuts srvk8sdev down again if the plan started it. If the apiserver does
+      not answer in time, the run skips the plan the quiet way: no rotation, no rollback, no
+      Telegram, srvk8sdev shut down again. The card lists it, `srvk8sdev did not answer within 15
+      min: dev does not answer at https://10.1.3.3:16443: GET /version: transport error: …`, and
+      it is due again the next night.
 
       Or by hand. Start dev, VM 919 on `pve` and off by default
       ([`live-infra-access.md`](../live-infra-access.md)), with `ssh root@pve qm start 919`. Once the
@@ -2330,8 +2334,8 @@ takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, 
       Then the same for `kubeconfig`'s plan. After your environment has restarted, `ssh -t
       ansible@srviac tmux attach -t rotate` shows the run where it is. The first dev plan is the
       proof that dev's `edit` lets `kubecoder-rw` create, read and delete Secrets in `kube-system`
-      (design R112). A refusal fails it at its mint, before its `kv.write`. Shut dev down after, with
-      `ssh root@pve qm shutdown 919`.
+      (design R112). A refusal fails it at its mint, before its `kv.write`. The plans found dev
+      running, so they leave it running: shut it down after, with `ssh root@pve qm shutdown 919`.
 
 12. **Wave 3**, once [Wave 3's annotations](#wave-3s-annotations) are applied. Its kinds go in
     one per commit, in any order, each once its own item below holds. A wave-3 plan with an
