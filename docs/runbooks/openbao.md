@@ -389,12 +389,13 @@ stops it at once. Bringing it up is
 [`secret-rotator-go-live.md`](secret-rotator-go-live.md).
 
 The nightly run skips a due plan whose rollout targets are not Ready
-with their Argo Application Healthy, and one that reaches the dev
-cluster while dev does not answer, as while srvk8sdev is off: the
-`k8s-sa-token` plans of the KubeCoder catalog's `kubeconfig` and
-`kubeconfig-dev-write`. A skipped plan changes nothing and rolls
-nothing back. The standing card lists it with the reason, Telegram
-does not, and it is due again the next night;
+with their Argo Application Healthy, or whose Argo Application to sync
+(every `terraform` plan has one) is not Synced and Healthy, and one
+that reaches the dev cluster while dev does not answer, as while
+srvk8sdev is off: the `k8s-sa-token` plans of the KubeCoder catalog's
+`kubeconfig` and `kubeconfig-dev-write`. A skipped plan changes
+nothing and rolls nothing back. The standing card lists it with the
+reason, Telegram does not, and it is due again the next night;
 `secret-rotator run <leaf>` runs it by hand.
 
 Its state is in Prometheus too. At its end, every nightly run,
