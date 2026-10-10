@@ -195,6 +195,12 @@ converge "a proof the hosts refuse" fails "$(vars present third wrong)"
 grep -c 'Permission denied' "$work/run-$run.log" | grep -qx 3 || fail "not every host refused the proof:" "$work/run-$run.log"
 converge "remove the refused key" changed "$(vars absent third)"
 holds other new
+# The guest script fails inside the VM while qm itself exits 0.
+mv "$vm_keys" "$vm_keys.away"
+converge "a VM whose authorized_keys is missing" fails "$(vars absent old)"
+grep -q 'authorized_keys does not exist' "$work/run-$run.log" || fail "not failed on the VM's file:" "$work/run-$run.log"
+mv "$vm_keys.away" "$vm_keys"
+holds other new
 
 for key in old new third; do
   if grep -qF "$(cut -d' ' -f2 "$work/keys/$key.pub")" "$work/log/qm.log"; then
