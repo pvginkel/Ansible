@@ -1,5 +1,7 @@
 // Validates every push to main on pvginkel/Ansible: the lint and validate gates, then a Terraform
-// plan of prd and the protected-VM destroy check. It changes nothing outside the build.
+// plan of prd and the protected-VM destroy check. Its one change outside the build: when the push
+// touched docs/runbooks/, it starts the Publish workflow of pvginkel/SOPs, whose site mirrors the
+// runbooks, with the GitHub token kv/jenkins/sops-publish.
 //
 // Convergence is Jenkinsfile.iac-apply, started by hand, so that pushing a commit is not the same
 // act as applying it to production: an unattended agent pushing a branch must not be able to roll
@@ -90,6 +92,30 @@ pipeline {
                         check-protected-vms.sh /tmp/plan.json
                     '
                 '''
+            }
+        }
+
+        // After the gates, though the site mirrors main whatever they say: a red main is a commit
+        // under repair, and the Publish workflow's daily run still catches it up.
+        stage('Trigger Publish (SOPs)') {
+            when {
+                changeset 'docs/runbooks/**'
+            }
+            steps {
+                withVault([vaultSecrets: [
+                    [path: 'kv/jenkins/sops-publish', engineVersion: 2, secretValues: [
+                        [envVar: 'GITHUB_TOKEN', vaultKey: 'token'],
+                    ]],
+                ]]) {
+                    sh '''
+                        curl -fsS -X POST \
+                            -H "Authorization: Bearer $GITHUB_TOKEN" \
+                            -H 'Accept: application/vnd.github+json' \
+                            -H 'X-GitHub-Api-Version: 2022-11-28' \
+                            -d '{"ref":"main"}' \
+                            https://api.github.com/repos/pvginkel/SOPs/actions/workflows/pages.yml/dispatches
+                    '''
+                }
             }
         }
     }

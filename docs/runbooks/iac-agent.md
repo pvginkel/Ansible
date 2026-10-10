@@ -24,8 +24,11 @@ See [`/work/AnsibleSpecs/phases/completed/iac-agent.md`](../../../AnsibleSpecs/p
 playbook — and `terraform validate` on `terraform/prd` and `terraform/scratch`. Then it plan-checks
 `terraform/prd` and fails fast if the plan deletes or replaces any prd VM. Terraform refuses such
 a plan itself (`prevent_destroy` in the `managed-vm` module); `check-protected-vms.sh` fails it
-for a config without that line. Nothing converges. A red build means the commit fails a lint or
-validate gate or would not apply cleanly; the estate is untouched either way.
+for a config without that line. Last, when the push touched `docs/runbooks/`, it starts the
+`Publish` workflow of pvginkel/SOPs, whose site mirrors the runbooks, with the GitHub token in
+`kv/jenkins/sops-publish`. Nothing converges. A red build means the commit fails a lint or
+validate gate, would not apply cleanly, or could not start that workflow; the estate is untouched
+either way.
 
 Convergence is `IaC/Apply`, started by hand once the validation is green. The job, inside one
 `iac -c '…'` per stage:

@@ -47,8 +47,8 @@ The operator works in this same pod and sees the same `/work/<repo>` paths, so t
 **authority, not access**. It holds regardless: `changed=N>0` and terraform state mutations are the
 operator's keystroke.
 
-A push to `main` is safe — `IaC/Build-Main` only lints, validates, plans and runs the destroy check.
-Convergence is the separate manual `IaC/Apply` job; never start it.
+A push to `main` is safe — `IaC/Build-Main` only lints, validates, plans and runs the destroy check,
+and starts the SOPs site's `Publish` workflow when the push touched `docs/runbooks/`. Convergence is the separate manual `IaC/Apply` job; never start it.
 
 Mechanics — the toolchain, the canonical command shape, the cluster credentials (`config-prd-write`
 is cluster-admin on prd), and writing OpenBao secrets — are in [`docs/live-infra-access.md`](docs/live-infra-access.md).
