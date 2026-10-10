@@ -332,6 +332,7 @@ and the latest backup's Raft snapshot is restored into it.
    printf '%s\n' "$key" | bao kv patch -mount=kv eso/prd/kubecoder/prd/catalog ssh-key-ansible=-
    unset key
    bao kv get -mount=kv -field=private iac/ansible-ssh-key | ssh-keygen -y -f /dev/stdin
+   git fetch -q
    git show origin/main:ansible/roles/bootstrap/files/ansible.pub
    ```
 
