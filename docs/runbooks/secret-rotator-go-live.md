@@ -2425,13 +2425,13 @@ What its nights do:
 
 ```sh
 job="$JENKINS_URL/job/IaC/job/Scheduled%20Secret%20Rotation"
-curl -fsS -u "$JENKINS_USER:$JENKINS_TOKEN" "$job/lastBuild/consoleText" | grep -A 20 'ssh-key plan of'
+curl -fsS -u "$JENKINS_USER:$JENKINS_TOKEN" "$job/lastBuild/consoleText" | sed -n '/ssh-key plan of/,/^\(── \|card: \)/p'
 ```
 
 **Hand back:** the full output.
 
 **Reading:** `ssh-key plan of iac/ansible-ssh-key (private)`, then these `✓` lines, then
-`rotated`:
+`srvk8sdev shut down on pve` and `rotated`:
 
 - `start srvk8sdev if it is off · srvk8sdev started on pve: it is shut down again after the plan`,
   and `start wrkscratchk8s1 if it is off · wrkscratchk8s1 does not exist: nothing to start`, the
@@ -2446,8 +2446,6 @@ curl -fsS -u "$JENKINS_USER:$JENKINS_TOKEN" "$job/lastBuild/consoleText" | grep 
   holds the new key, SHA256:<fingerprint>`;
 - the sync of `kubecoder-prd/kubecoder-secret-catalog` and the rollout of the controller;
 - `take the old key for ansible off every host · <n> hosts ok, 13 changed`.
-
-After the plan, `srvk8sdev shut down on pve`.
 
 Then, from the pod, which has restarted since:
 
