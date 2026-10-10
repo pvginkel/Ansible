@@ -19,21 +19,14 @@ if [ -z "$_bao_repo" ] || [ ! -d "$_bao_repo/ansible" ]; then
 fi
 
 # On KubeCoder the toolchain lives in the iac sidecar; elsewhere it is local.
-_bao_iac() {
-    if [ -n "$KUBECODER_ENVIRONMENT_ID" ]; then
-        cexec iac "$@"
-    else
-        "$@"
-    fi
-}
+_bao_cexec=${KUBECODER_ENVIRONMENT_ID:+cexec iac}
 
 echo "bao-login: reading openbao-admin AppRole creds from the vault..." >&2
-_bao_creds=$(cd "$_bao_repo/ansible" && _bao_iac poetry run ansible srvvault1 -m debug \
+_bao_creds=$(cd "$_bao_repo/ansible" && $_bao_cexec poetry run ansible srvvault1 -m debug \
     -a 'msg="role_id={{ openbao_admin_role_id }} secret_id={{ openbao_admin_secret_id }}"' 2>/dev/null)
 if [ $? -ne 0 ] || [ -z "$_bao_creds" ]; then
     echo "bao-login: ansible debug call failed" >&2
-    unset -f _bao_iac
-    unset _bao_repo _bao_src _bao_creds
+    unset _bao_repo _bao_src _bao_cexec _bao_creds
     return 1 2>/dev/null || exit 1
 fi
 
@@ -41,32 +34,28 @@ _bao_role_id=$(printf '%s' "$_bao_creds" | sed -n 's/.*role_id=\([^ ]*\) secret_
 _bao_secret_id=$(printf '%s' "$_bao_creds" | sed -n 's/.*secret_id=\([^" ]*\).*/\1/p')
 if [ -z "$_bao_role_id" ] || [ -z "$_bao_secret_id" ]; then
     echo "bao-login: failed to parse role_id/secret_id from ansible output" >&2
-    unset -f _bao_iac
-    unset _bao_repo _bao_src _bao_creds _bao_role_id _bao_secret_id
+    unset _bao_repo _bao_src _bao_cexec _bao_creds _bao_role_id _bao_secret_id
     return 1 2>/dev/null || exit 1
 fi
 
 : "${BAO_ADDR:=https://secrets}"
 # secret_id=- reads the value from stdin, so it is on no argv; printf is a
 # builtin.
-_bao_token=$(printf '%s' "$_bao_secret_id" | BAO_ADDR="$BAO_ADDR" _bao_iac bao write -field=token \
+_bao_token=$(printf '%s' "$_bao_secret_id" | BAO_ADDR="$BAO_ADDR" $_bao_cexec bao write -field=token \
     auth/approle/login role_id="$_bao_role_id" secret_id=-)
 if [ -z "$_bao_token" ]; then
     echo "bao-login: approle login failed" >&2
-    unset -f _bao_iac
-    unset _bao_repo _bao_src _bao_creds _bao_role_id _bao_secret_id _bao_token
+    unset _bao_repo _bao_src _bao_cexec _bao_creds _bao_role_id _bao_secret_id _bao_token
     return 1 2>/dev/null || exit 1
 fi
 
 export BAO_ADDR
 export BAO_TOKEN="$_bao_token"
 
-_bao_ttl=$(_bao_iac bao token lookup -format=json 2>/dev/null | sed -n 's/.*"ttl": *\([0-9]*\).*/\1/p' | head -n1)
+_bao_ttl=$($_bao_cexec bao token lookup -format=json 2>/dev/null | sed -n 's/.*"ttl": *\([0-9]*\).*/\1/p' | head -n1)
 if [ -n "$_bao_ttl" ]; then
     echo "bao-login: BAO_ADDR=$BAO_ADDR  ttl=${_bao_ttl}s" >&2
 else
     echo "bao-login: BAO_ADDR=$BAO_ADDR" >&2
 fi
-
-unset -f _bao_iac
-unset _bao_repo _bao_src _bao_creds _bao_role_id _bao_secret_id _bao_token _bao_ttl
+unset _bao_repo _bao_src _bao_cexec _bao_creds _bao_role_id _bao_secret_id _bao_token _bao_ttl

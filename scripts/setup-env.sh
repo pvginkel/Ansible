@@ -23,8 +23,6 @@
 __se_sourced=0
 if [ -n "${BASH_VERSION:-}" ]; then
   (return 0 2>/dev/null) && __se_sourced=1
-elif [ -n "${ZSH_VERSION:-}" ]; then
-  case "${ZSH_EVAL_CONTEXT:-}" in *:file:*) __se_sourced=1 ;; esac
 else
   case "$0" in */setup-env.sh|setup-env.sh) __se_sourced=0 ;; *) __se_sourced=1 ;; esac
 fi
@@ -46,13 +44,7 @@ case "$__se_cluster" in
 esac
 
 # On KubeCoder the toolchain lives in the iac sidecar; elsewhere it is local.
-__se_iac() {
-  if [ -n "${KUBECODER_ENVIRONMENT_ID:-}" ]; then
-    cexec iac "$@"
-  else
-    "$@"
-  fi
-}
+__se_cexec=${KUBECODER_ENVIRONMENT_ID:+cexec iac}
 
 # --- credential map: ENV_VAR  kv-path  property ------------------------
 # One combined cephx user per cluster, the RGW admin, and the iac-provisioner
@@ -69,7 +61,7 @@ __se_missing=0
 __se_set=0
 while read -r __se_var __se_path __se_prop; do
   [ -z "$__se_var" ] && continue
-  if __se_val=$(__se_iac bao kv get -mount=kv -field="$__se_prop" "$__se_path" 2>/dev/null) && [ -n "$__se_val" ]; then
+  if __se_val=$($__se_cexec bao kv get -mount=kv -field="$__se_prop" "$__se_path" 2>/dev/null) && [ -n "$__se_val" ]; then
     export "$__se_var=$__se_val"
     __se_set=$((__se_set + 1))
   else
@@ -86,7 +78,7 @@ echo "setup-env: $__se_cluster cluster — exported $__se_set credential(s), $__
 # Only where the substrate exists (dev today). Absence is not an error: a
 # cluster without a Postgres substrate just leaves the var unset, and the
 # postgresql provider stays unused on releases that don't provision DBs.
-__se_pgpw=$(__se_iac bao kv get -mount=kv -field=password "eso/${__se_cluster}/postgres-pas/terraform-admin" 2>/dev/null) || true
+__se_pgpw=$($__se_cexec bao kv get -mount=kv -field=password "eso/${__se_cluster}/postgres-pas/terraform-admin" 2>/dev/null) || true
 if [ -n "${__se_pgpw:-}" ]; then
   export TF_VAR_postgres_admin_password="$__se_pgpw"
   echo "setup-env: exported TF_VAR_postgres_admin_password (Postgres substrate)." >&2
@@ -100,7 +92,7 @@ unset __se_pgpw
 # error: a cluster without a backup-server leaves the var unset and the
 # credential resource stays unused. The leaf is the storage release's own
 # backup-server management token.
-__se_baktok=$(__se_iac bao kv get -mount=kv -field=management_token "eso/${__se_cluster}/storage/prd/backup-server" 2>/dev/null) || true
+__se_baktok=$($__se_cexec bao kv get -mount=kv -field=management_token "eso/${__se_cluster}/storage/prd/backup-server" 2>/dev/null) || true
 if [ -n "${__se_baktok:-}" ]; then
   export HOMELAB_BACKUP_SERVER_TOKEN="$__se_baktok"
   echo "setup-env: exported HOMELAB_BACKUP_SERVER_TOKEN (backup-server)." >&2
@@ -124,19 +116,14 @@ esac
 # access level the host happens to hold (config-prd-write on a KubeCoder
 # environment, plain config-prd elsewhere). Two matches is ambiguous, so
 # it fails rather than picking one: the wrong guess is a deploy against
-# the wrong credentials. `find` and not a glob, because zsh aborts a
-# sourced script on an unmatched one.
-__se_kube_matches=$(find -L "$HOME/.kube" -maxdepth 1 -type f \
-                      -name "config-${__se_cluster}*" 2>/dev/null | sort)
+# the wrong credentials.
 __se_kube=""
 __se_kube_n=0
-while IFS= read -r __se_cand; do
-  [ -z "$__se_cand" ] && continue
+for __se_cand in "$HOME/.kube/config-${__se_cluster}"*; do
+  [ -f "$__se_cand" ] || continue
   __se_kube="$__se_cand"
   __se_kube_n=$((__se_kube_n + 1))
-done <<EOF
-$__se_kube_matches
-EOF
+done
 if [ "$__se_kube_n" -eq 0 ]; then
   __se_kube="$HOME/.kube/config"
 fi
@@ -144,11 +131,13 @@ fi
 __se_kube_ok=0
 if [ "$__se_kube_n" -gt 1 ]; then
   echo "setup-env: ERROR — $__se_kube_n kubeconfigs match $HOME/.kube/config-${__se_cluster}*:" >&2
-  echo "$__se_kube_matches" | sed 's/^/  /' >&2
+  for __se_cand in "$HOME/.kube/config-${__se_cluster}"*; do
+    [ -f "$__se_cand" ] && echo "  $__se_cand" >&2
+  done
   echo "  KUBE_CONFIG_PATH left unset. Leave one, or export KUBE_CONFIG_PATH yourself." >&2
 else
   __se_expect_ip=$(getent hosts "$__se_host" | awk 'NR==1{print $1}')
-  __se_server=$(__se_iac kubectl --kubeconfig "$__se_kube" config view --minify \
+  __se_server=$($__se_cexec kubectl --kubeconfig "$__se_kube" config view --minify \
                   -o jsonpath='{.clusters[0].cluster.server}' 2>/dev/null)
   __se_server_host=${__se_server#*://}
   __se_server_host=${__se_server_host%%:*}
@@ -167,9 +156,8 @@ else
   fi
 fi
 
-unset -f __se_iac
 unset __se_cluster __se_map __se_var __se_path __se_prop __se_val __se_set \
-      __se_host __se_kube __se_kube_matches __se_kube_n __se_cand \
+      __se_cexec __se_host __se_kube __se_kube_n __se_cand \
       __se_expect_ip __se_server __se_server_host __se_server_ip
 if [ "$__se_missing" -ne 0 ] || [ "$__se_kube_ok" -ne 1 ]; then
   unset __se_missing __se_kube_ok
