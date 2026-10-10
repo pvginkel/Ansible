@@ -209,11 +209,15 @@ git push origin main
 ```
 
 An app with a volume (a `static-*-pv` module) first records each PersistentVolume, for step 7's
-compare. The PV is `<name>-pv`, `<name>` being the module's `name`:
+compare, all of them in one go, one line each. A module's PV is `<name>-pv`, `<name>` being the
+module's `name`; the loop names every module's (jenkins-prd's `jenkins-pv build-cache-pv`):
 
 ```sh
-cexec iac kubectl get pv <name>-pv -o json | jq -c '{uid: .metadata.uid, created: .metadata.creationTimestamp,
-  claim: .spec.claimRef.name, rootPath: .spec.csi.volumeAttributes.rootPath}' > $REC/pv-$NS-before.json
+for pv in <name>-pv …; do
+  cexec iac kubectl get pv $pv -o json | jq -c '{pv: .metadata.name, uid: .metadata.uid,
+    created: .metadata.creationTimestamp, claim: .spec.claimRef.name,
+    rootPath: .spec.csi.volumeAttributes.rootPath}'
+done > $REC/pv-$NS-before.json
 ```
 
 The lock read prints nothing; a lock is a hook run in flight, so wait for it and read again. A
