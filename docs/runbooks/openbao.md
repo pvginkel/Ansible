@@ -315,9 +315,33 @@ and the latest backup's Raft snapshot is restored into it.
 
 8. **The rotations made since the snapshot.** The restore undid in
    OpenBao every rotation made after the snapshot, while the
-   consumers may hold the newer values. The nightly job's log lists
-   them. In each `IaC/Scheduled Secret Rotation` build since the
-   snapshot's date, a plan starts with a line
+   consumers may hold the newer values.
+
+   Once SecretRotator's `ssh-key` kind is enabled, the Ansible key
+   comes first, before any plan below and before the night's run.
+   Its plan cannot repair it: the rotator logs in as `ansible` with
+   the key the leaf holds, which the restore may have set back to
+   one the hosts no longer take. srviac's own copy of the key holds
+   the one they take, since nothing writes it from the leaf
+   ([`iac-cold-boot.md`](iac-cold-boot.md)). Write it back to the
+   leaf and its catalog copy instead, without showing it:
+
+   ```bash
+   key=$(ssh ansible@srviac 'sudo cat /var/lib/iac/ansible-ssh-key/id_ed25519_ansible')
+   printf '%s\n' "$key" | bao kv patch -mount=kv iac/ansible-ssh-key private=-
+   printf '%s\n' "$key" | bao kv patch -mount=kv eso/prd/kubecoder/prd/catalog ssh-key-ansible=-
+   unset key
+   bao kv get -mount=kv -field=private iac/ansible-ssh-key | ssh-keygen -y -f /dev/stdin
+   git show origin/main:ansible/roles/bootstrap/files/ansible.pub
+   ```
+
+   The two public halves carry the same key, the `AAAA…` field. The
+   next `iac` start on srviac takes it, and each KubeCoder
+   environment at its next start, once ESO has synced the catalog.
+
+   The nightly job's log lists the other rotations. In each
+   `IaC/Scheduled Secret Rotation` build since the snapshot's date,
+   a plan starts with a line
    `── <kind> plan of <leaf> (<keys>) · …`, and a plan that ran ends
    in `rotated`. Add the rotations made by hand since, with
    `secret-rotator run <leaf>`, which no log lists: the vendor tokens

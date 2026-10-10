@@ -4,8 +4,8 @@ This runbook brings SecretRotator up on srviac. First part: its credentials, its
 its nightly job, which runs in dry run. Then a week of dry run. Then going live, one kind at a time.
 [§ Wave 1](#wave-1) prepares the kinds of slice 047, [§ Wave 2](#wave-2) those of slice 049,
 [§ Wave 3](#wave-3) those of slice 052, [§ Wave 4](#wave-4) the `terraform` kind of slice 048, and
-[§ The Ceph kinds](#the-ceph-kinds) those of slice 061,
-each before the go-live or after it.
+[§ The Ceph kinds](#the-ceph-kinds) those of slice 061, and
+[§ The `ssh-key` kind](#the-ssh-key-kind) that of slice 060, each before the go-live or after it.
 
 The operator runs every step, from top to bottom. Each step gives the commands, what to hand back,
 and the reading that must hold before the next step starts.
@@ -2025,6 +2025,495 @@ boots with every Secret on `client.k8s-b`, so its check finds no client on `clie
 
 A rotation blocked later, on any night, is in [`openbao.md`](openbao.md) §5.
 
+## The `ssh-key` kind
+
+Slice 060's kind is `ssh-key`, for one leaf: `iac/ansible-ssh-key#private`, the private half of the
+SSH key Ansible logs in with as `ansible`. Its plan has no operator step, so the nightly run takes
+it, every 14 days. The hosts that hold the key are the Ansible inventory's group `ansible_key`,
+read when the plan is built: the always-up hosts of `ansible_key_always_up` (pve, pve1, pve2,
+srviac, srvk8s1–4, srvvault1–3 and wrkdev), and the VMs that may be off of
+`ansible_key_may_be_off` (srvk8sdev, and `wrkscratchk8s1` and `wrkscratchk8s2` while they exist).
+The plan:
+
+1. starts each VM that may be off and is stopped, and checks that every always-up host answers;
+2. generates a new ed25519 keypair;
+3. runs `playbooks/rotate-ansible-key.yml`, which authorises the new public half for `ansible` on
+   every host and logs in to each with the new private half; a VM that may be off it reaches
+   through its PVE node's guest agent;
+4. commits the new public half to `ansible/roles/bootstrap/files/ansible.pub` on the Ansible
+   repo's `main`, which the bootstrap role and Terraform's cloud-init read;
+5. writes the leaf and its catalog copy. From then on the rotator logs in with the new key;
+6. switches srviac's own copy of the key, which [`iac-cold-boot.md`](iac-cold-boot.md) takes while
+   OpenBao is down;
+7. syncs the catalog and restarts the prd KubeCoder controller;
+8. runs the playbook again, logging in with the new key, to take exactly the old public half off
+   every host.
+
+Once the plan ends, the run shuts down again each VM the plan started, whatever the plan's outcome.
+
+It ships switched off. The sections below create its GitHub token, converge srviac and seed its
+copy of the key, annotate, and check from srviac what no offline run reached. Item 15 of
+[§ Going live](#going-live) then enables it, once ANS-316 is done, and retires the copies of the key
+outside OpenBao. They start once SecretRotator's `prd` and Ansible's `main` carry slice 060, before
+step 6 or at any point after it. [The annotations](#the-ssh-key-kinds-annotations) come after step
+6: they run `secret-rotator` on srviac, which needs steps 1 to 3.
+
+`kinds_enabled` gates the nightly run alone. `secret-rotator run iac/ansible-ssh-key` runs the plan
+as soon as the image carries slice 060, whatever `switches.yaml` holds. Do not run it by hand before
+item 15 of [§ Going live](#going-live). Until then, the copy of `id_ed25519_ansible` in RoboForm and
+in the cloud-synced attachments folder is the working key, and the bootstrap role's manual rotation
+stands ([`README.md`](../../ansible/roles/bootstrap/README.md#ssh-key-rotation)).
+
+### The `ssh-key` kind's token
+
+The plan's `github.commit` step reads `ansible.pub` on `main`, commits the new public half through
+GitHub's contents API and reads the file back, with the token in `rotator/ssh-key/credentials`,
+which nothing else reads. Logged in to GitHub as pvginkel, generate one under Settings → Developer
+settings → Personal access tokens → Fine-grained tokens:
+
+- named `secret-rotator-ssh-key`, resource owner `pvginkel`, with an expiration a year out;
+- repository access only `pvginkel/Ansible`;
+- of the repository permissions only Contents, read and write. GitHub adds Metadata, read-only, to
+  every token.
+
+The leaf's notes say the same, and its plan's first step, when the token is due, says it again.
+Note its expiration date: [the annotations](#the-ssh-key-kinds-annotations) stamp it. Store it
+before them. One stored after them is a new leaf ([`openbao.md`](openbao.md#a-new-leaf)): run the
+annotations again.
+
+```sh
+read -rs tok && printf %s "$tok" | bao kv put -mount=kv rotator/ssh-key/credentials token=-; unset tok
+```
+
+**Reading:** `version 1`. [The checks](#the-ssh-key-checks-from-srviac) read what the token
+reaches.
+
+### srviac's copy of the key
+
+srviac keeps its own copy of the current key, outside OpenBao: the file
+`/var/lib/iac/ansible-ssh-key/id_ed25519_ansible`, root's, mode `0600`. The `iac_agent` role
+creates its directory, and `bin/iac` mounts the directory read-write into every `iac` container.
+The rotation's `ssh.key_copy` replaces the file with the new key, and puts the old one back on
+rollback. Nothing writes it from the leaf, so a restore of OpenBao from an older snapshot leaves it
+as it is. The same converge installs `check-terraform-drift.sh`, with which `IaC/Scheduled Drift` passes the
+cloud-init snippets each rotation re-renders.
+
+**The converge**, from the pod:
+
+```sh
+cd /work/Ansible/ansible && cexec iac poetry run ansible-playbook playbooks/site.yml --limit srviac --check
+```
+
+**Hand back:** the full output.
+
+**Reading:** `changed` on `Ensure the directory of srviac's copy of the Ansible key exists`, `Sync
+IaCAgent checkout to the target host` and `Render bin/iac with the homelab time zone`. Read any
+other change before the apply. The apply is the same command without `--check`. Its handler runs
+`install.sh`, which prints `installed /usr/local/bin/iac` and `installed
+/usr/local/bin/check-terraform-drift.sh`.
+
+**The Jenkins agent.** The agent's container bind-mounts `/usr/local/bin/iac`, and `install.sh`
+replaced that file with a new one. A running agent keeps the old shim, which mounts neither the
+copy's directory nor the drift helper. A rotation that a build of it runs then fails at
+`ssh.key_copy` and rolls back. Restart the agent while no build runs:
+
+```sh
+curl -fsS -u "$JENKINS_USER:$JENKINS_TOKEN" "$JENKINS_URL/computer/IaC%20Agent/api/json?tree=idle,offline" | jq -c '{idle, offline}'
+ssh ansible@srviac 'sudo systemctl restart jenkins-agent.service'
+```
+
+**Reading:** `{"idle":true,"offline":false}` before the restart. `"idle":false` is a build running:
+wait for it to end, then read again. Within a minute of the restart:
+
+```sh
+curl -fsS -u "$JENKINS_USER:$JENKINS_TOKEN" "$JENKINS_URL/computer/IaC%20Agent/api/json?tree=idle,offline" | jq -c '{idle, offline}'
+ssh ansible@srviac 'sudo docker exec jenkins-agent grep -c ANSIBLE_KEY_DIR /usr/local/bin/iac'
+```
+
+**Reading:** `"offline":false`, then `2`: the agent runs the new shim. `0` is the old one: restart
+it again.
+
+**The seed**, once, from the current key: the `iac` container's `/root/.ssh/id_ed25519_ansible`,
+which `iac-impl` writes from the leaf when the container starts:
+
+```sh
+srviac 'install -m 0600 /root/.ssh/id_ed25519_ansible /var/lib/iac/ansible-ssh-key/id_ed25519_ansible && ls -ln /var/lib/iac/ansible-ssh-key && ssh-keygen -y -f /var/lib/iac/ansible-ssh-key/id_ed25519_ansible'
+cat /work/Ansible/ansible/roles/bootstrap/files/ansible.pub
+```
+
+**Hand back:** the full output. It shows public halves only.
+
+**Reading:** `-rw------- 1 0 0 … id_ed25519_ansible`, then the copy's public half. Its key, the
+`AAAA…` field, is the one `ansible.pub` holds; the comment may differ. Another key means the leaf
+and the committed file differ: stop, and find which one the hosts take. A hand rotation of the key
+before item 15 leaves the copy on the old key: seed it again after it.
+
+### The `ssh-key` kind's annotations
+
+Slice 060 changes `iac/ansible-ssh-key`'s interval from 365 days to 14, and adds the token's leaf.
+
+```sh
+srviac 'secret-rotator annotate'
+```
+
+**Hand back:** the full output.
+
+**Reading.**
+
+- Where step 6, or an apply after it, ran on a seed before slice 060, `iac/ansible-ssh-key` reads
+  `change rotation_private={"kind":"ssh-key","interval":"14d","activate":"none"}  (was
+  {"kind":"ssh-key","interval":"365d","activate":"none"})`, on one line. Where it ran on slice
+  060's seed, none: that apply wrote it.
+- `rotator/ssh-key/credentials`, where no apply has written it yet, reads `add
+  rotation_token={"kind":"manual","interval":"365d","args":{"type":"github-pat"},…` and no `set`
+  line.
+- No `absent from the store` line for `rotator/ssh-key/credentials`, and no `cannot write:` line.
+
+```sh
+srviac 'secret-rotator annotate --apply'
+srviac 'secret-rotator annotate' | tail -n 1
+```
+
+**Reading:** one `patched <leaf>` line per leaf of the dry run, and exit 0. The dry run after it
+reads `would patch (dry run; --apply writes) 0 leaf(s), …`.
+
+Stamp the token with `stamp` as step 6 defines it, whether this apply or an earlier one wrote its
+entry. Its expiration date is its `expires_at`, and its key falls due 7 days before it:
+
+```sh
+stamp rotator/ssh-key/credentials token
+srviac 'secret-rotator stamp rotator/ssh-key/credentials token --expires-at <the token expiration date>'
+srviac 'secret-rotator audit'
+```
+
+**Hand back:** the full output.
+
+**Reading.**
+
+- `rotator/ssh-key/credentials#token: rotation stamp <date>, was none`, with the date the leaf was
+  stored, then `rotator/ssh-key/credentials#token: expires_at <date>, was none`.
+- No finding line of the audit names `rotator/ssh-key/credentials`.
+
+`iac/ansible-ssh-key` stays without a stamp, so the kind's first night rotates it. Read the plan
+the store now builds:
+
+```sh
+srviac 'secret-rotator plan iac/ansible-ssh-key'
+```
+
+**Hand back:** the full output.
+
+**Reading.**
+
+- `ssh-key plan of private · due: never rotated`, the plan's description, then its steps, none of
+  them a `you` line, so the nightly run takes the plan:
+  - `vm.start` (`start srvk8sdev if it is off`), and the same for `wrkscratchk8s1` and
+    `wrkscratchk8s2`;
+  - `ssh_key.reach` (`check that the 12 hosts reached over SSH answer`);
+  - `ssh.keygen` (silent);
+  - `ansible.run` (`authorise the new key for ansible on every host and log in with it`);
+  - `github.commit` (`commit ansible/roles/bootstrap/files/ansible.pub to pvginkel/Ansible`);
+  - `kv.write` (`write iac/ansible-ssh-key`), then `kv.copy` (`copy to
+    eso/prd/kubecoder/prd/catalog#ssh-key-ansible`);
+  - `ssh.key_copy` (`switch srviac's copy of the key to the new one`);
+  - `eso.sync` (`sync ExternalSecret kubecoder-prd/kubecoder-secret-catalog`), the one
+    ExternalSecret that read the leaf or its copy on 2026-10-10, and `k8s.rollout` (`roll out
+    kubecoder-prd/deployment/kubecoder-controller`);
+  - `ansible.run` (`take the old key for ansible off every host`), and `kv.stamp` (silent).
+- Another `eso.sync` is an ExternalSecret that started reading the leaf or the catalog since: read
+  it.
+- A `cannot be built:` line: stop and read it. `the Ansible inventory … has no group …` is an image
+  whose Ansible checkout predates slice 060.
+
+### The `ssh-key` checks from srviac
+
+Slice 060 ran none of the paths below live. Each check makes the calls that the plan's steps make,
+from srviac's `iac` container, with the rotator's own clients and the key the leaf holds. No check
+prints a private key. Only the start writes: it starts srvk8sdev, and the shutdown stops it again.
+Run them after the converge and the seed, in one `iac` shell on srviac, with `py` and `check` as
+[§ The checks from srviac](#the-checks-from-srviac) defines them.
+
+**Hand back:** the full output of each check. A traceback names the call that failed and its answer.
+
+**The tools.**
+
+```sh
+command -v ansible-playbook ssh-keygen
+```
+
+**Reading:** two paths. Without `ansible-playbook`, every `ansible.run` fails with `ansible-playbook
+is not on the PATH` before it changes anything: stop.
+
+**The hosts, and the nightly run's check of them.** The plan reads its hosts from the image's
+Ansible checkout. Before it starts the plan, the nightly run has `ssh_key.reach` log in to each
+always-up host as `ansible` and run `true`:
+
+```sh
+check 'from secret_rotator.kinds.ssh_key.hosts import hosts
+from secret_rotator.kinds.ssh_key.steps import Reach
+from secret_rotator.sshsteps import Ssh
+found = hosts()
+print(found)
+print(Reach(Ssh(), found.always_up).unanswered(bao))'
+```
+
+**Reading.**
+
+- `Hosts(always_up=('pve', 'pve1', 'pve2', 'srviac', 'srvk8s1', 'srvk8s2', 'srvk8s3', 'srvk8s4',
+  'srvvault1', 'srvvault2', 'srvvault3', 'wrkdev'), may_be_off=('srvk8sdev', 'wrkscratchk8s1',
+  'wrkscratchk8s2'))`, then `None`.
+- `<host> does not answer: …` names a host that is down. On a night like this, the run skips the
+  plan, with that line on the card. A host that refuses the login answers here, and fails the
+  playbook's check below.
+
+**The token.** It reads `ansible.pub` on `main`, as the commit step does first:
+
+```sh
+check 'from secret_rotator.github import GitHub
+github = GitHub()
+github.authenticate(val("rotator/ssh-key/credentials#token"))
+found = github.contents("pvginkel/Ansible", "ansible/roles/bootstrap/files/ansible.pub", "main")
+print("not found" if found is None else found[0].strip())'
+```
+
+**Reading.**
+
+- The public half `ansible.pub` holds, `ssh-ed25519 … ansible`.
+- A traceback with `HTTP 401` means GitHub refuses the token.
+- The repository is public, so the read proves only that GitHub takes the token. The first
+  rotation's commit proves Contents' write. A token without it fails the plan at its commit, before
+  its `kv.write`, and the run rolls the plan back.
+
+**The start**, as `vm.start` makes it, `sudo -n qm start 919` on srvk8sdev's node:
+
+```sh
+check 'from secret_rotator.vmsteps import Pve
+pve = Pve()
+for name in ("srvk8sdev", "wrkscratchk8s1", "wrkscratchk8s2"):
+    print(name, pve.find(name))
+guest = pve.find("srvk8sdev")
+if guest.status != "running":
+    pve.start(guest)
+print(pve.find("srvk8sdev").status)'
+```
+
+**Reading.**
+
+- `srvk8sdev Guest(name='srvk8sdev', node='pve', vmid=919, status='stopped')`, then
+  `wrkscratchk8s1 None` and `wrkscratchk8s2 None` while no scratch VM exists, and last `running`.
+  The plan leaves a VM that does not exist alone. It starts a scratch VM that exists and is
+  stopped, as it starts srvk8sdev.
+- A traceback from `qm start 919 on pve`: PVE refuses the start. Every plan would then fail at its
+  `vm.start`: stop.
+
+**What `vm.start` waits for**, the guest agent's answer to a ping:
+
+```sh
+check 'from secret_rotator.vmsteps import Pve
+pve = Pve()
+print(pve.agent(pve.find("srvk8sdev")))'
+```
+
+**Reading:** `None`. While srvk8sdev boots, `its guest agent does not answer: …`: run the check
+again a minute later. `vm.start` waits up to 15 min. If the agent still does not answer after that,
+the nightly run would skip the plan: read why before going on.
+
+**The playbook**, as the add run runs it, with the key the leaf holds, which every host holds
+already. `check` writes the extra vars the plan stages into a `0600` file in the container, with
+where each VM that may be off runs, looked up as `vm.start` looks it up. `--check` runs the guest
+step through srvk8sdev's guest agent for real, in check mode, and skips the proof:
+
+```sh
+check 'import json
+from pathlib import Path
+from secret_rotator.kinds.ssh_key.hosts import hosts
+from secret_rotator.sshsteps import public_line
+from secret_rotator.vmsteps import Pve
+pve, private = Pve(), val("iac/ansible-ssh-key#private")
+found = {vm: pve.find(vm) for vm in hosts().may_be_off}
+where = {f"key_rotation_vm_{vm}": "absent" if g is None else f"{g.node}/{g.vmid}" for vm, g in found.items()}
+os.umask(0o077)
+Path("/tmp/rotate-check.json").write_text(json.dumps({"key_rotation_state": "present",
+    "key_rotation_public": public_line(private, "ansible"), "key_rotation_private": private} | where))
+print(where)'
+(cd /work/Ansible/ansible && ansible-playbook playbooks/rotate-ansible-key.yml --check --extra-vars @/tmp/rotate-check.json); rm /tmp/rotate-check.json
+```
+
+**Reading.**
+
+- `{'key_rotation_vm_srvk8sdev': 'pve/919', 'key_rotation_vm_wrkscratchk8s1': 'absent',
+  'key_rotation_vm_wrkscratchk8s2': 'absent'}` while no scratch VM exists.
+- The `PLAY RECAP`: `localhost`, the 12 always-up hosts and srvk8sdev, each with `changed=0
+  unreachable=0 failed=0`. Every host holds the key, and the check changes nothing.
+- `changed=1` on a host: its `authorized_keys` lacks the key the leaf holds, though Ansible logs in
+  there. Read which key it takes before going on.
+- `unreachable=1`: the container's SSH to that host fails at its key, the host CA or the login.
+  The playbook never connects to srvk8sdev itself: its tasks run on its PVE node.
+- `failed=1` on srvk8sdev, at `Set the key in the authorized_keys file through the guest agent`:
+  the guest exec failed, and its output names what refused, sudo, qm or the guest agent. Stop.
+
+**The shutdown**, as the run makes it after a plan that started srvk8sdev, `sudo -n qm shutdown
+919 --timeout 300 --forceStop 1`. Skip it if srvk8sdev was running before the start:
+
+```sh
+check 'from secret_rotator.vmsteps import Pve
+pve = Pve()
+pve.shutdown(pve.find("srvk8sdev"))
+print(pve.find("srvk8sdev"))'
+```
+
+**Reading:** within 5 min, `Guest(name='srvk8sdev', node='pve', vmid=919, status='stopped')`. A
+traceback from `qm shutdown 919 on pve`: the night would leave srvk8sdev running, its console line
+reading `srvk8sdev is not shut down: …`. Read it, then shut srvk8sdev down by hand.
+
+`exit` leaves the shell.
+
+### Switching `ssh-key` on
+
+**ANS-316 first.** From the go-live on, a person's way in without OpenBao is the `pvginkel`
+account, its key `ansible/roles/bootstrap/files/pvginkel.pub`: every machine needs it, with the
+key and a working sudo. That is ANS-316, which is done before the commit. Check it from the pod on
+the hosts reached over SSH:
+
+```sh
+cd /work/Ansible/ansible && cexec iac poetry run ansible ansible_key_always_up -b -m shell \
+  -a "id -nG pvginkel; passwd -S pvginkel | cut -d' ' -f2; grep -cF '$(cut -d' ' -f2 roles/bootstrap/files/pvginkel.pub)' ~pvginkel/.ssh/authorized_keys"
+```
+
+**Hand back:** the full output.
+
+**Reading:** for each of the 12 hosts, `CHANGED | rc=0` and three lines: groups with `sudo` among
+them; `P`, a password set, which `sudo` asks for; and `1`, the key. `no such user`, `L` or `NP`, or
+a `FAILED` host whose last line is `0`: ANS-316 is not done there. Stop. srvk8sdev and the scratch
+VMs are ANS-316's too, but this check does not reach them.
+
+**The commit.** Read the plan again as [the annotations](#the-ssh-key-kinds-annotations) give it,
+then commit `ssh-key` into `kinds_enabled`, alone. Its key has no stamp, so the kind's first night
+rotates it, and every 14 days after that.
+
+**The retired copies** (slice 060's ruling F1). Once the commit is in, delete the ansible user's
+private key from RoboForm's "Homelab SSH key" entry, and `id_ed25519_ansible` from the cloud-synced
+attachments folder. From the commit on, the key is in OpenBao, in its catalog copy and in srviac's
+copy, and the runbooks take it from there:
+[`iac-cold-boot.md`](iac-cold-boot.md) from srviac's copy while OpenBao is down, and
+[`operator-workstation.md`](operator-workstation.md#ansible-service-key--used-by-ansible-to-reach-managed-vms-as-ansible)
+on a workstation. A `~/.ssh/id_ed25519_ansible` restored from the deleted copies stops working at
+the first rotation.
+
+What its nights do:
+
+- Every always-up host must answer. One that does not skips the plan the quiet way: no rotation, no
+  rollback, no Telegram. The card lists it, `` `iac/ansible-ssh-key`: its ssh-key plan of private:
+  <host> does not answer: ssh: connect to host <host> port 22: … ``, and the key is due again the
+  next night. A host that answers
+  and refuses the key fails the plan.
+- srvk8sdev, off by default, is started through `pve`, and its guest agent gets up to 15 min to
+  answer. Once the plan ends, the run shuts it down again. Past the 15 min, the plan is skipped the
+  same quiet way, and srvk8sdev is shut down again. A scratch VM that exists goes the same way; one
+  that does not exist needs nothing, since Terraform builds it with the committed key.
+- The commit, `rotate the ansible user's SSH key (secret-rotator)`, lands on Ansible's `main` and
+  starts `IaC/Build-Main`. From then until the operator's next Terraform apply, every prd plan
+  replaces the cloud-init snippets of the nine VMs Terraform built from scratch. `IaC/Scheduled
+  Drift` passes that, and fails on any other change. The apply re-renders them and changes no VM.
+- The controller's restart restarts every prd KubeCoder environment (design R65). Each then writes
+  the new key to `~/.ssh/id_ed25519_ansible` at its start. srviac's `iac` containers take the new
+  key from the leaf at their next start.
+- From the plan's `kv.write` on, every step of that night that logs in as `ansible` uses the new
+  key, this plan's and those of the plans after it.
+
+**The first night.** The morning after, read the night's console:
+
+```sh
+job="$JENKINS_URL/job/IaC/job/Scheduled%20Secret%20Rotation"
+curl -fsS -u "$JENKINS_USER:$JENKINS_TOKEN" "$job/lastBuild/consoleText" | grep -A 20 'ssh-key plan of'
+```
+
+**Hand back:** the full output.
+
+**Reading:** `ssh-key plan of iac/ansible-ssh-key (private)`, then these `✓` lines, then
+`rotated`:
+
+- `start srvk8sdev if it is off · srvk8sdev started on pve: it is shut down again after the plan`,
+  and `start wrkscratchk8s1 if it is off · wrkscratchk8s1 does not exist: nothing to start`, the
+  same for `wrkscratchk8s2`;
+- `check that the 12 hosts reached over SSH answer · 12 hosts answer`;
+- `authorise the new key for ansible on every host and log in with it · <n> hosts ok, 13 changed`:
+  the recap's hosts, `localhost` among them, and the 12 always-up hosts and srvk8sdev changed;
+- `commit ansible/roles/bootstrap/files/ansible.pub to pvginkel/Ansible · <sha7>:
+  ansible/roles/bootstrap/files/ansible.pub committed to main`;
+- `write iac/ansible-ssh-key` and `copy to eso/prd/kubecoder/prd/catalog#ssh-key-ansible`;
+- `switch srviac's copy of the key to the new one · /var/lib/iac/ansible-ssh-key/id_ed25519_ansible
+  holds the new key, SHA256:<fingerprint>`;
+- the sync of `kubecoder-prd/kubecoder-secret-catalog` and the rollout of the controller;
+- `take the old key for ansible off every host · <n> hosts ok, 13 changed`.
+
+After the plan, `srvk8sdev shut down on pve`.
+
+Then, from the pod, which has restarted since:
+
+```sh
+git -C /work/Ansible fetch -q
+pub=ansible/roles/bootstrap/files/ansible.pub
+git -C /work/Ansible log -1 --format='%h %cI %s' origin/main -- "$pub"
+curl -gfsS -u "$JENKINS_USER:$JENKINS_TOKEN" "$JENKINS_URL/job/IaC/job/Build-Main/api/json?tree=builds[number,result,actions[remoteUrls,lastBuiltRevision[SHA1]]]{0,5}" \
+  | jq -r '.builds[] | "\(.number) \(.result) \([.actions[]? | select(.remoteUrls[0]? // "" | endswith("/Ansible.git")) | .lastBuiltRevision.SHA1[:7]][0])"'
+new=$(git -C /work/Ansible show "origin/main:$pub" | cut -d' ' -f2)
+old=$(git -C /work/Ansible show "$(git -C /work/Ansible log -1 --format=%H origin/main -- "$pub")^:$pub" | cut -d' ' -f2)
+ssh-keygen -y -f ~/.ssh/id_ed25519_ansible | grep -cF "$new"
+srviac 'ssh-keygen -y -f /var/lib/iac/ansible-ssh-key/id_ed25519_ansible' | grep -cF "$new"
+ssh -i ~/.ssh/id_ed25519_ansible -o IdentitiesOnly=yes ansible@pve 'sudo qm status 919'
+cd /work/Ansible/ansible && cexec iac poetry run ansible ansible_key_always_up -m shell -a "grep -cF '$old' ~/.ssh/authorized_keys || true"
+```
+
+**Hand back:** the full output.
+
+**Reading.**
+
+- The newest commit to `ansible.pub`: the console's `<sha7>`, its time, then `rotate the ansible
+  user's SSH key (secret-rotator)`. Another commit names another writer of the file: read it.
+- A `SUCCESS` build of Build-Main at that `<sha7>` or a later one. A failed one: read its console.
+- `1`: the pod's key is the new one, written at the environment's restart. `0`: the environment has
+  not restarted since the rotation.
+- `1`: srviac's copy holds the new key.
+- `status: stopped`: the run shut srvk8sdev down again, read with the pod's key alone.
+- Each of the 12 hosts `CHANGED | rc=0` and `0`: it takes the new key from the pod and no longer
+  holds the old public half. The console's last `take the old key` line covers srvk8sdev.
+
+The next `IaC/Scheduled Drift` after the rotation:
+
+```sh
+drift="$JENKINS_URL/job/IaC/job/Scheduled%20Drift/lastBuild"
+curl -fsS -u "$JENKINS_USER:$JENKINS_TOKEN" "$drift/api/json?tree=result,timestamp" | jq -c '{result, at: (.timestamp / 1000 | todate)}'
+curl -fsS -u "$JENKINS_USER:$JENKINS_TOKEN" "$drift/consoleText" | grep -A 10 'check-terraform-drift'
+```
+
+**Reading:** `SUCCESS`, at a time after the rotation. Its log reads `check-terraform-drift: not
+drift — the plan only re-renders cloud-init snippets, which no running VM reads:` and the nine
+snippets' addresses, until the operator's next Terraform apply. `check-terraform-drift.sh: not
+found` is an agent still on the old shim: restart it as
+[srviac's copy](#srviacs-copy-of-the-key) gives.
+
+How a plan fails:
+
+- Before its `kv.write`, at the add run or the commit: its Telegram line ends `The run rolls it
+  back; the leaf is due again.` The rollback takes the new public half off every host again,
+  logging in with the old key. Nothing else changed. A commit that GitHub refuses with `HTTP 403`
+  is a token without Contents' write.
+- After it, at srviac's copy, the sync, the rollout or the removal: the rollback puts the old public
+  half back where a removal took it off, then puts back srviac's copy, the catalog copy and the
+  leaf. From the undo of the `kv.write` on, the rotator logs in with the old key again. It commits the old `ansible.pub` back, `revert "rotate the ansible user's SSH
+  key" (secret-rotator)`, which starts Build-Main a second time. Last it takes the new public half
+  off every host. `/var/lib/iac/ansible-ssh-key/id_ed25519_ansible cannot be written` is a build
+  whose `iac` container lacks srviac's directory: the agent still runs the old shim.
+- A host that goes down during the plan stops its rollback part-way, with a Telegram message: the
+  add run's undo cannot reach it. Once the host is back, run the plan by hand. It restarts the
+  controller, and with it the environment you work from, so run it in a tmux session on srviac,
+  which outlives yours:
+
+  ```sh
+  ssh -t ansible@srviac 'tmux new-session -s rotate "sudo iac -c \"secret-rotator run iac/ansible-ssh-key\"; read x"'
+  ```
+
 ## Going live
 
 Each switch change is a commit to SecretRotator's `main`, in `src/secret_rotator/switches.yaml`. It
@@ -2535,6 +3024,10 @@ takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, 
     either order, as [Switching the Ceph kinds on](#switching-the-ceph-kinds-on) gives each. After
     `cephx`'s first night comes its second, hand-run prd rotation, once a node update round has
     rebooted the nodes.
+15. **`ssh-key`**, once [§ The `ssh-key` kind](#the-ssh-key-kind)'s token, srviac's copy of the
+    key, annotations and checks are done, and ANS-316 is. It goes in alone, in one commit, as
+    [Switching `ssh-key` on](#switching-ssh-key-on) gives. That section then retires the copies of
+    the key outside OpenBao, and reads the first night.
 
 **The stops.** The immediate stop is disabling the job. `enable` in place of `disable` reverses it:
 

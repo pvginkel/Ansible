@@ -157,7 +157,8 @@ On 2026-09-14 such an environment reached pve, pve1, pve2, srvvault1–3 and srv
 with those keys, and `https://ca.home/health` answered.
 
 **srviac, under the cold-boot procedure.** Follow [`iac-cold-boot.md`](iac-cold-boot.md) steps 1–4.
-They replace every `!bao` ref with its Roboform literal, the SSH key included. With no `!bao` ref
+They replace every `!bao` ref with its literal: the SSH key's from RoboForm until SecretRotator's
+`ssh-key` kind is enabled, and from srviac's own copy of the key once it is. With no `!bao` ref
 left, `iac-impl` makes no OpenBao login. Then:
 
 ```sh

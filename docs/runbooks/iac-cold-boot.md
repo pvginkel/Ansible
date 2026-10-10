@@ -23,10 +23,13 @@ and §Secrets resolver in
 
 - All steps run on `srviac` (or any host with a working `iac` install
   and Docker), as root or via sudo. `wrkdev` works as a fallback if
-  `srviac` itself is down — `install.sh` runs on either host.
+  `srviac` itself is down — `install.sh` runs on either host. srviac's
+  own copy of the Ansible key (see "What gets substituted") is on
+  srviac's disk, out of reach while srviac is down.
 - "Roboform" means the operator's password manager of record. Every
   literal you'll need is already in there, one entry per secret,
-  except SecretRotator's (see "What gets substituted").
+  except SecretRotator's and, once SecretRotator's `ssh-key` kind is
+  enabled, the Ansible key's (see "What gets substituted").
 - The OpenBao admin path through the Jenkins agent VM is unavailable
   during cold boot — that's the whole reason you're here. Don't
   invent a half-restore that depends on it.
@@ -53,6 +56,18 @@ token in `kv/iac/rotator-k8s-token`. Comment them out instead.
 Only `secret-rotator` reads them, and it cannot run while OpenBao is
 down; step 5's restore brings them back.
 
+The Ansible key, the `files:` entry `/root/.ssh/id_ed25519_ansible`
+(`!bao kv/iac/ansible-ssh-key#private`), depends on whether
+SecretRotator's `ssh-key` kind is in its nightly run's
+`kinds_enabled`. Until it is, its literal is in Roboform like the
+others. Once it is, the kind replaces the key every 14 days and
+Roboform holds none: the literal is srviac's own copy of the key,
+`/var/lib/iac/ansible-ssh-key/id_ed25519_ansible` (root's, `0600`).
+The rotation switches that copy with the key, and nothing writes it
+from the leaf, so it holds the key the hosts take. Step 3 splices it
+in. Without it, a person's way in to the hosts is the `pvginkel`
+account.
+
 ## Procedure
 
 ### 1 — Snapshot the current file
@@ -69,7 +84,8 @@ The snapshot is the artifact you'll restore from. Don't skip it.
 sudo grep -nE '^\s*[^#].*!bao ' /etc/iac/secrets.yaml
 ```
 
-Every match is a ref that needs a Roboform value. The match line
+Every match is a ref that needs a Roboform value, or, for the
+Ansible key once `ssh-key` is enabled, srviac's copy. The match line
 shows the `mount/path#key` triple; Roboform entries are named after
 the consumer (the Proxmox password, for one, is the PVE root account
 entry) rather than the KV path, so use the surrounding YAML context
@@ -86,6 +102,8 @@ each `!bao` ref:
   block. Mode lines stay as-is.
 - **SecretRotator's three `SECRET_ROTATOR_*` entries**: comment them
   out (see "What gets substituted").
+- **The Ansible key's entry, once `ssh-key` is enabled**: leave it
+  as it is, for the splice below.
 
 Example before:
 
@@ -112,7 +130,26 @@ Example after:
   mode: "0600"
 ```
 
-Save the file. Confirm permissions stayed at `0600 root:root`:
+Save the file. Once `ssh-key` is enabled, splice srviac's copy in as
+the Ansible key's literal, without showing it:
+
+```bash
+sudo python3 - <<'EOF'
+from pathlib import Path
+f = Path("/etc/iac/secrets.yaml")
+key = Path("/var/lib/iac/ansible-ssh-key/id_ed25519_ansible").read_text()
+lines = f.read_text().splitlines(keepends=True)
+(i,) = [n for n, line in enumerate(lines) if line.strip() == "content: !bao kv/iac/ansible-ssh-key#private"]
+pad = lines[i][: len(lines[i]) - len(lines[i].lstrip())]
+lines[i] = pad + "content: |\n" + "".join(f"{pad}  {line}\n" for line in key.splitlines())
+f.write_text("".join(lines))
+EOF
+```
+
+A `ValueError` means the file holds that `!bao` line not exactly
+once: edit the entry by hand.
+
+Confirm permissions stayed at `0600 root:root`:
 
 ```bash
 sudo stat -c '%a %U:%G' /etc/iac/secrets.yaml
@@ -159,6 +196,16 @@ sudo iac -c 'env | grep -E "^(TF_VAR_proxmox_password|JENKINS_AGENT_SECRET)" | w
 A value of `2` (or however many !bao-resolved env vars you have)
 means the resolver is back in service.
 
+**After a restore from a snapshot** ([`openbao.md`](openbao.md) §3),
+once SecretRotator's `ssh-key` kind is enabled: `iac` now starts with
+the key the restored `iac/ansible-ssh-key` holds. Where the key was
+rotated after the snapshot, the hosts no longer take that one.
+Re-running the `ssh-key` plan cannot repair it, since the rotator
+logs in with the key the leaf holds. srviac's copy holds the key the
+hosts take: write it back to the leaf and its catalog copy, by
+[`openbao.md`](openbao.md) §3 step 8, before any `iac` run that logs
+in as `ansible`.
+
 ### 6 — Rotate any literal that left Roboform
 
 A literal that sat on disk during cold boot has had its blast radius
@@ -187,7 +234,9 @@ Before the next time you might need this runbook:
 
 - [ ] Every `!bao` ref in `/etc/iac/secrets.yaml` has a Roboform entry
       with a clear name. Drift between the two is what makes cold
-      boot slow.
+      boot slow. Once SecretRotator's `ssh-key` kind is enabled, the
+      Ansible key's has none: srviac's copy,
+      `/var/lib/iac/ansible-ssh-key/id_ed25519_ansible`, exists instead.
 - [ ] The operator's age private key (for OpenBao backup decrypt) is
       in Roboform — separate from this runbook, but the same trip to
       Roboform.

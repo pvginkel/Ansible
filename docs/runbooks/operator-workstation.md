@@ -46,7 +46,15 @@ With none of its key variables set, the script writes no key, only the `@cert-au
 
 `ansible/roles/bootstrap/files/ansible.pub` is the public half of a dedicated keypair owned by Ansible-the-tool. Cloud-init seeds it onto every managed VM as the `ansible` user; playbooks then connect as that user.
 
-Private key is `id_ed25519_ansible` in the same attachments folder; restore to `~/.ssh/id_ed25519_ansible` and tell SSH about it:
+Where the private half comes from depends on whether SecretRotator's `ssh-key` kind is in its nightly run's `kinds_enabled` (`src/secret_rotator/switches.yaml` on its `prd`). Until it is, the private key is `id_ed25519_ansible` in the same attachments folder, and in RoboForm. Once it is, the kind replaces the key every 14 days, commits each new public half to `ansible.pub`, and the attachments folder and RoboForm hold no copy. The private half is then `kv/iac/ansible-ssh-key#private` in OpenBao. A KubeCoder environment gets it from the catalog at each start (`scripts/kubecoder-keys.sh`). A workstation takes it from OpenBao, and again after each rotation:
+
+```sh
+(umask 077; bao kv get -mount=kv -field=private iac/ansible-ssh-key > ~/.ssh/id_ed25519_ansible)
+```
+
+With OpenBao down, srviac keeps its own copy ([`iac-cold-boot.md`](iac-cold-boot.md)), and a person's way in is the `pvginkel` account.
+
+Restore it to `~/.ssh/id_ed25519_ansible` and tell SSH about it:
 
 ```
 # ~/.ssh/config

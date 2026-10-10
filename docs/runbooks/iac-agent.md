@@ -140,7 +140,7 @@ This is the sequence to stand `srviac` up the first time, after all the source c
    sudo $EDITOR /etc/iac/secrets.yaml
    ```
 
-   Fill in every `REPLACE_ME` value. The `id_ed25519_ansible` private key body comes from the operator's cloud-synced attachments folder (same identity as `wrkdev` uses today). The `JENKINS_AGENT_SECRET` comes from the controller — register the agent ("IaC Agent", label `iac-controller`, remote root `/work`) on `https://jenkins.webathome.org/` first.
+   Fill in every `REPLACE_ME` value. The `id_ed25519_ansible` entry is a `!bao` ref to `kv/iac/ansible-ssh-key#private`, resolved at each `iac` start, so it needs no fill; with OpenBao down, [iac-cold-boot.md](iac-cold-boot.md) gives its literal. The `JENKINS_AGENT_SECRET` comes from the controller — register the agent ("IaC Agent", label `iac-controller`, remote root `/work`) on `https://jenkins.webathome.org/` first.
 
    See [proxmox-credentials.md](proxmox-credentials.md) for the `TF_VAR_proxmox_*` values.
 
@@ -194,11 +194,11 @@ cd ../../ansible && poetry run ansible-playbook playbooks/site.yml --limit srvia
 # then re-populate /etc/iac/secrets.yaml as in step 3 of cutover
 ```
 
-Cloud-init re-bakes; the role re-applies; the operator re-populates secrets. The VM's MAC is pinned in Terraform so the dnsmasq reservation keeps the same IP.
+Cloud-init re-bakes; the role re-applies; the operator re-populates secrets. srviac's own copy of the Ansible key goes with the VM's disk. Once SecretRotator's `ssh-key` kind is in its nightly run's `kinds_enabled`, seed it again as [the go-live](secret-rotator-go-live.md#srviacs-copy-of-the-key) does; until then, or until the next rotation writes it, [iac-cold-boot.md](iac-cold-boot.md) has no Ansible key to take while OpenBao is down. The VM's MAC is pinned in Terraform so the dnsmasq reservation keeps the same IP.
 
 ### Lost `wrkdev` (extreme case)
 
-Bootstrap any Ubuntu box: install Poetry + the standard SSH keys from the cloud-synced attachments, clone `pvginkel/Ansible` — which carries the host glue at `support/iac-agent/`, so that one clone is the whole controller side. For break-glass terraform, run `scripts/tf-backend.sh` (the same backend in a local `docker run --network host`) and have the age private key from OpenBao (`kv/iac/tf-backend#age_secret_key`) so the backend can decrypt state — `wrkdev` doesn't clone `TerraformState` for normal use. The script runs the patched build the iac image copies, `registry:5000/terraform-backend-git:<build>`. With the registry down it starts the copy cached on the workstation, which an earlier run while the registry was up leaves there; with neither, it starts the stock upstream release behind a warning on stderr, and that one can fail with `non-fast-forward update` beside another writer of `TerraformState` (AnsibleSpecs `decisions.md`, "Concurrency control"). Its last line names the image it started. From there `wrkdev`'s workflows resume. The orchestrator-self-applicable guarantee stops here — there is no zero-touch recovery for the case where both the workstation and `srviac` are lost simultaneously.
+Bootstrap any Ubuntu box: install Poetry + the standard SSH keys from the cloud-synced attachments (once SecretRotator's `ssh-key` kind is enabled, the Ansible key is not among them: take it from OpenBao, as [operator-workstation.md](operator-workstation.md) gives), clone `pvginkel/Ansible` — which carries the host glue at `support/iac-agent/`, so that one clone is the whole controller side. For break-glass terraform, run `scripts/tf-backend.sh` (the same backend in a local `docker run --network host`) and have the age private key from OpenBao (`kv/iac/tf-backend#age_secret_key`) so the backend can decrypt state — `wrkdev` doesn't clone `TerraformState` for normal use. The script runs the patched build the iac image copies, `registry:5000/terraform-backend-git:<build>`. With the registry down it starts the copy cached on the workstation, which an earlier run while the registry was up leaves there; with neither, it starts the stock upstream release behind a warning on stderr, and that one can fail with `non-fast-forward update` beside another writer of `TerraformState` (AnsibleSpecs `decisions.md`, "Concurrency control"). Its last line names the image it started. From there `wrkdev`'s workflows resume. The orchestrator-self-applicable guarantee stops here — there is no zero-touch recovery for the case where both the workstation and `srviac` are lost simultaneously.
 
 ## Secret rotation
 
@@ -258,4 +258,4 @@ Pipe it; never `bao kv get` first and paste, which puts the private key in scrol
 
 ### Ansible SSH key (`id_ed25519_ansible`)
 
-Rotation is in the bootstrap role's "SSH key rotation" section. After rotating, update `secrets.yaml` on `srviac` with the new private key body and `git push` the new public key with the `site.yml` apply.
+Until SecretRotator's `ssh-key` kind is in its nightly run's `kinds_enabled`, the key is rotated by hand, by the bootstrap role's [SSH key rotation](../../ansible/roles/bootstrap/README.md#ssh-key-rotation), which writes the new private half to OpenBao and pushes the new public key with the `site.yml` apply. Once the kind is enabled, it rotates the key every 14 days with no operator step, srviac's own copy of the key included ([secret-rotator-go-live.md](secret-rotator-go-live.md#the-ssh-key-kind)). Either way `secrets.yaml` needs no edit: it holds the key as `!bao kv/iac/ansible-ssh-key#private`, which each `iac` call resolves.

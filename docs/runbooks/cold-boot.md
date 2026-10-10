@@ -159,9 +159,14 @@ ssh -o UserKnownHostsFile=files/known_hosts.d/homelab -o GlobalKnownHostsFile=/d
   -o HostKeyAlias=srvk8s1.home -i ~/.ssh/id_ed25519_ansible ansible@10.1.0.27
 ```
 
-If the pod or the usual workstation is gone too, the ansible private key is in RoboForm under
-"Homelab SSH key > Private key for the ansible user"; save it as `~/.ssh/id_ed25519_ansible`
-(`chmod 600`). PVE hosts take `root` with `id_ed25519_pve`.
+If the pod or the usual workstation is gone too, where the ansible private key is depends on
+whether SecretRotator's `ssh-key` kind is in its nightly run's `kinds_enabled`. Until it is, it is
+in RoboForm under "Homelab SSH key > Private key for the ansible user"; save it as
+`~/.ssh/id_ed25519_ansible` (`chmod 600`). Once it is, RoboForm holds none: the key is in OpenBao,
+`kv/iac/ansible-ssh-key#private`, and in srviac's own copy,
+`/var/lib/iac/ansible-ssh-key/id_ed25519_ansible` (root's). Without either, log in as `pvginkel`
+with your own key, the same way, and `sudo` with its password. PVE hosts take `root` with
+`id_ed25519_pve`.
 
 The UDM is not estate-managed and has no homelab host certificate, so this recipe does not
 verify it. The operator reaches it with the credentials in RoboForm, and lends them to an agent
