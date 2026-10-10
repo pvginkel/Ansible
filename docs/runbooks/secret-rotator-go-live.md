@@ -1804,9 +1804,11 @@ print(f"removed: {added not in after}; the leaf key kept: {key.access in after}"
   removing a key of its own. A plan would then fail at `rgw_admin.delete`. Its rollback would fail
   at the mint's undo in the same way, the leaf back on the old key and both keys valid. Do not
   enable `rgw-admin`: stop. Remove the added key by hand through the Ceph VM's guest agent, the
-  node and VM id from [the PVE nodes](#the-ceph-checks-from-srviac). The command takes the access
-  key id, which is not a secret. `radosgw-admin` prints the user's keys, secrets included, so `jq`
-  shows its exit code and its errors alone:
+  node and VM id from [the PVE nodes](#the-ceph-checks-from-srviac). Run it in the pod, in a shell
+  set up as [§ Conventions](#conventions) gives, not in the `iac` shell on srviac:
+  `~/.ssh/id_ed25519_pve` is the pod's root key to the PVE nodes, which srviac's `iac` container
+  does not hold. The command takes the access key id, which is not a secret. `radosgw-admin`
+  prints the user's keys, secrets included, so `jq` shows its exit code and its errors alone:
 
   ```sh
   ssh -i ~/.ssh/id_ed25519_pve root@<node> "qm guest exec <vmid> --timeout 60 -- microceph.radosgw-admin key rm --uid=k8s --key-type=s3 --access-key=<access key id>" \
