@@ -128,8 +128,9 @@ is not mid-incident.
   repo.
 - **The others**: Grafana's local admin is the leaf `eso/prd/grafana/prd/admin`, and its login
   form is not disabled. pgAdmin allows internal logins beside Keycloak; its default account is the
-  one in PgadminDeploy's values. Headlamp never used Keycloak: it takes a service-account token,
-  printed by the command in HeadlampDeploy's `config/prd/values.yaml`. Guacamole lists OIDC first
+  one in HomelabAppsDeploy's `pgadmin/chart/values.yaml`. Headlamp never used Keycloak: it takes a
+  service-account token, printed by the command in PlatformAddOnsDeploy's
+  `headlamp/config/prd/values.yaml`. Guacamole lists OIDC first
   but keeps its database accounts; whether one of them still logs in is unconfirmed.
 
 **One push that syncs two stages of the same deploy repo no longer clashes on the hook name.**

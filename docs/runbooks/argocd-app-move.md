@@ -5,8 +5,8 @@ upstream Helm chart into a directory of `PlatformAddOnsDeploy`, and each app wit
 and no source repository of its own into a directory of `HomelabAppsDeploy`. This page moves one
 app. It is the design's ten-step per-app move
 ([`deploy-repo-consolidation.md`](../../../AnsibleSpecs/argo-cd/deploy-repo-consolidation.md),
-§Per-app move) as slice 057's rulings D1 and D2 shape it. Slice 057 runs it for headlamp and
-pgadmin, slices 058 and 059 for the rest. What a moved app then is: its registry entry in
+§Per-app move) as slice 057's rulings D1 and D2 shape it. Slice 057 ran it for headlamp and
+pgadmin; slices 058 and 059 run it for the rest. What a moved app then is: its registry entry in
 [argocd.md](argocd.md#registering-undeploying-and-unregistering-an-app), its producer in
 [argocd.md](argocd.md#an-app-in-a-monorepo).
 
@@ -129,6 +129,11 @@ The subtree brings `$OLD`'s history under `$APP/`. Then one commit:
 - `.kubecoder/project.yaml`: a project `$APP`. A project's key is its folder and its statements'
   working directory, so the old repo's `lint` and `test` statements carry over with `hook.repo`
   naming `$MONO` and `hook.path=$APP` beside it.
+- `$APP/README.md` describes the directory, not `$OLD`: its title the app's key, the
+  Application's sources under `$APP/`, the state key `argocd/$MONO/$APP/$STAGE/terraform.tfstate`,
+  no webhook of its own, and the producer published by `AaC/$MONO`. The comments that call `$OLD`
+  "this repository" (`terraform/webhook.tf`, `terraform/providers.tf` and its `manage_webhook`
+  description, the tfvars) say the same.
 
 `kc project lint` and `kc project test` green from `/work/scratch/$MONO` (every project, `$APP`
 among them), then commit.
@@ -329,8 +334,9 @@ relay webhook went with step 7.
 
 ### 10. The annotation proof
 
-Pilots only: slice 057 reads it for both pilots in one wait after both moves, and a later move does
-not repeat it. A commit to the monorepo outside `$APP/` must leave the app alone:
+Pilots only: slice 057 read it for both pilots in one wait after both moves, and it held (argo-cd
+D69); a later move does not repeat it. A commit to the monorepo outside `$APP/` must leave the app
+alone:
 
 ```sh
 cexec iac kubectl get job -n argocd-hooks tf-presync-$NS -o jsonpath='{.metadata.creationTimestamp}{"\n"}'
@@ -338,10 +344,12 @@ cexec iac kubectl get configmap -n $NS tf-presync-revision -o jsonpath='{.data.r
 cexec iac kubectl get application -n argocd-prd $NS -o jsonpath='{.status.sync.status} {.status.reconciledAt}{"\n"}'
 ```
 
-Read before the commit, after its webhook-driven refresh, and after at least one periodic refresh
+Read before the commit, after its webhook delivery, and after the periodic refresh that follows it
 (`timeout.reconciliation: 30m`, no jitter): the app stays `Synced`, with the Job's creation time and
-the ConfigMap's revision unchanged. Never a hard refresh: it re-renders at HEAD and runs the app's
-hook (argo-cd D69).
+the ConfigMap's revision unchanged. The webhook refreshes no app whose directory the commit misses;
+the periodic refresh comes at a 30-minute tick once the app's last reconcile is at least 30 minutes
+old, so up to an hour after the push, and only then does the app's status revision reach the new
+SHA. Never a hard refresh: it re-renders at HEAD and runs the app's hook (argo-cd D69).
 
 ## Why the order holds
 

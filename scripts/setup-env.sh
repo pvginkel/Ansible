@@ -2,10 +2,12 @@
 #
 #   . scripts/bao-login.sh && . scripts/setup-env.sh prd
 #
-# For planning a deploy repo's Terraform by hand (docs/live-infra-access.md). Argo CD's
-# PreSync hook gets the same values from ESO through argocd-hook-credentials; the
+# For running a deploy repo's Terraform by hand. A plan needs none of it: the hook image's
+# plan mode runs as a Job in the cluster with the hook's own credentials
+# (docs/runbooks/argocd.md, "Planning a stage's Terraform as its hook applies it"). Argo
+# CD's PreSync hook gets the same values from ESO through argocd-hook-credentials; the
 # non-secret per-cluster config it runs with (HOMELAB_CEPH_MON_HOST, TF_VAR_zfs_pools, ...)
-# is the hook environment in ArgoCDDeploy's config/prd/values.yaml, which a hand plan
+# is the hook environment in ArgoCDDeploy's config/prd/values.yaml, which a run by hand
 # exports itself.
 #
 # Assumes you are already logged into bao (scripts/bao-login.sh); each value is one

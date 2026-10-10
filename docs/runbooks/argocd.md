@@ -41,10 +41,12 @@ actually ran and the Phase A proof drill are recorded in slice 009's
   ```
 
 - The webhook is the trigger (D6). A dropped delivery is picked up by the
-  30-minute periodic refresh, which is also what brings an app's health up to
-  date after a rollout: Argo CD 3.x ignores `/status`-only updates. An app
-  that shows Progressing past its rollout catches up within half an hour, or
-  at once on a manual Refresh.
+  periodic refresh (`timeout.reconciliation: 30m`), which is also what brings
+  an app's health up to date after a rollout: Argo CD 3.x ignores
+  `/status`-only updates. The controller refreshes an app at a 30-minute tick
+  only when its last reconcile is at least 30 minutes old, so an app that
+  shows Progressing past its rollout catches up within the hour, or at once on
+  a manual Refresh.
 - Argo's own Application never auto-syncs (D3). Every Argo upgrade is a manual
   sync at a moment the operator picks.
 
@@ -52,7 +54,7 @@ actually ran and the Phase A proof drill are recorded in slice 009's
 
 | Item | Value |
 | --- | --- |
-| Namespaces | `argocd-prd` (Argo, the webhook relay), `argocd-hooks` (PreSync Jobs, Destroy Stage Jobs, the `tf-presync` ServiceAccount, `argocd-hook-credentials`) |
+| Namespaces | `argocd-prd` (Argo, the webhook relay), `argocd-hooks` (PreSync Jobs, Destroy Stage Jobs, plan Jobs, the `tf-presync` ServiceAccount, `argocd-hook-credentials`) |
 | Helm release, Application, AppProject | `argocd-prd`, `argocd-prd`, `releases` |
 | UI | `https://argocd.home`, or the bare `https://argocd` — Keycloak SSO (realm `homelab`, client `argocd`) |
 | Read-only account | `kubecoder`: API tokens only, no password, bound to `role:readonly`; its token is `ARGOCD_AUTH_TOKEN` in every prd KubeCoder environment |
@@ -505,10 +507,11 @@ may.
 
 ```sh
 # The deploy repo as GitHub spells it; the registry entry's path:, empty for a
-# repo's root; the stage; hook.namespace, <app>-<stage>; where the log goes.
-REPO=HeadlampDeploy APP_PATH= STAGE=prd NS=headlamp-prd LOG=plan-headlamp-prd.log
-# The commit to plan, by its full SHA: the head of the branch the stage tracks.
-REV=$(gh api repos/pvginkel/$REPO/commits/main --jq .sha)
+# repo's root; the stage; hook.namespace, <app>-<stage>; the branch the stage
+# tracks, its targetRevision (main unless the entry sets one); where the log goes.
+REPO=PlatformAddOnsDeploy APP_PATH=headlamp STAGE=prd NS=headlamp-prd BRANCH=main LOG=plan-headlamp-prd.log
+# The commit to plan, by its full SHA: the head of that branch.
+REV=$(gh api repos/pvginkel/$REPO/commits/$BRANCH --jq .sha)
 JOB=tf-plan-$NS
 ARGS="[\"https://github.com/pvginkel/$REPO.git\", \"$REV\", \"$STAGE\", \"$NS\"${APP_PATH:+, \"$APP_PATH\"}]"
 cexec iac kubectl $KC delete job -n argocd-hooks $JOB --ignore-not-found
@@ -558,7 +561,8 @@ condition, which it gets when its run ends (`SuccessCriteriaMet` or
 - `presync: the plan carries no changes`, or `presync: the plan carries N
   change(s):` and one `presync:   <address>: <action>` line per change, the
   action `create`, `update`, `destroy`, `read`, `replace (destroy then
-  create)`, `move from <address>` or `import`;
+  create)` or `replace (create then destroy)` (in the order the apply would
+  take them), `move from <address>` or `import`;
 - last, `presync: plan only: nothing was applied and no volume was reattached`,
   with exit code `0`.
 
@@ -566,9 +570,11 @@ A plan that could not finish exits `1` instead, its last line `presync: …`
 with Terraform's error above it. Refreshing a namespaced Kubernetes object needs
 the app namespace's `tf-presync` RoleBinding, which the stage's last sync left
 in place (`BeforeHookCreation`), so a stage whose namespace is gone fails there.
-The sheet ran as written on 2026-10-10, against headlamp at `54c0ad2` and
-`argocd/HeadlampDeploy/prd/terraform.tfstate`: `the plan carries no changes`,
-exit `0`.
+The sheet ran on 2026-10-10 for the moves of headlamp and pgadmin into their
+monorepos ([`argocd-app-move.md`](argocd-app-move.md), step 4): at
+`argocd/PlatformAddOnsDeploy/headlamp/prd/terraform.tfstate` and
+`argocd/HomelabAppsDeploy/pgadmin/prd/terraform.tfstate`, each plan carried
+the one change `github_repository_webhook.argocd[0]: destroy`, exit `0`.
 
 ## Destroying a retired stage
 
