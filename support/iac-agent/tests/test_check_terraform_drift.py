@@ -145,6 +145,19 @@ class CheckTerraformDrift(unittest.TestCase):
             result.stderr,
         )
 
+    def test_a_snippet_only_created_or_deleted_fails(self):
+        # A create alone is the plan over a snippet file gone from its node: not a re-render.
+        for actions in (["create"], ["delete"]):
+            with self.subTest(actions=actions):
+                result = self.check(plan([snippet("srvk8s1"), snippet("srvk8s2", actions)]))
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(
+                    'plan changes proxmox_virtual_environment_file.cloud_init["srvk8s2"]'
+                    f" ({','.join(actions)})",
+                    result.stderr,
+                )
+                self.assertNotIn('cloud_init["srvk8s1"]', result.stderr)
+
     def test_a_moved_snippet_fails(self):
         moved = snippet("srvk8s1")
         moved["previous_address"] = 'proxmox_virtual_environment_file.old["srvk8s1"]'

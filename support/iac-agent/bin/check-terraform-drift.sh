@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # check-terraform-drift.sh — fail if a terraform/prd plan changes
-# anything but the cloud-init snippet files.
+# anything but re-rendering the cloud-init snippet files.
 #
 # Usage: check-terraform-drift.sh <plan.json>
 #
 # <plan.json> is `terraform show -json` of a plan with changes. Exits 0
-# when its changes are all to proxmox_virtual_environment_file.cloud_init,
-# 1 when anything else changes, 2 on usage or parse errors.
+# when its changes are all replacements (delete,create) of
+# proxmox_virtual_environment_file.cloud_init, 1 when anything else
+# changes, a snippet's create or delete alone included, 2 on usage or
+# parse errors.
 #
 # The snippets are first-boot artefacts: the managed-vm module ignores
 # initialization[0].user_data_file_id, so no running VM reads one, and
@@ -41,6 +43,7 @@ if ! changes=$(jq -r '
         | select($what != [])
         | if .mode == "managed" and .type == "proxmox_virtual_environment_file"
                 and .name == "cloud_init" and .module_address == null
+                and .change.actions == ["delete", "create"]
                 and .change.importing == null and .previous_address == null
             then "snippet " + .address
             else "other " + .address + " (" + ($what | join(", ")) + ")"
