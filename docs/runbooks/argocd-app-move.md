@@ -63,7 +63,9 @@ one: steps 3, 4 and 6 and the reads of step 7 run for each stage, and step 5 set
 A move opens with this read, and so does every return to it: after a timeout, an answered stop, a
 review round. It resumes at the first step whose *done when* does not hold, so no production step
 runs twice or is skipped. The render, the plan and the diff are reads: a return runs them again and
-never takes an earlier round's output.
+never takes an earlier round's output. So is step 8's model compare, the `A`/`B` sums of
+`AaC/Architecture`'s builds: step 8 reads done once the re-point is pushed, before the compare has
+run, so a return runs it again while step 9 is not done.
 
 ```sh
 raw() { gh api "repos/pvginkel/$1/contents/$2" -H 'Accept: application/vnd.github.raw'; }
