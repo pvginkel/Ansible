@@ -79,16 +79,26 @@ compare has run, so a return runs it again while the producer's old job is not d
 ```sh
 raw() { gh api "repos/pvginkel/$1/contents/$2" -H 'Accept: application/vnd.github.raw'; }
 has() { gh api "repos/pvginkel/$1/contents/$2" --silent 2>/dev/null && echo "$1 $2: present" || echo "$1 $2: absent"; }
-# step 2's wait: DockerImages builds that started before the pin push and are still running, and
-# whether $OLD's main has a commit the monorepo's lacks
+# step 2's wait: the DockerImages build running, whether the newest finished build that checked
+# out DockerImages holds the pin push, whether $OLD's main has a commit the monorepo's lacks, and
+# each values file the directory pins differently from $OLD
 pinwait() {
   { date -u +%FT%TZ
-    curl -s $J "$JENKINS_URL/job/DockerImages/api/json?tree=builds%5Bnumber,timestamp,building%5D%7B0,5%7D" \
-      | jq -c --argjson t "$(cat $REC/pins-pushed-$APP.txt)" '[.builds[] | select(.building and .timestamp < $t) | .number]'
+    git -C /work/DockerImages fetch -q origin
+    b=$(curl -s $J "$JENKINS_URL/job/DockerImages/api/json?tree=builds%5Bnumber,building,actions%5BlastBuiltRevision%5BSHA1%5D,remoteUrls%5D%5D%7B0,5%7D")
+    jq -r '.builds[] | select(.building) | "running: #\(.number)"' <<<"$b"
+    jq -r '[.builds[] | select(.building | not) | [.number, first(.actions[]
+      | select(.remoteUrls[0]? == "https://github.com/pvginkel/DockerImages.git") | .lastBuiltRevision.SHA1)]
+      | select(length == 2)][0] // [] | @tsv' <<<"$b" \
+      | { read -r n rev; git -C /work/DockerImages merge-base --is-ancestor $(cat $REC/pins-pushed-$APP.txt) "$rev" 2>/dev/null \
+          && echo "pin push: built by #$n" || echo "pin push: not built"; }
     git -C /work/scratch/$MONO fetch -q origin
     git -C /work/scratch/$MONO fetch -q https://github.com/pvginkel/$OLD.git main
     git -C /work/scratch/$MONO merge-base --is-ancestor FETCH_HEAD origin/main \
       && echo "$OLD main: in $MONO" || echo "$OLD main: ahead of $MONO"
+    for f in $(git -C /work/scratch/$MONO ls-tree -r --name-only FETCH_HEAD config | grep '/values.yaml$'); do
+      git -C /work/scratch/$MONO diff --quiet FETCH_HEAD:$f origin/main:$APP/$f || echo "$APP/$f: pins differ from $OLD"
+    done
   } | tee -a $REC/pins-wait-$APP.log
 }
 # 1: the app's directory on the monorepo's main, and AaC/<Monorepo>'s last green build
@@ -120,7 +130,7 @@ gh api repos/pvginkel/$OLD --jq '"archived: \(.archived)"'
 | Step | Done when |
 | --- | --- |
 | 1. The directory | `$MONO $APP: present` |
-| 2. The pins | no `deploy-pins.json` names `pvginkel/$OLD`. The wait, once step 2 pushed, is a read: run while step 3 is not done, and it holds at `[]` and `$OLD main: in $MONO` |
+| 2. The pins | no `deploy-pins.json` names `pvginkel/$OLD`. The wait, once step 2 pushed, is a read: run while step 3 is not done, and it holds at `pin push: built by #<n>` and `$OLD main: in $MONO`, with no `pins differ` line |
 | 3. The state rename | the new key `present`, the old `absent`, no lock on either |
 | 4. The plan | a read: run while step 5 is not done |
 | 5. The registry switch | the entry names `$MONO` and `path: $APP` |
@@ -216,38 +226,62 @@ starts `AaC/$MONO`, which step 8 waits on.
 
 Each DockerImages `deploy-pins.json` entry that names `pvginkel/$OLD` (the read above) takes
 `repo: pvginkel/$MONO` and its own `file` under `$APP/` (`config/dev/values.yaml` becomes
-`$APP/config/dev/values.yaml`). Commit, then push and record when the push landed, which the wait
+`$APP/config/dev/values.yaml`). Commit, then push and record the pushed commit, which the wait
 reads:
 
 ```sh
-git -C /work/DockerImages push origin HEAD:main && date +%s000 > $REC/pins-pushed-$APP.txt
+git -C /work/DockerImages push origin HEAD:main && git -C /work/DockerImages rev-parse HEAD > $REC/pins-pushed-$APP.txt
 ```
 
-From here an image build writes its pin into the directory, where nothing deploys it until step 7.
-An app with no entry pushes nothing and skips the wait; neither pilot had one.
+The push rebuilds the app's images: DockerImages builds every image whose folder a push changed
+(`utils.hasChanges("${image}/.*")`), `deploy-pins.json` included, and pins the new tag at every
+entry of that image, in `$APP/` and in any other repo an entry names, which rolls as it does on any
+build (jenkins' `mcp-filter` also pins trello-mcp). From here every build of the app's images pins
+into `$APP/`, the push's own build first. An app with no entry pushes nothing and skips the wait;
+neither pilot had one.
 
-**The wait**, before step 3. A DockerImages build that started before the push can still commit a
-pin to `$OLD`. The job sets `disableConcurrentBuilds()` without `abortPrevious`, under a 180-minute
-`timeout` (DockerImages `Jenkinsfile`, `options`), so the push queues behind a running build
-instead of ending it. That build pins from its own checkout (its `Checkout` stage feeds
-`collectPins`), the entries as they were before the push. A build started after the push reads
-the re-pointed pins. Run the opening read's `pinwait` until it prints `[]` and `$OLD main: in
-$MONO`; its log, `$REC/pins-wait-$APP.log`, is the record that the wait ended before the rename.
+**The wait**, before step 3. Two builds leave pins the move must take in first. A DockerImages
+build that started before the push can still commit a pin to `$OLD`: the job sets
+`disableConcurrentBuilds()` without `abortPrevious`, under a 180-minute `timeout` (DockerImages
+`Jenkinsfile`, `options`), so the push queues behind a running build instead of ending it, and
+that build pins from its own checkout (its `Checkout` stage feeds `collectPins`), the entries as
+they were before the push. The build that checks out the push pins the rebuilt tags into `$APP/`
+while the app runs `$OLD`'s, which step 6's diff would show. Builds run one at a time, so once a
+finished build has checked out the push, every build before it is done. Run the opening read's
+`pinwait` until it prints `pin push: built by #<n>` and `$OLD main: in $MONO`, with no `pins
+differ` line; its log, `$REC/pins-wait-$APP.log`, is the record that the wait ended before the
+rename.
 
-- A build number: follow that build to its end, `track_build.py DockerImages --buildnr <n>`, which
-  also waits for Argo CD to roll any pin it pushed. Then read again.
-- `$OLD main: ahead of $MONO`: a commit reached `$OLD` after step 1's subtree took it, a sat-out
-  build's pin. Once the opening read's Application line shows the old Application `Synced` at
-  `$OLD`'s new head (its hook applied at the old key), bring the commit into the directory, in
-  `/work/scratch/$MONO`:
+- `pin push: not built`: with `running: #<n>`, follow that build to its end, `track_build.py
+  DockerImages --buildnr <n>`, which also waits for Argo CD to roll any pin it pushed; with no
+  build running, the push's build is still queued. Then read again.
+- `$OLD main: ahead of $MONO`: a commit reached `$OLD` after step 1's subtree took it, the pin of a
+  build that started before the push. Once the opening read's Application line shows the old
+  Application `Synced` at `$OLD`'s new head (its hook applied at the old key), bring the commit
+  into the directory, in `/work/scratch/$MONO`:
 
   ```sh
   PATH=/tmp/gnubin:$PATH git subtree pull --prefix=$APP -m "$APP: $OLD's main since the subtree add" \
     https://github.com/pvginkel/$OLD.git main
   ```
 
-  Then step 1's prediction again, `/work/scratch/$OLD` fetched first so that `OLDREV` is that
-  head, the push, and the read again.
+  A line both sides pinned keeps the directory's tag, the later build's. Then step 1's prediction
+  again, `/work/scratch/$OLD` fetched first so that `OLDREV` is that head, the push, and the read
+  again.
+- `$APP/<file>: pins differ from $OLD`, with `$OLD main: in $MONO`: a build pinned rebuilt images
+  into the directory, the push's own among them. The app takes them through `$OLD`, before the
+  rename, as it takes any pin: each file the read names goes to `$OLD` as the directory has it,
+  and the old Application syncs it at the old key.
+
+  ```sh
+  cd /work/scratch/$OLD && git pull -q --ff-only
+  git -C /work/scratch/$MONO show origin/main:$APP/config/$STAGE/values.yaml > config/$STAGE/values.yaml   # each file the read names
+  git commit -qam "$APP: the image pins DockerImages wrote into $MONO $APP/" && git push origin HEAD:main
+  track_build.py --deploy $OLD main $(git rev-parse HEAD)
+  ```
+
+  The app rolls onto the rebuilt images. The read then shows `$OLD main: ahead of $MONO`, the
+  bullet above.
 
 ### 3. The state rename
 
@@ -437,7 +471,9 @@ SHA. Never a hard refresh: it re-renders at HEAD and runs the app's hook (argo-c
 - **The wait (2) before the rename (3):** a DockerImages build that started before the pin push
   writes its pins from the entries it checked out, into `$OLD`, and the push queues behind it
   rather than ending it. Before the rename its pin syncs the old Application against the state;
-  after it, against an empty one.
+  after it, against an empty one. The push's own build pins the app's rebuilt images into `$APP/`:
+  before the rename they reach the app through `$OLD`; after it, step 6's diff shows them and
+  rule (2) parks the move.
 - **The directory pushed (1) before the plan (4):** the plan clones the monorepo at its SHA.
 - **The rename (3) and a clean plan (4) before the switch (5):** the switched Application's first
   sync applies at the new key, which has to hold the state by then.
