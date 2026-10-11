@@ -296,8 +296,9 @@ git push origin main
 An app with a volume (a `static-*-pv` module) first records each PersistentVolume, for step 7's
 compare, all of them in one go, one line each. A module's PV is `<name>-pv`, `<name>` being the
 module's `name`; the loop names every module's (jenkins-prd's `jenkins-pv build-cache-pv`). The
-line's last fields name what backs the PV: `rootPath` a CephFS subvolume (`static-cephfs-pv`),
-`local` a ZFS dataset (`static-zfs-pv`, a local PV), `handle` an RBD image (`static-rbd-pv`):
+line's last fields name what backs the PV: `rootPath` a CephFS subvolume (`static-cephfs-pv`, whose
+`handle` is the PV's own name), `local` a ZFS dataset (`static-zfs-pv`, a local PV), `handle` an RBD
+image (`static-rbd-pv`):
 
 ```sh
 for pv in <name>-pv …; do
