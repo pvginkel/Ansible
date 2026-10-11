@@ -105,9 +105,11 @@ pinwait() {
 # 1: the app's directory on the monorepo's main, and AaC/<Monorepo>'s last green build
 has $MONO $APP
 curl -s $J "$JENKINS_URL/job/AaC/job/$MONO/lastSuccessfulBuild/api/json?tree=number,artifacts%5BrelativePath%5D" | jq -c
-# 2: deploy-pins.json entries that still name the old repo; once step 2 pushed, its wait
+# 2: deploy-pins.json entries that still name the old repo; once step 2 pushed, its wait, until
+# any stage's state leaves its old key: from step 3's rename a copy to $OLD syncs an empty state
 git -C /work/DockerImages fetch -q origin && git -C /work/DockerImages grep -l "\"pvginkel/$OLD\"" origin/main -- '*/deploy-pins.json'
-[ -f $REC/pins-pushed-$APP.txt ] && pinwait
+[ -f $REC/pins-pushed-$APP.txt ] && { gh api repos/pvginkel/TerraformState/contents/argocd/$MONO/$APP --silent 2>/dev/null \
+  && echo "pin wait: closed, a state is under argocd/$MONO/$APP" || pinwait; }
 # 3: the state at each key, and any lock held on either
 for key in argocd/$OLD/$STAGE argocd/$MONO/$APP/$STAGE; do
   has TerraformState $key/terraform.tfstate
@@ -131,7 +133,7 @@ gh api repos/pvginkel/$OLD --jq '"archived: \(.archived)"'
 | Step | Done when |
 | --- | --- |
 | 1. The directory | `$MONO $APP: present` |
-| 2. The pins | no `deploy-pins.json` names `pvginkel/$OLD`. The wait, once step 2 pushed, is a read: run while step 3 is not done, and it holds at `pin push: built by #<n>` and `$OLD main: in $MONO`, with no `pins differ` line |
+| 2. The pins | no `deploy-pins.json` names `pvginkel/$OLD`. The wait, once step 2 pushed, is a read: run while no stage's state has left its old key (then the read prints `pin wait: closed`), and it holds at `pin push: built by #<n>` and `$OLD main: in $MONO`, with no `pins differ` line |
 | 3. The state rename | the new key `present`, the old `absent`, no lock on either |
 | 4. The plan | a read: run while step 5 is not done |
 | 5. The registry switch | the entry names `$MONO` and `path: $APP` |
@@ -277,10 +279,12 @@ rename.
   A line both sides pinned keeps the directory's tag, the later build's. Then step 1's prediction
   again, `/work/scratch/$OLD` fetched first so that `OLDREV` is that head, the push, and the read
   again.
-- `$APP/<file>: pins differ from $OLD`, with `$OLD main: in $MONO`: a build pinned rebuilt images
-  into the directory, the push's own among them. The app takes them through `$OLD`, before the
-  rename, as it takes any pin: each file the read names goes to `$OLD` as the directory has it,
-  and the old Application syncs it at the old key.
+- `$APP/<file>: pins differ from $OLD`, with `$OLD main: in $MONO`, before step 3: a build pinned
+  rebuilt images into the directory, the push's own among them. The app takes them through `$OLD`,
+  before the rename, as it takes any pin: each file the read names goes to `$OLD` as the directory
+  has it, and the old Application syncs it at the old key. Once any stage's state has left its old
+  key the read prints `pin wait: closed` instead and nothing goes to `$OLD`, keycloak's other stage
+  included; step 6's diff shows a later rebuild's pins.
 
   ```sh
   cd /work/scratch/$OLD && git pull -q --ff-only
