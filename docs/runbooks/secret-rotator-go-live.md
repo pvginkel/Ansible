@@ -2608,10 +2608,10 @@ takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, 
      cannotReconcile, and its rollback puts the old password back.
    - The `dev` leaves rotate as KV writes: the dev cluster takes them when it next boots.
 8. **Before `jenkins-token`**, W1 and W2 are done: their merges of `secret-rotator-jenkins` and
-   `secret-rotator-infra-statistics` are on HomelabAppsDeploy's `main`, and synced. Before W1's merge,
-   jenkins-mcp's Secret takes its header from the stored `authorization`, not from `token`: after
-   the first rotation jenkins-mcp would go on sending "Claude", and the revoke of "Claude" below
-   would cut it off.
+   `secret-rotator-infra-statistics` are on HomelabAppsDeploy's `main`, and synced. Before W1's
+   merge, jenkins-mcp's Secret takes its header from the stored `authorization`, not from `token`:
+   after the first rotation jenkins-mcp would go on sending "Claude", and the revoke of "Claude"
+   below would cut it off.
 
    ```sh
    for l in eso/prd/{infra-statistics/prd/jenkins,jenkins-mcp/prd/config,jenkins-telegram-bot/prd/config,kubecoder/prd/catalog,version-poller/prd/jenkins} \
