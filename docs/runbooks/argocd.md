@@ -21,17 +21,18 @@ actually ran and the Phase A proof drill are recorded in slice 009's
 ## Conventions
 
 - The operator's keystroke applies: every sync, every bootstrap command, every
-  `bao kv put`, every deletion. Claude prepares and reads. The one exception is
-  the deploy-repo consolidation's per-app move (slices 057 to 059,
-  [`argocd-app-move.md`](argocd-app-move.md)): slice 057's ruling D1 gives
+  `bao kv put`, every deletion. Claude prepares and reads. The one exception was
+  the deploy-repo consolidation's per-app move in slices 057 to 059
+  ([`argocd-app-move.md`](argocd-app-move.md)): slice 057's ruling D1 gave
   Claude every step of it, its state move, plan Job, registry switch, sync and
-  deletions included, and the operator answers its stops. It reaches no other
-  sync.
+  deletions included, and the operator answered its stops. It reached no other
+  sync, and it does not reach a later move, whose steps the operator rules on
+  when it comes.
 - A prd KubeCoder environment reads Argo through the `argocd` CLI in its `iac`
   sidecar, as the read-only `kubecoder` account and with no login step
   ([Reading Argo with the CLI](#reading-argo-with-the-cli)). It writes nothing.
   Every write is the operator's keystroke, in the UI or through `kubectl` with
-  the prd-write kubeconfig, but for the per-app move's. The read-only default
+  the prd-write kubeconfig, but for slices 057 to 059's per-app moves. The read-only default
   kubeconfig can list Applications, ApplicationSets and AppProjects, but not
   patch or annotate them. Shorthand used throughout:
 

@@ -11,10 +11,13 @@ app then is: its registry entry in
 [argocd.md](argocd.md#registering-undeploying-and-unregistering-an-app), its producer in
 [argocd.md](argocd.md#an-app-in-a-monorepo).
 
-**Every step is Claude's; the operator answers the stops.** Slice 057's ruling D1, which holds for
-058 and 059, gives Claude the whole move: the pushes, the state move, the plan Job, the registry
-switch, the sync, the job deletion and the archive. It is the one exception to
-[argocd.md](argocd.md#conventions)'s operator keystroke, and it reaches no other sync. A stop halts
+**In slices 057 to 059 every step was Claude's and the operator answered the stops.** Slice 057's
+ruling D1, which held for 058 and 059, gave Claude the whole move: the pushes, the state move, the
+plan Job, the registry switch, the sync, the job deletion and the archive. It was the one exception
+to [argocd.md](argocd.md#conventions)'s operator keystroke, and it reached no other sync. It does
+not reach a later move (an app reclassified, a dedicated app retired into a monorepo): who runs
+which step of one is the operator's to rule when it comes, and until they have, the keystroke
+holds. A stop halts
 the move where the table below says and leaves what it says; the operator decides what follows. A
 slice's run hands a stop back as its verdict `question`.
 
@@ -23,7 +26,7 @@ slice's run hands a stop back as its verdict `question`.
 | Stop | Fires when | The move is left |
 | --- | --- | --- |
 | The render (step 1) | an object other than the hook's Job and RoleBinding and the ConfigMap `tf-presync-revision` differs between the two renders | before the state rename: nothing has changed for Argo |
-| Rule (1), the plan (step 4) | the plan at the new key fails, or lists anything but `github_repository_webhook.argocd[0]: destroy`; for a stage whose old tfvars do not set `manage_webhook = true`, lists anything at all | the rename reverted ([before the registry switch](#before-the-registry-switch)) before the registry is touched |
+| Rule (1), the plan (step 4) | the plan at the new key fails after its `presync: planning against` line (one that exits before it is run again once, and stops only if that one fails too), or lists anything but `github_repository_webhook.argocd[0]: destroy`; for a stage whose old tfvars do not set `manage_webhook = true`, lists anything at all | the rename reverted ([before the registry switch](#before-the-registry-switch)) before the registry is touched |
 | Rule (2), the diff (step 6) | the Application's diff after the switch shows anything but `tf-presync-revision`'s data | parked: the switch and the rename stay, `autoSync` stays off, nothing applies |
 | A proof (steps 8, 10) | the producer's artifact or the model changes; the annotation proof fails | where it fails: an app that runs from the monorepo stays there |
 
@@ -354,8 +357,11 @@ presync: plan only: nothing was applied and no volume was reattached
 
 Either plan shows that the state is at the new key, where an empty state would plan a create of
 every resource, and that its sops encryption does not bind the path. **Anything else is rule (1)'s
-stop**: another change, the expected destroy missing, a failed plan. Revert the rename ([before the
-registry switch](#before-the-registry-switch)) before anything else, then stop.
+stop**: another change, the expected destroy missing, a plan that fails after reading the state.
+Revert the rename ([before the registry switch](#before-the-registry-switch)) before anything else,
+then stop. A plan that exits before its `presync: planning against` line (in the clone, `terraform
+init` or a provider download) never read the state and is no verdict: keep its log under another
+name and run the plan once more. Only if that one fails too is it rule (1)'s stop.
 
 ### 5. The registry switch
 
