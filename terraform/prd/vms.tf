@@ -88,7 +88,7 @@ locals {
       managed_disks = [
         { interface = "scsi0", size = 20 },
         { interface = "scsi1", size = 80 },
-        { interface = "scsi2", size = 100 },
+        { interface = "scsi2", size = 140 },
       ]
 
       # NICs: inventories/prd/host_vars/srvk8s4.yml
