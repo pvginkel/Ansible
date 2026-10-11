@@ -437,8 +437,8 @@ rotator's ServiceAccount token. A nightly run also pushes the audit's
 findings and its own run health; one that found the lock held or that
 `paused` stopped pushes the run health alone (design §3.4). A push
 that fails is one line of the output, `metrics: the <group> group is
-not pushed: <error>`, and changes nothing else. PrometheusDeploy
-alerts on the series, all three at warning:
+not pushed: <error>`, and changes nothing else. PlatformAddOnsDeploy's
+`prometheus/` alerts on the series, all three at warning:
 
 - `SecretRotatorStale`: no nightly run has pushed for 48 h, in dry
   run too.

@@ -1,12 +1,13 @@
 ---
-# step-ca runs on the prd cluster only, as StepCaDeploy's Argo app.
+# step-ca runs on the prd cluster only, as the Argo app step-ca-prd from
+# PlatformAddOnsDeploy's step-ca/.
 step_ca_namespace: step-ca-prd
 step_ca_statefulset: step-ca
 step_ca_kubeconfig: /var/snap/microk8s/current/credentials/client.config
 
 # The five Secrets the upstream step-certificates chart mounts in
-# existingSecrets mode (StepCaDeploy config/prd/values.yaml), each key
-# mapped to the file whose bytes it carries. A bare name is in this
+# existingSecrets mode (PlatformAddOnsDeploy step-ca/config/prd/values.yaml),
+# each key mapped to the file whose bytes it carries. A bare name is in this
 # role's files/.
 #
 # Vaulted whole-file with ansible-vault: ca.json, defaults.json, the two

@@ -23,13 +23,13 @@ is down, and before upgrading or removing the app.
 | Item | Value |
 | --- | --- |
 | Application, namespace | `kyverno-prd`: app `kyverno`, stage `prd`, in ArgoCDDeploy `releases/values.yaml` |
-| Deploy repo | KyvernoDeploy: the upstream chart `kyverno` 3.9.1 (Kyverno v1.19.1) with `config/prd/values.yaml`, and the companion `chart/` |
+| Deploy repo | PlatformAddOnsDeploy `kyverno/`: the upstream chart `kyverno` 3.9.1 (Kyverno v1.19.1) with `config/prd/values.yaml`, and the companion `chart/` |
 | Admission controller | Deployment `kyverno-admission-controller`: three replicas, one per node on srvk8s1–3, PDB `minAvailable: 1`; Service `kyverno-prd-svc`. No other Kyverno controller runs |
 | Pod webhook | MutatingWebhookConfiguration `kyverno-resource-mutating-webhook-cfg`, entry `mpol.validate.kyverno.svc-fail`, `failurePolicy: Fail`, owned by ClusterRole `kyverno-prd:webhook` |
-| Policy | MutatingPolicy `memory-requests` and GlobalContextEntry `memory-requests`, both cluster-scoped: KyvernoDeploy `chart/templates/memory-requests-policy.yaml` |
-| Snapshot | CronJob `memory-snapshot` in `kyverno-prd`, daily at 04:15 Europe/Amsterdam, running `chart/files/memory_snapshot.py` from ConfigMap `memory-snapshot`: KyvernoDeploy `chart/templates/memory-snapshot.yaml` |
+| Policy | MutatingPolicy `memory-requests` and GlobalContextEntry `memory-requests`, both cluster-scoped: PlatformAddOnsDeploy `kyverno/chart/templates/memory-requests-policy.yaml` |
+| Snapshot | CronJob `memory-snapshot` in `kyverno-prd`, daily at 04:15 Europe/Amsterdam, running `chart/files/memory_snapshot.py` from ConfigMap `memory-snapshot`: PlatformAddOnsDeploy `kyverno/chart/templates/memory-snapshot.yaml` |
 | Table | ConfigMap `memory-requests` in `kyverno-prd`, one row per container: `<namespace>_<workload>_<container>: <n>Mi` |
-| Tests | KyvernoDeploy `kc project test`: `tests/kyverno-test.py` runs the policy's cases with `kyverno test`, `tests/test_memory_snapshot.py` the script's; both derive workloads from the examples in `tests/workload-examples.yaml` |
+| Tests | PlatformAddOnsDeploy `kc project test --project kyverno`: `kyverno/tests/kyverno-test.py` runs the policy's cases with `kyverno test`, `kyverno/tests/test_memory_snapshot.py` the script's; both derive workloads from the examples in `kyverno/tests/workload-examples.yaml` |
 
 ## What it does to pod creation
 
@@ -60,7 +60,7 @@ pods to Kyverno and creates them while Kyverno is down:
 | --- | --- |
 | `kube-system`, `metallb-system` | Ansible books their requests (`microk8s` role) |
 | `argocd-prd`, `argocd-hooks` | Argo CD and its hooks stay able to repair Kyverno from Git. Argo CD's pods carry requests committed in ArgoCDDeploy |
-| `kyverno-prd` | Kyverno's own pods and the snapshot job carry requests committed in KyvernoDeploy |
+| `kyverno-prd` | Kyverno's own pods and the snapshot job carry requests committed in PlatformAddOnsDeploy `kyverno/` |
 | pods labelled `app.kubernetes.io/managed-by: kubecoder` | KubeCoder's environment pods, booked at 0 on purpose |
 
 Every other namespace is covered, the `-dev` stages' included. Under `failurePolicy: Fail`, a pod
@@ -185,8 +185,8 @@ again, so a deletion holds only while no replica runs. A replica that shuts down
 Deployment at zero deletes the registrations itself; a crashed one leaves them, and the label
 delete takes whatever still stands. The label covers the pod webhook and the `failurePolicy: Fail`
 webhooks that guard Kyverno's own objects: `kyverno-policy-validating-webhook-cfg` on its policies
-and `kyverno-global-context-validating-webhook-cfg` on its GlobalContextEntries. A KyvernoDeploy
-sync applies both kinds, so it would be refused while they stand.
+and `kyverno-global-context-validating-webhook-cfg` on its GlobalContextEntries. A sync of
+PlatformAddOnsDeploy's `kyverno/` applies both kinds, so it would be refused while they stand.
 
 ```sh
 cexec iac kubectl $KC -n kyverno-prd scale deployment kyverno-admission-controller --replicas=0
@@ -206,10 +206,11 @@ ssh ansible@srvk8s1 sudo microk8s kubectl delete mutatingwebhookconfiguration,va
 Then run the probe again: it is admitted.
 
 **Bring Kyverno back.** With its registrations gone, nothing of Kyverno's refuses an apply, so a
-fix pushed to KyvernoDeploy syncs as usual. Kyverno doesn't come back by itself after the
-break-glass: with `selfHeal` off, Argo leaves the Deployment at zero until it is scaled back or
-KyvernoDeploy syncs. Pods in `kyverno-prd` are never refused, so scaling up always works. Once a
-replica leads, it registers the webhooks again; check the pod entry and its owner:
+fix pushed to PlatformAddOnsDeploy's `kyverno/` syncs as usual. Kyverno doesn't come back by
+itself after the break-glass: with `selfHeal` off, Argo leaves the Deployment at zero until it is
+scaled back or PlatformAddOnsDeploy's `kyverno/` syncs. Pods in `kyverno-prd` are never refused,
+so scaling up always works. Once a replica leads, it registers the webhooks again; check the pod
+entry and its owner:
 
 ```sh
 cexec iac kubectl $KC -n kyverno-prd scale deployment kyverno-admission-controller --replicas=3
@@ -252,8 +253,8 @@ cexec iac kubectl $KC create -f kyverno-webhook.json
 
 ## Upgrading and removing the app
 
-**Upgrading.** Bump the chart as KyvernoDeploy's README says. A version that brings a new
-cluster-scoped kind also needs ArgoCDDeploy's `releases` AppProject whitelist and the
+**Upgrading.** Bump the chart as PlatformAddOnsDeploy's `kyverno/README.md` says. A version that
+brings a new cluster-scoped kind also needs ArgoCDDeploy's `releases` AppProject whitelist and the
 `SYNCED_CLUSTER_KINDS` table in its `tests/render-chart.py`, edited together. After the sync, check
 that Kyverno still sets the owner that removal depends on:
 
@@ -271,9 +272,9 @@ sets that owner to the ClusterRole named `*:webhook` and labelled
 [argocd.md](argocd.md#registering-undeploying-and-unregistering-an-app) says. The chart's
 pre-delete webhook cleanup is off: Argo CD runs every pre-delete hook at once, and the chart's
 scale-down looks in namespace `kyverno`, so the cleanup raced a live admission controller.
-Instead the companion's ClusterRole `kyverno-prd:webhook` (KyvernoDeploy
-`chart/templates/webhook-owner.yaml`, sync wave −1) owns the registrations. Argo deletes the
-admission controller's Deployment and its pods before wave −1, and the garbage collector then
+Instead the companion's ClusterRole `kyverno-prd:webhook` (PlatformAddOnsDeploy
+`kyverno/chart/templates/webhook-owner.yaml`, sync wave −1) owns the registrations. Argo deletes
+the admission controller's Deployment and its pods before wave −1, and the garbage collector then
 deletes what the ClusterRole owned. Between the last admission-controller pod's exit and that,
 covered pod creates are refused.
 

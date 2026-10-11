@@ -2,9 +2,9 @@
 
 Writes step-ca's five Secrets in `step-ca-prd` on the prd cluster from this role's files: the CA's
 two encrypted keys and their passwords, its certificates, `ca.json` and `defaults.json`. The
-upstream `step-certificates` chart mounts them in `existingSecrets` mode (StepCaDeploy
-`config/prd/values.yaml`); StepCaDeploy renders none of them. Design: `/work/AnsibleSpecs/decisions.md`
-§"Internal TLS / homelab CA", "Intermediate key + passphrase".
+upstream `step-certificates` chart mounts them in `existingSecrets` mode (PlatformAddOnsDeploy
+`step-ca/config/prd/values.yaml`); the `step-ca/` chart renders none of them. Design:
+`/work/AnsibleSpecs/decisions.md` §"Internal TLS / homelab CA", "Intermediate key + passphrase".
 
 Applied only by [`playbooks/step-ca.yml`](../../playbooks/step-ca.yml), which elects the microk8s
 primary among `k8s_prd` (the `microk8s` role's `elect-primary` tasks) and runs the role there with
@@ -42,14 +42,15 @@ re-encrypted over the same plaintext changes nothing: the run compares decrypted
 ## What a run does
 
 1. Creates Namespace `step-ca-prd` only when it is missing, the bring-up case. An existing one is
-   StepCaDeploy's and stays Argo's.
+   rendered by PlatformAddOnsDeploy's `step-ca/` and stays Argo's.
 2. Replaces each Secret whole (`force: true`), after reading the live one. The definition is the
    whole object, so neither Argo's `argocd.argoproj.io/tracking-id` annotation nor kubectl's
    `last-applied-configuration` survives, and Argo does not own the Secrets.
 3. Restarts StatefulSet `step-ca` (the pod template's `kubectl.kubernetes.io/restartedAt`) and
    waits up to 300 s for it, when any Secret's data was missing or differed from what the run
    read. step-ca reads its material at process start only. A metadata-only change restarts
-   nothing, and at bring-up, before Argo first syncs StepCaDeploy, there is no StatefulSet yet.
+   nothing, and at bring-up, before Argo first syncs PlatformAddOnsDeploy's `step-ca/`, there is no
+   StatefulSet yet.
 
 The restart decision rests on the data the run read before writing. A run that stops between its
 Secret writes and the restart leaves step-ca on its old material, and a re-run finds nothing to

@@ -71,7 +71,7 @@ workload and are not on it.
 
 | Path | What consumes it |
 |---|---|
-| `ExternalSecretsDeploy`: `chart/files/homelab-root.crt` | Rendered into the ConfigMap `homelab-root-ca` (key `ca.crt`), the `caProvider` by which ESO verifies OpenBao's step-ca-issued listener. |
+| `PlatformAddOnsDeploy`: `external-secrets/chart/files/homelab-root.crt` | Rendered into the ConfigMap `homelab-root-ca` (key `ca.crt`), the `caProvider` by which ESO verifies OpenBao's step-ca-issued listener. |
 | `HomelabAppsDeploy`: `nginx/chart/files/ca/homelab-root.crt` | Rendered into the ConfigMap `nginx-configmap-ca`, mounted by the nginx manager Deployment and its renewal CronJob. |
 | `HomelabAppsDeploy`: `jenkins/chart/files/ca/homelab-root.crt` | Rendered into the ConfigMap `jenkins-configmap-ca`, which Jenkins' init container imports into the Java truststore. |
 | `/work/ArgoCDTools/argocd-hook/image/homelab-root.crt` | Baked into the `argocd-hook` image's trust store — the Argo CD Terraform PreSync hook. |
@@ -160,7 +160,7 @@ md5sum /work/Ansible/ansible/roles/baseline/files/homelab-root.crt \
        /work/DockerImages/kube-coder-arm64-cross-toolchain/homelab-root.crt \
        /work/DockerImages/kube-coder-esp-idf-toolchain/homelab-root.crt \
        /work/ArgoCDDeploy/chart/files/homelab-root.crt
-for f in ExternalSecretsDeploy/chart/files HomelabAppsDeploy/nginx/chart/files/ca \
+for f in PlatformAddOnsDeploy/external-secrets/chart/files HomelabAppsDeploy/nginx/chart/files/ca \
          HomelabAppsDeploy/jenkins/chart/files/ca KubeCoderDeploy/chart/files/ca; do
   gh api "repos/pvginkel/${f%%/*}/contents/${f#*/}/homelab-root.crt" -H 'Accept: application/vnd.github.raw' | md5sum
 done

@@ -7,9 +7,10 @@ or when a database is dropped from `postgres-pas`.
 Design context: "OpenBao backup / DR" and §"Backup" in
 [`../../../AnsibleSpecs/decisions.md`](../../../AnsibleSpecs/decisions.md). `backup-server` is
 DockerImages `backup-server/`, run as the `backup-server` Deployment in `storage-prd`
-(HomelabAppsDeploy `storage/chart/`). Both rules are in the `backup-freshness` group of PrometheusDeploy
-`config/prd/values.yaml`, and its `kc project test` unit-tests them
-(`tests/alert-rules/backup-freshness.yml`). Restoring OpenBao from its backup is
+(HomelabAppsDeploy `storage/chart/`). Both rules are in the `backup-freshness` group of
+PlatformAddOnsDeploy `prometheus/config/prd/values.yaml`, and its
+`kc project test --project prometheus` unit-tests them
+(`prometheus/tests/alert-rules/backup-freshness.yml`). Restoring OpenBao from its backup is
 [`openbao.md`](openbao.md) §3.
 
 ## Conventions

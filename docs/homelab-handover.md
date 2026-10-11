@@ -300,9 +300,9 @@ failure is delayed rather than immediate.
 What raises it: srviac sends the `dhcp` Service a relay-style DISCOVER every 3 minutes (role
 `dhcp_probe`), and Prometheus pages `DHCPNotAnswering` after 12 minutes without an OFFER, beside
 `LoadBalancerNotAnnounced` for the withdrawn address and `OIDCDiscoveryFailing` for a Keycloak
-that is down (PrometheusDeploy `config/prd/values.yaml`). With the whole cluster down Prometheus
-itself is silent; its heartbeat to healthchecks.io then stops, and healthchecks.io notifies over
-Telegram.
+that is down (PlatformAddOnsDeploy `prometheus/config/prd/values.yaml`). With the whole cluster
+down Prometheus itself is silent; its heartbeat to healthchecks.io then stops, and healthchecks.io
+notifies over Telegram.
 
 That happened on 2026-09-25. After a power cut, the `dhcp` pod stayed not-Ready and there was no
 DHCP for 2h45m (AnsibleSpecs `handovers/dhcp-outage-2026-09-25/`). A DHCP floor outside the

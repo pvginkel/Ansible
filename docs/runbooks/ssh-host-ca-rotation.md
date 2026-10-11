@@ -41,10 +41,10 @@ you gave the line by hand takes the same two edits by hand.
 
 ## Before you start
 
-- step-ca's material is the `step_ca` role's
-  ([`step-ca-bootstrap.md`](step-ca-bootstrap.md) §Conventions), and
-  StepCaDeploy's chart renders none of step-ca's Secrets. While it
-  still does, an Argo sync of the chart puts the old key back.
+- step-ca's material is the `step_ca` role's, which writes it into
+  step-ca's five Secrets ([`step-ca-bootstrap.md`](step-ca-bootstrap.md)
+  §Conventions), and PlatformAddOnsDeploy's `step-ca/` chart renders
+  none of them.
 - You work on `wrkdev`, in `~/source/Ansible` on an up-to-date `main`,
   with `ANSIBLE_VAULT_PASSWORD_FILE` exported
   ([`operator-workstation.md`](operator-workstation.md) §ansible-vault

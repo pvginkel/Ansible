@@ -62,8 +62,9 @@ This runbook is the *operational* path; it doesn't re-justify decisions.
   the microk8s primary's node kubeconfig. With `--check` appended it
   names the Secrets a run would change, without their data. Commit and
   push the files once the procedure has verified: a run from any other
-  checkout writes that checkout's files. StepCaDeploy carries none of
-  this material.
+  checkout writes that checkout's files. PlatformAddOnsDeploy's
+  `step-ca/` carries none of this material: its chart renders none of
+  the five Secrets.
 
 ---
 
@@ -269,11 +270,11 @@ exactly as exported.
 
 ### 7. Hand the CA's material to the `step_ca` role
 
-StepCaDeploy runs the upstream `step-certificates` chart in
-`existingSecrets` mode (`config/prd/values.yaml`). The chart reads the
-CA's material from five Secrets in `step-ca-prd`, which the Ansible
-repo's `step_ca` role writes from its files, each value a file's exact
-bytes (`roles/step_ca/vars/main.yml` maps them):
+PlatformAddOnsDeploy's `step-ca/` runs the upstream `step-certificates`
+chart in `existingSecrets` mode (`step-ca/config/prd/values.yaml`). The
+chart reads the CA's material from five Secrets in `step-ca-prd`, which
+the Ansible repo's `step_ca` role writes from its files, each value a
+file's exact bytes (`roles/step_ca/vars/main.yml` maps them):
 
 | Secret | Key | File in `ansible/roles/step_ca/files/` |
 |---|---|---|
@@ -357,8 +358,8 @@ rm -rf step-ca-bootstrap
 ```
 
 The CA's material now lives in the `step_ca` role's files, and its
-database on StepCaDeploy's PVC `step-ca-db-pvc`. The operator's
-recovery path if everything is lost: see
+database on the PVC `step-ca-db-pvc` of PlatformAddOnsDeploy's
+`step-ca/`. The operator's recovery path if everything is lost: see
 [Intermediate rotation](#intermediate-rotation) (the root in Roboform
 is the recovery anchor).
 
@@ -418,11 +419,12 @@ unset pw
 poetry run ansible-playbook playbooks/step-ca.yml
 ```
 
-Then set `existingSecrets.sshHostCa: true` in StepCaDeploy's
-`config/prd/values.yaml`, a chart value rather than material, and push.
-Argo's sync rolls step-ca onto the `step-ca-ssh-host-ca-password` mount
-and the `--ssh-host-password-file` flag. The playbook goes first: the
-pod does not start while that Secret is missing.
+Then set `existingSecrets.sshHostCa: true` in PlatformAddOnsDeploy's
+`step-ca/config/prd/values.yaml`, a chart value rather than material,
+and push. Argo's sync rolls step-ca onto the
+`step-ca-ssh-host-ca-password` mount and the `--ssh-host-password-file`
+flag. The playbook goes first: the pod does not start while that Secret
+is missing.
 
 ### 3. Add the `ssh` block and host policy to `ca.json`
 
@@ -685,12 +687,12 @@ holds as the provisioner's `encryptedKey`:
   [§ kubecoder-jwk](#kubecoder-jwk).
 
 The `encryptedKey` is public: step-ca serves it at `https://ca.home/provisioners`, and
-StepCaDeploy's history holds it. A key only re-encrypted under a new password still signs for
-whoever holds the old one, so the rotation replaces the key pair. `ca.json` has no
-`authority.enableAdmin`, so step-ca offers no remote provisioner API: the key is replaced in the
-`step_ca` role's `ca.json` and reaches step-ca through the role's playbook. Once step-ca runs on the
-new `ca.json`, only the new password signs. For `ansible-jwk`, `ca.json` and `vips.yml` therefore
-change together.
+PlatformAddOnsDeploy's history holds it (its `step-ca/` subtree carries StepCaDeploy's). A key
+only re-encrypted under a new password still signs for whoever holds the old one, so the rotation
+replaces the key pair. `ca.json` has no `authority.enableAdmin`, so step-ca offers no remote
+provisioner API: the key is replaced in the `step_ca` role's `ca.json` and reaches step-ca through
+the role's playbook. Once step-ca runs on the new `ca.json`, only the new password signs. For
+`ansible-jwk`, `ca.json` and `vips.yml` therefore change together.
 
 ### 1. Generate a new password
 
