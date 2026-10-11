@@ -36,10 +36,10 @@ points at an http backend on `127.0.0.1:6061`, served here by the `terraform-bac
 service that `.kubecoder/config.yaml` runs as a sidecar. The backend URL names the git store
 (`pvginkel/TerraformState`, ref `main`), so this daemon and the one `iac-impl` starts on **srviac**
 resolve to the same state — reads here are the real thing, not a private copy. That sidecar runs the
-stock upstream release, not the estate's patched build, so beside another writer of the state repo —
-an Argo CD hook, an `IaC/*` job — a run here can fail with `non-fast-forward update`, and can keep
-failing for as long as that daemon runs (AnsibleSpecs `decisions.md`, "Concurrency control").
-`terraform fmt` needs no state at all.
+estate's patched build (DockerImages `terraform-backend-git`), so it shares the state repo with its
+other writers — an Argo CD hook, an `IaC/*` job: a save that loses a race to another writer's push
+fails once, and Terraform's own retry commits on top of that writer's (AnsibleSpecs `decisions.md`,
+"Concurrency control"). `terraform fmt` needs no state at all.
 
 `terraform/prd` takes its credentials as variables (`proxmox_endpoint`, `proxmox_username`,
 `proxmox_password`, `dns_reservation_token`, `backup_server_token`). Only
