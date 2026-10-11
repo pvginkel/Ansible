@@ -56,7 +56,7 @@ J="-u $JENKINS_USER:$JENKINS_TOKEN"
 ```
 
 The clones, each brought to `origin/main` before its step: `/work/scratch/$OLD`,
-`/work/scratch/$MONO`, `/work/scratch/TerraformState` (`git clone
+`/work/$MONO`, `/work/scratch/TerraformState` (`git clone
 https://github.com/pvginkel/TerraformState /work/scratch/TerraformState` the first time),
 `/work/ArgoCDDeploy`, `/work/Architecture` and `/work/DockerImages`. Each read's output goes into
 `$REC`, named for what it is.
@@ -96,12 +96,12 @@ pinwait() {
       | select(length == 2)][0] // [] | @tsv' <<<"$b" \
       | { read -r n rev; git -C /work/DockerImages merge-base --is-ancestor $(cat $REC/pins-pushed-$APP.txt) "$rev" 2>/dev/null \
           && echo "pin push: built by #$n" || echo "pin push: not built"; }
-    git -C /work/scratch/$MONO fetch -q origin
-    git -C /work/scratch/$MONO fetch -q https://github.com/pvginkel/$OLD.git main
-    git -C /work/scratch/$MONO merge-base --is-ancestor FETCH_HEAD origin/main \
+    git -C /work/$MONO fetch -q origin
+    git -C /work/$MONO fetch -q https://github.com/pvginkel/$OLD.git main
+    git -C /work/$MONO merge-base --is-ancestor FETCH_HEAD origin/main \
       && echo "$OLD main: in $MONO" || echo "$OLD main: ahead of $MONO"
-    for f in $(git -C /work/scratch/$MONO ls-tree -r --name-only FETCH_HEAD config | grep '/values.yaml$'); do
-      git -C /work/scratch/$MONO diff --quiet FETCH_HEAD:$f origin/main:$APP/$f || echo "$APP/$f: pins differ from $OLD"
+    for f in $(git -C /work/$MONO ls-tree -r --name-only FETCH_HEAD config | grep '/values.yaml$'); do
+      git -C /work/$MONO diff --quiet FETCH_HEAD:$f origin/main:$APP/$f || echo "$APP/$f: pins differ from $OLD"
     done
   } | tee -a $REC/pins-wait-$APP.log
 }
@@ -155,7 +155,7 @@ not a fault: step 7's sync runs the hook afresh, and the line then reads its sta
 ### 1. The app's directory
 
 ```sh
-cd /work/scratch/$MONO && git fetch origin && git merge --ff-only origin/main
+cd /work/$MONO && git fetch origin && git merge --ff-only origin/main
 # git subtree needs GNU dirname: uutils coreutils' (Ubuntu 25.10, the KubeCoder dev container)
 # prints `.` for `dirname $APP/.`, and the add fails with `invalid path './<file>'`.
 mkdir -p /tmp/gnubin && ln -sf /usr/bin/gnudirname /tmp/gnubin/dirname
@@ -183,7 +183,7 @@ The subtree brings `$OLD`'s history under `$APP/`. Then one commit:
   "this repository" (`terraform/webhook.tf`, `terraform/providers.tf` and its `manage_webhook`
   description, the tfvars) say the same.
 
-`kc project lint` and `kc project test` green from `/work/scratch/$MONO` (every project, `$APP`
+`kc project lint` and `kc project test` green from `/work/$MONO` (every project, `$APP`
 among them), then commit.
 
 **The prediction**, before the push: render both sides as their Applications do and compare them
@@ -191,14 +191,14 @@ object by object.
 
 ```sh
 OLDREV=$(git -C /work/scratch/$OLD rev-parse origin/main)   # what the Application synced last
-NEWREV=$(git -C /work/scratch/$MONO rev-parse HEAD)         # the step-1 commit
+NEWREV=$(git -C /work/$MONO rev-parse HEAD)                 # the step-1 commit
 mkdir -p $REC/render-$NS
 cexec aac-tools chart-deps --repo /work/scratch/$OLD
-cexec aac-tools chart-deps --repo /work/scratch/$MONO/$APP
+cexec aac-tools chart-deps --repo /work/$MONO/$APP
 cexec iac sh -c "cd /work/scratch/$OLD && helm template $NS chart --namespace $NS \
   --set-string hook.repo=https://github.com/pvginkel/$OLD.git,hook.revision=$OLDREV,hook.stage=$STAGE,hook.namespace=$NS" \
   > $REC/render-$NS/before.yaml
-cexec iac sh -c "cd /work/scratch/$MONO/$APP && helm template $NS chart --namespace $NS \
+cexec iac sh -c "cd /work/$MONO/$APP && helm template $NS chart --namespace $NS \
   --set-string hook.repo=https://github.com/pvginkel/$MONO.git,hook.revision=$NEWREV,hook.stage=$STAGE,hook.namespace=$NS,hook.path=$APP" \
   > $REC/render-$NS/after.yaml
 ```
@@ -209,7 +209,7 @@ beside the companion `chart/`, with the stage values; append it to each side, at
 version its registry entry names:
 
 ```sh
-for side in before:/work/scratch/$OLD after:/work/scratch/$MONO/$APP; do
+for side in before:/work/scratch/$OLD after:/work/$MONO/$APP; do
   cexec iac helm template $NS <chart> --repo <upstream repo> --version <version> --namespace $NS \
     --values ${side#*:}/config/$STAGE/values.yaml >> $REC/render-$NS/${side%%:*}.yaml
 done
@@ -272,7 +272,7 @@ rename.
 - `$OLD main: ahead of $MONO`: a commit reached `$OLD` after step 1's subtree took it, the pin of a
   build that started before the push. Once the opening read's Application line shows the old
   Application `Synced` at `$OLD`'s new head (its hook applied at the old key), bring the commit
-  into the directory, in `/work/scratch/$MONO`:
+  into the directory, in `/work/$MONO`:
 
   ```sh
   PATH=/tmp/gnubin:$PATH git subtree pull --prefix=$APP -m "$APP: $OLD's main since the subtree add" \
@@ -291,7 +291,7 @@ rename.
 
   ```sh
   cd /work/scratch/$OLD && git pull -q --ff-only
-  git -C /work/scratch/$MONO show origin/main:$APP/config/$STAGE/values.yaml > config/$STAGE/values.yaml   # each file the read names
+  git -C /work/$MONO show origin/main:$APP/config/$STAGE/values.yaml > config/$STAGE/values.yaml   # each file the read names
   git commit -qam "$APP: the image pins DockerImages wrote into $MONO $APP/" && git push origin HEAD:main
   track_build.py --deploy $OLD main $(git rev-parse HEAD)
   ```

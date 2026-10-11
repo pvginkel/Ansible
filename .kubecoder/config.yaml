@@ -24,6 +24,12 @@ repos:
   # with a mirror of this repo's docs/runbooks into the GitHub Pages site
   # https://pvginkel.github.io/SOPs/.
   - url: https://github.com/pvginkel/SOPs
+  # The two app deploy monorepos, one directory per app named after its registry
+  # key: PlatformAddOnsDeploy for apps deployed from an upstream Helm chart,
+  # HomelabAppsDeploy for apps with a chart of their own and no source repo.
+  # Dedicated <App>Deploy repos stay under /work/scratch.
+  - url: https://github.com/pvginkel/PlatformAddOnsDeploy
+  - url: https://github.com/pvginkel/HomelabAppsDeploy
 
 capabilities:
   github: rw

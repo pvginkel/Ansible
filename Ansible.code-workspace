@@ -32,6 +32,12 @@
 		},
 		{
 			"path": "../SOPs"
+		},
+		{
+			"path": "../PlatformAddOnsDeploy"
+		},
+		{
+			"path": "../HomelabAppsDeploy"
 		}
 	],
 	"settings": {}
