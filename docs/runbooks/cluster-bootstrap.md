@@ -44,13 +44,13 @@ then Argo adopts it all and deploys everything else.
   step 10. The playbook creates `step-ca-prd` and needs ansible-vault and the cluster, nothing
   from OpenBao: `cd ansible && cexec iac poetry run ansible-playbook playbooks/step-ca.yml`.
 - OpenBao is unsealed and Ceph is `HEALTH_OK` ([`cold-boot.md`](cold-boot.md) steps 2 and 3).
-- Checkouts under `/work`: `Charts`, `ArgoCDDeploy`, and the chain apps' deploy repos:
-  `PlatformAddOnsDeploy` (external-secrets and ceph-csi-cephfs, and ceph-csi-rbd and step-ca if
-  certificates need re-issuing), `HomelabAppsDeploy` (registry and nginx), `DnsmasqDeploy`,
-  `TfmirrorDeploy` and `ChartsDeploy`. Each is at the revision its apps' stages track: `main`,
-  unless ArgoCDDeploy's `releases/values.yaml` sets a stage's `targetRevision`, and an app in a
-  monorepo whose stage sets one takes a checkout of its own at that revision. They are private,
-  so clone them with the GitHub credentials.
+- Checkouts: `Charts` and `ArgoCDDeploy` under `/work`, and the chain apps' deploy repos under
+  `/work/scratch`: `PlatformAddOnsDeploy` (external-secrets and ceph-csi-cephfs, and ceph-csi-rbd
+  and step-ca if certificates need re-issuing), `HomelabAppsDeploy` (registry and nginx),
+  `DnsmasqDeploy`, `TfmirrorDeploy` and `ChartsDeploy`. Each is at the revision its apps' stages
+  track: `main`, unless ArgoCDDeploy's `releases/values.yaml` sets a stage's `targetRevision`, and
+  an app in a monorepo whose stage sets one takes a checkout of its own at that revision. They are
+  private, so clone them with the GitHub credentials.
 - `KC="--kubeconfig ~/.kube/config-prd-write --context prd"`, as in `argocd.md`, and `KV` the
   cluster's version: the Server Version `cexec iac kubectl $KC version` prints.
 
@@ -63,8 +63,8 @@ in place of charts.home, drops the hook resources, and stamps each object with A
 tracking annotation so that Argo adopts the objects in place:
 
 ```sh
-cexec iac sh -c "python3 scripts/argo-hand-render.py <app> /work/<DeployRepo> --kube-version $KV \
-  > /tmp/<app>-prd.yaml && kubectl $KC apply -f /tmp/<app>-prd.yaml"
+cexec iac sh -c "python3 scripts/argo-hand-render.py <app> /work/scratch/<DeployRepo> \
+  --kube-version $KV > /tmp/<app>-prd.yaml && kubectl $KC apply -f /tmp/<app>-prd.yaml"
 ```
 
 Namespaces and CRDs come first in the output, so one apply creates them before the objects that
@@ -90,8 +90,8 @@ passes the hook `hook.path`, as Argo does.
    the companion chart, which holds the `openbao-prd` ClusterSecretStore:
 
    ```sh
-   cexec iac sh -c "python3 scripts/argo-hand-render.py external-secrets /work/PlatformAddOnsDeploy \
-     --kube-version $KV --part upstream > /tmp/eso-up.yaml && \
+   cexec iac sh -c "python3 scripts/argo-hand-render.py external-secrets \
+     /work/scratch/PlatformAddOnsDeploy --kube-version $KV --part upstream > /tmp/eso-up.yaml && \
      kubectl $KC apply --server-side --field-manager=argocd-controller -f /tmp/eso-up.yaml"
    cexec iac kubectl $KC -n external-secrets-prd rollout status deploy/external-secrets-prd-webhook
    ```
