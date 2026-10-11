@@ -18,8 +18,9 @@ at 15:03 UTC and pods were starting at 15:11. Everything recovered unaided excep
   `dhcpapp-app` crash-looped on OIDC discovery and held the `dhcp` pod not-Ready, so there was
   no DHCP for 2h45m. DHCPApp has been out of the dhcp pod since (DnsmasqDeploy `ca30bbe`). Deploy
   repos pin images from `registry:5000` to a per-build tag, never a digest, so garbage collection
-  cannot delete a pinned image while its tag stands. registry-cleanup deletes only when
-  RegistryDeploy's `registryCleanup.dryRun` is `false`; in dry-run it logs what it would delete.
+  cannot delete a pinned image while its tag stands. registry-cleanup deletes only when the
+  registry app's `registryCleanup.dryRun` (HomelabAppsDeploy `registry/`) is `false`; in dry-run
+  it logs what it would delete.
 - **srvk8s4.** It takes its address from the in-cluster DHCP and stayed off the LAN until
   DHCP was back. It still does; srviac, which had the same problem, is static now
   ([`static-address.md`](static-address.md)). Expect srvk8s4 NotReady until DHCP answers.
@@ -87,9 +88,9 @@ is not retried. Restore out of band first, then push the durable fix, then **sta
 hand** for every push whose webhook was lost. The 2026-08-19 case: a KubeCoder environment
 published a hostname over nginx's `server_names_hash_bucket_size`, and nginx-configurator's
 reload is a rollout restart, so the running master was gone with it (the bucket size is 128 in
-NginxDeploy since). The cheapest restore there was deleting the offending front Service with
-`config-prd-write` — not the environment: `reconcile_front_services` only runs when the env
-recomposes, so the deletion sticks and the env pod keeps running.
+HomelabAppsDeploy's `nginx/` since). The cheapest restore there was deleting the offending front
+Service with `config-prd-write` — not the environment: `reconcile_front_services` only runs when
+the env recomposes, so the deletion sticks and the env pod keeps running.
 
 **DHCP down because the `dhcp` pod is not Ready.** Publish the not-ready endpoint, and MetalLB
 announces 10.2.1.10 again:

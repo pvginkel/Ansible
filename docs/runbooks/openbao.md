@@ -142,7 +142,7 @@ and the latest backup's Raft snapshot is restored into it.
 
 1. **Fetch and unpack the latest backup.** `backup-server` is
    upload-only — pull the object from the rclone destination it
-   ships to (`backupServer.rcloneRemote` in StorageDeploy's `config/prd/values.yaml`).
+   ships to (`backupServer.rcloneRemote` in HomelabAppsDeploy's `storage/config/prd/values.yaml`).
    The newest `openbao/<ts>_openbao-backup.tgz.age` is the one you
    want, not the `.metadata.json` file beside it:
 

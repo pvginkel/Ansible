@@ -406,7 +406,9 @@ objects they were.
 Run for each producer: `$APP-deploy` from `AaC/$OLD`, and a two-stage app's `$APP-dev-deploy`
 from `AaC/$OLD-dev`. `AaC/$MONO` has a green build that archived
 `$APP/docs/architecture/$PROD.yaml` (the read above): step 1's push started it. The producer proof
-is that its artifact is, byte for byte, the one the old job published:
+is that its artifact is, byte for byte, the one the old job published. The artifact carries the
+app's image tags, and a `pins differ` copy to `$OLD` (step 2's wait) started `AaC/$JOB` again: run
+the proof once that build is done, so that each side is its job's last green build.
 
 ```sh
 curl -sf $J "$JENKINS_URL/job/AaC/job/$JOB/lastSuccessfulBuild/artifact/docs/architecture/$PROD.yaml" | sha256sum
@@ -415,10 +417,13 @@ curl -sf $J "$JENKINS_URL/job/AaC/job/$MONO/lastSuccessfulBuild/artifact/$APP/do
 
 Equal sums, or the producer proof stops the move. Then Architecture's `pipeline-producers.yaml`:
 the producer's entry takes the monorepo shape ([argocd.md](argocd.md#an-app-in-a-monorepo)),
-`repo: pvginkel/$MONO`, `jenkinsJob: AaC/$MONO`, `path: $APP`. Commit, push, and follow the build
-the push starts (`track_build.py --hash <sha> AaC/Architecture`). It goes green, and the model is
-unchanged: the producer's collected input is the same bytes in that build `B` as in the last green
-build before it, `A`.
+`repo: pvginkel/$MONO`, `jenkinsJob: AaC/$MONO`, `path: $APP`. Before the push, let
+`AaC/Architecture` go idle, nothing building and nothing queued: a green build of any producer's
+job queues one through its upstream trigger, and each new build aborts the one running
+(`disableConcurrentBuilds(abortPrevious: true)` in Architecture's `Jenkinsfile`), which then ends
+`NOT_BUILT`. Its last green build is `A`. Commit, push, and follow the build the push starts
+(`track_build.py --hash <sha> AaC/Architecture`). It goes green, and the model is unchanged: the
+producer's collected input is the same bytes in that build `B` as in `A`.
 
 ```sh
 for b in $A $B; do

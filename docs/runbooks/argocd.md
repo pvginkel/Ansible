@@ -862,7 +862,9 @@ What a new producer would otherwise get wrong:
   `Jenkinsfile.architecture` passes that stage to `--stage`, which is required
   and takes one value. That is the whole guard. The generator does not read the
   branch, and it has no rule about which stages an app publishes. KubeCoder
-  publishes prd only.
+  publishes prd only. HomelabAppsDeploy's job publishes both of keycloak's
+  stages from its one `main` build, as two producers with a file each
+  ([An app in a monorepo](#an-app-in-a-monorepo)).
 - **The annotation file states `introduced:`.** A deploy repo's history dates
   the repo, not the app, so the generator requires the key and has no fallback.
   A new app takes the date of the first commit that adds its deploy repo's
@@ -956,17 +958,22 @@ top-level directory holding `architecture.yaml`, and its producer id is
 runs `generate(stage: 'prd', producer: '<app>-deploy')` inside `dir('<app>')`
 for each app in turn, which writes `<app>/docs/architecture/<app>-deploy.yaml`,
 then archives and validates `*/docs/architecture/*.yaml`. With no app
-directory, both stages are skipped. The stage is `prd` for every app. The job,
-`AaC/<Monorepo>`, already exists. The root `.architecturerc` serves every app:
-its `sources` and `instructions` name `{path}` and `{producer}`, which the
-central architecture update fills with each producer's own. So an app in a
+directory, both stages are skipped. PlatformAddOnsDeploy's file publishes `prd`
+alone. HomelabAppsDeploy's also publishes the dev stage of an app that has a
+`config/dev/`, as a second producer, `<app>-dev-deploy`: in the same
+`dir('<app>')` it runs `generate(stage: 'dev', producer: '<app>-dev-deploy')`,
+which writes `<app>/docs/architecture/<app>-dev-deploy.yaml` (keycloak's
+`keycloak-dev-deploy`). The job, `AaC/<Monorepo>`, already exists. The root
+`.architecturerc` serves every app: its `sources` and `instructions` name
+`{path}` and `{producer}`, which the central architecture update fills with
+each producer's own. So an app in a
 monorepo brings its `architecture.yaml` and no pipeline, rc or job of its own.
 One app's failing generate or validate fails the build, and AaC/Architecture
 copies each producer from the job's last successful build, so every app's
 model then stays at that build's until the failure is fixed.
 
 Its entry in `pipeline-producers.yaml` names the monorepo, its job and the
-app's directory:
+app's directory, and a dev producer's entry differs only in its `id`:
 
 ```yaml
 - id: <app>-deploy
@@ -976,12 +983,12 @@ app's directory:
 ```
 
 `path:` scopes the producer to its directory. AaC/Architecture copies only its
-`<app>-deploy.yaml` from the job's build. The central update counts only the
+own `<id>.yaml` from the job's build. The central update counts only the
 commits under `<app>/`, and hands it the `gap:` lines printed below its own
-`wrote docs/architecture/<app>-deploy.yaml` line, up to the next app's. When
+`wrote docs/architecture/<id>.yaml` line, up to the next `wrote` line. When
 several producers name one job, every one of them needs `path:`, or
 AaC/Architecture's registry check fails its build. Register a producer only
-after a green `AaC/<Monorepo>` build has archived its `<app>-deploy.yaml`: the
+after a green `AaC/<Monorepo>` build has archived its `<id>.yaml`: the
 narrowed copy fails on a build that lacks the file. An app moving in from a
 deploy repo of its own re-points the entry it already has
 ([`argocd-app-move.md`](argocd-app-move.md), step 8).
@@ -1266,12 +1273,15 @@ the recipient committed in `config/prd/values.yaml`.
 
 ## Known behaviours
 
-- **A change pushed to every deploy repo at once: JenkinsDeploy and NginxDeploy last.** Their
+- **A change pushed to every deploy repo at once: Jenkins and nginx last.** Their
   syncs restart Jenkins and nginx, so every build in flight dies and every webhook GitHub sends
   meanwhile gets a 502 and is lost — the pushes that landed before them would never build. Seen
   at the Kyverno memory-request cleanup of 2026-10-07, pushed unbatched to 47 repos, where the
   operator had to take over the failing pipelines. Push the rest first, let their builds and
-  syncs finish, then those two.
+  syncs finish, then those two. Both are directories of HomelabAppsDeploy, `jenkins/` and
+  `nginx/`, beside other apps: that repo's other directories go with the rest, and `jenkins/` and
+  `nginx/` follow in a push of their own. A commit leaves an app whose directory it does not
+  touch as it was ([`manifest-generate-paths`](#registering-undeploying-and-unregistering-an-app)).
 - **A manual sync by `kubectl patch` inherits the last operation's fields.** A
   patch that sets `.operation` without `sync.revision` or `sync.resources` does
   not clear them: the controller keeps the previous operation's values in

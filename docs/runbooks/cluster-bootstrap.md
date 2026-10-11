@@ -186,7 +186,8 @@ Afterwards:
   `docs/operations/cluster-identity-remint.md`), and the Argo `kubecoder` account's token was
   re-minted at step 3.
 - `kubernetes.home` reaches the microk8s dashboard only through nginx's annotations on the addon's
-  Service, which no app applies (NginxDeploy's README, "kubernetes.home"). Re-add them:
+  Service, which no app applies (HomelabAppsDeploy's `nginx/README.md`, "kubernetes.home"). Re-add
+  them:
 
   ```sh
   kubectl $KC patch service kubernetes-dashboard -n kube-system --patch '{"metadata": {"annotations": {
