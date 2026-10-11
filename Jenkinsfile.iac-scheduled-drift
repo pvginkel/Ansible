@@ -219,16 +219,19 @@ pipeline {
         // pending package upgrades as `changed` under --check. That is patch posture, not drift;
         // IaC/Scheduled Update applies it. Drop the skip once those tasks leave site.yml (see
         // decisions.md "OS updates").
-        stage('Check Ansible drift (excl. iac_agent)') {
+        //
+        // srviac is checked too. IaC/Apply leaves it out because the orchestrator must not change
+        // the host it runs on, but --check never changes a host.
+        stage('Check Ansible drift (site)') {
             steps {
                 script {
-                    prdCheck('Check Ansible drift (excl. iac_agent)', 'site', 'ansible', """#!/usr/bin/env bash
+                    prdCheck('Check Ansible drift (site)', 'site', 'ansible', """#!/usr/bin/env bash
                         set -o pipefail
                         mkdir -p drift-logs
                         iac -c '
                             set -euo pipefail
                             cd /work/Ansible/ansible
-                            check-ansible-drift.sh playbooks/site.yml --limit "!iac_agent" --skip-tags os_update ${certDriftArgs}
+                            check-ansible-drift.sh playbooks/site.yml --skip-tags os_update ${certDriftArgs}
                         ' 2>&1 | tee drift-logs/site.log
                     """)
                 }

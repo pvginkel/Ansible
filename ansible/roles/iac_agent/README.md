@@ -22,4 +22,4 @@ Applied to the `iac_agent` group (today: `srviac` only). See [`/work/AnsibleSpec
 
 ## Carve-out
 
-The `IaC/Apply` Jenkins job runs `ansible-playbook playbooks/site.yml --limit '!iac_agent'`. The orchestrator must not mutate itself; changes to this role apply only via the operator workstation.
+The `IaC/Apply` Jenkins job runs `ansible-playbook playbooks/site.yml --limit '!iac_agent'`. The orchestrator must not mutate itself; changes to this role apply only via the operator workstation. `IaC/Scheduled Drift` does check srviac, since `--check` changes nothing; the sync compares content only (checksums, not mtimes or ownership), so a fresh clone and the operator's checkout read the same.

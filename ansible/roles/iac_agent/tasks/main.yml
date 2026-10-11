@@ -97,14 +97,27 @@
       hand-edit the values, then re-run this role.
   when: not iac_agent_secrets_stat.stat.exists
 
+# Compared by content alone. The operator applies from a KubeCoder
+# checkout (uid 1000) and IaC/Scheduled Drift checks from a fresh clone
+# in the iac container (root, new mtimes), so with times, owner or group
+# in the comparison every file would read as changed under --check. The
+# receiving rsync runs as root, which owns what it writes; the Jenkins
+# agent and install.sh run as root too.
 - name: Sync IaCAgent checkout to the target host
   ansible.posix.synchronize:
     src: "{{ iac_agent_local_checkout }}/"
     dest: "{{ iac_agent_install_dir }}/"
     delete: true
     recursive: true
+    checksum: true
+    times: false
+    owner: false
+    group: false
     rsync_opts:
       - "--exclude=.git"
+      # The tests' bytecode, left in a checkout the operator applies
+      # from but never in a fresh clone.
+      - "--exclude=__pycache__/"
       # bin/iac is rendered from bin/iac.j2 below; the exclude also keeps
       # `delete` from removing the rendered copy.
       - "--exclude=/bin/iac"
