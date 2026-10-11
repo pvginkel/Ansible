@@ -348,7 +348,9 @@ registry switch](#before-the-registry-switch)) before anything else, then stop.
 
 ArgoCDDeploy's `releases/values.yaml`, the app's entry: `repo:` names
 `https://github.com/pvginkel/$MONO.git`, `path: $APP` (the render test refuses any other
-directory), and each stage takes `autoSync: false`. `kc project lint` and `kc project test` green
+directory), and each stage takes `autoSync: false`. Everything else in the entry stays as it is:
+an upstream app keeps its `upstream:` block, each stage its `version`, and the entry its
+`syncOptions`. `kc project lint` and `kc project test` green
 in `/work/ArgoCDDeploy`, commit, push. `releases` syncs the push on its own:
 
 ```sh
