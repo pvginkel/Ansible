@@ -72,8 +72,8 @@ workload and are not on it.
 | Path | What consumes it |
 |---|---|
 | `ExternalSecretsDeploy`: `chart/files/homelab-root.crt` | Rendered into the ConfigMap `homelab-root-ca` (key `ca.crt`), the `caProvider` by which ESO verifies OpenBao's step-ca-issued listener. |
-| `NginxDeploy`: `chart/files/ca/homelab-root.crt` | Rendered into the ConfigMap `nginx-configmap-ca`, mounted by the nginx manager Deployment and its renewal CronJob. |
-| `JenkinsDeploy`: `chart/files/ca/homelab-root.crt` | Rendered into the ConfigMap `jenkins-configmap-ca`, which Jenkins' init container imports into the Java truststore. |
+| `HomelabAppsDeploy`: `nginx/chart/files/ca/homelab-root.crt` | Rendered into the ConfigMap `nginx-configmap-ca`, mounted by the nginx manager Deployment and its renewal CronJob. |
+| `HomelabAppsDeploy`: `jenkins/chart/files/ca/homelab-root.crt` | Rendered into the ConfigMap `jenkins-configmap-ca`, which Jenkins' init container imports into the Java truststore. |
 | `/work/ArgoCDTools/argocd-hook/image/homelab-root.crt` | Baked into the `argocd-hook` image's trust store — the Argo CD Terraform PreSync hook. |
 | `/work/ArgoCDTools/aac-tools/image/homelab-root.crt` | Baked into the `aac-tools` image's trust store — the architecture generator and `arch-validate`, which KubeCoder offers as a toolchain sidecar and a producer repo's `Jenkinsfile.architecture` pulls. It is how a run reaches `https://charts.home` for the chart dependency; `https://architecture.webathome.org` presents a publicly trusted leaf, so neither the dataset nor the validator needs this root. |
 | `/work/DockerImages/kube-coder-dev-base/homelab-root.crt` | Baked into the KubeCoder dev base image's trust store, and pointed at by `NODE_EXTRA_CA_CERTS`. |
@@ -97,8 +97,8 @@ landing: the five baked copies — `argocd-hook`, `aac-tools`,
 `kube-coder-dev-base` and the two KubeCoder toolchain sidecars — and the `iac`
 image that reads the canonical file directly only take effect once their image
 is rebuilt **and** the workloads pulling it are restarted onto the new tag. The
-deploy repos' copies need no rebuild, but they do need a sync. The four app
-repos' copies land with their app's sync of the push. Argo CD syncs itself only
+deploy repos' copies need no rebuild, but they do need a sync. The four
+copies in app repos land with their app's sync of the push. Argo CD syncs itself only
 when the operator says so, so the `ArgoCDDeploy` copy is the one a rotation can
 leave behind without any pipeline noticing.
 
@@ -160,8 +160,8 @@ md5sum /work/Ansible/ansible/roles/baseline/files/homelab-root.crt \
        /work/DockerImages/kube-coder-arm64-cross-toolchain/homelab-root.crt \
        /work/DockerImages/kube-coder-esp-idf-toolchain/homelab-root.crt \
        /work/ArgoCDDeploy/chart/files/homelab-root.crt
-for f in ExternalSecretsDeploy/chart/files NginxDeploy/chart/files/ca \
-         JenkinsDeploy/chart/files/ca KubeCoderDeploy/chart/files/ca; do
+for f in ExternalSecretsDeploy/chart/files HomelabAppsDeploy/nginx/chart/files/ca \
+         HomelabAppsDeploy/jenkins/chart/files/ca KubeCoderDeploy/chart/files/ca; do
   gh api "repos/pvginkel/${f%%/*}/contents/${f#*/}/homelab-root.crt" -H 'Accept: application/vnd.github.raw' | md5sum
 done
 ```

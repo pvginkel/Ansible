@@ -513,10 +513,11 @@ touches an enabled kind:
 ### W1 — jenkins-mcp's header becomes a template
 
 jenkins-mcp sends Jenkins the header its leaf stores as `authorization`:
-`Basic <base64(user:token)>`, with the admin account's API token "Claude". JenkinsDeploy's slice
-047 change has its ExternalSecret build that header from the leaf's `user` and `token`, which the
-leaf does not hold yet. So the keys come first, then the push, and the stored header goes last.
-The header jenkins-mcp sends stays the same throughout.
+`Basic <base64(user:token)>`, with the admin account's API token "Claude". Slice 047's change,
+held on HomelabAppsDeploy's `secret-rotator-jenkins` branch, has `jenkins/`'s ExternalSecret build
+that header from the leaf's `user` and `token`, which the leaf does not hold yet. So the keys come
+first, then the merge, and the stored header goes last. The header jenkins-mcp sends stays the
+same throughout.
 
 Split the stored header into the two keys, and check that they rebuild it:
 
@@ -530,8 +531,9 @@ bao kv get -mount=kv -format=json eso/prd/jenkins-mcp/prd/config </dev/null \
 
 **Reading:** the patch answers with the leaf's new version, then `admin` and `true`.
 
-Then merge JenkinsDeploy's `secret-rotator` branch, which holds the change, into `main` and push
-`main`. Once Argo CD has synced it:
+Then merge HomelabAppsDeploy's `secret-rotator-jenkins` branch into `main`, a merge and not a pick
+of its commits, and push `main`. It waits for the keys: on `main` before them, the change breaks
+jenkins-mcp. Once Argo CD has synced it:
 
 ```sh
 k -n argocd-prd get application jenkins-prd -o jsonpath='{.status.sync.revision} {.status.sync.status} {.status.health.status}{"\n"}'
@@ -567,8 +569,9 @@ afterwards (item 8 of § Going live).
 ### W2 — infra-statistics' own token leaf
 
 infra-statistics calls Jenkins with `shared/jenkins/admin-password#password`. That is no password
-but the admin account's API token "OpenBao". InfraStatisticsDeploy's slice 047 change has it read
-`eso/prd/infra-statistics/prd/jenkins#token` instead. The rotator creates no leaf outside
+but the admin account's API token "OpenBao". Slice 047's change, held on HomelabAppsDeploy's
+`secret-rotator-infra-statistics` branch, has it read `eso/prd/infra-statistics/prd/jenkins#token`
+instead. The rotator creates no leaf outside
 `rotator/`, so the leaf is the operator's to create, holding the same token:
 
 ```sh
@@ -580,8 +583,9 @@ bao kv get -mount=kv -format=json eso/prd/infra-statistics/prd/jenkins </dev/nul
 
 **Reading:** `version 1`, then `admin` and `true`.
 
-Then merge InfraStatisticsDeploy's `secret-rotator` branch, which holds the change, into `main`
-and push `main`. Its sync changes the Deployment's pod template, so Argo CD restarts
+Then merge HomelabAppsDeploy's `secret-rotator-infra-statistics` branch into `main`, a merge and
+not a pick of its commits, and push `main`. It waits for the leaf: on `main` before it, the change
+breaks infra-statistics. Its sync changes the Deployment's pod template, so Argo CD restarts
 infra-statistics. The new pod starts once ESO has written the token into the Secret. Once it has
 synced:
 
@@ -1320,15 +1324,17 @@ until Enter.
 ## Wave 4
 
 Slice 048's kind is `terraform`, for the credentials Terraform mints in an app's Argo CD PreSync
-hook. Its plan commits a new keeper to the deploy repo's `config/<stage>/rotation.tfvars` on
-`main`, and waits for the sync whose hook re-mints the credential. Then it proves that the Secret
-Terraform writes changed, and restarts every workload that reads that Secret. Its keys are ten
+hook. Its plan commits a new keeper to the app's `config/<stage>/rotation.tfvars` on the deploy
+repo's `main`, under the app's directory in HomelabAppsDeploy, and waits for the sync whose hook
+re-mints the credential. Then it proves that the Secret Terraform writes changed, and restarts
+every workload that reads that Secret. Its keys are ten
 marker leaves, `rotator/terraform/<Application>/<keeper>`. It ships switched off. The sections
 below create its GitHub token, annotate, read its plans and check the token from srviac. Item 13 of
 [§ Going live](#going-live) then staggers the markers' first nights and enables the kind.
 
 Wave 4 starts once SecretRotator's `prd` carries slice 048, before step 6 or at any point after it.
-Slice 048 pushed the keeper files to the seven deploy repos' `main`.
+Slice 048 pushed the keeper files to the deploy repos' `main`. Slice 058 moved five of those repos
+into HomelabAppsDeploy, keeper files included.
 [The token](#the-terraform-kinds-token) needs only OpenBao and GitHub.
 [Wave 4's annotations](#wave-4s-annotations) come after step 6: they run `secret-rotator` on
 srviac, which needs steps 1 to 3, and they stamp with step 6's `stamp`. The plans and the check
@@ -1351,9 +1357,8 @@ to GitHub as pvginkel, generate one under Settings → Developer settings → Pe
 Fine-grained tokens:
 
 - named `secret-rotator-terraform`, resource owner `pvginkel`, with an expiration a year out;
-- repository access only these seven: `pvginkel/ElectronicsInventoryDeploy`, `pvginkel/IotDeploy`,
-  `pvginkel/KeycloakDeploy`, `pvginkel/GuacamoleDeploy`, `pvginkel/StorageDeploy`,
-  `pvginkel/YoutrackDeploy` and `pvginkel/PostgresPasDeploy`;
+- repository access only these three: `pvginkel/ElectronicsInventoryDeploy`, `pvginkel/IotDeploy`
+  and `pvginkel/HomelabAppsDeploy`;
 - of the repository permissions only Contents, read and write. GitHub adds Metadata, read-only, to
   every token.
 
@@ -1387,8 +1392,8 @@ srviac 'secret-rotator annotate'
 - Each marker of [wave 4's plans](#wave-4s-plans), where no apply has created it yet, reads:
   - `create  marker leaf, data key <key>`;
   - `add     rotation_<key>={"kind":"terraform","interval":"14d","args":{"repo":"pvginkel/<Repo>",
-    "path":"","app":"<app>","keeper":"<keeper>","secret":"<app>/<Secret>"},"activate":"none"}`, on
-    one line;
+    "path":"<path>","app":"<app>","keeper":"<keeper>","secret":"<app>/<Secret>"},"activate":"none"}`,
+    on one line, `<Repo>` and `<path>` the table's of [wave 4's plans](#wave-4s-plans);
   - `set     max_versions=20  (was 0)`.
 - Where step 6, or an apply after it, ran on slice 048's seed, none of these: that apply wrote
   them.
@@ -1451,18 +1456,21 @@ for m in credentials#token $markers; do srviac "secret-rotator plan rotator/terr
   below, and `kv.stamp` (silent). Each Secret is in the namespace named after the Application. The
   restarts are the workloads that read the Secret on 2026-10-10:
 
-  | Leaf under `rotator/terraform/` | Key | Repo | Secret | Restarts |
-  | --- | --- | --- | --- | --- |
-  | `electronics-inventory-prd/db` | `password` | ElectronicsInventoryDeploy | `electronics-inventory-db` | `electronics-inventory-prd/deployment/electronics-inventory` |
-  | `iot-prd/db` | `password` | IotDeploy | `iotsupport-db` | `iot-prd/deployment/iotsupport` |
-  | `keycloak-dev/db` | `password` | KeycloakDeploy | `keycloak-db` | `keycloak-dev/deployment/keycloak` |
-  | `guacamole-prd/db` | `password` | GuacamoleDeploy | `guacamole-db` | `guacamole-prd/deployment/guacamole` |
-  | `keycloak-prd/db` | `password` | KeycloakDeploy | `keycloak-db` | `keycloak-prd/deployment/keycloak` |
-  | `electronics-inventory-prd/s3` | `access_key` | ElectronicsInventoryDeploy | `s3-credentials` | `electronics-inventory-prd/deployment/electronics-inventory` |
-  | `iot-prd/s3` | `access_key` | IotDeploy | `s3-credentials` | `iot-prd/deployment/iotsupport` |
-  | `storage-prd/backup_reader` | `access_key` | StorageDeploy | `backup-reader-credentials` | none: the CronJob `s3-mirror` reads it |
-  | `youtrack-prd/backups` | `token` | YoutrackDeploy | `youtrack-backup-upload` | none: the CronJob `youtrack-backup` reads it |
-  | `postgres-pas-prd/backups` | `token` | PostgresPasDeploy | `postgres-backup-upload` | none: the CronJob `postgres-backup` reads it |
+  | Leaf under `rotator/terraform/` | Key | Repo | Path | Secret | Restarts |
+  | --- | --- | --- | --- | --- | --- |
+  | `electronics-inventory-prd/db` | `password` | ElectronicsInventoryDeploy | `""` | `electronics-inventory-db` | `electronics-inventory-prd/deployment/electronics-inventory` |
+  | `iot-prd/db` | `password` | IotDeploy | `""` | `iotsupport-db` | `iot-prd/deployment/iotsupport` |
+  | `keycloak-dev/db` | `password` | HomelabAppsDeploy | `keycloak` | `keycloak-db` | `keycloak-dev/deployment/keycloak` |
+  | `guacamole-prd/db` | `password` | HomelabAppsDeploy | `guacamole` | `guacamole-db` | `guacamole-prd/deployment/guacamole` |
+  | `keycloak-prd/db` | `password` | HomelabAppsDeploy | `keycloak` | `keycloak-db` | `keycloak-prd/deployment/keycloak` |
+  | `electronics-inventory-prd/s3` | `access_key` | ElectronicsInventoryDeploy | `""` | `s3-credentials` | `electronics-inventory-prd/deployment/electronics-inventory` |
+  | `iot-prd/s3` | `access_key` | IotDeploy | `""` | `s3-credentials` | `iot-prd/deployment/iotsupport` |
+  | `storage-prd/backup_reader` | `access_key` | HomelabAppsDeploy | `storage` | `backup-reader-credentials` | none: the CronJob `s3-mirror` reads it |
+  | `youtrack-prd/backups` | `token` | HomelabAppsDeploy | `youtrack` | `youtrack-backup-upload` | none: the CronJob `youtrack-backup` reads it |
+  | `postgres-pas-prd/backups` | `token` | HomelabAppsDeploy | `postgres-pas` | `postgres-backup-upload` | none: the CronJob `postgres-backup` reads it |
+
+  The path is the app's directory in the repo, `""` for the repo's root. The keeper file is
+  `config/<stage>/rotation.tfvars` in it.
 
   Where nothing restarts, the `argocd.sync` itself waits for the Application to be Healthy.
 - A restart the table lacks, or one it has that the plan lacks, is a workload that started or
@@ -1472,7 +1480,7 @@ for m in credentials#token $markers; do srviac "secret-rotator plan rotator/terr
 ### Wave 4's check from srviac
 
 The commit step reads two things before it commits: the Application, whose hook must apply the
-marker's repo at its root from `main`, and the keeper file, with the token. Either failing fails
+marker's repo at its path from `main`, and the keeper file, with the token. Either failing fails
 the plan before its commit, and the run rolls it back. The check finds it before the first night.
 
 Each Application's source, from the workstation:
@@ -1485,9 +1493,10 @@ done
 ```
 
 **Reading:** eight lines, each `<app> main hook.repo=https://github.com/pvginkel/<Repo>.git
-hook.stage=<stage>`, `<Repo>` the table's, `<stage>` `dev` for `keycloak-dev` and `prd` for the
-others, as on 2026-10-10. A `hook.path`, another repo or another branch than `main` fails that
-marker's commit step with `Argo Application <app>'s hook applies …` or `Argo Application <app>
+hook.stage=<stage> hook.path=<path>`, `<Repo>` and `<path>` the table's, `<stage>` `dev` for
+`keycloak-dev` and `prd` for the others, as on 2026-10-11. Where the table's path is `""`, the line
+ends at `hook.stage=<stage>`. Another repo, another `hook.path` or another branch than `main` fails
+that marker's commit step with `Argo Application <app>'s hook applies …` or `Argo Application <app>
 tracks …`: stop and read it.
 
 Then, in the `iac` shell of [§ The checks from srviac](#the-checks-from-srviac), with its `check`,
@@ -1498,21 +1507,23 @@ check 'from secret_rotator.github import GitHub
 from secret_rotator.kinds.terraform import keepers
 github = GitHub()
 github.authenticate(val("rotator/terraform/credentials#token"))
-for repo, stage in [("ElectronicsInventoryDeploy", "prd"), ("IotDeploy", "prd"), ("KeycloakDeploy", "dev"),
-                    ("KeycloakDeploy", "prd"), ("GuacamoleDeploy", "prd"), ("StorageDeploy", "prd"),
-                    ("YoutrackDeploy", "prd"), ("PostgresPasDeploy", "prd")]:
-    found = github.contents(f"pvginkel/{repo}", f"config/{stage}/rotation.tfvars", "main")
-    print(repo, stage, "not found" if found is None else keepers.parse(found[0])[1])'
+for repo, file in [("ElectronicsInventoryDeploy", "config/prd"), ("IotDeploy", "config/prd"),
+                   ("HomelabAppsDeploy", "keycloak/config/dev"), ("HomelabAppsDeploy", "keycloak/config/prd"),
+                   ("HomelabAppsDeploy", "guacamole/config/prd"), ("HomelabAppsDeploy", "storage/config/prd"),
+                   ("HomelabAppsDeploy", "youtrack/config/prd"), ("HomelabAppsDeploy", "postgres-pas/config/prd")]:
+    found = github.contents(f"pvginkel/{repo}", f"{file}/rotation.tfvars", "main")
+    print(repo, file, "not found" if found is None else keepers.parse(found[0])[1])'
 ```
 
 **Reading.**
 
-- Eight lines, each a repo, its stage and `{}`: the file's keeper map, empty until the repo's first
-  rotation.
-- `not found`: the seven repositories are private, and GitHub answers a token that lacks one as if
+- Eight lines, each a repo, the keeper file's directory and `{}`: the file's keeper map, empty
+  until the app's first rotation.
+- `not found`: the three repositories are private, and GitHub answers a token that lacks one as if
   the file were not there. The file is on `main` since slice 048, so the token lacks that
   repository: add it on the token's page. The plan would fail the same way, with
-  `pvginkel/<Repo> has no config/<stage>/rotation.tfvars on main`.
+  `pvginkel/<Repo> has no <keeper file> on main, or the token in rotator/terraform/credentials
+  lacks the repository`.
 - A traceback with `HTTP 401` means GitHub refuses the token. A `ValueError` names a keeper file
   the commit step cannot rewrite.
 - The read proves no write. The first rotation's commit proves Contents' write: GitHub refuses a
@@ -2596,7 +2607,8 @@ takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, 
      `cnpg.reconcile` waits within a bound, a failed wait names the role's byStatus and
      cannotReconcile, and its rollback puts the old password back.
    - The `dev` leaves rotate as KV writes: the dev cluster takes them when it next boots.
-8. **Before `jenkins-token`**, W1 and W2 are done and their pushes synced. Before W1's push,
+8. **Before `jenkins-token`**, W1 and W2 are done: their merges of `secret-rotator-jenkins` and
+   `secret-rotator-infra-statistics` are on HomelabAppsDeploy's `main`, and synced. Before W1's merge,
    jenkins-mcp's Secret takes its header from the stored `authorization`, not from `token`: after
    the first rotation jenkins-mcp would go on sending "Claude", and the revoke of "Claude" below
    would cut it off.
@@ -2776,8 +2788,8 @@ takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, 
       refused (design §9): Kibana, filebeat's writes, iotsupport's, and the prd KubeCoder
       environments' reads of `reader`, whose rollout of the prd controller restarts them all (design
       R65). For the superuser it is Elasticsearch's own probes, so Elasticsearch turns unready until
-      it restarts. ElasticsearchDeploy's README holds the superuser's hand procedure, in the plan's
-      order.
+      it restarts. HomelabAppsDeploy's `elasticsearch/README.md` holds the superuser's hand
+      procedure, in the plan's order.
     - **`kubecoder-client`**, once the KubeCoder check reads `minted`. Its first night rotates
       `fieldnotes/prd/kubecoder-controller`. From the mint until Fieldnotes' rollout, about a minute,
       Fieldnotes' calls to KubeCoder fail (design §9). The mint has no undo: once it ran, Abort is
@@ -2921,15 +2933,15 @@ takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, 
 
     The morning after each night, the night's console shows the plan `rotated`, and a consumer that
     did not come back is on the card. `tfwatch` reads the night's rotation. Its arguments are the
-    Application, the keeper, the repo, the stage, the credential's resource in the hook's
+    Application, the keeper, the repo, the keeper file, the credential's resource in the hook's
     Terraform, and the workload the plan restarts. Run its line for the night's marker:
 
     ```sh
     job="$JENKINS_URL/job/IaC/job/Scheduled%20Secret%20Rotation"
     curl -fsS -u "$JENKINS_USER:$JENKINS_TOKEN" "$job/lastBuild/consoleText" | grep -A 20 'terraform plan of'
-    tfwatch() { local app=$1 keeper=$2 repo=$3 stage=$4 resource=$5 restart=$6
+    tfwatch() { local app=$1 keeper=$2 repo=$3 file=$4 resource=$5 restart=$6
       bao kv get -mount=kv -field=token rotator/terraform/credentials </dev/null | sed 's/^/Authorization: Bearer /' \
-        | curl -fsS -H @- "https://api.github.com/repos/pvginkel/$repo/commits?path=config/$stage/rotation.tfvars&per_page=1" \
+        | curl -fsS -H @- "https://api.github.com/repos/pvginkel/$repo/commits?path=$file&per_page=1" \
         | jq -r '.[0] | "\(.sha[:7]) \(.commit.committer.date) \(.commit.message)"'
       k -n argocd-prd get application "$app" -o jsonpath='{.status.sync.revision} {.status.sync.status} {.status.health.status}{"\n"}'
       k -n argocd-hooks get job "tf-presync-$app" -o jsonpath='{.status.completionTime}{"\n"}'
@@ -2938,16 +2950,16 @@ takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, 
       [ -z "$restart" ] || { k -n "$app" get "$restart" -o jsonpath='{.spec.template.metadata.annotations.kubectl\.kubernetes\.io/restartedAt}{"\n"}'
         k -n "$app" get pods -o custom-columns='NAME:.metadata.name,READY:.status.conditions[?(@.type=="Ready")].lastTransitionTime'; }
       srviac "secret-rotator plan rotator/terraform/$app/$keeper" | grep 'plan of'; }
-    tfwatch electronics-inventory-prd db ElectronicsInventoryDeploy prd module.db.random_password.this deployment/electronics-inventory
-    tfwatch iot-prd db IotDeploy prd module.db.random_password.this deployment/iotsupport
-    tfwatch keycloak-dev db KeycloakDeploy dev module.db.random_password.this deployment/keycloak
-    tfwatch guacamole-prd db GuacamoleDeploy prd module.db.random_password.this deployment/guacamole
-    tfwatch keycloak-prd db KeycloakDeploy prd module.db.random_password.this deployment/keycloak
-    tfwatch electronics-inventory-prd s3 ElectronicsInventoryDeploy prd module.s3.homelab_s3_storage.this deployment/electronics-inventory
-    tfwatch iot-prd s3 IotDeploy prd module.s3.homelab_s3_storage.this deployment/iotsupport
-    tfwatch storage-prd backup_reader StorageDeploy prd homelab_s3_reader.backup_reader
-    tfwatch youtrack-prd backups YoutrackDeploy prd homelab_backup_credential.backups
-    tfwatch postgres-pas-prd backups PostgresPasDeploy prd homelab_backup_credential.backups
+    tfwatch electronics-inventory-prd db ElectronicsInventoryDeploy config/prd/rotation.tfvars module.db.random_password.this deployment/electronics-inventory
+    tfwatch iot-prd db IotDeploy config/prd/rotation.tfvars module.db.random_password.this deployment/iotsupport
+    tfwatch keycloak-dev db HomelabAppsDeploy keycloak/config/dev/rotation.tfvars module.db.random_password.this deployment/keycloak
+    tfwatch guacamole-prd db HomelabAppsDeploy guacamole/config/prd/rotation.tfvars module.db.random_password.this deployment/guacamole
+    tfwatch keycloak-prd db HomelabAppsDeploy keycloak/config/prd/rotation.tfvars module.db.random_password.this deployment/keycloak
+    tfwatch electronics-inventory-prd s3 ElectronicsInventoryDeploy config/prd/rotation.tfvars module.s3.homelab_s3_storage.this deployment/electronics-inventory
+    tfwatch iot-prd s3 IotDeploy config/prd/rotation.tfvars module.s3.homelab_s3_storage.this deployment/iotsupport
+    tfwatch storage-prd backup_reader HomelabAppsDeploy storage/config/prd/rotation.tfvars homelab_s3_reader.backup_reader
+    tfwatch youtrack-prd backups HomelabAppsDeploy youtrack/config/prd/rotation.tfvars homelab_backup_credential.backups
+    tfwatch postgres-pas-prd backups HomelabAppsDeploy postgres-pas/config/prd/rotation.tfvars homelab_backup_credential.backups
     ```
 
     **Hand back:** the full output.
@@ -2957,7 +2969,7 @@ takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, 
     - The console: `terraform plan of rotator/terraform/<app>/<keeper> (<key>)`, then these `✓`
       lines, then `rotated`:
       - `commit a new <keeper> keeper to pvginkel/<Repo> · <sha7>: <keeper> = <UTC time> in
-        config/<stage>/rotation.tfvars`;
+        <keeper file>`, the file its `tfwatch` line names;
       - `sync Argo CD Application <app> · <sha7> synced by auto-sync: Synced`, or `Synced, Healthy`
         where nothing restarts. `by secret-rotator` is a sync the step requested itself, and the
         first one is the proof that Argo CD takes the step's request;
@@ -2968,8 +2980,8 @@ takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, 
       `rotate <keeper> (secret-rotator)`. Another commit names another writer of the file: read it.
     - The Application: the commit or a later head of `main`, then `Synced Healthy`.
     - The hook Job's completion time, then its log:
-      - `with <n> tfvars file(s)`, and the `terraform … apply` line with the `-var-file` of
-        `config/<stage>/rotation.tfvars`;
+      - `with <n> tfvars file(s)`, and the `terraform … apply` line with a `-var-file` ending in
+        the keeper file;
       - the resource's `Refreshing state...` line, its plan line, `# <resource> must be replaced`
         for a `random_password` or `# <resource> will be updated in-place` for the provider's
         resources, then its apply lines;
@@ -2999,8 +3011,9 @@ takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, 
     A plan that fails:
 
     - Before its commit, its Telegram line ends `The run rolls it back; the leaf is due again.`
-      Nothing changed. `pvginkel/<Repo> has no config/<stage>/rotation.tfvars on main` can also
-      mean the token lacks the repository ([wave 4's check](#wave-4s-check-from-srviac)).
+      Nothing changed. `pvginkel/<Repo> has no <keeper file> on main, or the token in
+      rotator/terraform/credentials lacks the repository`: [wave 4's
+      check](#wave-4s-check-from-srviac) tells the two apart.
     - After its commit, its line says that it is not rolled back and stays stopped for
       `secret-rotator run <leaf>`. A keeper mints a new credential, so nothing undoes the commit.
       The nightly run leaves the plan alone: `not started: the leaf has its terraform plan in
@@ -3009,9 +3022,9 @@ takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, 
         log, as above, and [`argocd.md`](argocd.md). A backup token's `was deleted but not
         re-created` is mended by the next sync, which creates the token again.
       - `Secret <app>/<Secret> did not change: the sync of <sha7> took <keeper> = <value> in
-        pvginkel/<Repo> config/<stage>/rotation.tfvars, and its Terraform re-minted nothing`: the
-        repo's `terraform/main.tf` on `main` does not pass `lookup(var.rotation_epoch, "<keeper>",
-        null)` to the credential's resource.
+        pvginkel/<Repo> <keeper file>, and its Terraform re-minted nothing`: the `terraform/main.tf`
+        beside the keeper file's `config/` on `main` does not pass `lookup(var.rotation_epoch,
+        "<keeper>", null)` to the credential's resource.
       - A `roll out` that did not come Ready: the workload's pods and events.
 
       Then `srviac 'secret-rotator run rotator/terraform/<app>/<keeper>'` takes the plan up where it
