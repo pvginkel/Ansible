@@ -39,16 +39,17 @@ then Argo adopts it all and deploys everything else.
   nodes' `/etc/hosts`. CoreDNS pins `secrets.home` to OpenBao's VIP, so External Secrets reaches
   OpenBao before dnsmasq is up — check with
   `cexec iac kubectl $KC -n kube-system get cm coredns -o yaml | grep secrets.home`.
-- Ansible has written step-ca's five Secrets, which StepCaDeploy does not carry, so step-ca's
-  pod can start whether step 8 applies it by hand or Argo does at step 10. The playbook creates
-  `step-ca-prd` and needs ansible-vault and the cluster, nothing from OpenBao:
-  `cd ansible && cexec iac poetry run ansible-playbook playbooks/step-ca.yml`.
+- Ansible has written step-ca's five Secrets, which PlatformAddOnsDeploy's `step-ca/` chart
+  does not render, so step-ca's pod can start whether step 8 applies it by hand or Argo does at
+  step 10. The playbook creates `step-ca-prd` and needs ansible-vault and the cluster, nothing
+  from OpenBao: `cd ansible && cexec iac poetry run ansible-playbook playbooks/step-ca.yml`.
 - OpenBao is unsealed and Ceph is `HEALTH_OK` ([`cold-boot.md`](cold-boot.md) steps 2 and 3).
-- Checkouts under `/work`: `Charts`, `ArgoCDDeploy`, and each chain app's deploy repo at the
-  revision its stage tracks (`main` unless ArgoCDDeploy's `releases/values.yaml` sets
-  `targetRevision`). The deploy repos are `ExternalSecretsDeploy`, `CephCsiCephfsDeploy`,
-  `RegistryDeploy`, `DnsmasqDeploy`, `NginxDeploy`, `TfmirrorDeploy`, `ChartsDeploy`, and
-  `CephCsiRbdDeploy` and `StepCaDeploy` if certificates need re-issuing. They are private,
+- Checkouts under `/work`: `Charts`, `ArgoCDDeploy`, and the chain apps' deploy repos:
+  `PlatformAddOnsDeploy` (external-secrets and ceph-csi-cephfs, and ceph-csi-rbd and step-ca if
+  certificates need re-issuing), `HomelabAppsDeploy` (registry and nginx), `DnsmasqDeploy`,
+  `TfmirrorDeploy` and `ChartsDeploy`. Each is at the revision its apps' stages track: `main`,
+  unless ArgoCDDeploy's `releases/values.yaml` sets a stage's `targetRevision`, and an app in a
+  monorepo whose stage sets one takes a checkout of its own at that revision. They are private,
   so clone them with the GitHub credentials.
 - `KC="--kubeconfig ~/.kube/config-prd-write --context prd"`, as in `argocd.md`, and `KV` the
   cluster's version: the Server Version `cexec iac kubectl $KC version` prints.
@@ -89,7 +90,7 @@ passes the hook `hook.path`, as Argo does.
    the companion chart, which holds the `openbao-prd` ClusterSecretStore:
 
    ```sh
-   cexec iac sh -c "python3 scripts/argo-hand-render.py external-secrets /work/ExternalSecretsDeploy \
+   cexec iac sh -c "python3 scripts/argo-hand-render.py external-secrets /work/PlatformAddOnsDeploy \
      --kube-version $KV --part upstream > /tmp/eso-up.yaml && \
      kubectl $KC apply --server-side --field-manager=argocd-controller -f /tmp/eso-up.yaml"
    cexec iac kubectl $KC -n external-secrets-prd rollout status deploy/external-secrets-prd-webhook

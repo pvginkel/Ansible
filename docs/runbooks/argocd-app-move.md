@@ -6,7 +6,8 @@ and no source repository of its own into a directory of `HomelabAppsDeploy`. Thi
 app. It is the design's ten-step per-app move
 ([`deploy-repo-consolidation.md`](../../../AnsibleSpecs/argo-cd/deploy-repo-consolidation.md),
 §Per-app move) as slice 057's rulings D1 and D2 shape it. Slice 057 ran it for headlamp and
-pgadmin; slices 058 and 059 run it for the rest. What a moved app then is: its registry entry in
+pgadmin, and slices 058 and 059 for the rest: every app of both classes has moved. What a moved
+app then is: its registry entry in
 [argocd.md](argocd.md#registering-undeploying-and-unregistering-an-app), its producer in
 [argocd.md](argocd.md#an-app-in-a-monorepo).
 

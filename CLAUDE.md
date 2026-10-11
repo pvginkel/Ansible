@@ -2,7 +2,8 @@
 
 Ansible + Terraform managing the homelab infrastructure: Proxmox hosts, the k8s and Ceph VMs and
 clusters on top, and the Linux dev box baseline. Argo CD deploys the Kubernetes workloads from
-per-app deploy repos; Jenkins runs this repo's deploys. Components are `ansible/`, `terraform/`
+deploy repos — two monorepos with a directory per app, and a dedicated repo for each app with a
+source repo of its own; Jenkins runs this repo's deploys. Components are `ansible/`, `terraform/`
 and the architecture artifact — `kc project list` is authoritative.
 
 **Before proposing changes, read** [`/work/AnsibleSpecs/decisions.md`](../AnsibleSpecs/decisions.md)
@@ -97,7 +98,12 @@ entry, including one a slice changes. How a slice targets such a repo is in the 
 `KubeCoderDeploy` (KubeCoder's deploy
 repo, the Argo CD pilot — see its README) and `HelmCharts` (the deploy path before Argo CD,
 archived 2026-09-28) are such repos: older docs and slices cite them as `/work/<Repo>`, read that
-as `/work/scratch/<Repo>`. The `iac`
+as `/work/scratch/<Repo>`. So are the app deploy repos: the monorepos `PlatformAddOnsDeploy`
+(each app deployed from an upstream Helm chart) and `HomelabAppsDeploy` (each app with a chart of
+its own and no source repo), one directory per app named after its registry key, and a dedicated
+`<App>Deploy` for each app with a source repo of its own (`DnsmasqDeploy`, `TfmirrorDeploy` and
+`ChartsDeploy` among them). A moved app's old `<App>Deploy`, which older docs cite, is archived;
+read it as the app's directory in its monorepo. The `iac`
 runner's tree lives in this repo at `support/iac-agent/` — that is the copy to edit and the one the
 `iac_agent` role installs. Older docs mention `/work/Obsidian` and
 `/work/IaCAgent` — neither is cloned here any more, so treat those citations as historical

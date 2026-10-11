@@ -66,7 +66,7 @@ actually ran and the Phase A proof drill are recorded in slice 009's
 | Terraform state | `pvginkel/TerraformState`, `argocd/<repo>/<stage>/terraform.tfstate`, or `argocd/<repo>/<path>/<stage>/terraform.tfstate` for an app in a monorepo's directory; sops/age |
 | Destroy Stage | Jenkins job `IaC/Destroy Stage`, ArgoCDTools `Jenkinsfile.destroy-stage`; the build runs as `jenkins-prd/destroy-stage`, its Job is `argocd-hooks/destroy-stage-<build#>` under `tf-presync` (D66) |
 | Notifications | Alertmanager `prometheus-prd-alertmanager.prometheus-prd:9093`, delivered to Telegram with no "resolved"; `ArgoCDSyncFailed` (critical, with sound), `ArgoCDHealthDegraded` (warning, silent) |
-| Standing alerts | PrometheusDeploy's rule group `argocd`, over the application controller's metrics (Service `argocd-prd-application-controller-metrics`); `ArgoCDSyncStillFailed` (critical), `ArgoCDHealthStillDegraded` and `ArgoCDAlertsBlind` (warning) |
+| Standing alerts | PlatformAddOnsDeploy `prometheus/`'s rule group `argocd`, over the application controller's metrics (Service `argocd-prd-application-controller-metrics`); `ArgoCDSyncStillFailed` (critical), `ArgoCDHealthStillDegraded` and `ArgoCDAlertsBlind` (warning) |
 
 Every credential arrives through ESO from OpenBao (`kv/` mount), refreshed hourly:
 
@@ -239,14 +239,22 @@ view were not driven.
 
 ## Webhooks
 
-A deploy repo whose Terraform carries D39's `github_repository_webhook` gets
-its GitHub webhook from the first sync of the one stage whose tfvars set
-`manage_webhook = true` — dev, for KubeCoderDeploy — signed with the hook's
-`TF_VAR_github_webhook_secret`. Whether the hook's classic PAT can create it is
-unconfirmed until that first apply (D41). Never add one by hand to such a repo:
-the apply's create then fails on GitHub's hook-already-exists.
+Each deploy monorepo, `PlatformAddOnsDeploy` and `HomelabAppsDeploy`, has one
+relay hook for all its apps, made by hand once. No app directory's Terraform
+manages it: every stage's tfvars there set `manage_webhook = false`, so the
+`webhook.tf` a moved app carried over creates nothing, and destroying a stage
+there removes no hook (D39 as amended).
 
-Any other deploy repo needs its webhook made by hand: payload URL
+A dedicated deploy repo whose Terraform carries D39's
+`github_repository_webhook` gets its GitHub webhook from the first sync of the
+one stage whose tfvars set `manage_webhook = true` — dev, for KubeCoderDeploy —
+signed with the hook's `TF_VAR_github_webhook_secret`. Whether the hook's
+classic PAT can create it is unconfirmed until that first apply (D41). Never add
+one by hand to such a repo: the apply's create then fails on GitHub's
+hook-already-exists.
+
+A monorepo, and any other deploy repo without that resource, needs its webhook
+made by hand: payload URL
 `https://deploy-hooks.webathome.org/api/webhook`, content type
 `application/json`, the shared secret from
 `eso/prd/argocd/prd/webhook#github_secret`, just the push event. The pod's
@@ -268,7 +276,11 @@ cexec iac kubectl $KC annotate application -n argocd-prd <app> argocd.argoproj.i
 ```
 
 A hard refresh takes a few seconds; reading `status.sync.revision` immediately
-returns the previous value.
+returns the previous value. For an app in a monorepo, a hard refresh re-renders
+at the repo's HEAD and runs that app's hook, even when no commit since the
+synced one touched its directory: HEAD's SHA changes `tf-presync-revision`, so
+the app goes OutOfSync and an auto-synced stage syncs, its apply then a no-op
+(D69).
 
 ## Rotating a token or secret
 
@@ -462,10 +474,12 @@ with `releases`' sync of the push.
 
 Every push to the deploy repo changes the render, so an auto-synced stage syncs
 it and its hook applies at that commit, a push touching only `terraform/` or
-the stage tfvars included. What changes is the ConfigMap `tf-presync-revision`
-in the app's namespace, which the homelab-shared hook include (0.4.0 and later)
-renders as an ordinary object, not a hook, with the synced SHA in
-`data.revision`. A deploy repo pinning an older version syncs only when its
+the stage tfvars included. In a monorepo that is every push touching the app's
+directory: a push elsewhere in the repo leaves the app Synced on the render it
+has, and its hook does not run (D69). What changes is the ConfigMap
+`tf-presync-revision` in the app's namespace, which the homelab-shared hook
+include (0.4.0 and later) renders as an ordinary object, not a hook, with the
+synced SHA in `data.revision`. A deploy repo pinning an older version syncs only when its
 chart or values render differently, and a Terraform-only push there waits for
 the next push that does.
 
@@ -481,9 +495,10 @@ the deploy repo. One `IaC/Destroy Stage` build deletes them all
 ([Destroying a retired stage](#destroying-a-retired-stage), D66).
 **Unregister** is deleting the app's whole entry, which undeploys each stage the
 same way. A webhook made by hand ([Webhooks](#webhooks)) stays on the deploy
-repo after that too, and keeps sending its pushes to the relay for a repo
-nothing deploys: no stage's Terraform holds it, so no build deletes it, and
-removing it is a separate act, by hand.
+repo after that too. A monorepo's goes on serving the repo's other apps. Any
+other keeps sending its pushes to the relay for a repo nothing deploys: no
+stage's Terraform holds it, so no build deletes it, and removing it is a
+separate act, by hand.
 
 ## Planning a stage's Terraform as its hook applies it
 
@@ -777,10 +792,10 @@ same way, naming the file and line.
 
 ### The webhook
 
-A deploy repo's GitHub webhook belongs to the one stage whose tfvars set
-`manage_webhook = true` ([Webhooks](#webhooks), D39). It is destroyed with that
-stage, and destroying any other stage leaves it. FieldnotesDeploy's `dev` does
-not manage it. KubeCoderDeploy's `dev` does, and its `prd` sets `false`.
+A dedicated deploy repo's GitHub webhook belongs to the one stage whose tfvars
+set `manage_webhook = true` ([Webhooks](#webhooks), D39). It is destroyed with
+that stage, and destroying any other stage leaves it. A monorepo's belongs to no
+stage, and no destroy removes it. FieldnotesDeploy's `dev` does not manage it. KubeCoderDeploy's `dev` does, and its `prd` sets `false`.
 Destroying `dev` while `prd` stays deployed would delete the repo's only hook,
 and the guard does not refuse that. `prd`'s pushes then reach Argo only through
 the 30-minute refresh (D6). To give the surviving stage the hook, set
@@ -1301,16 +1316,17 @@ the recipient committed in `config/prd/values.yaml`.
   Argo's error text, and `on-health-degraded` fire once per condition. The
   templates set no end time, so Alertmanager expires the event after its
   five-minute resolve timeout, failed app or not, and its receivers send no
-  "resolved". The state is PrometheusDeploy's: `ArgoCDSyncStillFailed` fires ten
-  minutes after Argo sets `SyncError` on an app and stops auto-syncing it, as
-  when its retries are spent on a revision it will not try again on its own, or
-  its prune guard refuses a sync that would delete every resource;
-  `ArgoCDHealthStillDegraded` fires after fifteen minutes Degraded. Each stays
-  up until the app recovers, for a failed sync a new commit or a manual sync
-  that succeeds, then resolves. An app Argo does not auto-sync, its own among
-  them, gets no standing sync alert: its failed sync is the event alone.
-  `ArgoCDAlertsBlind` fires when Prometheus has had no application metrics from
-  the controller for fifteen minutes, which leaves both blind.
+  "resolved". The state is prometheus's, from PlatformAddOnsDeploy
+  `prometheus/`: `ArgoCDSyncStillFailed` fires ten minutes after Argo sets
+  `SyncError` on an app and stops auto-syncing it, as when its retries are spent
+  on a revision it will not try again on its own, or its prune guard refuses a
+  sync that would delete every resource; `ArgoCDHealthStillDegraded` fires after
+  fifteen minutes Degraded. Each stays up until the app recovers, for a failed
+  sync a new commit or a manual sync that succeeds, then resolves. An app Argo
+  does not auto-sync, its own among them, gets no standing sync alert: its
+  failed sync is the event alone. `ArgoCDAlertsBlind` fires when Prometheus has
+  had no application metrics from the controller for fifteen minutes, which
+  leaves both blind.
 - **Every webhook-relay build leaves `argocd-prd` OutOfSync.** DockerImages writes each relay
   build's number into ArgoCDDeploy's `config/prd/values.yaml` (`relay.image`), the version
   poller's scheduled rebuilds included, and Argo's own Application never syncs on its own (D3).

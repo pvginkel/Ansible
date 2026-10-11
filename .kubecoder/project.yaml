@@ -4,7 +4,9 @@ projects:
       Ansible + Terraform managing the homelab infrastructure: Proxmox hosts,
       the microk8s and microceph VMs on top, and the Linux dev box baseline.
       Jenkins runs its deploys through the IaC/* pipelines; Argo CD deploys
-      the Kubernetes workloads from per-app deploy repos.
+      the Kubernetes workloads from deploy repos: two monorepos with a
+      directory per app, and a dedicated repo for each app with a source
+      repo of its own.
     jenkins: IaC/Build-Main
     setup:
       # Not cexec-prefixed: the catalog secrets are projected into the dev
