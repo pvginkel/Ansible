@@ -161,8 +161,9 @@ The subtree brings `$OLD`'s history under `$APP/`. Then one commit:
   monorepo's relay webhook is hand-made; the old repo's goes with the sync's apply (step 7).
 - `$APP/Jenkinsfile.architecture`, `$APP/.architecturerc`, `$APP/.kubecoder/` and `$APP/.gitignore`
   deleted: the monorepo's root files serve every app. A line of `$APP/.gitignore` that the root's
-  lacks joins the root's, anchored under the app directories (`/.cache/` becomes `/*/.cache/`), so
-  a test run leaves nothing untracked.
+  lacks joins the root's, so a test run leaves nothing untracked: an anchored line re-anchored
+  under the app directories (`/.cache/` becomes `/*/.cache/`), an unanchored one as it is
+  (`__pycache__/`, which matches at any depth).
 - `.kubecoder/project.yaml`: a project `$APP`. A project's key is its folder and its statements'
   working directory, so the old repo's `lint` and `test` statements carry over with `hook.repo`
   naming `$MONO` and `hook.path=$APP` beside it. A test that sets the hook parameters itself

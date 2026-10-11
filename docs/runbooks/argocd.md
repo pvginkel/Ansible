@@ -266,7 +266,10 @@ it the hook is made in the GitHub UI.
 A delivery that worked leaves three traces: the relay logs `delivery <id>
 event=push: all 1 receivers accepted`; argocd-server logs `Received push event
 repo: … refreshing app from webhook`; the Application's `status.sync.revision`
-moves within about ten seconds. GitHub's *Recent Deliveries* shows the relay's
+moves within about ten seconds. In a monorepo the last two follow only for an
+app whose directory the commit touches: the webhook refreshes no app whose path
+the commit misses (D69), so check a monorepo's hook with a commit to an app's
+directory and read that app. GitHub's *Recent Deliveries* shows the relay's
 response, and a `502` means argocd-server refused it or was unreachable.
 
 Without a webhook, refresh by hand — the UI's *Refresh* button, or:

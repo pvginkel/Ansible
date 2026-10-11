@@ -94,6 +94,8 @@ it is the whole reason the pipeline was split.
 **A push to an Argo CD deploy repo's `main` deploys.** Every stage that auto-syncs — the default,
 prd included — syncs the new commit, and its PreSync hook applies the stage's Terraform at that
 commit ([Argo CD runbook](runbooks/argocd.md#registering-undeploying-and-unregistering-an-app)).
+In a deploy monorepo that is every stage of each app whose directory the push touches; the
+others stay as they are.
 The push is the rollout, so whether the run makes it or holds it for the operator is settled in
 the plan; follow that. When the run pushes, prove the change live within the run: wait for the
 stage's Application to sync and go healthy, read the hook Job's log where the slice changed
