@@ -141,6 +141,10 @@ gh api repos/pvginkel/$OLD --jq '"archived: \(.archived)"'
 | 9. The old job and repo | `AaC/$JOB: 404` for each producer, and `archived: true` |
 | 10. The annotation proof | the pilots only: their slice's record says |
 
+Before step 7, the hook line can wait about 20 seconds and print `error: timed out waiting for
+the condition`. That is a hook Job whose pod is gone, as on an app whose hook last ran days ago,
+not a fault: step 7's sync runs the hook afresh, and the line then reads its state key.
+
 ## The move
 
 ### 1. The app's directory
