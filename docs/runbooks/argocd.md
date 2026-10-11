@@ -512,14 +512,14 @@ may.
 REPO=PlatformAddOnsDeploy APP_PATH=headlamp STAGE=prd NS=headlamp-prd BRANCH=main LOG=plan-headlamp-prd.log
 # The commit to plan, by its full SHA: the head of that branch.
 REV=$(gh api repos/pvginkel/$REPO/commits/$BRANCH --jq .sha)
-JOB=tf-plan-$NS
+PLAN_JOB=tf-plan-$NS
 ARGS="[\"https://github.com/pvginkel/$REPO.git\", \"$REV\", \"$STAGE\", \"$NS\"${APP_PATH:+, \"$APP_PATH\"}]"
-cexec iac kubectl $KC delete job -n argocd-hooks $JOB --ignore-not-found
+cexec iac kubectl $KC delete job -n argocd-hooks $PLAN_JOB --ignore-not-found
 cexec iac kubectl $KC create -f - <<EOF
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: $JOB
+  name: $PLAN_JOB
   namespace: argocd-hooks
   labels:
     app.kubernetes.io/name: tf-plan
@@ -540,12 +540,12 @@ spec:
             - secretRef:
                 name: argocd-hook-credentials
 EOF
-cexec iac kubectl $KC wait -n argocd-hooks job/$JOB --for=jsonpath='{.status.conditions[-1:].type}' --timeout=35m
-cexec iac kubectl $KC logs -n argocd-hooks job/$JOB > $LOG
-cexec iac kubectl $KC get pods -n argocd-hooks -l job-name=$JOB \
+cexec iac kubectl $KC wait -n argocd-hooks job/$PLAN_JOB --for=jsonpath='{.status.conditions[-1:].type}' --timeout=35m
+cexec iac kubectl $KC logs -n argocd-hooks job/$PLAN_JOB > $LOG
+cexec iac kubectl $KC get pods -n argocd-hooks -l job-name=$PLAN_JOB \
   -o jsonpath='{.items[0].status.containerStatuses[0].state.terminated.exitCode}{"\n"}'
 grep '^presync: ' $LOG | sed -n '/^presync: planning against /,$p'
-cexec iac kubectl $KC delete job -n argocd-hooks $JOB
+cexec iac kubectl $KC delete job -n argocd-hooks $PLAN_JOB
 ```
 
 `NS` is what Terraform gets as `var.namespace`, and resource names derive from
