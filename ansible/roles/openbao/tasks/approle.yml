@@ -115,6 +115,9 @@
         validate_certs: true
       register: _openbao_approle_tune
       check_mode: false
+      # --check skips the enable, so on a fresh server there is no mount
+      # to read; the tuning then counts as differing.
+      when: "'approle/' in _openbao_auth_methods.json or not ansible_check_mode"
 
     - name: Tune the approle auth method's max_lease_ttl
       ansible.builtin.uri:
@@ -129,7 +132,7 @@
       # Runs only when the state differs (`when` below), so the write is a change.
       changed_when: true
       when: >-
-        _openbao_approle_tune.json.data.max_lease_ttl
+        (_openbao_approle_tune.json.data.max_lease_ttl | default(none))
         != (openbao_approle_max_lease_ttl | openbao_duration_seconds)
 
     # --check skips the write (uri has no check mode); report it instead.
@@ -142,7 +145,7 @@
       when:
         - ansible_check_mode
         - >-
-          _openbao_approle_tune.json.data.max_lease_ttl
+          (_openbao_approle_tune.json.data.max_lease_ttl | default(none))
           != (openbao_approle_max_lease_ttl | openbao_duration_seconds)
 
     # ----- kv-v2 secrets engine ---------------------------------------
@@ -518,6 +521,11 @@
       become: false
       no_log: true
       changed_when: false
+      # --check skips reading the role_id of a backup AppRole it would create.
+      when: >-
+        (_openbao_role_ids.results
+         | selectattr('item', 'equalto', 'backup')
+         | first) is not skipped
 
     - name: Stage the backup AppRole secret_id for backup.yml (rotation runs only)
       ansible.builtin.copy:

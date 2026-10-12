@@ -9,10 +9,12 @@
 # covered: a dev server stands in for the API it talks to, not for the
 # srvvault hosts the rest of the role configures.
 #
-# The sequence starts from an applied server, then deletes the rotator
-# AppRole so --check meets an AppRole it would create. That is slice
-# 045's regression: --check failed with HTTP 404 reading the role_id
-# of an AppRole not yet created.
+# The sequence starts with --check on the fresh server, which has no
+# approle/ mount yet. That is ANS-309's regression: --check failed with
+# HTTP 400 reading the tuning of the mount it would enable. It then
+# applies, and deletes the rotator AppRole so --check meets an AppRole
+# it would create. That is slice 045's regression: --check failed with
+# HTTP 404 reading the role_id of an AppRole not yet created.
 #
 # The server listens on a free port, so harnesses running side by side
 # in one sidecar never share one; it does not store its root token in
@@ -74,6 +76,7 @@ converge() {
   echo "ok $run - $label: $(tr -s ' ' <<<"$recap")"
 }
 
+converge "--check on a fresh server" failed=0 --check
 converge "apply to a fresh server" failed=0
 converge "apply again" changed=0
 converge "--check after apply" changed=0 --check
