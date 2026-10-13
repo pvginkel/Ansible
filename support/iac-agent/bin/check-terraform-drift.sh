@@ -61,6 +61,7 @@ others=$(sed -n 's/^other //p' <<<"$changes")
 
 if [[ -z "$others" && -n "$snippets" ]]; then
     echo "check-terraform-drift: not drift — the plan only re-renders cloud-init snippets, which no running VM reads:"
+    # shellcheck disable=SC2001  # prefixes every line, which no single ${var//...} does
     sed 's/^/  /' <<<"$snippets"
     exit 0
 fi

@@ -1,3 +1,4 @@
+# shellcheck shell=sh
 # Source me — I export the homelab Terraform provider's credentials into your shell:
 #
 #   . scripts/bao-login.sh && . scripts/setup-env.sh prd

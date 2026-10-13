@@ -16,7 +16,12 @@ projects:
       - cexec go sudo apt-get install -y --no-install-recommends librados-dev librbd-dev
       - cexec iac poetry install --no-interaction
       - cexec iac poetry run ansible-galaxy collection install -r ansible/collections/requirements.yml
+    # LC_ALL because the containers' locale is unset, and shellcheck crashes
+    # (commitBuffer: invalid argument) printing a source line with non-ASCII.
+    # test repeats it, as the ansible component's test repeats its lint.
+    lint: &shellcheck LC_ALL=C.UTF-8 shellcheck scripts/*.sh support/iac-agent/bin/*.sh
     test:
+      - *shellcheck
       - python3 -m unittest discover -s ansible/roles/dhcp_probe/tests
       - python3 -m unittest discover -s scripts/rotation
       - python3 -m unittest discover -s scripts

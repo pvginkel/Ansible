@@ -1,4 +1,5 @@
 #!/bin/sh
+# shellcheck disable=SC2317  # each `return 1 2>/dev/null || exit 1` reaches its exit only when run, not sourced
 # Source this from anywhere inside the Ansible repo:
 #   . scripts/bao-login.sh
 # Reads the openbao-admin AppRole creds from the ansible vault, logs in,
@@ -6,6 +7,7 @@
 
 # Resolve the repo root relative to this script's location. When sourced,
 # $0 is the calling shell, so prefer the shell's own source-file variable.
+# shellcheck disable=SC2128  # a plain variable here: this is sh, which has no arrays
 if [ -n "$BASH_SOURCE" ]; then
     _bao_src=$BASH_SOURCE
 else
@@ -22,9 +24,9 @@ fi
 _bao_cexec=${KUBECODER_ENVIRONMENT_ID:+cexec iac}
 
 echo "bao-login: reading openbao-admin AppRole creds from the vault..." >&2
-_bao_creds=$(cd "$_bao_repo/ansible" && $_bao_cexec poetry run ansible srvvault1 -m debug \
-    -a 'msg="role_id={{ openbao_admin_role_id }} secret_id={{ openbao_admin_secret_id }}"' 2>/dev/null)
-if [ $? -ne 0 ] || [ -z "$_bao_creds" ]; then
+if ! _bao_creds=$(cd "$_bao_repo/ansible" && $_bao_cexec poetry run ansible srvvault1 -m debug \
+    -a 'msg="role_id={{ openbao_admin_role_id }} secret_id={{ openbao_admin_secret_id }}"' 2>/dev/null) \
+    || [ -z "$_bao_creds" ]; then
     echo "bao-login: ansible debug call failed" >&2
     unset _bao_repo _bao_src _bao_cexec _bao_creds
     return 1 2>/dev/null || exit 1
