@@ -67,16 +67,18 @@ whole. A block that fails stops before it writes.
    `images.ntfy` names, checked against the release's checksums:
 
    ```bash
+   unset ntfy
    nd=/work/scratch/NotificationsDeploy kd=/work/scratch/KubeCoderDeploy
    git -C "$nd" fetch -q origin && git -C "$kd" fetch -q origin
    ver=$(git -C "$nd" show origin/main:config/prd/values.yaml | sed -n 's|.*binwiederhier/ntfy v\([0-9.]*\).*|\1|p')
    dl=$(mktemp -d) rel=https://github.com/binwiederhier/ntfy/releases/download/v$ver
    curl -sSfL --output-dir "$dl" -O "$rel/ntfy_${ver}_linux_amd64.tar.gz" -O "$rel/checksums.txt"
-   (cd "$dl" && grep " ntfy_${ver}_linux_amd64.tar.gz\$" checksums.txt | sha256sum --check)
-   tar -xzf "$dl/ntfy_${ver}_linux_amd64.tar.gz" -C "$dl" && ntfy=$dl/ntfy_${ver}_linux_amd64/ntfy
+   (cd "$dl" && grep " ntfy_${ver}_linux_amd64.tar.gz\$" checksums.txt | sha256sum --check) &&
+     tar -xzf "$dl/ntfy_${ver}_linux_amd64.tar.gz" -C "$dl" && ntfy=$dl/ntfy_${ver}_linux_amd64/ntfy
    ```
 
-   The check prints `ntfy_<version>_linux_amd64.tar.gz: OK`.
+   The check prints `ntfy_<version>_linux_amd64.tar.gz: OK`. On `FAILED` nothing is extracted and
+   `$ntfy` stays unset, so block 2 stops before it writes.
 
 2. **`ntfy-auth`.** `ntfy user hash` reads the password twice on stdin. Its `password:` and
    `confirm:` prompts go to stderr and wait for nothing.
