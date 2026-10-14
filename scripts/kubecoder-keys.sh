@@ -24,7 +24,8 @@
 #
 # Every variable is optional. A checkout that does not select these secrets —
 # the operator's workstation, or an environment scoped to something else —
-# still gets a clean `kc project setup`; the file is simply left alone.
+# still gets a clean `kc project setup`; the file is simply left alone, and
+# ~/.ssh/config gets no block for it.
 #
 # Nothing here echoes a secret value.
 
@@ -75,6 +76,85 @@ write_secret() {
 
 write_secret SSH_KEY_ANSIBLE "$HOME/.ssh/id_ed25519_ansible"
 write_secret SSH_KEY_PVE     "$HOME/.ssh/id_ed25519_pve"
+
+# ssh tries only its default identity file names, so without a config entry a
+# plain `ssh root@pve1` or `ssh ansible@<host>` never offers the keys above and
+# is refused (publickey). ensure_ssh_config keeps a Match block per key whose
+# variable is set between the BEGIN and END markers at the top of
+# ~/.ssh/config, and drops the block of a variable that is no longer set. The
+# closing `Match all` hands the rest of the file back to the global scope.
+# Every line outside the markers is left as it is.
+#
+# The pve key is root's on the PVE nodes only: the names are the inventory's
+# `proxmox` group, the addresses their LAN addresses (docs/homelab-handover.md),
+# for SSH by IP with DNS down. A root login to any other host keeps its default
+# and agent keys. Keep the list in step with the inventory.
+PVE_NODES=pve,pve.home,10.1.0.20,pve1,pve1.home,10.1.0.21,pve2,pve2.home,10.1.0.22
+SSH_CONFIG_BEGIN='# BEGIN kubecoder-keys.sh: rewritten on every run, edit the script instead'
+SSH_CONFIG_END='# END kubecoder-keys.sh'
+
+ensure_ssh_config() {
+    local dest=$HOME/.ssh/config tmp line state=outside
+    local -a block=()
+
+    if [ -n "${SSH_KEY_PVE-}" ]; then
+        block+=("Match user root host $PVE_NODES"
+            '    IdentityFile ~/.ssh/id_ed25519_pve'
+            '    IdentitiesOnly yes')
+    fi
+    if [ -n "${SSH_KEY_ANSIBLE-}" ]; then
+        block+=('Match user ansible'
+            '    IdentityFile ~/.ssh/id_ed25519_ansible'
+            '    IdentitiesOnly yes')
+    fi
+
+    if [ ${#block[@]} -eq 0 ] && [ ! -e "$dest" ]; then
+        return 0
+    fi
+
+    tmp=$(mktemp "$HOME/.ssh/.config.XXXXXX")
+    {
+        if [ ${#block[@]} -gt 0 ]; then
+            printf '%s\n' "$SSH_CONFIG_BEGIN" "${block[@]}" 'Match all' "$SSH_CONFIG_END"
+        fi
+        if [ -e "$dest" ]; then
+            while IFS= read -r line || [ -n "$line" ]; do
+                if [ "$state" = inside ]; then
+                    if [ "$line" = "$SSH_CONFIG_END" ]; then state=outside; fi
+                    continue
+                fi
+                case "$line" in
+                    '# BEGIN kubecoder-keys.sh'*) state=inside; continue ;;
+                esac
+                printf '%s\n' "$line"
+            done <"$dest"
+        fi
+    } >"$tmp"
+
+    # Without its END marker the block's extent is unknown, and dropping the
+    # rest of the file would take the operator's own lines with it.
+    if [ "$state" = inside ]; then
+        rm -f -- "$tmp"
+        printf 'keys: %s opens a kubecoder-keys.sh block it never closes; fix it by hand\n' "$dest" >&2
+        return 1
+    fi
+
+    if [ -e "$dest" ] && cmp -s -- "$tmp" "$dest"; then
+        rm -f -- "$tmp"
+        if [ ${#block[@]} -gt 0 ]; then
+            printf 'keys: ssh config block already current in %s\n' "$dest" >&2
+        fi
+        return 0
+    fi
+    mv -f -- "$tmp" "$dest"
+    if [ ${#block[@]} -gt 0 ]; then
+        printf 'keys: wrote the ssh config block in %s\n' "$dest" >&2
+    else
+        printf 'keys: removed the ssh config block from %s\n' "$dest" >&2
+    fi
+}
+
+ensure_ssh_config
 
 # The bpg/proxmox provider uploads cloud-init snippets over SSH with Go's
 # x/crypto/ssh, which reads ~/.ssh/known_hosts and honours no
