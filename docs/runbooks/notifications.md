@@ -283,7 +283,7 @@ The why's shape is in Notifications' README,
   The why names the chat.
 - **ntfy, not reached or `HTTP 5xx`**: ntfy itself; [NtfyDown](#ntfydown-fires).
 
-`https://prometheus.home` shows the failures per registration and channel:
+`http://prometheus.home` shows the failures per registration and channel:
 `sum by (registration, channel) (rate(notifications_total{outcome!="ok"}[15m]))`.
 
 ## Restore
