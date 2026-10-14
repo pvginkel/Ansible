@@ -135,6 +135,12 @@ whole. A block that fails stops before it writes.
    rm -r "$dl"
    ```
 
+### Re-seeding a running deployment
+
+Skip this on the first seeding: before Argo CD has deployed the platform there is nothing to
+restart, and the commands below answer `Error from server (NotFound): namespaces
+"notifications-prd" not found`.
+
 Blocks 2 and 3 write their leaf whole. Run again, block 2 gives `operator` a new password, so the
 phone logs in again, and block 3 gives every registration a new token, which each sender's copy
 then follows. A running pod takes new values once its ExternalSecrets have synced and it has
