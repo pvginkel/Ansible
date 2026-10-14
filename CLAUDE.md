@@ -68,7 +68,9 @@ is cluster-admin on prd), and writing OpenBao secrets — are in [`docs/live-inf
 ## Tooling
 
 The toolchain lives in the `iac` sidecar, not this container: `cexec iac <cmd>` for poetry,
-ansible, terraform, kubectl, helm, `bao`, `step`. Curated entry points are `kc project
+ansible, terraform, kubectl, helm, `bao`, `step`. Ansible is only in the repo's poetry virtualenv,
+not on the sidecar's PATH: run it as `cd /work/Ansible/ansible && cexec iac poetry run ansible…`,
+where `ansible.cfg` sets the inventory and roles path. Curated entry points are `kc project
 setup|lint|test`. **No pre-commit hook** — run `kc project lint` before proposing a commit;
 `IaC/Build-Main` runs the same gates only after the push. Terraform `plan`/`apply` work here as well
 as on srviac, which Jenkins uses and which stays up when Kubernetes is down. Details in
