@@ -20,7 +20,9 @@ The design is NotificationsSpecs `handovers/ntfy-notifications-2026-10-10.md`, Â
 - **The operator's keystroke.** Every OpenBao write and every `kubectl` write is the operator's.
 - **No secret on a screen, on a command line or in shell history.** A generated value is held in
   a shell variable inside a `( â€¦ )` subshell, which ends with the block, and reaches OpenBao on
-  stdin. jq takes the values from its environment, never from its arguments.
+  stdin. jq takes the values from its environment, never from its arguments. One step prints a
+  secret, because it has to: [Subscribing a phone](#subscribing-a-phone) shows `operator-password`,
+  which is typed into the phone.
 - **Shell.** Set this up in each bash shell that runs these steps, in the KubeCoder pod. Re-source
   `bao-login.sh` once `bao` answers `permission denied`, which means its token has expired.
 
