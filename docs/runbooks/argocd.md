@@ -853,11 +853,11 @@ What the deploy repo carries:
   `gen-architecture --help` prints from the aac-tools toolchain (`cexec aac-tools
   gen-architecture --help`).
 - **`Jenkinsfile.architecture`**: the Jenkins pipeline style guide's deploy-repo
-  producer (<https://pipelines.home/docs/types/deploy-architecture/>) with its
+  producer (<https://dev-guides.home/pipelines/types/deploy-architecture/>) with its
   header, stage and producer id changed. It declares its own push trigger and
   concurrency guard, and checks out the branch the job builds (`checkout scm`).
   Its stages call the library's `architectureProducer` steps
-  (<https://pipelines.home/docs/reference/architectureProducer/>):
+  (<https://dev-guides.home/pipelines/reference/architectureProducer/>):
   `generate(stage: '<stage>', producer: '<app>-deploy')` runs `gen-architecture`
   and `archive` archives `docs/architecture/*.yaml`, then `validate` runs
   `arch-validate docs/architecture/*.yaml` as the gate. `generate` and
@@ -938,7 +938,7 @@ The order runs from a committed producer to a registered one:
    an emitted field.
 2. Create the Jenkins job `AaC/<Repo>` through the Jenkins API, with the push
    trigger in its `config.xml`: the style guide's new-repo recipe
-   (<https://pipelines.home/docs/guide/new-repo/>). Jenkins installs the repo's
+   (<https://dev-guides.home/pipelines/guide/new-repo/>). Jenkins installs the repo's
    push hook when the job is created. Creating the job starts no build.
 3. Push the published branch. The push starts the job's first build, and the
    first green build archives `docs/architecture/<app>-deploy.yaml`. A promotion
