@@ -20,7 +20,8 @@ PlatformAddOnsDeploy `prometheus/config/prd/values.yaml`, and its
 - Several `kubectl` commands exec into pods in `storage-prd` and `prometheus-prd`, so their `prd`
   context must be allowed to.
 - The rclone commands run inside the `backup-server` pod, on its own Drive login. No rclone host
-  or Drive login of your own is needed.
+  or Drive login of your own is needed. They inherit its environment, which skips the Drive trash:
+  a file `rclone delete` removes there (§3) is gone at once.
 - Prometheus answers on the LAN at `http://prometheus.home`, without a login. A helper prints each
   series of an instant query:
 
@@ -60,6 +61,7 @@ Streams watched today:
 | `openbao` | `openbao-backup.tgz` | `openbao-backup.timer` on each `srvvaultN`; only the Raft leader uploads | 02:00, plus up to 1 h random delay | 52 h | 14 |
 | `postgres-pas` | `<db>.dump`, one per database but `postgres` and `app` | `postgres-backup` CronJob in `postgres-pas-prd` | 01:00 | 52 h | 90 across all databases, about ten nights |
 | `youtrack` | `youtrack.tar.gz` | `youtrack-backup` CronJob in `youtrack-prd` | 01:30 | 52 h | 30 |
+| `claude-home` | `claude-home.tar.zst` | `claude-home-backup` CronJob in `kubecoder-prd` | 00:30 | 52 h | 3 |
 
 With 52 h, one missed night stays quiet and two in a row alert.
 
@@ -134,12 +136,21 @@ Telegram group.
      kubectl --context prd -n youtrack-prd create job --from=cronjob/youtrack-backup youtrack-backup-manual
      ```
 
+   - **`claude-home`** — the newest Job's log, as for `postgres-pas` but in `kubecoder-prd`.
+     [`claude-home-restore.md`](claude-home-restore.md) "What can go wrong" reads its errors. Once
+     fixed, run it now:
+
+     ```bash
+     kubectl --context prd -n kubecoder-prd create job --from=cronjob/claude-home-backup claude-home-backup-manual
+     ```
+
    - **Any other scope** — that uploader's own log.
 
 4. **An upload `backup-server` answered with an error** — the uploader logs the status:
    - `401` — the upload token is wrong or revoked. OpenBao's is rotated per
-     [`openbao.md`](openbao.md) §5. `postgres-pas`'s is the `postgres-backup-upload` Secret, and
-     `youtrack`'s the `youtrack-backup-upload` Secret; each release's Terraform writes its own.
+     [`openbao.md`](openbao.md) §5. `postgres-pas`'s is the `postgres-backup-upload` Secret,
+     `youtrack`'s the `youtrack-backup-upload` Secret, and `claude-home`'s the
+     `claude-home-backup-upload` Secret in `kubecoder-prd`; each release's Terraform writes its own.
    - `400` — `backup-server` rejected the `filename` or the `valid_for`.
    - `413` — the body is over `backup-server`'s size limit.
    - `500` — `backup-server` could not encrypt or store it. Its log says why, on an
@@ -194,8 +205,8 @@ the 6 h passes a redeploy and three failed hourly reads.
      limit logs the first; one started after it logs the second.
 
 3. **Cleared** — at the first scrape that reports a successful full read. A restart reads at once.
-   Run it outside the nightly uploads (01:30–03:00; YouTrack's starts at 01:30): an upload fails
-   while the pod restarts.
+   Run it outside the nightly uploads, 00:30–03:00 (each one's start is in the table under "How
+   the watching works"): an upload fails while the pod restarts.
 
    ```bash
    kubectl --context prd -n storage-prd rollout restart deploy/backup-server
