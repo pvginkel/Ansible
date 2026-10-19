@@ -67,8 +67,14 @@ secrets:
 # KubeCoder writes each of these catalog keys to /run/secrets/<key>, read-only
 # and in memory, in the dev container and every tool sidecar, `iac` included.
 # The controller refuses a key that is also a `secrets:` value above.
+#
+# ssh-key-homeassistant is root's key for the Terminal & SSH add-on on
+# srvhomeassistant.home. ssh takes it from this path as it is, so unlike the two
+# SSH_ keys above nothing copies it to disk; scripts/kubecoder-keys.sh only names
+# it in ~/.ssh/config.
 secretFiles:
   - ansible-vault-password
+  - ssh-key-homeassistant
 
 # One TF_VAR_ set serves both terraform/prd and terraform/scratch: the two
 # stacks share proxmox_* and dns_reservation_*, and terraform ignores a TF_VAR_

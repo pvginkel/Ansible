@@ -95,7 +95,11 @@ Read-only state inspection on managed hosts (`qm config <vmid>`, `lsblk`, file r
 identity. Those keys come from the KubeCoder secret catalog: `scripts/kubecoder-keys.sh`, driven by
 `kc project setup`, lands them at `~/.ssh/id_ed25519_ansible` and `~/.ssh/id_ed25519_pve`, and
 names them in a `Match` block per key at the top of `~/.ssh/config`, so a plain `ssh root@pve1`
-(the PVE nodes only) or `ssh ansible@<host>` offers the right key.
+(the PVE nodes only) or `ssh ansible@<host>` offers the right key. Home Assistant's key stays where
+`secretFiles:` mounts it, `/run/secrets/ssh-key-homeassistant`, and its block makes a plain
+`ssh srvhomeassistant.home` log in as root to the Terminal & SSH add-on (public half:
+[`ansible/files/homeassistant.pub`](../ansible/files/homeassistant.pub)). That shell is the add-on's
+container, with the `ha` CLI and `/config`, not the host OS.
 
 Read-only Ansible is fine when it is clearly read-only: `ansible -m setup`, or
 `ansible-playbook --check --diff` against a host where the role itself has no side effects. When in

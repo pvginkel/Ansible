@@ -80,8 +80,8 @@ write_secret SSH_KEY_PVE     "$HOME/.ssh/id_ed25519_pve"
 # ssh tries only its default identity file names, so without a config entry a
 # plain `ssh root@pve1` or `ssh ansible@<host>` never offers the keys above and
 # is refused (publickey). ensure_ssh_config keeps a Match block per key whose
-# variable is set between the BEGIN and END markers at the top of
-# ~/.ssh/config, and drops the block of a variable that is no longer set. The
+# variable is set, or whose file is mounted, between the BEGIN and END markers
+# at the top of ~/.ssh/config, and drops the block of a key that is gone. The
 # closing `Match all` hands the rest of the file back to the global scope.
 # Every line outside the markers is left as it is.
 #
@@ -89,7 +89,16 @@ write_secret SSH_KEY_PVE     "$HOME/.ssh/id_ed25519_pve"
 # `proxmox` group, the addresses their LAN addresses (docs/homelab-handover.md),
 # for SSH by IP with DNS down. A root login to any other host keeps its default
 # and agent keys. Keep the list in step with the inventory.
+#
+# The Home Assistant key is the one key not written here: config.yaml takes it
+# under secretFiles:, so KubeCoder mounts it at /run/secrets/ (root-owned,
+# 0440 — ssh's permission check only refuses a group-readable key its own user
+# owns), and its block names that path. It logs in as root to the Terminal &
+# SSH add-on, whose host key no CA signs, so the block accepts the key ssh
+# first sees and pins it in the overlay's known_hosts.
 PVE_NODES=pve,pve.home,10.1.0.20,pve1,pve1.home,10.1.0.21,pve2,pve2.home,10.1.0.22
+HOMEASSISTANT_KEY=/run/secrets/ssh-key-homeassistant
+HOMEASSISTANT_HOSTS=srvhomeassistant,srvhomeassistant.home,10.1.0.5
 SSH_CONFIG_BEGIN='# BEGIN kubecoder-keys.sh: rewritten on every run, edit the script instead'
 SSH_CONFIG_END='# END kubecoder-keys.sh'
 
@@ -102,6 +111,13 @@ ensure_ssh_config() {
             '    IdentityFile ~/.ssh/id_ed25519_pve'
             '    IdentitiesOnly yes')
     fi
+    if [ -r "$HOMEASSISTANT_KEY" ]; then
+        block+=("Match host $HOMEASSISTANT_HOSTS"
+            '    User root'
+            "    IdentityFile $HOMEASSISTANT_KEY"
+            '    IdentitiesOnly yes'
+            '    StrictHostKeyChecking accept-new')
+    fi
     if [ -n "${SSH_KEY_ANSIBLE-}" ]; then
         block+=('Match user ansible'
             '    IdentityFile ~/.ssh/id_ed25519_ansible'
@@ -112,6 +128,10 @@ ensure_ssh_config() {
         return 0
     fi
 
+    # A mounted key alone leaves write_secret nothing to write, so nothing has
+    # made the directory yet.
+    mkdir -p -- "$HOME/.ssh"
+    chmod 700 -- "$HOME/.ssh"
     tmp=$(mktemp "$HOME/.ssh/.config.XXXXXX")
     {
         if [ ${#block[@]} -gt 0 ]; then
