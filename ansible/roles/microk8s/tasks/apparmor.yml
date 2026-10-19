@@ -1,0 +1,44 @@
+---
+# apparmor.yml — the node-local AppArmor profile KubeCoder's sandboxed
+# sessions run under. See the README, "AppArmor profiles".
+
+- name: Install the kubecoder-sandbox AppArmor profile
+  ansible.builtin.copy:
+    src: apparmor/kubecoder-sandbox
+    dest: /etc/apparmor.d/kubecoder-sandbox
+    owner: root
+    group: root
+    mode: "0644"
+    # Parse only: no kernel load, no cache write. A profile that fails to
+    # parse never reaches /etc/apparmor.d, where apparmor.service would trip
+    # over it at boot.
+    validate: apparmor_parser --skip-kernel-load --skip-cache %s
+  register: _microk8s_sandbox_profile
+
+- name: Check whether the kernel has the kubecoder-sandbox profile loaded
+  ansible.builtin.command:
+    argv: [grep, -qxF, "kubecoder-sandbox (enforce)", /sys/kernel/security/apparmor/profiles]
+  register: _microk8s_sandbox_profile_loaded
+  changed_when: false
+  failed_when: _microk8s_sandbox_profile_loaded.rc > 1
+  check_mode: false
+
+# apparmor.service loads /etc/apparmor.d at every boot, ordered before
+# sysinit.target and so before microk8s starts a container. This loads a new
+# or changed profile on the running node. -r replaces it in place, so
+# containers already confined by it carry on under the new rules.
+- name: Load the kubecoder-sandbox AppArmor profile
+  ansible.builtin.command:
+    argv: [apparmor_parser, -r, /etc/apparmor.d/kubecoder-sandbox]
+  when: _microk8s_sandbox_profile is changed or _microk8s_sandbox_profile_loaded.rc != 0
+  changed_when: true
+
+# --check skips the load above and ansible.cfg hides the skip, so a node that
+# has the file but not the loaded profile would otherwise check clean.
+- name: Report the profile load a real run would perform (check mode)
+  ansible.builtin.debug:
+    msg: A real run would load the kubecoder-sandbox AppArmor profile on this node.
+  when:
+    - ansible_check_mode
+    - _microk8s_sandbox_profile is changed or _microk8s_sandbox_profile_loaded.rc != 0
+  changed_when: true

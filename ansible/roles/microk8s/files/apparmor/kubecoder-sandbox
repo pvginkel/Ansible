@@ -1,0 +1,49 @@
+# kubecoder-sandbox: the profile KubeCoder's sandboxed sessions run under.
+# Installed and loaded on every k8s node by the microk8s role.
+#
+# containerd 2.1's default container profile (contrib/apparmor/template.go)
+# with `deny mount,` replaced by `mount,` and `pivot_root,`. A sandboxed
+# session builds a user+mount namespace inside its env pod container and
+# remounts the filesystem read-only; the default profile refuses those
+# mounts. The container's empty capability set still refuses a mount outside
+# a user namespace the process owns. The /proc and /sys denies and the ptrace
+# scope are containerd's, unchanged. A container opts in with
+#   securityContext.appArmorProfile: {type: Localhost, localhostProfile: kubecoder-sandbox}
+# and fails to create on a node that has not loaded it.
+
+#include <tunables/global>
+
+profile kubecoder-sandbox flags=(attach_disconnected,mediate_deleted) {
+  #include <abstractions/base>
+
+  network,
+  capability,
+  file,
+  umount,
+  mount,
+  pivot_root,
+  signal (receive) peer=unconfined,
+  signal (receive) peer=runc,
+  signal (receive) peer=crun,
+  signal (send,receive) peer=kubecoder-sandbox,
+
+  deny @{PROC}/* w,
+  deny @{PROC}/{[^1-9],[^1-9][^0-9],[^1-9s][^0-9y][^0-9s],[^1-9][^0-9][^0-9][^0-9]*}/** w,
+  deny @{PROC}/sys/[^k]** w,
+  deny @{PROC}/sys/kernel/{?,??,[^s][^h][^m]**} w,
+  deny @{PROC}/sysrq-trigger rwklx,
+  deny @{PROC}/mem rwklx,
+  deny @{PROC}/kmem rwklx,
+  deny @{PROC}/kcore rwklx,
+
+  deny /sys/[^f]*/** wklx,
+  deny /sys/f[^s]*/** wklx,
+  deny /sys/fs/[^c]*/** wklx,
+  deny /sys/fs/c[^g]*/** wklx,
+  deny /sys/fs/cg[^r]*/** wklx,
+  deny /sys/firmware/** rwklx,
+  deny /sys/devices/virtual/powercap/** rwklx,
+  deny /sys/kernel/security/** rwklx,
+
+  ptrace (trace,tracedby,read,readby) peer=kubecoder-sandbox,
+}

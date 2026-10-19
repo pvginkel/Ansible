@@ -10,6 +10,7 @@ This role covers install, idempotent multi-node join, capability-label reconcili
 |---|---|
 | Kernel modules | `/etc/modules-load.d/<module>.conf` + `modprobe` for the running boot |
 | Ceph client | `apt` install of `ceph-common`, `rbd-nbd` |
+| `kubecoder-sandbox` AppArmor profile | `copy` to `/etc/apparmor.d/` + `apparmor_parser -r` when the file changed or the kernel lacks it (see "AppArmor profiles") |
 | `.microk8s.yaml` | `template` from `launch-config.yaml.j2`, written before the snap install so first-init reads it |
 | Snap install | `community.general.snap` at the pinned channel |
 | Calico autodetect | `replace` on `cni.yaml` + handler that re-applies the daemonset |
@@ -128,6 +129,18 @@ On a node that also runs its own microceph (`microk8s_colocated_ceph: true` — 
 The unit is a oneshot that does nothing at start and all its work at stop. Ordered after microceph and before kubelite/containerd, its `ExecStop` runs once microk8s has stopped and while microceph is still up: SIGTERM to everything in `/kubepods` with a 20 s grace, then `cgroup.kill`; unmount the remaining `ceph` and `/dev/rbd*` mounts; unmap every rbd device. Output lands in `journalctl -u k8s-release-ceph-clients` (`-b -1` for the last shutdown). The script is a no-op unless the system is shutting down, so a manual `systemctl stop`/`restart` of the unit doesn't take every pod on the node with it; `/usr/local/sbin/k8s-release-ceph-clients --force` releases on demand.
 
 The same task file sets `global_filter = [ "r|/dev/rbd|", "r|/dev/nbd|" ]` in `/etc/lvm/lvm.conf`, so an rbd device that does outlive its OSDs can't wedge the LVM scan. Nodes on the external prd Ceph need neither — their Ceph outlives their shutdown.
+
+## AppArmor profiles
+
+`tasks/apparmor.yml` installs `files/apparmor/kubecoder-sandbox` as `/etc/apparmor.d/kubecoder-sandbox` on every node and loads it. KubeCoder's sandboxed sessions build a user+mount namespace inside an env pod container. The profile containerd applies by default denies those mounts, and `appArmorProfile: Unconfined` does not help on Ubuntu 24.04: `kernel.apparmor_restrict_unprivileged_userns=1` moves an unconfined process that creates a user namespace into the restrictive `unprivileged_userns` profile. `kubecoder-sandbox` is containerd 2.1's default template with `deny mount,` replaced by `mount,` and `pivot_root,`. KubeCoder names it per container as `securityContext.appArmorProfile: {type: Localhost, localhostProfile: kubecoder-sandbox}`.
+
+A container that names a profile its node has not loaded fails to create, so every node carries it, not only `srvk8s4` and `srvk8sdev` where env pods run today. `apparmor.service` loads `/etc/apparmor.d` at boot, ordered before `sysinit.target` and so before microk8s. The role loads a new or changed file on the running node with `apparmor_parser -r`, and reloads it whenever `/sys/kernel/security/apparmor/profiles` lacks `kubecoder-sandbox (enforce)`. The `copy` validates the file with a parse-only `apparmor_parser` run first. The tasks carry the `apparmor` tag, so `--tags apparmor` applies just this.
+
+Check on a node:
+
+```
+sudo grep kubecoder-sandbox /sys/kernel/security/apparmor/profiles
+```
 
 ## What this role doesn't do (yet)
 

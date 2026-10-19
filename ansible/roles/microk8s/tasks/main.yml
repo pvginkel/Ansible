@@ -20,6 +20,14 @@
 - name: Apply prerequisites (kernel modules, Ceph client packages)
   ansible.builtin.import_tasks: prereqs.yml
 
+# Per-node and independent of the install. Every node carries it, not only
+# the ones env pods are pinned to today: a container naming a profile its
+# node has not loaded fails to create, and a loaded profile no container
+# names does nothing.
+- name: Install and load the kubecoder-sandbox AppArmor profile
+  ansible.builtin.import_tasks: apparmor.yml
+  tags: [apparmor]
+
 - name: Install microk8s and stage launch config
   ansible.builtin.import_tasks: install.yml
 
