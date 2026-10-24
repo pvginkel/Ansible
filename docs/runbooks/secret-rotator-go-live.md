@@ -2847,7 +2847,8 @@ takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, 
 12. **Wave 3**, once [Wave 3's annotations](#wave-3s-annotations) are applied. Its kinds go in
     one per commit, in any order, each once its own item below holds. A wave-3 plan with an
     operator step runs from the UI whether its kind is enabled or not. Enabling the kind adds its
-    manual-due lines, and for `samba-user` the nightly rotation of `mydownloads-user`. Each kind's
+    manual-due lines, and for `samba-user` the nightly rotations of `mydownloads-user` and
+    `deploy-user`. Each kind's
     first live plan is the proof no offline run gives: it runs green and its consumers come back
     healthy.
 
@@ -2869,7 +2870,10 @@ takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, 
       which has no stamp. The plan restarts the media pod, so Plex and the media shares go down
       briefly, at 05:30 every 14 days, then mydownloads, which mounts the share with the new
       password. A media pod that does not come back fails the plan before mydownloads restarts,
-      and the failure is on the card. The next morning, the night's console shows the plan
+      and the failure is on the card. The same night rotates `eso/prd/storage/prd/deploy-user`,
+      share.home's automated-deployment account, unstamped too: its plan restarts the storage pod,
+      so share.home goes down briefly, then copies the password to the prd catalog's
+      `share-deployment-password` and restarts `kubecoder-controller`. The next morning, the night's console shows the plan
       `rotated`, and the checks of [§ Wave 3](#the-media-samba-server-reads-mydownloads-user) read
       as they did. `shared/samba/users#pvginkel` then has its manual-due lines and is worked in the
       UI. The operator types the new password, the plan restarts the four Samba servers, and its
