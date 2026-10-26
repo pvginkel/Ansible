@@ -29,7 +29,7 @@
   vars:
     # Cluster members that share this primary and declare taints —
     # mirrors the labels.yml peer filter; the defined-guard keeps a host
-    # with no k8s_node_taints (every node but srvk8s4 today) out of the
+    # with no k8s_node_taints (srvk8s2/srvk8s3 today) out of the
     # subelements expansion instead of raising.
     _microk8s_taint_targets: >-
       {{ ansible_play_hosts_all

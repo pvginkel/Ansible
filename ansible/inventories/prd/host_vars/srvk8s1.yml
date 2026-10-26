@@ -9,8 +9,21 @@ workload_class: background
 # which the iac-provisioner DaemonSet schedules against). The
 # strategic-merge patch can't delete the old label from the live Node —
 # that was a one-shot `kubectl label node srvk8s1 homelab.local/performance-`.
+#
+# `jenkins: preferred` makes srvk8s1 (8 vCPUs, the E-cores) Jenkins's
+# preferred node. Agent pods prefer the label and tolerate the matching
+# PreferNoSchedule taint below; every other pod schedules here only when
+# srvk8s2/srvk8s3 can't fit it, so srvk8s1 stays the overflow node. The
+# taint is soft, so DaemonSets and the zpool2 hostPath workloads (required
+# affinity to this node) are unaffected.
 k8s_node_labels:
   homelab.local/storage: zpool2
+  homelab.local/jenkins: preferred
+
+k8s_node_taints:
+  - key: homelab.local/jenkins
+    value: preferred
+    effect: PreferNoSchedule
 
 # zpool2 lives on the NVMe at scsi2 (passthrough declared in
 # terraform/prd/vms.tf). rebuild-k8s.yml imports declared pools
