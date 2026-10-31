@@ -21,8 +21,8 @@ The design is NotificationsSpecs `handovers/ntfy-notifications-2026-10-10.md`, Â
 - **No secret on a screen, on a command line or in shell history.** A generated value is held in
   a shell variable inside a `( â€¦ )` subshell, which ends with the block, and reaches OpenBao on
   stdin. jq takes the values from its environment, never from its arguments. One step prints a
-  secret, because it has to: [Subscribing a phone](#subscribing-a-phone) shows `operator-password`,
-  which is typed into the phone.
+  secret, because it has to: [Subscribing a phone](#subscribing-a-phone) shows a user's
+  `<user>-password`, which is typed into the phone.
 - **Shell.** Set this up in each bash shell that runs these steps, in the KubeCoder pod. Re-source
   `bao-login.sh` once `bao` answers `permission denied`, which means its token has expired.
 
@@ -39,15 +39,17 @@ The design is NotificationsSpecs `handovers/ntfy-notifications-2026-10-10.md`, Â
 
 ## The two leaves
 
-The chart's two ExternalSecrets read every key below but `operator-password`
+The chart's two ExternalSecrets read every key below but the users' passwords
 (NotificationsDeploy `config/prd/values.yaml`, `externalSecrets`). The kind and interval of each
 key are its leaf's row in the secret catalog,
 [`catalog.md`](../../../AnsibleSpecs/secret-rotation/catalog.md).
 
 | Leaf (`kv/`) | Key | What it is | Seeded from |
 |---|---|---|---|
-| `eso/prd/notifications/prd/ntfy-auth` | `operator-password` | The password of the ntfy user `operator`, an admin. The phone and the web app log in with it | Generated |
-| | `operator-hash` | Its bcrypt hash, which ntfy's auth config takes | `operator-password`, through `ntfy user hash` |
+| `eso/prd/notifications/prd/ntfy-auth` | `pvginkel-password` | The password of the ntfy user `pvginkel`, an admin. The operator's phone and the web app log in with it | Generated |
+| | `pvginkel-hash` | Its bcrypt hash, which ntfy's auth config takes | `pvginkel-password`, through `ntfy user hash` |
+| | `mvdbovenkamp-password` | The password of the ntfy user `mvdbovenkamp`, which may only read `pilot-app-mvdbovenkamp`. mvdbovenkamp's phone logs in with it | Generated |
+| | `mvdbovenkamp-hash` | Its bcrypt hash, which ntfy's auth config takes | `mvdbovenkamp-password`, through `ntfy user hash` |
 | | `bridge-hash` | The bcrypt hash of the ntfy user `bridge`, which only writes, and never logs in | A throwaway password that is never stored, through `ntfy user hash` |
 | | `bridge-token` | The `bridge` user's token, `tk_` and 29 characters: the bridge's `NTFY_TOKEN` | `ntfy token generate` |
 | `eso/prd/notifications/prd/registrations` | `jenkins-token`, `alertmanager-token`, `kubecoder-token`, `kubecoder-dev-token` | The bearer token each registration's senders hold: 43 URL-safe characters, the rotator's `random` | Generated |
@@ -87,12 +89,15 @@ whole. A block that fails stops before it writes.
    (
      set -eo pipefail
      pw=$(openssl rand -base64 18 | tr '+/' '-_')
+     mpw=$(openssl rand -base64 18 | tr '+/' '-_')
      throwaway=$(openssl rand -base64 18)
-     oh=$(printf '%s\n%s\n' "$pw" "$pw" | "$ntfy" user hash)
+     ph=$(printf '%s\n%s\n' "$pw" "$pw" | "$ntfy" user hash)
+     mh=$(printf '%s\n%s\n' "$mpw" "$mpw" | "$ntfy" user hash)
      bh=$(printf '%s\n%s\n' "$throwaway" "$throwaway" | "$ntfy" user hash)
      bt=$("$ntfy" token generate)
-     PW=$pw OH=$oh BH=$bh BT=$bt jq -n '{"operator-password": env.PW,
-         "operator-hash": env.OH, "bridge-hash": env.BH, "bridge-token": env.BT}' \
+     PW=$pw PH=$ph MPW=$mpw MH=$mh BH=$bh BT=$bt jq -n '{"pvginkel-password": env.PW,
+         "pvginkel-hash": env.PH, "mvdbovenkamp-password": env.MPW, "mvdbovenkamp-hash": env.MH,
+         "bridge-hash": env.BH, "bridge-token": env.BT}' \
        | bao kv put -mount=kv eso/prd/notifications/prd/ntfy-auth -
    )
    ```
@@ -127,7 +132,7 @@ whole. A block that fails stops before it writes.
 
    Blocks 2 and 3 each answer with the leaf's path and its metadata, `version` among it.
 
-4. **Check, and clean up.** Each key prints as `true` when it holds a value: four keys, then
+4. **Check, and clean up.** Each key prints as `true` when it holds a value: six keys, then
    twelve.
 
    ```bash
@@ -143,8 +148,8 @@ Skip this on the first seeding: before Argo CD has deployed the platform there i
 restart, and the commands below answer `Error from server (NotFound): namespaces
 "notifications-prd" not found`.
 
-Blocks 2 and 3 write their leaf whole. Run again, block 2 gives `operator` a new password, so the
-phone logs in again, and block 3 gives every registration a new token, which each sender's copy
+Blocks 2 and 3 write their leaf whole. Run again, block 2 gives `pvginkel` and `mvdbovenkamp` new
+passwords, so both phones log in again, and block 3 gives every registration a new token, which each sender's copy
 then follows. A running pod takes new values once its ExternalSecrets have synced and it has
 restarted:
 
@@ -156,15 +161,16 @@ kw rollout restart deployment/notifications
 
 ## Subscribing a phone
 
-The server is `https://ntfy.webathome.org`, the user `operator`, and the topics are the
+The server is `https://ntfy.webathome.org`. The user `pvginkel` reads every topic, the
 registrations' ntfy topics:
 
 ```bash
 git -C /work/scratch/NotificationsDeploy show origin/main:config/prd/values.yaml | yq -r '[.registrations[].ntfy.topic] | unique[]'
 ```
 
-The password is `operator-password`, which this prints:
-`bao kv get -mount=kv -field=operator-password eso/prd/notifications/prd/ntfy-auth`.
+The user `mvdbovenkamp` reads only `pilot-app-mvdbovenkamp`. A user's password is
+`<user>-password`, which this prints:
+`bao kv get -mount=kv -field=<user>-password eso/prd/notifications/prd/ntfy-auth`.
 
 1. Install the ntfy Android app (Google Play or F-Droid). Neither flavor uses Firebase for a
    self-hosted server.
