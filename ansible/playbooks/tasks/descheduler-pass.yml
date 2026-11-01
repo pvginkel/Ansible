@@ -1,0 +1,84 @@
+---
+# descheduler-pass.yml — one descheduler pass, run by rebalance-k8s.yml
+# for each entry of rebalance_k8s_passes, on the cluster's primary.
+#
+# Inputs, from the importer:
+#
+#   rebalance_k8s_pass       — {name, policy}: the pass's name and the
+#                              ConfigMap holding its policy.
+#   rebalance_k8s_namespace  — the descheduler's namespace.
+#   rebalance_k8s_cronjob    — the suspended CronJob each pass's Job is
+#                              created from.
+#   _rebalance_k8s_run       — this run's Job name prefix.
+
+- name: Name the pass's Job
+  ansible.builtin.set_fact:
+    _rebalance_k8s_job: "{{ _rebalance_k8s_run }}-{{ rebalance_k8s_pass.name }}"
+
+# The Job runs the chart's image and arguments; only the ConfigMap behind
+# policy-volume, the volume the chart mounts the policy from, is the pass's.
+- name: Start the descheduler pass {{ rebalance_k8s_pass.name }}
+  ansible.builtin.shell: |
+    set -euo pipefail
+    microk8s kubectl --namespace "$NAMESPACE" create job \
+        --from="cronjob/$CRONJOB" "$JOB" --dry-run=client --output json \
+      | microk8s kubectl patch --local --filename - --type strategic \
+        --patch "$PATCH" --output json \
+      | microk8s kubectl create --filename -
+  args:
+    executable: /bin/bash
+  environment:
+    NAMESPACE: "{{ rebalance_k8s_namespace }}"
+    CRONJOB: "{{ rebalance_k8s_cronjob }}"
+    JOB: "{{ _rebalance_k8s_job }}"
+    PATCH: >-
+      {{ {'spec': {'template': {'spec': {'volumes': [
+          {'name': 'policy-volume',
+           'configMap': {'name': rebalance_k8s_pass.policy}}]}}}} | to_json }}
+  changed_when: true
+
+# A pass takes seconds. Polled rather than `kubectl wait`, which waits
+# on one condition only and would sit out its timeout on a failed Job.
+- name: Wait for the descheduler pass {{ rebalance_k8s_pass.name }}
+  ansible.builtin.command:
+    argv:
+      - microk8s
+      - kubectl
+      - --namespace
+      - "{{ rebalance_k8s_namespace }}"
+      - get
+      - job
+      - "{{ _rebalance_k8s_job }}"
+      - --output
+      - jsonpath={.status.conditions[?(@.status=="True")].type}
+  register: _rebalance_k8s_state
+  changed_when: false
+  until: >-
+    'Complete' in _rebalance_k8s_state.stdout.split()
+    or 'Failed' in _rebalance_k8s_state.stdout.split()
+  retries: 60
+  delay: 10
+
+- name: Read the descheduler pass's log {{ rebalance_k8s_pass.name }}
+  ansible.builtin.command:
+    argv:
+      - microk8s
+      - kubectl
+      - --namespace
+      - "{{ rebalance_k8s_namespace }}"
+      - logs
+      - "job/{{ _rebalance_k8s_job }}"
+  register: _rebalance_k8s_log
+  changed_when: false
+  failed_when: false
+
+- name: Show the descheduler pass's log {{ rebalance_k8s_pass.name }}
+  ansible.builtin.debug:
+    var: _rebalance_k8s_log.stdout_lines
+
+- name: Fail when the descheduler pass failed {{ rebalance_k8s_pass.name }}
+  ansible.builtin.fail:
+    msg: >-
+      Job {{ rebalance_k8s_namespace }}/{{ _rebalance_k8s_job }} failed;
+      its log is above. No later pass runs.
+  when: "'Failed' in _rebalance_k8s_state.stdout.split()"
