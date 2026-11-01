@@ -1,5 +1,7 @@
 // Rolls OS updates through the k8s clusters every week: drains, upgrades and reboots each k8s prd
-// node in turn, then srvk8sdev when it is up. A no-op when no upgrades are pending.
+// node in turn, then srvk8sdev when it is up. A no-op when no upgrades are pending. Then rebalances
+// the prd cluster: one descheduler run evicts the pods the roll's drains left on the wrong node, so
+// the scheduler places them again.
 //
 // Coverage is by host class (decisions.md "OS updates"), not by site-* playbook:
 //   - Cluster class (k8s, ceph) is Ansible-orchestrated here. update-k8s.yml runs today;
@@ -94,6 +96,21 @@ pipeline {
                         unstable(message)
                     }
                 }
+            }
+        }
+
+        // Every week, whether or not the roll drained a node: nothing reschedules a running pod, so
+        // the run also catches what drifted since. It comes last so that its failure, reported by the
+        // build's result, never costs the dev roll.
+        stage('Rebalance pods (k8s prd)') {
+            steps {
+                sh '''
+                    iac -c '
+                        set -euo pipefail
+                        cd /work/Ansible/ansible
+                        ansible-playbook --diff playbooks/rebalance-k8s.yml --limit k8s_prd
+                    '
+                '''
             }
         }
     }

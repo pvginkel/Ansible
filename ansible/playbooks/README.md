@@ -22,6 +22,10 @@ ansible-playbook playbooks/site.yml --check --diff
   `ceph_dev` (srvk8sdev, whose baseline + microk8s converge through
   `site-k8s.yml`); the prd Ceph fleet is not yet Ansible-managed.
 - `update-k8s.yml` — OS patching for k8s nodes (drain → reboot).
+- `rebalance-k8s.yml` — one descheduler run on the prd cluster, which
+  evicts the pods a drain left on the wrong node so the scheduler
+  places them again; `IaC/Scheduled Update` runs it after the roll.
+  The policy is PlatformAddOnsDeploy's `descheduler/`.
 - `rebuild-k8s.yml` / `evict-k8s.yml` — full VM rebuild, and the
   pre-rebuild drain run against the old node.
 - `refresh-k8s-addons.yml` — post-snap-upgrade microk8s addon refresh.

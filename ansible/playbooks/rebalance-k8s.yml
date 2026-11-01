@@ -1,0 +1,99 @@
+---
+# rebalance-k8s.yml — one descheduler run on the prd cluster, the last
+# stage of the weekly OS-update roll (Jenkinsfile.iac-scheduled-update).
+#
+# Nothing reschedules a running pod: after update-k8s.yml's drains, each
+# pod stays wherever it landed. Overflow sits on srvk8s1, whose
+# PreferNoSchedule taint keeps its headroom for Jenkins agents, and the
+# node drained last is left near-empty while its peers run full. The
+# descheduler evicts what a fresh scheduling decision would place
+# elsewhere. Argo CD deploys it from PlatformAddOnsDeploy's descheduler/
+# as the suspended CronJob descheduler-prd, and the policy is in that
+# directory's README. This play starts one run as a Job created from the
+# CronJob, waits for it and prints its log.
+#
+# prd only: the descheduler is deployed on prd alone, and srvk8sdev is a
+# single node. Run it by hand after anything else that leaves the cluster
+# unbalanced, such as a rebuild or a manual drain:
+#
+#   poetry run ansible-playbook playbooks/rebalance-k8s.yml --limit k8s_prd
+
+- name: Rebalance the cluster's pods with one descheduler run
+  hosts: k8s_prd
+  become: true
+  gather_facts: false
+  vars:
+    rebalance_k8s_namespace: descheduler-prd
+    rebalance_k8s_cronjob: descheduler-prd
+  tasks:
+    - name: Elect this cluster's primary
+      ansible.builtin.import_role:
+        name: microk8s
+        tasks_from: elect-primary
+
+    - name: Skip non-primary peers
+      ansible.builtin.meta: end_host
+      when: inventory_hostname != microk8s_primary_host
+
+    - name: Name this run's Job
+      ansible.builtin.set_fact:
+        _rebalance_k8s_job: "rebalance-{{ now(utc=true).strftime('%Y%m%d%H%M%S') }}"
+
+    - name: Start the descheduler run
+      ansible.builtin.command:
+        argv:
+          - microk8s
+          - kubectl
+          - --namespace
+          - "{{ rebalance_k8s_namespace }}"
+          - create
+          - job
+          - "--from=cronjob/{{ rebalance_k8s_cronjob }}"
+          - "{{ _rebalance_k8s_job }}"
+      changed_when: true
+
+    # A run takes seconds. Polled rather than `kubectl wait`, which waits
+    # on one condition only and would sit out its timeout on a failed Job.
+    - name: Wait for the descheduler run to finish
+      ansible.builtin.command:
+        argv:
+          - microk8s
+          - kubectl
+          - --namespace
+          - "{{ rebalance_k8s_namespace }}"
+          - get
+          - job
+          - "{{ _rebalance_k8s_job }}"
+          - --output
+          - jsonpath={.status.conditions[?(@.status=="True")].type}
+      register: _rebalance_k8s_state
+      changed_when: false
+      until: >-
+        'Complete' in _rebalance_k8s_state.stdout.split()
+        or 'Failed' in _rebalance_k8s_state.stdout.split()
+      retries: 60
+      delay: 10
+
+    - name: Read the descheduler run's log
+      ansible.builtin.command:
+        argv:
+          - microk8s
+          - kubectl
+          - --namespace
+          - "{{ rebalance_k8s_namespace }}"
+          - logs
+          - "job/{{ _rebalance_k8s_job }}"
+      register: _rebalance_k8s_log
+      changed_when: false
+      failed_when: false
+
+    - name: Show the descheduler run's log
+      ansible.builtin.debug:
+        var: _rebalance_k8s_log.stdout_lines
+
+    - name: Fail when the descheduler run failed
+      ansible.builtin.fail:
+        msg: >-
+          Job {{ rebalance_k8s_namespace }}/{{ _rebalance_k8s_job }} failed;
+          its log is above. The cluster is as unbalanced as the roll left it.
+      when: "'Failed' in _rebalance_k8s_state.stdout.split()"
