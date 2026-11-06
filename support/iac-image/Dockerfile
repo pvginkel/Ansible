@@ -48,6 +48,7 @@ RUN apt-get update -yqq && \
         python3 \
         python3-pip \
         python3-venv \
+        rsync \
         tini \
         tzdata \
         unzip \
