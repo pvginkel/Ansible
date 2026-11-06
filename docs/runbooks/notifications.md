@@ -6,8 +6,8 @@ The Notifications platform: ntfy and the notification bridge in one pod, the Dep
 registration's token and submits to the bridge's API, and the bridge delivers to the
 registration's ntfy topic, its Telegram chats or both. Read this to seed the platform's two
 OpenBao leaves, to subscribe a phone, to add a registration, to seed the Jenkins adapter's leaf,
-when `NtfyDown`, `NotificationBridgeDown` or `NotificationDeliveryFailing` fires, and to restore
-the platform.
+when `NtfyDown`, `NotificationBridgeDown`, `NotificationDeliveryFailing` or
+`AlertmanagerWebhookFailing` fires, and to restore the platform.
 
 The pod, its Services and its Secrets are in NotificationsDeploy's
 [README](https://github.com/pvginkel/NotificationsDeploy/blob/main/README.md). The bridge's API is
@@ -32,6 +32,8 @@ The design is NotificationsSpecs `handovers/ntfy-notifications-2026-10-10.md`, �
   bao() { cexec iac bao "$@"; }
   k()   { cexec iac kubectl --context prd -n notifications-prd "$@" </dev/null; }
   kw()  { cexec iac kubectl --kubeconfig "$HOME/.kube/config-prd-write" --context prd -n notifications-prd "$@" </dev/null; }
+  p()   { cexec iac kubectl --context prd -n prometheus-prd "$@" </dev/null; }
+  pw()  { cexec iac kubectl --kubeconfig "$HOME/.kube/config-prd-write" --context prd -n prometheus-prd "$@" </dev/null; }
   ```
 
 - **Checkouts.** The commands read NotificationsDeploy and KubeCoderDeploy at `origin/main`, from
@@ -283,8 +285,11 @@ registration a new token, so the adapter's copy follows. Three blocks, in one sh
 
 ## When ntfy or the bridge is down
 
-`NtfyDown` and `NotificationBridgeDown` are critical. They reach Telegram through Alertmanager's
-own receiver, never through the bridge.
+`NtfyDown` and `NotificationBridgeDown` are critical. They reach the Homelab Alerts group through
+Alertmanager's one Telegram receiver, `telegram-direct`, never through the bridge. Alertmanager's
+other alerts go through the bridge, so while either is down they reach neither the phone nor the
+group, and [`AlertmanagerWebhookFailing`](#alertmanagerwebhookfailing-fires) fires on the same
+direct receiver.
 
 One pod serves both Services, and it is ready only while ntfy, the bridge and nginx all pass their
 readiness checks. While ntfy fails its health check, the bridge's API is refused as well, though
@@ -349,6 +354,42 @@ The why's shape is in Notifications' README,
 
 `http://prometheus.home` shows the failures per registration and channel:
 `sum by (registration, channel) (rate(notifications_total{outcome!="ok"}[15m]))`.
+
+## AlertmanagerWebhookFailing fires
+
+Alertmanager gave up on a delivery to one of its webhooks in the last 15 minutes. Two of them are
+the paths of the adapter sidecar `alertmanager-notifications-bridge` in the pod
+`prometheus-prd-alertmanager-0`, on the pod's loopback: `notifications`, which takes every alert
+but `Heartbeat` and the three direct ones, one notification per alert group, and
+`notifications-oneshot`, Argo CD's two events. The adapter submits under the `alertmanager` registration, with the token it reads on every call
+from the Secret `alertmanager-notifications`, a copy of `alertmanager-token` in the leaf
+`eso/prd/prometheus/prd/notifications`. The third is `healthchecks`, the heartbeat's ping. The
+alert reaches the group through `telegram-direct` and carries no receiver label: Alertmanager's
+log names the receiver first in each failure's `err`, and the adapter's JSON lines carry the
+bridge's status as `bridge_status` and its own answer as `status`, never the token.
+
+```bash
+p logs prometheus-prd-alertmanager-0 -c alertmanager --since=1h | grep 'Notify for alerts failed'
+p logs prometheus-prd-alertmanager-0 -c alertmanager-notifications-bridge --since=1h | grep '"level": "warning"'
+```
+
+Alertmanager retries a 5xx until the group's interval runs out and a 4xx not at all. It records
+only a delivery that went through, so once the fault is gone each group goes out at its next
+flush, every 5 minutes on the root route.
+
+| What you see | Why | What to do |
+|---|---|---|
+| `healthchecks` in the `err` | healthchecks.io refused the heartbeat's ping or did not answer | Nothing of the adapter's: healthchecks.io's status |
+| The adapter answered `503`, `the bridge: …` | The bridge did not answer within 120 s, or could not be reached | [When ntfy or the bridge is down](#when-ntfy-or-the-bridge-is-down) |
+| The adapter answered `502` | The bridge answered 5xx | The bridge's log, `k logs deploy/notifications -c notification-bridge --since=1h` |
+| The adapter answered `503`, naming the token file | The Secret `alertmanager-notifications` is missing or empty. Its volume is optional, so the pod starts without it | `p get externalsecret alertmanager-notifications`; seed the leaf as for `401`, then force the sync |
+| The adapter answered `401`, `unknown bearer token` | The copy is not the registration's token | Copy it again: [Adding a registration](#adding-a-registration) step 3, with `reg=alertmanager`, the leaf `prometheus/prd/notifications` and the key `token`. Then force the sync |
+| The adapter answered `400` or `413`, with a `bridge_status` | The bridge refused the submit; `result` says why | Notifications' README, [§ Status codes](https://github.com/pvginkel/Notifications/blob/main/README.md#status-codes) |
+| No line from the adapter, and the pod not ready | The sidecar is not running. Alertmanager's Service then has no ready endpoint, so `http://alertmanager.home` answers nothing and Argo CD's events do not arrive; Prometheus still sends Alertmanager its alerts | `p describe pod prometheus-prd-alertmanager-0`, then the adapter's log with `--previous` |
+
+Forcing the sync, `pw annotate externalsecret alertmanager-notifications force-sync="$(date +%s)"
+--overwrite`, needs no restart: the kubelet updates the mounted file in place, and the adapter
+reads it on its next call.
 
 ## Restore
 

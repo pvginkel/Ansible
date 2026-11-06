@@ -66,7 +66,7 @@ actually ran and the Phase A proof drill are recorded in slice 009's
 | Hook image | `registry:5000/argocd-hook:<n>` and `:latest` from ArgoCDTools; the sync's default pin is in the `homelab-shared` library chart, and the Destroy Stage Job and the plan Job run `:latest`. Its Terraform is pinned to the version the `iac` images carry (AnsibleSpecs `decisions.md`, "Terraform version") |
 | Terraform state | `pvginkel/TerraformState`, `argocd/<repo>/<stage>/terraform.tfstate`, or `argocd/<repo>/<path>/<stage>/terraform.tfstate` for an app in a monorepo's directory; sops/age |
 | Destroy Stage | Jenkins job `IaC/Destroy Stage`, ArgoCDTools `Jenkinsfile.destroy-stage`; the build runs as `jenkins-prd/destroy-stage`, its Job is `argocd-hooks/destroy-stage-<build#>` under `tf-presync` (D66) |
-| Notifications | Alertmanager `prometheus-prd-alertmanager.prometheus-prd:9093`, delivered to Telegram with no "resolved"; `ArgoCDSyncFailed` (critical, with sound), `ArgoCDHealthDegraded` (warning, silent) |
+| Notifications | Alertmanager `prometheus-prd-alertmanager.prometheus-prd:9093`, delivered once through the notification bridge to the phone and the Homelab Alerts group, where it stays until cleared by hand; `ArgoCDSyncFailed` (critical, with sound), `ArgoCDHealthDegraded` (warning, silent) |
 | Standing alerts | PlatformAddOnsDeploy `prometheus/`'s rule group `argocd`, over the application controller's metrics (Service `argocd-prd-application-controller-metrics`); `ArgoCDSyncStillFailed` (critical), `ArgoCDHealthStillDegraded` and `ArgoCDAlertsBlind` (warning) |
 
 Every credential arrives through ESO from OpenBao (`kv/` mount), refreshed hourly:
@@ -1319,10 +1319,11 @@ the recipient committed in `config/prd/values.yaml`.
 - **A failure alerts twice: the event, then the state.** `on-sync-failed`, with
   Argo's error text, and `on-health-degraded` fire once per condition. The
   templates set no end time, so Alertmanager expires the event after its
-  five-minute resolve timeout, failed app or not, and its receivers send no
-  "resolved". The state is prometheus's, from PlatformAddOnsDeploy
-  `prometheus/`: `ArgoCDSyncStillFailed` fires ten minutes after Argo sets
-  `SyncError` on an app and stops auto-syncing it, as when its retries are spent
+  five-minute resolve timeout, failed app or not, and its receiver sends no
+  "resolved": its notification stays until cleared by hand. The state is
+  prometheus's, from PlatformAddOnsDeploy `prometheus/`: `ArgoCDSyncStillFailed`
+  fires ten minutes after Argo sets `SyncError` on an app and stops auto-syncing
+  it, as when its retries are spent
   on a revision it will not try again on its own, or its prune guard refuses a
   sync that would delete every resource; `ArgoCDHealthStillDegraded` fires after
   fifteen minutes Degraded. Each stays up until the app recovers, for a failed

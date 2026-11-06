@@ -79,8 +79,8 @@ kubectl --context prd -n storage-prd exec deploy/backup-server -- rclone lsf 'gd
 
 The labels `scope` and `filename` name the stream. Its newest backup is older than the validity it
 declared, so for a 52 h stream two nightly uploads in a row did not land. The backups already on
-Drive stay restorable. The rule has no grace of its own, and all overdue streams arrive in one
-Telegram group.
+Drive stay restorable. The rule has no grace of its own, and all overdue streams arrive as one
+notification, `BackupOverdue ×<n>` when there are several.
 
 1. **If `BackupWatcherBlind` fires too, start at §2.** A `backup-server` that cannot read Drive
    keeps publishing what it read last, so a stream can look overdue while its backups land.
