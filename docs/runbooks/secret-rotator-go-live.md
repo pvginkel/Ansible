@@ -2614,7 +2614,7 @@ takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, 
    below would cut it off.
 
    ```sh
-   for l in eso/prd/{infra-statistics/prd/jenkins,jenkins-mcp/prd/config,jenkins-telegram-bot/prd/config,kubecoder/prd/catalog,version-poller/prd/jenkins} \
+   for l in eso/prd/{infra-statistics/prd/jenkins,jenkins-mcp/prd/config,jenkins-notifications-bridge/prd/config,kubecoder/prd/catalog,version-poller/prd/jenkins} \
        rotator/jenkins; do srviac "secret-rotator plan $l"; done
    ```
 

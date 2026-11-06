@@ -47,10 +47,11 @@ Convergence is `IaC/Apply`, started by hand once the validation is green. The jo
 
 All ansible stages pass `--skip-tags os_update`: patch posture belongs to `IaC/Scheduled Update`.
 
-On failure, jenkins-telegram-bot reports the build — job name, build link, and whatever the job
-put in the build description. It is subscribed to every build, so no `iac-*` pipeline carries a
-failure handler of its own. The bot deliberately stays quiet about UNSTABLE and ABORTED, so each
-job raises those itself through JenkinsPipelineUtils' `notify` var. The dev stage warns when
+On failure, jenkins-notifications-bridge reports the build to the Notifications platform — job
+name, build link, and whatever the job put in the build description — and the notification stays
+open until the job's next green or yellow build clears it. It is subscribed to every build, so no
+`iac-*` pipeline carries a failure handler of its own. An UNSTABLE or ABORTED build raises nothing
+of its own, so each job raises those itself through JenkinsPipelineUtils' `notify` var. The dev stage warns when
 srvk8sdev was up and the run genuinely failed. Every `iac-*` file ends with a `post { aborted }`
 block that raises `<job> #<n> aborted (timeout or hand)`: a build is aborted by hand or by its
 `timeout`, four hours on the srviac jobs and 60 minutes on `IaC/IaC Docker Image`. An apply cut off that way

@@ -76,7 +76,7 @@ hands off to ships in the local-home image, built from DockerImages `kube-coder-
 where its tests live too. This repo keeps no copy.
 
 **Notifications are not a script.** `send_message.py` used to live in this repo and is gone: the
-`IaC/*` pipelines report through jenkins-telegram-bot, which watches every build, and raise
+`IaC/*` pipelines report through jenkins-notifications-bridge, which watches every build, and raise
 anything the build result does not say through JenkinsPipelineUtils' `notify` var. For yourself,
 ask for a notification in plain words — pushing to the operator is built into this environment.
 

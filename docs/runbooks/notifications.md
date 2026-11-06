@@ -54,7 +54,7 @@ key are its leaf's row in the secret catalog,
 | | `bridge-hash` | The bcrypt hash of the ntfy user `bridge`, which only writes, and never logs in | A throwaway password that is never stored, through `ntfy user hash` |
 | | `bridge-token` | The `bridge` user's token, `tk_` and 29 characters: the bridge's `NTFY_TOKEN` | `ntfy token generate` |
 | `eso/prd/notifications/prd/registrations` | `jenkins-token`, `alertmanager-token`, `kubecoder-token`, `kubecoder-dev-token` | The bearer token each registration's senders hold: 43 URL-safe characters, the rotator's `random` | Generated |
-| | `jenkins-telegram-bot-token`, `jenkins-telegram-chat-ids` | The Jenkins bot. Its own leaf keeps both | `eso/prd/jenkins-telegram-bot/prd/config`: `telegram-bot-token`, `telegram-chat-id` |
+| | `jenkins-telegram-bot-token`, `jenkins-telegram-chat-ids` | The Jenkins bot and its chat. This leaf is the primary for both | This leaf: block 3 reads them back before it writes |
 | | `alertmanager-telegram-bot-token`, `alertmanager-telegram-chat-ids` | Alertmanager's bot | `eso/prd/prometheus/prd/telegram`: `bot_token`, `chat_id` |
 | | `kubecoder-telegram-bot-token`, `kubecoder-telegram-chat-ids` | KubeCoder prd's bot and its alerts chats | `eso/prd/kubecoder/prd/bot-token#token`; KubeCoderDeploy `config/prd/values.yaml` `bot.alertChatIds`, joined by commas |
 | | `kubecoder-dev-telegram-bot-token`, `kubecoder-dev-telegram-chat-ids` | KubeCoder dev's bot and its alerts chats | `eso/prd/kubecoder/dev/bot-token#token`; KubeCoderDeploy `config/dev/values.yaml` `bot.alertChatIds`, joined by commas |
@@ -103,8 +103,9 @@ whole. A block that fails stops before it writes.
    )
    ```
 
-3. **`registrations`.** The tokens are generated, the bots' keys copied from their leaves, and the
-   KubeCoder chat lists read from KubeCoderDeploy:
+3. **`registrations`.** The tokens are generated, the Jenkins bot's keys read back from this leaf,
+   their primary, the other bots' keys copied from their leaves, and the KubeCoder chat lists read
+   from KubeCoderDeploy:
 
    ```bash
    (
@@ -112,8 +113,8 @@ whole. A block that fails stops before it writes.
      rnd() { openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n'; }
      src() { bao kv get -mount=kv -field="$2" "eso/prd/$1"; }
      chats() { git -C "$kd" show "origin/main:config/$1/values.yaml" | yq -r '.bot.alertChatIds | join(",")'; }
-     jb=$(src jenkins-telegram-bot/prd/config telegram-bot-token)
-     jc=$(src jenkins-telegram-bot/prd/config telegram-chat-id)
+     jb=$(src notifications/prd/registrations jenkins-telegram-bot-token)
+     jc=$(src notifications/prd/registrations jenkins-telegram-chat-ids)
      ab=$(src prometheus/prd/telegram bot_token)
      ac=$(src prometheus/prd/telegram chat_id)
      kb=$(src kubecoder/prd/bot-token token)
@@ -150,9 +151,10 @@ restart, and the commands below answer `Error from server (NotFound): namespaces
 "notifications-prd" not found`.
 
 Blocks 2 and 3 write their leaf whole. Run again, block 2 gives `pvginkel` and `mvdbovenkamp` new
-passwords, so both phones log in again, and block 3 gives every registration a new token, which each sender's copy
-then follows. A running pod takes new values once its ExternalSecrets have synced and it has
-restarted:
+passwords, so both phones log in again, and block 3 gives every registration a new token, which each
+sender's copy then follows (the Jenkins adapter's: [Seeding the Jenkins adapter's
+leaf](#seeding-the-jenkins-adapters-leaf)). A running pod takes new values once its ExternalSecrets
+have synced and it has restarted:
 
 ```bash
 for es in ntfy-auth registrations; do kw annotate externalsecret "$es" force-sync="$(date +%s)" --overwrite; done
@@ -237,25 +239,26 @@ the leaf before NotificationsDeploy's push.
 ## Seeding the Jenkins adapter's leaf
 
 The Jenkins adapter, the Deployment `jenkins-notifications-bridge` in `jenkins-prd`, reads its two
-keys from `eso/prd/jenkins-notifications-bridge/prd/config`. Both are copied in, once, at the
-switch from the Jenkins bot, while the bot's leaf still exists:
+keys from `eso/prd/jenkins-notifications-bridge/prd/config`, through the ExternalSecret
+`jenkins-notifications-bridge-secrets`:
 
-| Key | What it is | Copied from |
+| Key | What it is | Seeded from |
 |---|---|---|
-| `jenkins-token` | The Jenkins API token the adapter reads builds with, the bot's | `eso/prd/jenkins-telegram-bot/prd/config#jenkins-token` |
+| `jenkins-token` | The Jenkins API token the adapter reads builds with | This leaf: block 1 reads it back before it writes |
 | `notifications-token` | The `jenkins` registration's bearer token, which the adapter submits under | `eso/prd/notifications/prd/registrations#jenkins-token` |
 
-Seed it before HomelabAppsDeploy's `main` carries the adapter: the jenkins chart's ExternalSecret
-reads the leaf as soon as Argo CD syncs it. Two blocks, in one shell set up as in
+Seed it again once block 3 of [Seeding both leaves](#seeding-both-leaves) has given the `jenkins`
+registration a new token, so the adapter's copy follows. Three blocks, in one shell set up as in
 [Conventions](#conventions).
 
-1. **The leaf.** `put`, since the leaf is new. It answers with the leaf's path and its metadata.
+1. **The leaf.** `put`, which writes the leaf whole. It answers with the leaf's path and its
+   metadata.
 
    ```bash
    (
      set -eo pipefail
      src() { bao kv get -mount=kv -field="$2" "eso/prd/$1"; }
-     jt=$(src jenkins-telegram-bot/prd/config jenkins-token)
+     jt=$(src jenkins-notifications-bridge/prd/config jenkins-token)
      nt=$(src notifications/prd/registrations jenkins-token)
      JT=$jt NT=$nt jq -n '{"jenkins-token": env.JT, "notifications-token": env.NT}' \
        | bao kv put -mount=kv eso/prd/jenkins-notifications-bridge/prd/config -
@@ -269,7 +272,14 @@ reads the leaf as soon as Argo CD syncs it. Two blocks, in one shell set up as i
    bao kv get -mount=kv -format=json eso/prd/jenkins-notifications-bridge/prd/config | jq -c '.data.data | map_values(length > 0)'
    ```
 
-The leaf also needs what [openbao.md § A new leaf](openbao.md#a-new-leaf) lists.
+3. **The adapter.** It takes the new token once its ExternalSecret has synced and it has
+   restarted.
+
+   ```bash
+   jw() { cexec iac kubectl --kubeconfig "$HOME/.kube/config-prd-write" --context prd -n jenkins-prd "$@" </dev/null; }
+   jw annotate externalsecret jenkins-notifications-bridge-secrets force-sync="$(date +%s)" --overwrite
+   jw rollout restart deployment/jenkins-notifications-bridge
+   ```
 
 ## When ntfy or the bridge is down
 
@@ -361,4 +371,6 @@ from. Nothing else holds any. No backup stream covers the image
   [§ Sequence ids](https://github.com/pvginkel/Notifications/blob/main/README.md#sequence-ids)).
 - **A leaf gone.** Restore OpenBao ([openbao.md](openbao.md)), or [seed](#seeding-both-leaves)
   the leaf again. A new seeding gives new values, with what [Seeding both
-  leaves](#seeding-both-leaves) says follows from them.
+  leaves](#seeding-both-leaves) says follows from them. Block 3 reads the Jenkins bot's token and
+  chat ids back from `registrations`, their primary, so it cannot seed a `registrations` leaf that
+  is gone: restore OpenBao for that one.

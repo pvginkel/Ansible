@@ -45,8 +45,8 @@ def certDriftArgs = '-e internal_tls_renewal_threshold_days=7'
 
 // What drifted is otherwise only in a log thousands of lines long. So every check tees its output
 // to drift-logs/<name>.log, and a check that goes wrong records the lines naming the drift in the
-// build description: jenkins-telegram-bot appends that to its FAILURE message, and a dev stage's
-// warning carries its own entry.
+// build description: jenkins-notifications-bridge appends that to its FAILURE message, and a dev
+// stage's warning carries its own entry.
 //
 // The tee is why every check's script opens with a bash shebang: the pipe needs pipefail, or the
 // step would report tee's status instead of the check's. (iac is itself a bash script on this
@@ -147,9 +147,9 @@ def recordDrift(String stage, String log, String tool) {
     return entry
 }
 
-// Runs a prd check. jenkins-telegram-bot reports a FAILURE by itself, with the build description
-// on the lines under it, so a check that fails records its drift, then marks its stage and the
-// build FAILURE without throwing, so the checks after it still run. The sh stays outside
+// Runs a prd check. jenkins-notifications-bridge reports a FAILURE by itself, with the build
+// description on the lines under it, so a check that fails records its drift, then marks its stage
+// and the build FAILURE without throwing, so the checks after it still run. The sh stays outside
 // catchError: an abort or a timeout() caught inside it sets the build ABORTED whatever buildResult
 // says (IaC/Apply build #113).
 def prdCheck(String stage, String log, String tool, String shellScript) {

@@ -39,9 +39,10 @@ def devUp() {
     ) == 0
 }
 
-// Runs a prd stage's playbook. jenkins-telegram-bot reports a FAILURE by itself and appends the
-// build description to that message, so a non-zero exit appends `cost` to the build description,
-// then marks the stage and the build FAILURE without throwing, so the stages after it still run.
+// Runs a prd stage's playbook. jenkins-notifications-bridge reports a FAILURE by itself and
+// appends the build description to that message, so a non-zero exit appends `cost` to the build
+// description, then marks the stage and the build FAILURE without throwing, so the stages after it
+// still run.
 // The sh stays outside catchError: an abort or a timeout() caught inside it sets the build ABORTED
 // whatever buildResult says (IaC/Apply build #113).
 def prdStage(String cost, String shellScript) {
