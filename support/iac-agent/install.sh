@@ -57,8 +57,8 @@ install_file 0644 "$REPO_DIR/etc/cron.d/iac-prune"             /etc/cron.d/iac-p
 
 # send_message.py used to be installed here for the IaC pipelines' post
 # stages. They now raise alerts through JenkinsPipelineUtils' notify var,
-# which writes a marker into the build log for jenkins-telegram-bot to
-# read, so nothing calls the script and nothing bind-mounts it any more.
+# which writes a marker into the build log for jenkins-notifications-bridge
+# to read, so nothing calls the script and nothing bind-mounts it any more.
 # Sweep the copy this installer left on hosts it has already run on; drop
 # this once srviac has been through it.
 if [[ -e /usr/local/bin/send_message.py ]]; then

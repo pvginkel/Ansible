@@ -26,9 +26,11 @@ the `iac-controller`-labelled agent, doing their work through `iac -c`.
 They lean on this tree's helpers — `check-protected-vms.sh`,
 `check-terraform-drift.sh` and `check-ansible-drift.sh` — which `iac`
 bind-mounts into the container.
-Reporting is not one of them: jenkins-telegram-bot watches every build and
-reports FAILURE by itself, and where a job needs to say something the build
-result does not, it calls JenkinsPipelineUtils' `notify` var. Current jobs:
+Reporting is not one of them: jenkins-notifications-bridge watches every
+build and reports a FAILURE by itself to the notification bridge, with the
+build description under the build link, until the job's next green or yellow
+build clears it. Where a job needs to say something the build result does not,
+it calls JenkinsPipelineUtils' `notify` var. Current jobs:
 
 - **`Jenkinsfile.iac-on-push`** — push to `main` on `pvginkel/Ansible`: read-only validation. Lint gates first — `terraform fmt -check`, yamllint and ansible-lint in strict mode, which also syntax-checks every playbook — then `terraform validate` on both roots, then `terraform plan` plus the protected-VM destroy check. It converges nothing.
 - **`Jenkinsfile.iac-apply`** — the converging half, started by hand: plan, destroy check and apply of that saved plan in one `iac` call, then Ansible convergence across the `site*.yml` playbooks.
