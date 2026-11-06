@@ -66,7 +66,7 @@ actually ran and the Phase A proof drill are recorded in slice 009's
 | Hook image | `registry:5000/argocd-hook:<n>` and `:latest` from ArgoCDTools; the sync's default pin is in the `homelab-shared` library chart, and the Destroy Stage Job and the plan Job run `:latest`. Its Terraform is pinned to the version the `iac` images carry (AnsibleSpecs `decisions.md`, "Terraform version") |
 | Terraform state | `pvginkel/TerraformState`, `argocd/<repo>/<stage>/terraform.tfstate`, or `argocd/<repo>/<path>/<stage>/terraform.tfstate` for an app in a monorepo's directory; sops/age |
 | Destroy Stage | Jenkins job `IaC/Destroy Stage`, ArgoCDTools `Jenkinsfile.destroy-stage`; the build runs as `jenkins-prd/destroy-stage`, its Job is `argocd-hooks/destroy-stage-<build#>` under `tf-presync` (D66) |
-| Notifications | Alertmanager `prometheus-prd-alertmanager.prometheus-prd:9093`, delivered once through the notification bridge to the phone and the Homelab Alerts group, where it stays until cleared by hand; `ArgoCDSyncFailed` (critical, with sound), `ArgoCDHealthDegraded` (warning, silent) |
+| Notifications | Alertmanager `prometheus-prd-alertmanager.prometheus-prd:9093`, delivered once through the notification bridge to the phone, under ntfy's `alerts` topic, where it stays until cleared by hand; `ArgoCDSyncFailed` (critical, with sound), `ArgoCDHealthDegraded` (warning, silent) |
 | Standing alerts | PlatformAddOnsDeploy `prometheus/`'s rule group `argocd`, over the application controller's metrics (Service `argocd-prd-application-controller-metrics`); `ArgoCDSyncStillFailed` (critical), `ArgoCDHealthStillDegraded` and `ArgoCDAlertsBlind` (warning) |
 
 Every credential arrives through ESO from OpenBao (`kv/` mount), refreshed hourly:

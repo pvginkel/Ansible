@@ -4,7 +4,9 @@ The Notifications platform: ntfy and the notification bridge in one pod, the Dep
 `notifications` in `notifications-prd`, which Argo CD deploys from
 [NotificationsDeploy](https://github.com/pvginkel/NotificationsDeploy). A sender holds a
 registration's token and submits to the bridge's API, and the bridge delivers to the
-registration's ntfy topic, its Telegram chats or both. Read this to seed the platform's two
+registration's ntfy topic, its Telegram chats or both. Every registration has ntfy; only
+`kubecoder` and `kubecoder-dev` have Telegram as well, since `jenkins` and `alertmanager` went to
+ntfy alone on 2026-11-06. Read this to seed the platform's two
 OpenBao leaves, to subscribe a phone, to add a registration, to seed the Jenkins adapter's leaf,
 when `NtfyDown`, `NotificationBridgeDown`, `NotificationDeliveryFailing` or
 `AlertmanagerWebhookFailing` fires, and to restore the platform.
@@ -56,8 +58,8 @@ key are its leaf's row in the secret catalog,
 | | `bridge-hash` | The bcrypt hash of the ntfy user `bridge`, which only writes, and never logs in | A throwaway password that is never stored, through `ntfy user hash` |
 | | `bridge-token` | The `bridge` user's token, `tk_` and 29 characters: the bridge's `NTFY_TOKEN` | `ntfy token generate` |
 | `eso/prd/notifications/prd/registrations` | `jenkins-token`, `alertmanager-token`, `kubecoder-token`, `kubecoder-dev-token` | The bearer token each registration's senders hold: 43 URL-safe characters, the rotator's `random` | Generated |
-| | `jenkins-telegram-bot-token`, `jenkins-telegram-chat-ids` | The Jenkins bot and its chat. This leaf is the primary for both | This leaf: block 3 reads them back before it writes |
-| | `alertmanager-telegram-bot-token`, `alertmanager-telegram-chat-ids` | Alertmanager's bot | `eso/prd/prometheus/prd/telegram`: `bot_token`, `chat_id` |
+| | `jenkins-telegram-bot-token`, `jenkins-telegram-chat-ids` | The retired Jenkins bot and its chat, which nothing reads since `jenkins` went to ntfy alone on 2026-11-06. This leaf is the primary for both, and keeps them until the operator deletes them | This leaf: block 3 reads them back before it writes |
+| | `alertmanager-telegram-bot-token`, `alertmanager-telegram-chat-ids` | Alertmanager's bot and its chat, which nothing reads since `alertmanager` went to ntfy alone on 2026-11-06. No rotation carries them any more, and they stay until the operator deletes them | `eso/prd/prometheus/prd/telegram`: `bot_token`, `chat_id` |
 | | `kubecoder-telegram-bot-token`, `kubecoder-telegram-chat-ids` | KubeCoder prd's bot and its alerts chats | `eso/prd/kubecoder/prd/bot-token#token`; KubeCoderDeploy `config/prd/values.yaml` `bot.alertChatIds`, joined by commas |
 | | `kubecoder-dev-telegram-bot-token`, `kubecoder-dev-telegram-chat-ids` | KubeCoder dev's bot and its alerts chats | `eso/prd/kubecoder/dev/bot-token#token`; KubeCoderDeploy `config/dev/values.yaml` `bot.alertChatIds`, joined by commas |
 
@@ -134,7 +136,9 @@ whole. A block that fails stops before it writes.
    )
    ```
 
-   Blocks 2 and 3 each answer with the leaf's path and its metadata, `version` among it.
+   Blocks 2 and 3 each answer with the leaf's path and its metadata, `version` among it. Block 3
+   still writes the four Telegram keys of `jenkins` and `alertmanager`, which nothing reads, so a
+   re-seeding keeps them until the operator deletes them.
 
 4. **Check, and clean up.** Each key prints as `true` when it holds a value: six keys, then
    twelve.
@@ -287,8 +291,8 @@ registration a new token, so the adapter's copy follows. Three blocks, in one sh
 
 `NtfyDown` and `NotificationBridgeDown` are critical. They reach the Homelab Alerts group through
 Alertmanager's one Telegram receiver, `telegram-direct`, never through the bridge. Alertmanager's
-other alerts go through the bridge, so while either is down they reach neither the phone nor the
-group, and [`AlertmanagerWebhookFailing`](#alertmanagerwebhookfailing-fires) fires on the same
+other alerts go through the bridge to the phone alone, so while either is down they do not arrive,
+and [`AlertmanagerWebhookFailing`](#alertmanagerwebhookfailing-fires) fires on the same
 direct receiver.
 
 One pod serves both Services, and it is ready only while ntfy, the bridge and nginx all pass their
