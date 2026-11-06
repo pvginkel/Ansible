@@ -58,8 +58,6 @@ key are its leaf's row in the secret catalog,
 | | `bridge-hash` | The bcrypt hash of the ntfy user `bridge`, which only writes, and never logs in | A throwaway password that is never stored, through `ntfy user hash` |
 | | `bridge-token` | The `bridge` user's token, `tk_` and 29 characters: the bridge's `NTFY_TOKEN` | `ntfy token generate` |
 | `eso/prd/notifications/prd/registrations` | `jenkins-token`, `alertmanager-token`, `kubecoder-token`, `kubecoder-dev-token` | The bearer token each registration's senders hold: 43 URL-safe characters, the rotator's `random` | Generated |
-| | `jenkins-telegram-bot-token`, `jenkins-telegram-chat-ids` | The retired Jenkins bot and its chat, which nothing reads since `jenkins` went to ntfy alone on 2026-11-06. This leaf is the primary for both, and keeps them until the operator deletes them | This leaf: block 3 reads them back before it writes |
-| | `alertmanager-telegram-bot-token`, `alertmanager-telegram-chat-ids` | Alertmanager's bot and its chat, which nothing reads since `alertmanager` went to ntfy alone on 2026-11-06. No rotation carries them any more, and they stay until the operator deletes them | `eso/prd/prometheus/prd/telegram`: `bot_token`, `chat_id` |
 | | `kubecoder-telegram-bot-token`, `kubecoder-telegram-chat-ids` | KubeCoder prd's bot and its alerts chats | `eso/prd/kubecoder/prd/bot-token#token`; KubeCoderDeploy `config/prd/values.yaml` `bot.alertChatIds`, joined by commas |
 | | `kubecoder-dev-telegram-bot-token`, `kubecoder-dev-telegram-chat-ids` | KubeCoder dev's bot and its alerts chats | `eso/prd/kubecoder/dev/bot-token#token`; KubeCoderDeploy `config/dev/values.yaml` `bot.alertChatIds`, joined by commas |
 
@@ -107,9 +105,8 @@ whole. A block that fails stops before it writes.
    )
    ```
 
-3. **`registrations`.** The tokens are generated, the Jenkins bot's keys read back from this leaf,
-   their primary, the other bots' keys copied from their leaves, and the KubeCoder chat lists read
-   from KubeCoderDeploy:
+3. **`registrations`.** The tokens are generated, the KubeCoder bots' tokens copied from their
+   leaves, and their chat lists read from KubeCoderDeploy:
 
    ```bash
    (
@@ -117,18 +114,12 @@ whole. A block that fails stops before it writes.
      rnd() { openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n'; }
      src() { bao kv get -mount=kv -field="$2" "eso/prd/$1"; }
      chats() { git -C "$kd" show "origin/main:config/$1/values.yaml" | yq -r '.bot.alertChatIds | join(",")'; }
-     jb=$(src notifications/prd/registrations jenkins-telegram-bot-token)
-     jc=$(src notifications/prd/registrations jenkins-telegram-chat-ids)
-     ab=$(src prometheus/prd/telegram bot_token)
-     ac=$(src prometheus/prd/telegram chat_id)
      kb=$(src kubecoder/prd/bot-token token)
      kc=$(chats prd)
      db=$(src kubecoder/dev/bot-token token)
      dc=$(chats dev)
-     JT=$(rnd) JB=$jb JC=$jc AT=$(rnd) AB=$ab AC=$ac KT=$(rnd) KB=$kb KC=$kc DT=$(rnd) DB=$db DC=$dc \
-     jq -n '{"jenkins-token": env.JT, "jenkins-telegram-bot-token": env.JB,
-         "jenkins-telegram-chat-ids": env.JC, "alertmanager-token": env.AT,
-         "alertmanager-telegram-bot-token": env.AB, "alertmanager-telegram-chat-ids": env.AC,
+     JT=$(rnd) AT=$(rnd) KT=$(rnd) KB=$kb KC=$kc DT=$(rnd) DB=$db DC=$dc \
+     jq -n '{"jenkins-token": env.JT, "alertmanager-token": env.AT,
          "kubecoder-token": env.KT, "kubecoder-telegram-bot-token": env.KB,
          "kubecoder-telegram-chat-ids": env.KC, "kubecoder-dev-token": env.DT,
          "kubecoder-dev-telegram-bot-token": env.DB, "kubecoder-dev-telegram-chat-ids": env.DC}' \
@@ -136,12 +127,10 @@ whole. A block that fails stops before it writes.
    )
    ```
 
-   Blocks 2 and 3 each answer with the leaf's path and its metadata, `version` among it. Block 3
-   still writes the four Telegram keys of `jenkins` and `alertmanager`, which nothing reads, so a
-   re-seeding keeps them until the operator deletes them.
+   Blocks 2 and 3 each answer with the leaf's path and its metadata, `version` among it.
 
 4. **Check, and clean up.** Each key prints as `true` when it holds a value: six keys, then
-   twelve.
+   eight.
 
    ```bash
    for leaf in ntfy-auth registrations; do
@@ -416,6 +405,6 @@ from. Nothing else holds any. No backup stream covers the image
   [§ Sequence ids](https://github.com/pvginkel/Notifications/blob/main/README.md#sequence-ids)).
 - **A leaf gone.** Restore OpenBao ([openbao.md](openbao.md)), or [seed](#seeding-both-leaves)
   the leaf again. A new seeding gives new values, with what [Seeding both
-  leaves](#seeding-both-leaves) says follows from them. Block 3 reads the Jenkins bot's token and
-  chat ids back from `registrations`, their primary, so it cannot seed a `registrations` leaf that
-  is gone: restore OpenBao for that one.
+  leaves](#seeding-both-leaves) says follows from them. Block 3 writes no `pilot-app-` token, which Pilot
+  keeps in its own database and no leaf copies, so it cannot seed a `registrations` leaf that is
+  gone: restore OpenBao for that one.
