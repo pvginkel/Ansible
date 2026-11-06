@@ -400,8 +400,8 @@ from. Nothing else holds any. No backup stream covers the image
   and the pod's init containers make its two directories. ntfy writes its users and token from
   `ntfy-auth` at every start, so logins work at once. What is lost is ntfy's message cache, the
   last 24 hours, and the bridge's open sequences: a later submit under a lost sequence id sends a
-  new Telegram message and a dismiss leaves the old one, while ntfy still updates and clears in
-  place (Notifications README,
+  new Telegram message and a dismiss leaves the old one, while ntfy still updates in place, and
+  clears or deletes in place as the registration's `ntfy.dismiss` says (Notifications README,
   [§ Sequence ids](https://github.com/pvginkel/Notifications/blob/main/README.md#sequence-ids)).
 - **A leaf gone.** Restore OpenBao ([openbao.md](openbao.md)), or [seed](#seeding-both-leaves)
   the leaf again. A new seeding gives new values, with what [Seeding both
