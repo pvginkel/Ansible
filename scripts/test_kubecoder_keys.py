@@ -3,8 +3,8 @@
 
 Each test runs a copy of the script in a scratch repo layout, with HOME pointed at a scratch
 directory, only the key variables the test sets, and the mounted Home Assistant key's path pointed
-at a scratch file that does not exist, so it never touches the real ~/.ssh and a pod that mounts
-the key runs it as one that does not.
+at a scratch file that exists only where the test writes it, so it never touches the real ~/.ssh
+and a pod that mounts the key runs it as one that does not.
 
 Run: python3 -m unittest discover -s scripts
 """
@@ -42,7 +42,8 @@ class KeysScript(unittest.TestCase):
         self.script = root / "scripts" / SCRIPT.name
         text = SCRIPT.read_text()
         self.assertIn(MOUNTED_KEY, text)
-        self.script.write_text(text.replace(MOUNTED_KEY, f"HOMEASSISTANT_KEY={root}/ssh-key-homeassistant\n"))
+        self.homeassistant_key = root / "ssh-key-homeassistant"
+        self.script.write_text(text.replace(MOUNTED_KEY, f"HOMEASSISTANT_KEY={self.homeassistant_key}\n"))
         self.repo_file = root / "ansible/files/known_hosts.d/homelab"
         self.repo_file.parent.mkdir(parents=True)
         self.home = root / "home"
@@ -157,6 +158,14 @@ class EnsureSshConfig(KeysScript):
         text = self.config.read_text()
         self.assertIn("id_ed25519_ansible", text)
         self.assertNotIn("id_ed25519_pve", text)
+
+    def test_a_mounted_home_assistant_key_gets_its_block(self):
+        self.homeassistant_key.write_text("homeassistant-key\n")
+        self.run_script([NEW])
+        text = self.config.read_text()
+        self.assertIn("Match host srvhomeassistant,srvhomeassistant.home,10.1.0.5\n", text)
+        self.assertIn(f"    IdentityFile {self.homeassistant_key}\n", text)
+        self.assertIn("    StrictHostKeyChecking accept-new\n", text)
 
     def test_keeps_the_operator_lines_below_the_block(self):
         self.write_config(lines(*OPERATOR))
