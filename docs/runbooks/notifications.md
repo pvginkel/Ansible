@@ -5,8 +5,9 @@ The Notifications platform: ntfy and the notification bridge in one pod, the Dep
 [NotificationsDeploy](https://github.com/pvginkel/NotificationsDeploy). A sender holds a
 registration's token and submits to the bridge's API, and the bridge delivers to the
 registration's ntfy topic, its Telegram chats or both. Read this to seed the platform's two
-OpenBao leaves, to subscribe a phone, to add a registration, when `NtfyDown`,
-`NotificationBridgeDown` or `NotificationDeliveryFailing` fires, and to restore the platform.
+OpenBao leaves, to subscribe a phone, to add a registration, to seed the Jenkins adapter's leaf,
+when `NtfyDown`, `NotificationBridgeDown` or `NotificationDeliveryFailing` fires, and to restore
+the platform.
 
 The pod, its Services and its Secrets are in NotificationsDeploy's
 [README](https://github.com/pvginkel/NotificationsDeploy/blob/main/README.md). The bridge's API is
@@ -232,6 +233,43 @@ the leaf before NotificationsDeploy's push.
    (`<registration>-telegram-chat-ids` as `<REGISTRATION>_TELEGRAM_CHAT_IDS`). Run `kc project test`
    there, then push. The changed ConfigMap and ExternalSecret restart the pod, with a short gap.
 7. Subscribe the phone to the topic if it is a new one ([Subscribing a phone](#subscribing-a-phone)).
+
+## Seeding the Jenkins adapter's leaf
+
+The Jenkins adapter, the Deployment `jenkins-notifications-bridge` in `jenkins-prd`, reads its two
+keys from `eso/prd/jenkins-notifications-bridge/prd/config`. Both are copied in, once, at the
+switch from the Jenkins bot, while the bot's leaf still exists:
+
+| Key | What it is | Copied from |
+|---|---|---|
+| `jenkins-token` | The Jenkins API token the adapter reads builds with, the bot's | `eso/prd/jenkins-telegram-bot/prd/config#jenkins-token` |
+| `notifications-token` | The `jenkins` registration's bearer token, which the adapter submits under | `eso/prd/notifications/prd/registrations#jenkins-token` |
+
+Seed it before HomelabAppsDeploy's `main` carries the adapter: the jenkins chart's ExternalSecret
+reads the leaf as soon as Argo CD syncs it. Two blocks, in one shell set up as in
+[Conventions](#conventions).
+
+1. **The leaf.** `put`, since the leaf is new. It answers with the leaf's path and its metadata.
+
+   ```bash
+   (
+     set -eo pipefail
+     src() { bao kv get -mount=kv -field="$2" "eso/prd/$1"; }
+     jt=$(src jenkins-telegram-bot/prd/config jenkins-token)
+     nt=$(src notifications/prd/registrations jenkins-token)
+     JT=$jt NT=$nt jq -n '{"jenkins-token": env.JT, "notifications-token": env.NT}' \
+       | bao kv put -mount=kv eso/prd/jenkins-notifications-bridge/prd/config -
+   )
+   ```
+
+2. **Check.** It prints `{"jenkins-token":true,"notifications-token":true}` when both keys hold a
+   value.
+
+   ```bash
+   bao kv get -mount=kv -format=json eso/prd/jenkins-notifications-bridge/prd/config | jq -c '.data.data | map_values(length > 0)'
+   ```
+
+The leaf also needs what [openbao.md § A new leaf](openbao.md#a-new-leaf) lists.
 
 ## When ntfy or the bridge is down
 
