@@ -2,7 +2,9 @@
 ~/.ssh/config a Match block for each key whose variable is set.
 
 Each test runs a copy of the script in a scratch repo layout, with HOME pointed at a scratch
-directory and only the key variables the test sets, so it never touches the real ~/.ssh.
+directory, only the key variables the test sets, and the mounted Home Assistant key's path pointed
+at a scratch file that does not exist, so it never touches the real ~/.ssh and a pod that mounts
+the key runs it as one that does not.
 
 Run: python3 -m unittest discover -s scripts
 """
@@ -15,6 +17,7 @@ import unittest
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parent / "kubecoder-keys.sh"
+MOUNTED_KEY = "HOMEASSISTANT_KEY=/run/secrets/ssh-key-homeassistant\n"
 
 OLD = "@cert-authority * ssh-ed25519 AAAAold homelab-ssh-host-ca"
 NEW = "@cert-authority * ssh-ed25519 AAAAnew homelab-ssh-host-ca"
@@ -37,7 +40,9 @@ class KeysScript(unittest.TestCase):
         self.addCleanup(shutil.rmtree, root)
         (root / "scripts").mkdir()
         self.script = root / "scripts" / SCRIPT.name
-        shutil.copy2(SCRIPT, self.script)
+        text = SCRIPT.read_text()
+        self.assertIn(MOUNTED_KEY, text)
+        self.script.write_text(text.replace(MOUNTED_KEY, f"HOMEASSISTANT_KEY={root}/ssh-key-homeassistant\n"))
         self.repo_file = root / "ansible/files/known_hosts.d/homelab"
         self.repo_file.parent.mkdir(parents=True)
         self.home = root / "home"
