@@ -670,6 +670,17 @@ A leaf written to the store also needs:
    `main` reaches srviac once its build, green at its lint and
    tests, has rebuilt the `iac` image;
 3. `secret-rotator annotate --apply` on srviac, once the leaf exists.
+   Until the go-live has put the rotator's AppRole in srviac's
+   `secrets.yaml` ([`secret-rotator-go-live.md`](secret-rotator-go-live.md)
+   §3), every `secret-rotator` command there stops at
+   `SECRET_ROTATOR_ROLE_ID and SECRET_ROTATOR_SECRET_ID are not set`;
+   the go-live's own apply (§6) then writes the new leaf's entries
+   with every other seed leaf's.
+
+A key at interval `never`, or of kind `external`, joins a list
+SecretRotator's tests pin to a ruling of the design (R84 for `never`,
+R82 for `external`): adding one amends that ruling's list and the
+test with it.
 
 Until the apply has run, the audit reports each of the leaf's keys as
 `rotation_<key>: missing`. Its keys have no stamp, so they are due
