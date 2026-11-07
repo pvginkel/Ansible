@@ -60,6 +60,7 @@ key are its leaf's row in the secret catalog,
 | `eso/prd/notifications/prd/registrations` | `jenkins-token`, `alertmanager-token`, `kubecoder-token`, `kubecoder-dev-token` | The bearer token each registration's senders hold: 43 URL-safe characters, the rotator's `random` | Generated |
 | | `kubecoder-telegram-bot-token`, `kubecoder-telegram-chat-ids` | KubeCoder prd's bot and its alerts chats | `eso/prd/kubecoder/prd/bot-token#token`; KubeCoderDeploy `config/prd/values.yaml` `bot.alertChatIds`, joined by commas |
 | | `kubecoder-dev-telegram-bot-token`, `kubecoder-dev-telegram-chat-ids` | KubeCoder dev's bot and its alerts chats | `eso/prd/kubecoder/dev/bot-token#token`; KubeCoderDeploy `config/dev/values.yaml` `bot.alertChatIds`, joined by commas |
+| | `pilot-app-pvginkel-token`, `pilot-app-mvdbovenkamp-token`, `pilot-app-dev-pvginkel-token` | The bearer token Pilot's backend sends a person's notifications under: Pilot's for `pvginkel` and `mvdbovenkamp`, Pilot dev's for `pvginkel`. Each person pastes theirs on Pilot's profile page, and Pilot keeps it in its own database, so no leaf copies it: the rotator's `manual`, every 365 days | Generated when the registration was added ([Adding a registration](#adding-a-registration)). No block writes them, and block 3 keeps them |
 
 A new leaf also needs what [openbao.md § A new leaf](openbao.md#a-new-leaf) lists.
 
@@ -106,31 +107,41 @@ whole. A block that fails stops before it writes.
    ```
 
 3. **`registrations`.** The tokens are generated, the KubeCoder bots' tokens copied from their
-   leaves, and their chat lists read from KubeCoderDeploy:
+   leaves, and their chat lists read from KubeCoderDeploy. The block reads the leaf first and
+   keeps every key it does not write, Pilot's tokens among them. Its write is a check-and-set
+   (`-cas`) on the version it read, so a leaf that changed after the read, or exists where the
+   read found none, refuses the write and drops no key. On a first seeding the read answers `No
+   value found at kv/data/eso/prd/notifications/prd/registrations`, and the write is `-cas=0`:
 
    ```bash
    (
      set -eo pipefail
+     leaf=eso/prd/notifications/prd/registrations
      rnd() { openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n'; }
      src() { bao kv get -mount=kv -field="$2" "eso/prd/$1"; }
      chats() { git -C "$kd" show "origin/main:config/$1/values.yaml" | yq -r '.bot.alertChatIds | join(",")'; }
+     if cur=$(bao kv get -mount=kv -format=json "$leaf"); then
+       old=$(jq -c '.data.data // {}' <<<"$cur") ver=$(jq -r '.data.metadata.version' <<<"$cur")
+     else
+       old={} ver=0
+     fi
      kb=$(src kubecoder/prd/bot-token token)
      kc=$(chats prd)
      db=$(src kubecoder/dev/bot-token token)
      dc=$(chats dev)
-     JT=$(rnd) AT=$(rnd) KT=$(rnd) KB=$kb KC=$kc DT=$(rnd) DB=$db DC=$dc \
-     jq -n '{"jenkins-token": env.JT, "alertmanager-token": env.AT,
+     OLD=$old JT=$(rnd) AT=$(rnd) KT=$(rnd) KB=$kb KC=$kc DT=$(rnd) DB=$db DC=$dc \
+     jq -n '(env.OLD | fromjson) + {"jenkins-token": env.JT, "alertmanager-token": env.AT,
          "kubecoder-token": env.KT, "kubecoder-telegram-bot-token": env.KB,
          "kubecoder-telegram-chat-ids": env.KC, "kubecoder-dev-token": env.DT,
          "kubecoder-dev-telegram-bot-token": env.DB, "kubecoder-dev-telegram-chat-ids": env.DC}' \
-       | bao kv put -mount=kv eso/prd/notifications/prd/registrations -
+       | bao kv put -mount=kv -cas="$ver" "$leaf" -
    )
    ```
 
    Blocks 2 and 3 each answer with the leaf's path and its metadata, `version` among it.
 
 4. **Check, and clean up.** Each key prints as `true` when it holds a value: six keys, then
-   eight.
+   eight, and on a re-seed also every key block 3 kept, Pilot's three tokens among them.
 
    ```bash
    for leaf in ntfy-auth registrations; do
@@ -145,11 +156,12 @@ Skip this on the first seeding: before Argo CD has deployed the platform there i
 restart, and the commands below answer `Error from server (NotFound): namespaces
 "notifications-prd" not found`.
 
-Blocks 2 and 3 write their leaf whole. Run again, block 2 gives `pvginkel` and `mvdbovenkamp` new
-passwords, so both phones log in again, and block 3 gives every registration a new token, which each
-sender's copy then follows (the Jenkins adapter's: [Seeding the Jenkins adapter's
-leaf](#seeding-the-jenkins-adapters-leaf)). A running pod takes new values once its ExternalSecrets
-have synced and it has restarted:
+Block 2 writes its leaf whole, and block 3 the keys it generates or copies, keeping every other
+key of its leaf: Pilot's tokens, which no block writes, stay as they are. Run again, block 2 gives
+`pvginkel` and `mvdbovenkamp` new passwords, so both phones log in again, and block 3 gives every
+registration but Pilot's three a new token, which each sender's copy then follows (the Jenkins
+adapter's: [Seeding the Jenkins adapter's leaf](#seeding-the-jenkins-adapters-leaf)). A running pod
+takes new values once its ExternalSecrets have synced and it has restarted:
 
 ```bash
 for es in ntfy-auth registrations; do kw annotate externalsecret "$es" force-sync="$(date +%s)" --overwrite; done
