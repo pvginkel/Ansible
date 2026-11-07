@@ -357,9 +357,11 @@ but `Heartbeat` and the three direct ones, one notification per alert group, and
 `notifications-oneshot`, Argo CD's two events. The adapter submits under the `alertmanager` registration, with the token it reads on every call
 from the Secret `alertmanager-notifications`, a copy of `alertmanager-token` in the leaf
 `eso/prd/prometheus/prd/notifications`. The third is `healthchecks`, the heartbeat's ping. The
-alert reaches the group through `telegram-direct` and carries no receiver label: Alertmanager's
-log names the receiver first in each failure's `err`, and the adapter's JSON lines carry the
-bridge's status as `bridge_status` and its own answer as `status`, never the token.
+alert reaches the group through `telegram-direct`, one alert per failing receiver, named in its
+summary and its `receiver_name` label (Alertmanager's `receiver-name-in-metrics` flag), and its
+description points at healthchecks.io for `healthchecks` and at the adapter's log for the other two.
+Alertmanager's log names the receiver first in each failure's `err`, and the adapter's JSON lines
+carry the bridge's status as `bridge_status` and its own answer as `status`, never the token.
 
 ```bash
 p logs prometheus-prd-alertmanager-0 -c alertmanager --since=1h | grep 'Notify for alerts failed'
