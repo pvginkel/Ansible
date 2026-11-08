@@ -56,15 +56,21 @@ entries and 10 GB, which compress to about 1.7 GB.
 |---|---|---|
 | age private key | Roboform only; `backup-server` holds the public half (OpenBao runbook §3) | every section |
 | Drive login | The Google account that owns `Homelab Backups` | every section |
+| Drive OAuth client `rclone-backup`: client ID and secret | Roboform, entry "Rclone backup Google Drive client"; storage-prd's `rclone.conf` holds the same pair | every section |
 | claude.ai login | Inside the copy, `.claude/.credentials.json` | §2, What can go wrong |
 | `claude-home` upload token | Secret `claude-home-backup-upload` in `kubecoder-prd`, key `token`, written by KubeCoderDeploy's `terraform/backup.tf` | What can go wrong |
 
 ## 1 — Fetch and decrypt a backup
 
-1. **Drive login**, as in [`s3-mirror.md`](s3-mirror.md) §1 step 1:
+1. **Drive login**, under the operator's own OAuth client, as in [`s3-mirror.md`](s3-mirror.md)
+   §1 step 1, which also covers Google's warning and a host without a browser. The client ID and
+   secret are in Roboform. The secret stays in this shell's environment, so run every later step
+   in this shell:
 
    ```bash
-   rclone config create gdrive-pieter drive scope=drive
+   read -rsp 'client secret: ' RCLONE_DRIVE_CLIENT_SECRET; echo
+   export RCLONE_DRIVE_CLIENT_SECRET
+   rclone config create gdrive-pieter drive scope=drive client_id=<client ID> --no-output
    ```
 
 2. **Pick the object**, a `.tar.zst.age`. The backup Job's log names the one it uploaded (§3 step
@@ -184,8 +190,8 @@ creates the home, owned by uid 1000, that the helper pod mounts.
    `/resume` lists the sessions up to the backup's stamp. Then start the other environments.
 
 8. **Resume the backup and clean up**: the set-aside home, the helper pod, the plaintext on the
-   restore host and the Drive login. `rm -rf` removes the set-aside tree's links, never what they
-   point at.
+   restore host and the Drive login, then close the shell, which holds the client secret. `rm -rf`
+   removes the set-aside tree's links, never what they point at.
 
    ```bash
    kubectl --context prd -n kubecoder-prd patch cronjob claude-home-backup -p '{"spec":{"suspend":false}}'
@@ -198,9 +204,9 @@ creates the home, owned by uid 1000, that the helper pod mounts.
 
 ## 3 — Restore drill
 
-Proves that a fresh Drive login plus the Roboform age key yield a copy that unpacks whole into a
-usable home. The copy is unpacked beside the live home, and the live home is never touched. Run it
-the morning after a successful nightly run.
+Proves that a fresh Drive login under the Roboform copy of the OAuth client, plus the Roboform age
+key, yield a copy that unpacks whole into a usable home. The copy is unpacked beside the live home,
+and the live home is never touched. Run it the morning after a successful nightly run.
 
 1. **Confirm a successful run, and read what it archived.** Empty output from the first command
    means the backup has never succeeded — stop. In the newest `claude-home-backup-…` Job's log, the
@@ -245,8 +251,9 @@ the morning after a successful nightly run.
 5. **Record** the date, the `lastSuccessfulTime`, the Drive object name, the `.tar.zst`'s size,
    the entry count against the log's, the link count and the unpack time in the drill log below.
 
-6. **Clean up** — the copy, the helper pod, the plaintext on the restore host and the Drive login.
-   `rm -rf` removes the copy's links, never what they point at.
+6. **Clean up** — the copy, the helper pod, the plaintext on the restore host and the Drive login,
+   then close the shell, which holds the client secret. `rm -rf` removes the copy's links, never
+   what they point at.
 
    ```bash
    kubectl --context prd -n kubecoder-prd exec claude-home-restore -- rm -rf /home/ubuntu/.claude-restore-<stamp>
@@ -323,4 +330,5 @@ The absolute links point at `/home/ubuntu/.claude/…` on the restore host. Read
 
 - [ ] The age private key is in Roboform — the drill proves that copy.
 - [ ] You can log in to the Google account that owns `Homelab Backups`.
+- [ ] The Drive OAuth client's ID and secret are in Roboform — the drill proves that copy.
 - [ ] A restore host as described under Conventions is at hand.

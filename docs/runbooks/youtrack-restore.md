@@ -48,15 +48,21 @@ archive of 87 entries — `youtrack/` (the database files, and `blobs/` holding 
 |---|---|---|
 | age private key | Roboform only; `backup-server` holds the public half (OpenBao runbook §3) | every section |
 | Drive login | The Google account that owns `Homelab Backups` | every section |
+| Drive OAuth client `rclone-backup`: client ID and secret | Roboform, entry "Rclone backup Google Drive client"; storage-prd's `rclone.conf` holds the same pair | every section |
 | A local YouTrack administrator | Inside the backup, so the password that held on the backup's date. Keycloak sign-in does not work on a host name other than `issues.webathome.org`. | §3 |
 | `backup` service user token | OpenBao, mount `kv`, path `eso/prd/youtrack/prd/backup` (field `token`); a Hub user, so a restore brings the user and token back | What can go wrong |
 
 ## 1 — Fetch and decrypt a backup
 
-1. **Drive login**, as in [`s3-mirror.md`](s3-mirror.md) §1 step 1:
+1. **Drive login**, under the operator's own OAuth client, as in [`s3-mirror.md`](s3-mirror.md)
+   §1 step 1, which also covers Google's warning and a host without a browser. The client ID and
+   secret are in Roboform. The secret stays in this shell's environment, so run every later step
+   in this shell:
 
    ```bash
-   rclone config create gdrive-pieter drive scope=drive
+   read -rsp 'client secret: ' RCLONE_DRIVE_CLIENT_SECRET; echo
+   export RCLONE_DRIVE_CLIENT_SECRET
+   rclone config create gdrive-pieter drive scope=drive client_id=<client ID> --no-output
    ```
 
 2. **Pick the object.** The newest is last:
@@ -173,14 +179,15 @@ scale the Deployment back up.
 
    Remove `/mnt/data.before-restore`, `/mnt/conf.before-restore` and
    `/mnt/backups/restore-<stamp>.tar.gz` through a helper pod as in step 2, then
-   `rm -rf ~/youtrack-restore` and `rclone config delete gdrive-pieter`.
+   `rm -rf ~/youtrack-restore` and `rclone config delete gdrive-pieter`. Close the shell: it holds
+   the client secret.
 
 ## 3 — Restore drill
 
-Proves that a fresh Drive login plus the Roboform age key yield a backup that YouTrack restores, with
-the chart's own start arguments. It restores into a throwaway container on the restore host and
-never touches production. Run it the morning after a successful nightly run, so production has
-changed as little as possible since.
+Proves that a fresh Drive login under the Roboform copy of the OAuth client, plus the Roboform age
+key, yield a backup that YouTrack restores, with the chart's own start arguments. It restores into
+a throwaway container on the restore host and never touches production. Run it the morning after a
+successful nightly run, so production has changed as little as possible since.
 
 1. **Confirm a successful run.** Empty output means the backup has never succeeded — stop.
 
@@ -227,7 +234,8 @@ changed as little as possible since.
 7. **Record** the date, the `lastSuccessfulTime`, the Drive object name, the archive's size, the
    wizard's duration and the per-project counts in the drill log below.
 
-8. **Clean up** — the container, the plaintext tracker and the Drive login:
+8. **Clean up** — the container, the plaintext tracker and the Drive login, then close the shell,
+   which holds the client secret:
 
    ```bash
    docker rm -f youtrack-drill
@@ -275,5 +283,6 @@ changed as little as possible since.
 
 - [ ] The age private key is in Roboform — the drill proves that copy.
 - [ ] You can log in to the Google account that owns `Homelab Backups`.
+- [ ] The Drive OAuth client's ID and secret are in Roboform — the drill proves that copy.
 - [ ] You know a local YouTrack administrator's password.
 - [ ] A restore host as described under Conventions is at hand.

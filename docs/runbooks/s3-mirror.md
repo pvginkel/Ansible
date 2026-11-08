@@ -49,6 +49,7 @@ archive/<bucket>/<YYYYMMDDTHHMMSSZ>/<object key>   what the run started at that 
 | `backup-reader` key (read-only) | Secret `backup-reader-credentials` in `storage-prd`, written by the storage app's Terraform (HomelabAppsDeploy `storage/terraform/main.tf`) | §5 — reading the live bucket |
 | Crypt password and salt | OpenBao, mount `kv`, path `eso/prd/storage/prd/s3-mirror` (fields `password`, `salt`); Roboform, next to the age key | every section |
 | Drive login | The Google account that owns `Homelab Backups` | every section |
+| Drive OAuth client `rclone-backup`: client ID and secret | Roboform, entry "Rclone backup Google Drive client"; storage-prd's `rclone.conf` holds the same pair | every section |
 | Scratch user key | Created on dev Ceph by §5 step 4, removed by its step 8 | §5 |
 
 A release's RGW user is named after its namespace, and today every bucket name starts with it:
@@ -56,18 +57,30 @@ A release's RGW user is named after its namespace, and today every bucket name s
 
 ## 1 — Set up the remotes
 
-1. **Drive login.** This writes the OAuth token into the host's rclone config, until the
-   `rclone config delete` at the end of this section.
+1. **Drive login**, under the operator's own Google OAuth client, `rclone-backup`, with its client
+   ID and secret from Roboform. The secret stays in this shell's environment, off the command line
+   and out of the config file. The client ID and the OAuth token go into the host's rclone config,
+   until the `rclone config delete` at the end of this section.
 
    ```bash
-   rclone config create gdrive-pieter drive scope=drive
+   read -rsp 'client secret: ' RCLONE_DRIVE_CLIENT_SECRET; echo
+   export RCLONE_DRIVE_CLIENT_SECRET
+   rclone config create gdrive-pieter drive scope=drive client_id=<client ID> --no-output
    ```
 
-   Log in in the browser as the account that owns `Homelab Backups`. `scope=drive` sees every file
-   in the account, whichever OAuth client uploaded it. On a host without a browser, `config create`
-   cannot finish the login: with `config_is_local=false` it prints no `rclone authorize` command
-   and saves the remote without a token. Follow rclone's remote setup instead
-   (<https://rclone.org/remote_setup/>).
+   Log in in the browser as the account that owns `Homelab Backups`. If Google says it has not
+   verified the app, choose Advanced, then "Go to rclone-backup (unsafe)". If the access screen
+   shows a checkbox for all of your Google Drive files, tick it. `scope=drive` sees every file in
+   the account, whichever OAuth client uploaded it. Without `client_id`, rclone logs in through
+   its shared client, which is being retired. `--no-output` keeps the token off the screen.
+
+   rclone takes the secret from `RCLONE_DRIVE_CLIENT_SECRET` each time it renews the token, about
+   hourly. Run every later step in this shell, or repeat the `read` and `export` in another first.
+
+   On a host without a browser, log in through an SSH tunnel from a machine that has one:
+   `ssh -L 53682:127.0.0.1:53682 <rclone host>`. Run the commands above in that session, then open
+   the `http://127.0.0.1:53682/auth?state=…` link that `config create` prints in the local
+   browser.
 
 2. **The mirror.** The settings must match the mirror job's
    (HomelabAppsDeploy `storage/chart/templates/s3-mirror-cronjob.yaml`); any difference decrypts
@@ -199,8 +212,9 @@ rclone copyto 'mirror:archive/<bucket>/<stamp>/<key>' ./<file>
 
 ## 4 — Read the mirror with no cluster
 
-The whole-site case: Ceph, both clusters and OpenBao are gone. The Drive login and the crypt
-password and salt from Roboform are all it takes.
+The whole-site case: Ceph, both clusters and OpenBao are gone. The Drive login, with the OAuth
+client's ID and secret from Roboform, and the crypt password and salt from Roboform are all it
+takes.
 
 1. §1 steps 1 and 2 — step 3 needs a running RGW.
 2. Copy what is needed onto local disk; earlier versions come from `mirror:archive/` as in §3:
@@ -213,10 +227,11 @@ password and salt from Roboform are all it takes.
 
 ## 5 — Restore drill
 
-Proves that a fresh Drive login plus the Roboform copy of the crypt key reads the mirror, and that a
-bucket restored from it matches the live bucket byte for byte. It restores `iot-prd-attachments`
-into a scratch bucket on dev Ceph and never holds a production write key. Run it the morning after
-a successful nightly run, so the live bucket has changed as little as possible since.
+Proves that a fresh Drive login under the Roboform copy of the OAuth client, plus the Roboform copy
+of the crypt key, reads the mirror, and that a bucket restored from it matches the live bucket
+byte for byte. It restores `iot-prd-attachments` into a scratch bucket on dev Ceph and never holds
+a production write key. Run it the morning after a successful nightly run, so the live bucket has
+changed as little as possible since.
 
 1. **Confirm a successful run.** Empty output means the mirror has never succeeded — stop.
 
@@ -304,4 +319,5 @@ a successful nightly run, so the live bucket has changed as little as possible s
 
 - [ ] The crypt password and salt are in Roboform — the drill proves that copy.
 - [ ] You can log in to the Google account that owns `Homelab Backups`.
+- [ ] The Drive OAuth client's ID and secret are in Roboform — the drill proves that copy.
 - [ ] An rclone host as described under Conventions is at hand.
