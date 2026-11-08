@@ -297,7 +297,9 @@ cexec iac kubectl $KC get application -n argocd-prd jenkins-prd -o jsonpath='{.s
 
 Expect the retry block alone. Until step 15, no push to `jenkins/` and no refresh syncs
 `jenkins-prd`, which would otherwise bring Jenkins up mid-copy. `releases` has no self-heal, so the
-patch holds until ArgoCDDeploy's next push to `releases/`; step 13 checks it held.
+patch holds until `releases` next syncs: ArgoCDDeploy's next push to `releases/`, or a sync of
+`releases` by hand, which on 2026-11-08 turned auto-sync back on four minutes before the stop.
+Step 9 checks it held just before the stop, and step 13 after.
 
 ### 9. No build running or queued, then stop
 
@@ -310,8 +312,15 @@ cexec iac kubectl $KC get pods -n $NS -o json | jq -r '.items[]
   | select([.metadata.ownerReferences[]?.kind] != ["ReplicaSet"]) | .metadata.name'
 ```
 
-prints nothing, or only a `build-cache-cleanup` pod, the cache's CronJob. Anything running or queued: wait and check again; never stop over it. Once all
-three hold, stop at once, within the minute:
+prints nothing, or only a `build-cache-cleanup` pod, the cache's CronJob. Anything running or queued: wait and check again; never stop over it. And
+step 8's pause still holds:
+
+```sh
+cexec iac kubectl $KC get application -n argocd-prd jenkins-prd -o jsonpath='{.spec.syncPolicy.automated}{"\n"}'
+```
+
+prints an empty line; anything else, patch again (step 8) and check again. Once all four hold,
+stop at once, within the minute:
 
 ```sh
 cexec iac kubectl $KCW scale deploy/jenkins -n $NS --replicas=0
@@ -345,8 +354,8 @@ cat $WORK/copy.log
 ```
 
 Expect `succeeded` `1`, no line from either `diff`, and these lines in order: `copy: copied in …`,
-`copy: contents identical …`, `copy: 216… entries with the same type, mode, owner and mtime`, the
-counts, `copy: root root:jenkins drwxrwsr-x`, and `df` showing ext4 on `/dev/rbd…` with about
+`copy: contents identical …`, `copy: 21…… entries with the same type, mode, owner and mtime` (the
+source's own count, 213,781 at the cutover against the morning's 216k estimate), the counts, `copy: root root:jenkins drwxrwsr-x`, and `df` showing ext4 on `/dev/rbd…` with about
 8–10 GiB used of 40 GiB. A `diff` line, a non-zero exit or a deadline stops the cutover: take
 [the way back](#the-way-back) for step 10–12.
 
