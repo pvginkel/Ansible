@@ -148,12 +148,14 @@ cexec iac kubectl $KC wait application/jenkins-prd -n argocd-prd --timeout=10m \
   --for=jsonpath='{.status.operationState.operation.sync.revision}'=$H1
 cexec iac argocd app wait jenkins-prd --operation --sync --health --timeout 900
 track_build.py AaC/HomelabAppsDeploy --hash $H1
-cexec iac kubectl $KC logs -n argocd-hooks job/tf-presync-jenkins-prd | grep '^presync: '
+cexec iac kubectl $KC logs -n argocd-hooks job/tf-presync-jenkins-prd | grep -E '^presync: |Creation complete|Apply complete|No changes'
 cexec iac kubectl $KC get pv jenkins-home-pv -o json | jq '{phase: .status.phase, claim: .spec.claimRef, driver: .spec.csi.driver, handle: .spec.csi.volumeHandle, size: .spec.capacity.storage}'
 cexec iac kubectl $KC get pods -n $NS -l app=jenkins
 ```
 
-Expect the hook's two creates and `0 volume(s) reattached`; `jenkins-home-pv` `Available`, its
+Expect Terraform's two `Creation complete` lines, `Apply complete! Resources: 2 added, 0 changed,
+0 destroyed.` and the hook's `0 volume(s) reattached` (an apply prints Terraform's own lines, not
+the plan Job's `presync:` change lines); `jenkins-home-pv` `Available`, its
 claim `jenkins-prd/jenkins-pvc` with no uid, `rbd.csi.ceph.com`, `jenkins-prd-jenkins-home`,
 `40Gi`; the Jenkins pod the one from step 2, not restarted.
 
@@ -417,13 +419,14 @@ cexec iac kubectl $KCW patch application -n argocd-prd jenkins-prd --type merge 
 cexec iac kubectl $KC wait application/jenkins-prd -n argocd-prd --timeout=10m \
   --for=jsonpath='{.status.operationState.operation.sync.revision}'=$H2
 cexec iac argocd app wait jenkins-prd --operation --sync --health --timeout 900
-cexec iac kubectl $KC logs -n argocd-hooks job/tf-presync-jenkins-prd | grep '^presync: '
+cexec iac kubectl $KC logs -n argocd-hooks job/tf-presync-jenkins-prd | grep -E '^presync: |Creation complete|Apply complete|No changes'
 cexec iac kubectl $KC get application -n argocd-prd jenkins-prd -o json \
   | jq '{policy: .spec.syncPolicy.automated, sync: .status.sync.status, rev: .status.sync.revision, health: .status.health.status}'
 cexec iac kubectl $KC get application -n argocd-prd releases -o jsonpath='{.status.sync.status}{"\n"}'
 ```
 
-Argo syncs H2 at once. Expect the hook's `the plan carries no changes`, `reattaching jenkins-pv`
+Argo syncs H2 at once. Expect Terraform's `No changes.` and `Apply complete! Resources: 0 added, 0 changed, 0
+destroyed.`, then the hook's `reattaching jenkins-pv`
 and `1 volume(s) reattached`: the CephFS PV goes back to `Available`, still pre-bound to
 `jenkins-pvc`, and stays so while the claim is bound to the RBD volume. The Application `Synced`
 at H2, `Healthy`; `releases` `Synced`; the Jenkins pod the one from step 13, not restarted.
