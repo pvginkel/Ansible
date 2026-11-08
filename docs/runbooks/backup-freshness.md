@@ -1,8 +1,9 @@
 # Backup freshness runbook
 
-Triage for the two backup alerts, and retiring a backup that is not coming back. Read this when
-`BackupOverdue` or `BackupWatcherBlind` fires, when a `backup-server` scope is retired on purpose,
-or when a database is dropped from `postgres-pas`.
+Triage for the two backup alerts, retiring a backup that is not coming back, and renewing a Drive
+remote's login. Read this when `BackupOverdue` or `BackupWatcherBlind` fires, when a
+`backup-server` scope is retired on purpose, when a database is dropped from `postgres-pas`, or
+when a Google Drive remote in storage-prd's `rclone.conf` needs a new login.
 
 Design context: "OpenBao backup / DR" and §"Backup" in
 [`../../../AnsibleSpecs/decisions.md`](../../../AnsibleSpecs/decisions.md). `backup-server` is
@@ -20,8 +21,9 @@ PlatformAddOnsDeploy `prometheus/config/prd/values.yaml`, and its
 - Several `kubectl` commands exec into pods in `storage-prd` and `prometheus-prd`, so their `prd`
   context must be allowed to.
 - The rclone commands run inside the `backup-server` pod, on its own Drive login. No rclone host
-  or Drive login of your own is needed. They inherit its environment, which skips the Drive trash:
-  a file `rclone delete` removes there (§3) is gone at once.
+  or Drive login of your own is needed, except for §4's new login, made on your own machine. They
+  inherit its environment, which skips the Drive trash: a file `rclone delete` removes there (§3)
+  is gone at once.
 - Prometheus answers on the LAN at `http://prometheus.home`, without a login. A helper prints each
   series of an instant query:
 
@@ -194,7 +196,7 @@ the 6 h passes a redeploy and three failed hourly reads.
 
    - `list gdrive-pieter:Homelab Backups: …` — Drive cannot be listed at all. The uploads use the
      same login, so they fail with `HTTP 500` too. The login is the `gdrive-pieter` remote in
-     `/data/rclone.conf` on the `rclone-backup-pvc` volume; renewing it is not covered here.
+     `/data/rclone.conf` on the `rclone-backup-pvc` volume; §4 renews it.
    - `scope <scope>: list: …` or `scope <scope>: read …` — one scope's folder, or one metadata file
      in it, cannot be read. The other scopes still update, but no full read succeeds until it can.
    - `scope <scope>: <path>: …` about the file's content — a metadata file `backup-server` cannot
@@ -258,3 +260,140 @@ after about ten nights. The backups themselves may stay.
    ```bash
    q 'backup_server_stream_valid_until_timestamp_seconds{scope="<scope>"}'
    ```
+
+## 4 — Renew a Drive remote's login
+
+For a Google Drive remote in storage-prd's `rclone.conf` whose login no longer works, and for a
+remote moving onto another OAuth client. The file is `/data/rclone.conf` on the
+`rclone-backup-pvc` volume, root `0600`. Four things read it:
+
+- `backup-server`, for its uploads and reads, on `gdrive-pieter`;
+- the `s3-mirror` CronJob, 03:30, from its own copy of the file, on `gdrive-pieter`;
+- `storage-sync-cronjob`, 01:10: an `rclone sync` of every remote in the file to ZFS, then a
+  snapshot. Its Job completes even when a remote fails;
+- `storage-refresh-keys-cronjob`, hourly at :00: `rclone about` on every remote, which renews each
+  remote's token and writes it back.
+
+Its Google Drive remotes:
+
+| Remote | Google account | `scope` | Read by |
+|---|---|---|---|
+| `gdrive-pieter` | the operator's, which owns `Homelab Backups` | `drive` | all four |
+| `gdrive-mariska` | Mariska's | `drive.readonly` | `storage-sync-cronjob`, `storage-refresh-keys-cronjob` |
+
+Each logs in under the operator's own Google OAuth client, `rclone-backup`: a Desktop client in
+the Google Cloud project `rclone-backup`, its consent screen External and In production. Its
+client ID and secret are in Roboform, entry "Rclone backup Google Drive client", and in each
+remote's section. `gdrive-mariska` still uses rclone's shared client, which is being retired,
+until it moves (ANS-359). The file's two OneDrive remotes are not Google's; this section does not
+renew them.
+
+1. **Read what failed.** The hourly refresh logs one block per remote:
+
+   ```bash
+   kubectl --context prd -n storage-prd get jobs --sort-by=.metadata.creationTimestamp | grep refresh-keys
+   kubectl --context prd -n storage-prd logs job/<newest storage-refresh-keys-cronjob-…> | grep -A6 'Refreshing keys for <remote>$'
+   ```
+
+   - `Total:`, `Used:` and the other quota lines — the login works.
+   - `couldn't fetch token: invalid_grant` — the login is gone, most likely removed from the
+     Google account's third-party connections. Renew it. Do not follow rclone's hint to run
+     `rclone config reconnect`: that logs in on the host the remote is on, and the pod has no
+     browser.
+   - `invalid_client` — the client's secret was reset or the client deleted in Google's console.
+     Every remote under it fails alike: renew each, with the client's current ID and secret.
+   - `NOTICE: <remote>: This remote uses rclone's shared Google Drive client_id` — the remote
+     has no client of its own yet. Move it with the steps below.
+
+   For `gdrive-pieter`, §2 step 2's `freshness refresh` lines carry the same errors. A login that
+   dies again a week after each renewal means the consent screen is back in Testing, where Google
+   ends logins after 7 days: publish it again (Google Auth Platform, Audience).
+
+2. **Log in on your machine**, with rclone and a browser, in bash. The client ID and secret come
+   from Roboform. The scope is the remote's, from the table:
+
+   ```bash
+   read -rp 'client ID: ' RCLONE_DRIVE_CLIENT_ID
+   read -rsp 'client secret: ' RCLONE_DRIVE_CLIENT_SECRET; echo
+   export RCLONE_DRIVE_CLIENT_ID RCLONE_DRIVE_CLIENT_SECRET RCLONE_DRIVE_SCOPE=<the remote's scope>
+   rclone authorize drive
+   unset RCLONE_DRIVE_CLIENT_ID RCLONE_DRIVE_CLIENT_SECRET RCLONE_DRIVE_SCOPE
+   ```
+
+   rclone takes the client and the scope from those variables, which keeps the secret off the
+   command line. Without `RCLONE_DRIVE_CLIENT_ID`, it logs in through its shared client.
+
+   A browser opens on Google's sign-in. Sign in as the remote's account: for `gdrive-mariska`,
+   Mariska signs in. If Google says it has not verified the app, choose Advanced, then "Go to
+   rclone-backup (unsafe)". If the access screen shows a checkbox for your Google Drive files, tick
+   it, then Continue.
+
+   The terminal prints `Paste the following into your remote machine --->`, one line starting
+   `{"access_token"`, then `<---End paste`. That line is the account's login: copy it into step
+   3's prompt and nowhere else. It keeps, so step 3 can follow hours later.
+
+3. **Write it into `rclone.conf`**, from a terminal in the Ansible KubeCoder pod, between 07:00 and
+   22:00 UTC at a minute from :05 to :55, which keeps clear of the nightly jobs and the hourly
+   refresh:
+
+   ```bash
+   /work/Ansible/scripts/renew-drive-login.sh <remote>
+   ```
+
+   It asks for the client ID, then, without echoing, for the client secret and the token line.
+   They travel on stdin into `backup-server`'s container, with the pod's
+   `~/.kube/config-prd-write`, and never onto a command line. It refuses, writing nothing:
+
+   - outside those times, while a Job in `storage-prd` runs, or while an rclone process runs in
+     `backup-server` (its hourly read takes seconds). Run it again a few minutes later. An rclone
+     process that read the file before the write and renewed the token after it would write the
+     old login back;
+   - on a remote that is not a Drive section of the file;
+   - on a client ID not ending in `.apps.googleusercontent.com`, a secret not starting `GOCSPX-`,
+     or a token that is not one line of JSON with an `access_token` and a `refresh_token`.
+
+   Otherwise it copies the file to `rclone.conf.pre-<remote>-<UTC stamp>` beside it. Then it sets
+   the remote's `client_id`, `client_secret` and `token` in one `rclone config update`, which
+   leaves the remote's `scope` and every other section as they are. It prints only checks:
+
+   ```
+   written at 2026-11-08T09:54:31Z
+   copy /data/rclone.conf.pre-gdrive-pieter-20261108T095431Z
+   sections: 4 before, 4 after
+   [gdrive-pieter] type=drive scope=drive client_id=matches client_secret=set
+   refresh_token fingerprint: matches the paste (<12 hex digits>)
+   -rw------- root root /data/rclone.conf
+   -rw------- root root /data/rclone.conf.pre-gdrive-pieter-20261108T095431Z
+   ```
+
+   A count that changed, `WRONG`, `MISSING` or `DIFFERS` means the write went wrong: put the copy
+   back (step 5).
+
+4. **Check it**, at once, in `backup-server`:
+
+   ```bash
+   kubectl --context prd -n storage-prd exec deploy/backup-server -- rclone about <remote>:
+   ```
+
+   It prints the account's quota, with no `NOTICE: … shared Google Drive client_id` line and no
+   error. Then read the next two hourly refresh runs as in step 1: both show the quota lines, with
+   no notice and no error. By the second, rclone has renewed the token with the secret just
+   written.
+   For `gdrive-pieter`, `BackupWatcherBlind` also clears at the first scrape that reports a
+   successful full read (§2 step 3), and the next night's uploads land.
+
+5. **Delete the copy** once step 4's checks pass. It holds the remote's previous login.
+
+   ```bash
+   kubectl --context prd -n storage-prd exec deploy/backup-server -- rm /data/rclone.conf.pre-<remote>-<stamp>
+   ```
+
+   Until then, the copy is the way back: the whole file as it was before the write. Put it back at
+   a time step 3 would write, with no Job and no rclone running:
+
+   ```bash
+   kubectl --context prd -n storage-prd exec deploy/backup-server -- cp -p /data/rclone.conf.pre-<remote>-<stamp> /data/rclone.conf
+   ```
+
+   That also sets the other remotes' tokens back to the copy's. They renew from there at the next
+   hourly refresh.
