@@ -301,7 +301,7 @@ The absolute links point at `/home/ubuntu/.claude/…` on the restore host. Read
   - `ERROR: reading .claude/…` — a file could not be read whole, for instance one that shrank while
     it was read. The next night's run starts over.
   - `ERROR: … is a socket, which tar cannot hold` — something left a socket under `~/.claude`.
-  - A log that stops without `claude-home backed up` — the Job was killed, at its 1 h
+  - A log that stops without `claude-home backed up` — the Job was killed, at its 3 h
     `activeDeadlineSeconds` or for memory.
 - **The Job never starts a container: `CreateContainerConfigError`** — Secret
   `claude-home-backup-upload` is missing; KubeCoderDeploy's Terraform writes it, on prd only.
