@@ -366,8 +366,13 @@ renew them.
    -rw------- root root /data/rclone.conf.pre-gdrive-pieter-20261108T095431Z
    ```
 
-   A count that changed, `WRONG`, `MISSING` or `DIFFERS` means the write went wrong: put the copy
-   back (step 5).
+   A count that changed, `WRONG`, `MISSING` or `DIFFERS` means the write went wrong. Put the copy
+   back at once, before the next hourly refresh, while no other remote's token has moved since the
+   copy was taken:
+
+   ```bash
+   kubectl --context prd -n storage-prd exec deploy/backup-server -- cp -p /data/rclone.conf.pre-<remote>-<stamp> /data/rclone.conf
+   ```
 
 4. **Check it**, at once, in `backup-server`:
 
@@ -378,22 +383,15 @@ renew them.
    It prints the account's quota, with no `NOTICE: … shared Google Drive client_id` line and no
    error. Then read the next two hourly refresh runs as in step 1: both show the quota lines, with
    no notice and no error. By the second, rclone has renewed the token with the secret just
-   written.
-   For `gdrive-pieter`, `BackupWatcherBlind` also clears at the first scrape that reports a
-   successful full read (§2 step 3), and the next night's uploads land.
+   written. For `gdrive-pieter`, `BackupWatcherBlind` also clears at the first scrape that reports
+   a successful full read (§2 step 3), and the next night's uploads land. A check that fails takes
+   a fresh login: steps 2 and 3 again, the second run taking a copy of its own.
 
-5. **Delete the copy** once step 4's checks pass. It holds the remote's previous login.
+5. **Delete the copies** once step 4's checks pass: each holds the remote's login from before a
+   write. Put back later, a copy would also set the other remotes' tokens back, and a OneDrive
+   token may have moved on since.
 
    ```bash
+   kubectl --context prd -n storage-prd exec deploy/backup-server -- ls -l /data
    kubectl --context prd -n storage-prd exec deploy/backup-server -- rm /data/rclone.conf.pre-<remote>-<stamp>
    ```
-
-   Until then, the copy is the way back: the whole file as it was before the write. Put it back at
-   a time step 3 would write, with no Job and no rclone running:
-
-   ```bash
-   kubectl --context prd -n storage-prd exec deploy/backup-server -- cp -p /data/rclone.conf.pre-<remote>-<stamp> /data/rclone.conf
-   ```
-
-   That also sets the other remotes' tokens back to the copy's. They renew from there at the next
-   hourly refresh.
