@@ -473,7 +473,19 @@ git -C /work/HomelabAppsDeploy push origin --delete jenkins-home-rbd
 ```
 
 `prometheus-prd` is followed the way step 4 follows `jenkins-prd`, with its own name and the pushed
-SHA; `track_build.py AaC/SOPs --hash <sha>` follows the SOPs build. (`track_build.py --deploy`
+SHA, except that it has three sources (the upstream chart, its values and its chart), so its
+revisions are lists and `.sync.revision` stays empty:
+
+```sh
+P=$(git -C /work/PlatformAddOnsDeploy rev-parse main)
+cexec iac kubectl $KC wait application/prometheus-prd -n argocd-prd --timeout=10m \
+  --for=jsonpath='{.status.operationState.operation.sync.revisions[2]}'=$P
+cexec iac kubectl $KC get application -n argocd-prd prometheus-prd -o json \
+  | jq '{phase: .status.operationState.phase, revs: .status.sync.revisions, sync: .status.sync.status, health: .status.health.status}'
+```
+
+Expect `Succeeded`, the pushed SHA in the last two revisions, `Synced`, `Healthy`.
+`track_build.py AaC/SOPs --hash <sha>` follows the SOPs build. (`track_build.py --deploy`
 waits on every Application of a monorepo, and an app whose directory a commit misses moves only at
 Argo's next periodic refresh.) Then report: the downtime (`down-at`, `up-at`), `copy.log`, the three pieces
 of evidence, and that `jenkins-prd-home` and `jenkins-pv` stay for the deletion.
