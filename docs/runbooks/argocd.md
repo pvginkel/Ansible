@@ -151,6 +151,23 @@ dev deployment's environments carry none of this.
      chart pins an older library or overrides `hook.imageTag`. Sync it again by
      hand: every run starts a backend of its own. The app's next library bump
      ends it.
+   - `[terraform-backend-git]: object not found` on every `LOCK`, then `Error
+     acquiring the state lock … giving up after 3 attempt(s)`, in `terraform
+     apply` — an earlier run's lock is still held. The backend reports a held
+     lock as a missing object, not as a lock. The lock is the branch
+     `locks/<state path>` in TerraformState, the state path being the one the
+     `Getting state from …//<path>` line names; its `terraform.tfstate.lock`
+     names the run that took it, the hook pod, in `Who`. A run leaves it behind
+     when its own unlock fails, logged as `Error releasing the state lock` with
+     HTTP 428 after the backend's `was not locked`: on 2026-11-09 a GitHub
+     degradation hid a just-pushed lock branch from the unlock five seconds
+     later. Once that pod is gone and no hook of the app is running, delete the
+     branch and sync again:
+
+     ```sh
+     gh api repos/pvginkel/TerraformState/git/matching-refs/heads/locks --jq '.[].ref'
+     gh api -X DELETE repos/pvginkel/TerraformState/git/refs/heads/locks/<state path>
+     ```
    - `Error: Resource precondition failed` or any other Terraform error — the
      app's own Terraform; the message names the file and line.
    - a Terraform error on a namespace, forbidden or "already exists" — the
