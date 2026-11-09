@@ -1308,7 +1308,15 @@ the recipient committed in `config/prd/values.yaml`.
   syncs finish, then those two. Both are directories of HomelabAppsDeploy, `jenkins/` and
   `nginx/`, beside other apps: that repo's other directories go with the rest, and `jenkins/` and
   `nginx/` follow in a push of their own. A commit leaves an app whose directory it does not
-  touch as it was ([`manifest-generate-paths`](#registering-undeploying-and-unregistering-an-app)).
+  touch as it was ([`manifest-generate-paths`](#registering-undeploying-and-unregistering-an-app)),
+  but only until the repo-server's cached render of that app expires.
+- **An untouched app in a monorepo still syncs, a day later.** The cached render
+  `manifest-generate-paths` keeps expires 24 hours after it was written, and at once on a restart
+  of `argocd-prd-redis`, which has no persistence. The app then re-renders at the repo's newest
+  commit, its `tf-presync-revision` changes, and it syncs and runs its hook with nothing of its
+  own changed. Seen 2026-11-09: one push to `jenkins/` and one to `prometheus/` the morning before
+  re-ran about 30 hooks across both monorepos, in waves at the 30-minute reconcile ticks, and a
+  GitHub outage at that hour failed 11 of them, each raising `ArgoCDSyncStillFailed`.
 - **A manual sync by `kubectl patch` inherits the last operation's fields.** A
   patch that sets `.operation` without `sync.revision` or `sync.resources` does
   not clear them: the controller keeps the previous operation's values in
