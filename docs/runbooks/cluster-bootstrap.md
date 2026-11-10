@@ -180,8 +180,10 @@ passes the hook `hook.path`, as Argo does.
 
 10. **Argo takes over.** Refresh the Applications, or wait for Argo's poll. Each app now
     renders, and auto-sync adopts the hand-applied objects and runs the PreSync hooks. The
-    hooks' Terraform finds the PVs from step 5 and changes nothing. A hook gets three retries
-    (30s, 60s, 120s); an app whose hook failed through them waits for a manual sync. Everything
+    hooks' Terraform finds the PVs from step 5 and changes nothing. A hook gets six retries
+    (30s, 60s, 120s, then 3 min apart), of which every other one runs it again, so four runs in
+    all ([`argocd.md`](argocd.md#diagnosing-a-failed-sync)); an app whose hook failed through
+    them waits for a manual sync. Everything
     else in the registry deploys in the same pass. Done when every Application is Synced and
     Healthy ([`cold-boot.md`](cold-boot.md) step 8).
 

@@ -139,7 +139,8 @@ dev deployment's environments carry none of this.
 1. **Operation `Failed`, the only failed result a `Job/tf-presync-…` with "Job
    has reached the specified backoff limit".** The hook failed and nothing was
    applied. Read the Job's log (`tf-presync-<app>-<stage>`, the same name for
-   every run; a retry replaces it, see below). Seen so far:
+   every run; a retry replaces it, see below). If the Job is gone, the log
+   is only in Elasticsearch. Seen so far:
    - `remote: Invalid username or token` on the clone — the hook's PAT at
      `eso/prd/argocd-hooks/git` is no longer accepted. Rotate it (below).
    - `[terraform-backend-git]: non-fast-forward update`, then `Error loading
@@ -167,11 +168,18 @@ dev deployment's environments carry none of this.
    webhook (below). A registry entry reaches its Application only through
    `releases`' sync, so read `releases`' last operation and conditions too.
 
-Hook Jobs persist one per app, holding only the latest attempt
+Hook Jobs persist one per app, holding only the latest run
 (`backoffLimit: 0`, so a failed hook is exactly one pod), and are removed with
-the Application. A retry (`retry.limit: 3`) or the next sync replaces the Job
-under the same name, and the failed pod goes with it, 60 to 90 s after
-`BackoffLimitExceeded`; events keep no log.
+the Application. A retry or the next sync replaces the Job under the same name,
+and the failed pod goes with it; events keep no log. Within one operation only
+every other retry runs the hook (argo-cd #14046, #20119; ANS-386). A retry
+that finds the previous attempt's failed Job deletes it and at once reports
+that Job's "backoff limit" again without creating a new one, and the retry
+after it, finding no Job, runs one. The registry's `retry.limit: 6`, kept even
+for this, gives four real runs (attempts 0, 2, 4 and 6, about 12 minutes of
+backoff between the first and the last) and ends on a real run, so a failed
+operation's last Job stays readable. The earlier attempts' logs are only in
+Elasticsearch.
 
 ### A replaced hook's log: Kibana or the API
 
@@ -1337,10 +1345,12 @@ the recipient committed in `config/prd/values.yaml`.
   poller's scheduled rebuilds included, and Argo's own Application never syncs on its own (D3).
   The relay runs its previous build until you sync `argocd-prd` by hand; the diff is the relay
   Deployment's image.
-- **One hook Job per app, latest attempt only.** The fixed name
+- **One hook Job per app, latest run only.** The fixed name
   `tf-presync-<app>-<stage>` lets `BeforeHookCreation` replace it on every sync
   and retry, so an earlier attempt's log is only in Elasticsearch (above).
-  The Job goes with the Application.
+  It also makes every other retry a stale one that deletes the failed Job and
+  runs nothing, which is why the registry's retry limit stays even (6). The Job
+  goes with the Application.
 - **Rebuilds.** Argo runs on prd only, deploys only into prd (`in-cluster`) and
   keeps no node-local state, so neither a prd node rebuild nor a `srvk8sdev`
   rebuild touches it.
