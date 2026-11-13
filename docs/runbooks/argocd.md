@@ -168,6 +168,15 @@ dev deployment's environments carry none of this.
      gh api repos/pvginkel/TerraformState/git/matching-refs/heads/locks --jq '.[].ref'
      gh api -X DELETE repos/pvginkel/TerraformState/git/refs/heads/locks/<state path>
      ```
+   - `Failed to install provider` or `could not query provider registry` for
+     `integrations/github`, `keycloak/keycloak` or `cyrilgdn/postgresql`, with
+     `504 Gateway Timeout returned from github.com` or `Client.Timeout
+     exceeded`, in `terraform init` — GitHub is failing release downloads,
+     often with its status page green (2026-11-08, 2026-11-09). The alert
+     `GitHubReleaseDownloadsFailing` (PlatformAddOnsDeploy `prometheus/`) fires
+     while it lasts, and its resolve is the signal to sync each failed app
+     again by hand: Argo does not retry a failed revision. A sync after that
+     which fails on the state lock is the entry below.
    - `Error: Resource precondition failed` or any other Terraform error — the
      app's own Terraform; the message names the file and line.
    - a Terraform error on a namespace, forbidden or "already exists" — the
