@@ -5,6 +5,15 @@ Google Drive; reading a copy with no cluster; and the restore drill. Read this w
 lost or damaged — its sessions, memory, settings or the claude.ai login — when the whole site is
 gone, or when `BackupOverdue` fires for the `claude-home` scope (What can go wrong).
 
+**After a whole-site loss, suspend the backup before its first 00:30 run**, with §2 step 1's
+command, as soon as KubeCoder's prd sync has brought the `claude-home-backup` CronJob back, and
+keep it suspended until §2 step 8. The chart declares no suspend, so the rebuilt CronJob runs:
+each night it uploads whatever home the rebuilt environments hold, a fresh one once any of them
+has started, and prunes the scope to the 3 newest objects, bypassing the Drive trash. Three nights
+in, no pre-disaster copy is left, and nothing alerts, because the uploads succeed. Suspended, it
+fires `BackupOverdue` after 52 h, which is expected until the restore is done. If no restore is
+wanted, §2 step 8's first command resumes it.
+
 Design context: §"Backup" in [`../../../AnsibleSpecs/decisions.md`](../../../AnsibleSpecs/decisions.md).
 The backup is KubeCoderDeploy's `chart/files/claude-home-backup/backup.py`, run nightly by the
 `claude-home-backup` CronJob in `kubecoder-prd` and enabled only in `config/prd/values.yaml`
