@@ -41,25 +41,31 @@ interchangeable — they are not, and capacity planning that assumes they are wi
 ## 2. Storage
 
 Every node follows the same pattern: **one NVMe carries the hypervisor and all virtual
-disks; one 2 TB SATA SSD is passed straight through to that node's Ceph OSD VM.**
+disks; one 2 TB SATA SSD is passed straight through to that node's Ceph OSD VM.** `pve` adds
+a second SATA SSD for the virtual disks of the guests that don't need the NVMe.
 
 | Node | Hypervisor NVMe | Ceph OSD disk (passthrough) | Additional |
 |---|---|---|---|
-| pve | Samsung 980 PRO 1 TB → `local` (98 GiB dir) + `local-lvm` (790 GiB LVM-thin) | Samsung 870 EVO 2 TB, serial `…128911L` → **srvceph3** | Samsung 980 500 GB → passthrough to **srvk8s1** (backs `zpool2`); Seagate ST2000LM015 2 TB **HDD** → `local-backup`; Samsung 870 EVO 2 TB at `/dev/sda` = intentional uncabled spare |
+| pve | Samsung 980 PRO 1 TB → `local` (98 GiB dir) + `local-lvm` (790 GiB LVM-thin) | Samsung 870 EVO 2 TB, serial `…128911L` → **srvceph3** | Samsung 980 500 GB → passthrough to **srvk8s1** (backs `zpool2`); Seagate ST2000LM015 2 TB **HDD** → `local-backup`; Samsung 870 EVO 2 TB at `/dev/sda`, serial `…128897F` → `local-lvm-ssd` (1.8 TiB LVM-thin) |
 | pve1 | Samsung 980 500 GB → `local` (98 GiB) + `local-lvm` (334 GiB thin) | Samsung 870 EVO 2 TB, serial `…128906Y` → **srvceph1** | `local-backup` declared but disabled |
 | pve2 | Samsung 980 500 GB → same split | Samsung 870 EVO 2 TB, serial `…128908E` → **srvceph2** | `local-backup` declared but disabled |
 
-`/dev/sda` on `pve` is wiped and bound to nothing on purpose — it is cabled so a future use
-needs no physical work. Inspection tooling will flag it as unused; that is expected and
-recorded in `ansible/inventories/prd/host_vars/pve.yml`.
+`/dev/sda` on `pve` was the uncommitted spare until 2026-11-15, when it became
+`local-lvm-ssd` to take load off `local-lvm`, which was at 85% and overcommitted. It carries the
+data disks of srvhomeassistant, wrkdev, wrkmariska and srvk8sdev; their EFI, TPM and cloud-init
+volumes stay on `local-lvm`. It was created by hand (`pvesh create /nodes/pve/disks/lvmthin`) and
+no role manages it, as no role manages any PVE storage; `ansible/inventories/prd/host_vars/pve.yml`
+records it. It is a single disk, like `local-lvm`: losing it loses those four guests' disks, with
+vzdump's copies on `local-backup` as the way back.
 
 **Ceph** is therefore 3 × 2 TB SSD OSDs, one per physical host, at 3× replication — one full
 copy of the data per physical machine. The passthrough disks use `cache=writeback` (host RAM
 absorbs BlueStore commits; the replication factor is what makes that acceptable) and are
 always excluded from vzdump.
 
-**Datastores:** `local` (ISO/cloud-image/snippets), `local-lvm` (all managed VM disks and EFI
-disks), `local-backup` (vzdump target, exists on `pve` only).
+**Datastores:** `local` (ISO/cloud-image/snippets), `local-lvm` (VM disks and EFI disks),
+`local-lvm-ssd` (the quiet guests' data disks, exists on `pve` only), `local-backup` (vzdump
+target, exists on `pve` only).
 
 ## 3. Network
 
@@ -184,8 +190,8 @@ Terraform manages 12 production VMs (`terraform/prd`) plus 2 disposable scratch 
 | srvk8s1 | 910 | pve | 8 | 16 GiB | 20G + 80G, NVMe passthrough (`zpool2`) | microk8s node |
 | srvk8s2 | 911 | pve1 | 3 | 16 GiB | 20G + 80G + 40G (`zpool3`) | microk8s node |
 | srvk8s3 | 912 | pve2 | 3 | 16 GiB | 20G + 80G + 40G (`zpool4`) | microk8s node |
-| srvk8s4 | 916 | pve | 8 | 32 GiB | 20G + 80G + 100G (`zpool5`) | microk8s node, the only `interactive` VM |
-| srvk8sdev | 919 | pve | 4 | 8 GiB | 60G + 20G + 20G | single-node dev k8s + dev Ceph (off by default) |
+| srvk8s4 | 916 | pve | 8 | 32 GiB | 20G + 80G + 240G (`zpool5`) | microk8s node, the only `interactive` VM |
+| srvk8sdev | 919 | pve | 4 | 8 GiB | 60G + 20G + 20G, on `local-lvm-ssd` | single-node dev k8s + dev Ceph (off by default) |
 | srvceph1 | 113 | pve1 | 3 | 10 GiB | 32G + 100G, 2 TB SSD passthrough | Ceph OSD/mon |
 | srvceph2 | 114 | pve2 | 3 | 10 GiB | 32G + 100G, 2 TB SSD passthrough | Ceph OSD/mon |
 | srvceph3 | 115 | pve | 3 | 10 GiB | 32G + 100G, 2 TB SSD passthrough | Ceph OSD/mon |
@@ -205,7 +211,9 @@ The Ceph production fleet is **not yet Ansible-managed** — `playbooks/site-cep
 
 On `pve`: `srvhomeassistant` (running, 6 GiB), `wrkdev` (operator workstation VM, running,
 6 GiB — Ansible-managed baseline but Terraform-unmanaged), `wrkdevwin` (Windows, running,
-18 GiB), plus stopped `srvhassiodev`, `wrktql`, `wrktql10`, `wrkmariska`.
+18 GiB), plus stopped `srvhassiodev`, `wrktql`, `wrktql10`, `wrkmariska`. The data disks of
+srvhomeassistant, wrkdev and wrkmariska are on `local-lvm-ssd`; wrkdevwin stays on `local-lvm`,
+the NVMe, because it is in daily interactive use.
 
 ### CPU affinity
 

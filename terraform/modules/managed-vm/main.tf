@@ -7,8 +7,7 @@ locals {
   # the host_vars file doesn't exist (pve1/pve2 today carry no per-node
   # attributes), or the file exists but doesn't set this key. A
   # fileexists()/yamldecode() conditional fails type unification once
-  # other modules add unrelated keys to a host_vars file (e.g. pve.yml
-  # carries intentional_spare_disks).
+  # other modules add unrelated keys to a host_vars file.
   pve_host_vars_path  = "${path.module}/../../../ansible/inventories/prd/host_vars/${var.pve_node}.yml"
   pve_node_has_backup = try(yamldecode(file(local.pve_host_vars_path)).pve_node_backup_datastore, null) != null
 

@@ -6,9 +6,9 @@
 # backup=false. See /work/AnsibleSpecs/decisions.md "Backup".
 pve_node_backup_datastore: local-backup
 
-# /dev/sda is an intentional uncommitted spare — physically attached so
-# a future use doesn't require recabling, but currently wiped and not
-# bound to any VM. Inspection tools may flag it as "unused"; that's by
-# design.
-intentional_spare_disks:
-  - /dev/sda
+# /dev/sda, the Samsung 870 EVO 2 TB that was the uncommitted spare, backs
+# the `local-lvm-ssd` LVM-thin storage since 2026-11-15 (created by hand
+# with `pvesh create /nodes/pve/disks/lvmthin`; no role manages PVE
+# storages). It carries the guests that don't need the NVMe: srvk8sdev
+# (terraform/prd/vms.tf), srvhomeassistant, wrkdev and wrkmariska. Their
+# EFI, TPM and cloud-init volumes stay on `local-lvm`.

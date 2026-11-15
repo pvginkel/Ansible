@@ -13,7 +13,7 @@ Disks can only grow. Shrinking requires destroy + recreate of the VM (the rebuil
 
 - Both SSH identities loaded in `ssh-agent` per [`operator-workstation.md`](operator-workstation.md): `pve-root` (Terraform → PVE) and the `ansible` service key (Ansible → managed VM).
 - The target VM has `vm_id` and `pve_node` in inventory. All managed VMs and every scratch host already do; check `inventories/prd/host_vars/<host>.yml` (or `inventories/scratch/host_vars/<host>.yml` for a scratch VM) if a new VM is missing them.
-- The PVE host's thin pool has room: `pvesm status` on the VM's `pve_node` shows `local-lvm`'s free space. A grown disk takes thin space only as the guest writes it, but a full thin pool stalls every VM on it.
+- The PVE host's thin pool has room: `pvesm status` on the VM's `pve_node` shows the free space of the storage the disk is on — `local-lvm`, or on `pve` the SATA SSD's `local-lvm-ssd` (`qm config <vmid>` names it). A grown disk takes thin space only as the guest writes it, but a full thin pool stalls every VM on it.
 
 ## Steps
 

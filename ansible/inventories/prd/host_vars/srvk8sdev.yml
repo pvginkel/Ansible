@@ -15,7 +15,7 @@ k8s_node_labels:
 
 # Empty ZFS pool on the scsi2 virtual disk (terraform/prd/vms.tf). The
 # zfs role creates it create-if-absent; ZFS auto-mounts the pool's root
-# dataset at /zpool1. No child datasets. The disk is local-lvm backed,
+# dataset at /zpool1. No child datasets. The disk is local-lvm-ssd backed,
 # so a dev VM rebuild wipes it and the role recreates the pool rather
 # than importing it (contrast srvk8s1's passthrough zpool2 +
 # zpools_to_import).

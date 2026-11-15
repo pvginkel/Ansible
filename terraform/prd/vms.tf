@@ -88,7 +88,11 @@ locals {
       managed_disks = [
         { interface = "scsi0", size = 20 },
         { interface = "scsi1", size = 80 },
-        { interface = "scsi2", size = 140 },
+        # Backs zpool5, KubeCoder's env storage (host_vars/srvk8s4.yml).
+        # Grown 140 -> 240 on 2026-11-15 with the room that moving the
+        # quiet VMs to local-lvm-ssd freed on local-lvm. The pool grows
+        # in the guest by hand (docs/runbooks/disk-resize.md).
+        { interface = "scsi2", size = 240 },
       ]
 
       # NICs: inventories/prd/host_vars/srvk8s4.yml
@@ -122,18 +126,21 @@ locals {
       # dev carries no persistent load.
       memory_mb = 8 * 1024
 
+      # On local-lvm-ssd, pve's SATA SSD: an idle dev VM doesn't need
+      # the NVMe, which goes to the latency-sensitive guests. The EFI
+      # and cloud-init volumes stay on local-lvm.
       managed_disks = [
-        { interface = "scsi0", size = 60 },
+        { interface = "scsi0", size = 60, datastore_id = "local-lvm-ssd" },
         # Raw OSD disk for the co-located microceph. Deliberately absent
         # from managed_filesystems_volumes so it stays unformatted for
         # BlueStore; the microceph role resolves it by this scsi index.
-        { interface = "scsi1", size = 20 },
+        { interface = "scsi1", size = 20, datastore_id = "local-lvm-ssd" },
         # Backs the empty ZFS pool zpool1 (mounted /zpool1). Created by
         # the zfs role from `zfs_pools` in host_vars, not by
-        # managed_filesystems. Virtual disk on local-lvm, so a dev VM
+        # managed_filesystems. Virtual disk on local-lvm-ssd, so a dev VM
         # rebuild reformats it and the role recreates the pool (no
         # import) — contrast srvk8s1's passthrough zpool2.
-        { interface = "scsi2", size = 20 },
+        { interface = "scsi2", size = 20, datastore_id = "local-lvm-ssd" },
       ]
 
       # NICs: inventories/prd/host_vars/srvk8sdev.yml
