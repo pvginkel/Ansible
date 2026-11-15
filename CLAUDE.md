@@ -96,7 +96,10 @@ project, its cards in YouTrack `ANS` and its slices in AnsibleSpecs), `SecretRot
 monorepos, `PlatformAddOnsDeploy` (each app deployed from an upstream Helm chart) and
 `HomelabAppsDeploy` (each app with a chart of its own and no source repo), one directory per app
 named after its registry key; slices 056–059 cite them as `/work/scratch/<Monorepo>`, read that as
-`/work/<Monorepo>`. The set is
+`/work/<Monorepo>`. Three dedicated app deploy repos are declared too, the ones this environment's
+work rolls through, so `track_build.py` follows their Argo CD roll: `PilotDeploy` (a PilotApp
+promotion), `PipelinesDeploy` (a JenkinsPipelineUtils build) and `DevGuidesDeploy` (a DevGuides
+build). The set is
 declared in `.kubecoder/config.yaml`; adding an ordinary entry needs no restart — clone it to the
 path the entry resolves to, run `kc project setup` in it, and add it to `Ansible.code-workspace` in
 the same commit (a `shared: true` entry is mounted, so it takes `kc env restart` and is never
@@ -105,8 +108,8 @@ entry, including one a slice changes. How a slice targets such a repo is in the 
 `KubeCoderDeploy` (KubeCoder's deploy
 repo, the Argo CD pilot — see its README) and `HelmCharts` (the deploy path before Argo CD,
 archived 2026-09-28) are such repos: older docs and slices cite them as `/work/<Repo>`, read that
-as `/work/scratch/<Repo>`. So are the dedicated app deploy repos, an `<App>Deploy` for each app
-with a source repo of its own (`DnsmasqDeploy`, `TfmirrorDeploy` and `ChartsDeploy` among them).
+as `/work/scratch/<Repo>`. So are the other dedicated app deploy repos, an `<App>Deploy` for each
+app with a source repo of its own (`DnsmasqDeploy`, `TfmirrorDeploy` and `ChartsDeploy` among them).
 A moved app's old `<App>Deploy`, which older docs cite, is archived;
 read it as the app's directory in its monorepo. The `iac`
 runner's tree lives in this repo at `support/iac-agent/` — that is the copy to edit and the one the

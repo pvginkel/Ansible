@@ -27,9 +27,16 @@ repos:
   # The two app deploy monorepos, one directory per app named after its registry
   # key: PlatformAddOnsDeploy for apps deployed from an upstream Helm chart,
   # HomelabAppsDeploy for apps with a chart of their own and no source repo.
-  # Dedicated <App>Deploy repos stay under /work/scratch.
+  # Dedicated <App>Deploy repos stay under /work/scratch, except the three below.
   - url: https://github.com/pvginkel/PlatformAddOnsDeploy
   - url: https://github.com/pvginkel/HomelabAppsDeploy
+  # The dedicated deploy repos this environment's work rolls through, declared so
+  # that track_build.py finds their clones and follows the Argo CD roll (ANS-388):
+  # PilotDeploy for a PilotApp promotion, PipelinesDeploy for a
+  # JenkinsPipelineUtils build, DevGuidesDeploy for a DevGuides build.
+  - url: https://github.com/pvginkel/PilotDeploy
+  - url: https://github.com/pvginkel/PipelinesDeploy
+  - url: https://github.com/pvginkel/DevGuidesDeploy
 
 capabilities:
   github: rw

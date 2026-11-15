@@ -38,6 +38,15 @@
 		},
 		{
 			"path": "../HomelabAppsDeploy"
+		},
+		{
+			"path": "../PilotDeploy"
+		},
+		{
+			"path": "../PipelinesDeploy"
+		},
+		{
+			"path": "../DevGuidesDeploy"
 		}
 	],
 	"settings": {}
