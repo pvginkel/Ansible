@@ -319,10 +319,13 @@ recovery checks and break-glass are in [`runbooks/cold-boot.md`](runbooks/cold-b
 
 ### Current headroom warnings
 
-- `pve` `local-lvm` is at **89.7%** (743 of 829 GB). LVM-thin pools behave badly at 100%;
-  this is the number to watch.
-- `pve` `local-backup` is at **77.8%** (1.50 of 1.92 TB).
-- `pve1`/`pve2` `local-lvm` are at ~55% — comfortable.
+- `pve` `local-lvm` is at **59.6%** (494 of 829 GB) since the quiet guests moved to
+  `local-lvm-ssd` on 2026-11-15, down from 85.9%. It is still the number to watch: LVM-thin
+  pools behave badly at 100%, and srvk8s4's 240G zpool5 disk takes about 100 GB more of it as
+  KubeCoder fills the room it was given, which brings the pool to about 72%.
+- `pve` `local-lvm-ssd` is at **12.4%** (238 GB of 1.92 TB).
+- `pve` `local-backup` is at **54.0%** (1.04 of 1.92 TB).
+- `pve1`/`pve2` `local-lvm` are at 60% and 54% — comfortable.
 
 ## 7. Known documentation drift
 
