@@ -60,6 +60,7 @@ key are its leaf's row in the secret catalog,
 | `eso/prd/notifications/prd/registrations` | `jenkins-token`, `alertmanager-token`, `kubecoder-token`, `kubecoder-dev-token` | The bearer token each registration's senders hold: 43 URL-safe characters, the rotator's `random` | Generated |
 | | `kubecoder-telegram-bot-token`, `kubecoder-telegram-chat-ids` | KubeCoder prd's bot and its alerts chats | `eso/prd/kubecoder/prd/bot-token#token`; KubeCoderDeploy `config/prd/values.yaml` `bot.alertChatIds`, joined by commas |
 | | `kubecoder-dev-telegram-bot-token`, `kubecoder-dev-telegram-chat-ids` | KubeCoder dev's bot and its alerts chats | `eso/prd/kubecoder/dev/bot-token#token`; KubeCoderDeploy `config/dev/values.yaml` `bot.alertChatIds`, joined by commas |
+| | `kerstdiner-token`, `kerstdiner-telegram-bot-token`, `kerstdiner-telegram-chat-ids` | KerstDiner's registration: the bearer token its backend sends under, which `eso/prd/kerstdiner/prd/notifications#token` copies, and the bot of its own and the family group it posts to. The chart reads them once NotificationsDeploy's values have the registration | The token generated, the bot's token and the chat id entered by the operator, on 2026-11-20 ([Adding a registration](#adding-a-registration)). No block writes them, and block 3 keeps them |
 | | `pilot-app-pvginkel-token`, `pilot-app-mvdbovenkamp-token`, `pilot-app-dev-pvginkel-token` | The bearer token Pilot's backend sends a person's notifications under: Pilot's for `pvginkel` and `mvdbovenkamp`, Pilot dev's for `pvginkel`. Each person pastes theirs on Pilot's profile page, and Pilot keeps it in its own database, so no leaf copies it: the rotator's `manual`, every 365 days | Generated when the registration was added ([Adding a registration](#adding-a-registration)). No block writes them, and block 3 keeps them |
 
 A new leaf also needs what [openbao.md § A new leaf](openbao.md#a-new-leaf) lists.
@@ -157,11 +158,12 @@ restart, and the commands below answer `Error from server (NotFound): namespaces
 "notifications-prd" not found`.
 
 Block 2 writes its leaf whole, and block 3 the keys it generates or copies, keeping every other
-key of its leaf: Pilot's tokens, which no block writes, stay as they are. Run again, block 2 gives
-`pvginkel` and `mvdbovenkamp` new passwords, so both phones log in again, and block 3 gives every
-registration but Pilot's three a new token, which each sender's copy then follows (the Jenkins
-adapter's: [Seeding the Jenkins adapter's leaf](#seeding-the-jenkins-adapters-leaf)). A running pod
-takes new values once its ExternalSecrets have synced and it has restarted:
+key of its leaf: Pilot's and KerstDiner's keys, which no block writes, stay as they are. Run
+again, block 2 gives `pvginkel` and `mvdbovenkamp` new passwords, so both phones log in again,
+and block 3 gives the four registrations it names a new token, which each sender's copy then
+follows (the Jenkins adapter's:
+[Seeding the Jenkins adapter's leaf](#seeding-the-jenkins-adapters-leaf)). A running pod takes
+new values once its ExternalSecrets have synced and it has restarted:
 
 ```bash
 for es in ntfy-auth registrations; do kw annotate externalsecret "$es" force-sync="$(date +%s)" --overwrite; done
