@@ -3,9 +3,12 @@
 When to use this runbook: an app's deploy repo gains a Keycloak client, adopts one the realm
 already holds, or rotates its client's secret, or the Keycloak provider is bumped. An app's
 Keycloak clients belong to its deploy repo's Terraform. They are declared through the app's copy
-of the `keycloak-client` module and applied by the app's Argo CD PreSync hook. pgAdmin's client
-(HomelabAppsDeploy `pgadmin/`) was the first, adopted by import on 2026-11-21, and its files are
-the ones to copy.
+of the `keycloak-client` module and applied by the app's Argo CD PreSync hook. The clients
+adopted so far, each by import, are pgAdmin's, Guacamole's, Jenkins' and YouTrack's
+(HomelabAppsDeploy `pgadmin/`, `guacamole/`, `jenkins/` and `youtrack/`) and Grafana's
+(PlatformAddOnsDeploy `grafana/`). Copy the one whose case is yours: pgAdmin's for a secret its
+own chart reads, Grafana's for one an upstream chart reads through its values, Jenkins' or
+YouTrack's for a secret held outside Kubernetes, Guacamole's for a public client.
 
 Context:
 
@@ -26,12 +29,13 @@ shorthand for the prd-write kubeconfig.
 ## The convention
 
 - **The module.** An app's directory carries a copy at `terraform/modules/keycloak-client/`, as
-  it does each module it uses (AnsibleSpecs `decisions.md`, Tool split). Copy pgAdmin's. Every copy
-  is byte-identical: HomelabAppsDeploy's root test asserts it, a change to the module is a commit
-  to every copy, and the provider's pin travels with each copy. The module's mocked tests run only
-  from the app's test verb, in a copy outside the checkout. Copy pgAdmin's line in HomelabAppsDeploy
-  `.kubecoder/project.yaml`, "The keycloak-client module's tests, run in a copy outside the
-  checkout".
+  it does each module it uses (AnsibleSpecs `decisions.md`, Tool split). Copy an adopted app's.
+  Every copy is byte-identical. Each monorepo's root test asserts its own copies identical, and no
+  test compares HomelabAppsDeploy's with PlatformAddOnsDeploy's, so a change to the module is a
+  commit to every copy in both. The provider's pin travels with each copy. The module's mocked
+  tests run only from the app's test verb, in a copy outside the checkout: copy an adopted app's
+  line in its monorepo's `.kubecoder/project.yaml`, "The keycloak-client module's tests, run in a
+  copy outside the checkout".
 - **What it declares** is one client and what hangs on it:
   - `keycloak_openid_client`, with `prevent_destroy`, so a change that would replace the client
     fails the plan;
@@ -51,11 +55,12 @@ shorthand for the prd-write kubeconfig.
   `keycloak_realm`. The root's `variable "keycloak_realm"` defaults to `"homelab"`, because a
   Destroy Stage plans without the stage's tfvars once `config/<stage>/` is gone. The root test
   `terraform/tests/stage_tfvars.tftest.hcl` plans the root that way, on mock providers, and the
-  app's test verb runs it after `tf-check`. A stage whose realm holds none of the app's clients
-  declares none.
+  app's test verb runs it after `tf-check`. Where a name the provider validates derives from
+  `var.namespace`, which the sync hook sets, the test sets the namespace too, as YouTrack's does
+  for its volume. A stage whose realm holds none of the app's clients declares none.
 - **The provider block** configures itself from variables and literals alone: a Destroy Stage
-  keeps a root's `terraform`, `provider` and `variable` blocks and drops every other block. It is
-  pgAdmin's `terraform/providers.tf`:
+  keeps a root's `terraform`, `provider` and `variable` blocks and drops every other block. Every
+  adopted app's `terraform/providers.tf` carries it:
 
   ```hcl
   provider "keycloak" {
@@ -80,18 +85,23 @@ shorthand for the prd-write kubeconfig.
 
 The app's Terraform owns the secret of a client whose secret only Kubernetes reads. The call sets
 `secret`, and the module writes the client's id and secret to a Secret in the stage's namespace,
-named `keycloak-client`, with keys `client_id` and `client_secret` unless the call names others. A
-second client in the same namespace takes a name of its own. The provider reads the secret back as
-empty where it may not read it, so a precondition fails the plan on an empty secret.
+named `keycloak-client`, with keys `client_id` and `client_secret` unless the call names others:
+Grafana's names `GF_AUTH_GENERIC_OAUTH_CLIENT_ID` and `GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET`, the
+environment keys Grafana reads. A second client in the same namespace takes a name of its own.
+The provider reads the secret back as empty where it may not read it, so a precondition fails the
+plan on an empty secret.
 
-A secret used outside Kubernetes stays where it is used, and the call leaves `secret` null:
+A secret used outside Kubernetes stays where it is used. The call sets neither `secret` nor the
+keeper, `secret_rotation`, since a keeper commit would regenerate the secret and end the copy
+held there:
 
 - `jenkins`' in Jenkins' own settings, `youtrack`'s in YouTrack Hub and `kubecoder-mcp`'s in
   claude.ai's connector;
 - `iotsupport-pipeline`'s in OpenBao, `jenkins/iotsupport-pipeline-oidc`, for Jenkins, where its
   `keycloak-client` seed entry stays.
 
-A public client (`guacamole`, `mydownloads`) has no secret.
+A public client (`guacamole`, `mydownloads`) has no secret, and its call sets neither. A keeper
+wired later plans nothing while it is never set.
 
 ## What stays by hand
 
@@ -113,22 +123,25 @@ Keycloak's own app, HomelabAppsDeploy `keycloak/`, declares no Keycloak resource
 
 ## A new client
 
-1. In the app's directory, do as pgAdmin's does:
+1. In the app's directory, do as an adopted app does:
    - copy the module, and add its test line to the app's test verb;
    - add the provider block and its four variables;
    - set `keycloak_realm` in each stage's `config/<stage>/terraform.tfvars`;
    - add the root test, and its line in the test verb after `tf-check`,
      `cexec iac terraform -chdir=terraform test -no-color`.
 
-   A root without `variable "rotation_epoch"` declares it as pgAdmin's `terraform/main.tf` does,
-   and each stage gets a `config/<stage>/rotation.tfvars` that reads `rotation_epoch = {}`.
+   Where the app owns the secret, a root without `variable "rotation_epoch"` declares it as
+   pgAdmin's and Grafana's `terraform/main.tf` do, and each stage gets a
+   `config/<stage>/rotation.tfvars` that reads `rotation_epoch = {}`.
 2. The call, `module "keycloak_client"` for an app's one client: the client, its roles, mappers,
-   grants and service-account roles, `secret` where the app owns it, and
+   grants and service-account roles, and, where the app owns the secret
+   ([§ Which secret the app owns](#which-secret-the-app-owns)), `secret` and
    `secret_rotation = lookup(var.rotation_epoch, "keycloak_client", null)`. A keeper is named
    after the label of the block it re-mints, so a second client's call takes a label and a keeper
    of its own. Leave `scopes` null, so the new client gets the realm's default scopes.
-3. The chart reads the Secret by name, `secretKeyRef` `name: keycloak-client`. The hook writes it
-   before the sync phase starts the pods.
+3. The chart reads the Secret by name: pgAdmin's through `secretKeyRef` `name: keycloak-client`,
+   Grafana's upstream chart through `envFromSecret: keycloak-client` in its stage values, which
+   takes every key. The hook writes it before the sync phase starts the pods.
 4. Run the app's test verb.
 5. Push a topic branch, then plan each stage it touches at its SHA. The client, each role, mapper,
    grant and service-account role, and the Secret read `create`, and nothing else reads anything.
@@ -138,10 +151,12 @@ Keycloak's own app, HomelabAppsDeploy `keycloak/`, declares no Keycloak resource
 
 ## Adopting an existing client
 
-The client already exists in the realm, and its app reads the secret from an ExternalSecret over
-an OpenBao leaf. The client is imported, never recreated. The import commit plans imports alone,
-and the commit after it takes the secret over. pgAdmin's ran this way on 2026-11-21,
-HomelabAppsDeploy `1c6efc6` and `737fd52`.
+The client already exists in the realm. It is imported, never recreated: the import commit plans
+imports alone, and the commit after it drops the import blocks. Where the app owns the secret, that
+commit also takes it over from the ExternalSecret and the OpenBao leaf the app read it from. Each
+adoption so far ran this way on 2026-11-21: pgAdmin's in HomelabAppsDeploy `1c6efc6` and
+`737fd52`, Guacamole's in `c63cd5f` and `4a3919c`, Jenkins' and YouTrack's together in `42c6e64`
+and `221d5ba`, and Grafana's in PlatformAddOnsDeploy `bb0cb74` and `d6cd7cb`.
 
 ### 1. The fresh read
 
@@ -165,16 +180,18 @@ The commit holds:
 
 - where the app has no client yet, the root's setup of [§ A new client](#a-new-client) step 1:
   the module copy and its test line, the provider block and its variables, `keycloak_realm` in
-  each stage's tfvars, the root test, and the keeper variable and file;
+  each stage's tfvars, the root test, and, where the app owns the secret, the keeper variable and
+  file;
 - the module call, restating the client whole from the fresh read, every field the module
   models, so that a later commit's diff is exactly its change;
 - its grants and service-account roles;
 - one `import {}` block per resource, with literal ids, in `terraform/imports.tf`;
-- `secret_rotation` wired as above, with no keeper in `rotation.tfvars`. It is then null, so
-  nothing re-mints the secret;
+- where the app owns the secret, `secret_rotation` wired as above, with no keeper in
+  `rotation.tfvars`. It is then null, so nothing re-mints the secret;
 - no `secret` yet;
 - in the root test, an `override_resource` for each imported resource, since a mock provider
-  cannot import.
+  cannot import. Each targets the resource without its key, as in
+  `module.keycloak_client.keycloak_role.this`.
 
 | Resource (under `module.keycloak_client.`) | Import `id` |
 | --- | --- |
@@ -244,16 +261,21 @@ stops the adoption.
 - on a service-account-only client, both URL lists set empty;
 - `imports.tf` dropped, with the root test's overrides.
 
-pgAdmin's plan read `module.keycloak_client.kubernetes_secret_v1.this[0]: create` alone.
+pgAdmin's and Grafana's plans read `module.keycloak_client.kubernetes_secret_v1.this[0]: create`
+alone. A commit that only drops the import blocks plans `presync: the plan carries no changes`, and
+the adoption ends at its sync.
 
 **The takeover.**
 
-- The call sets `secret = { name = "keycloak-client", namespace = var.namespace }`. The name
-  differs from the ExternalSecret's target (pgAdmin's was `pgadmin-oidc`), so the PreSync apply can
-  create the Secret while the ESO-owned one still exists.
-- The chart's `secretKeyRef`s switch to `keycloak-client`, which rolls the pods.
-- The ExternalSecret leaves the stage's values. Argo CD prunes it in the sync phase, after the
-  hook, and ESO's owner reference takes its Secret with it.
+- The call sets `secret = { name = "keycloak-client", namespace = var.namespace }`, with
+  `client_id_key` and `client_secret_key` where the app reads other key names, as Grafana's does.
+  The name differs from the ExternalSecret's target (pgAdmin's was `pgadmin-oidc`, Grafana's
+  `grafana-oidc`), so the PreSync apply can create the Secret while the ESO-owned one still exists.
+- The app's references switch to `keycloak-client`, which rolls the pods: pgAdmin's chart's
+  `secretKeyRef`s, Grafana's `envFromSecret`.
+- The ExternalSecret leaves the chart: pgAdmin's stage values, Grafana's companion chart
+  (`chart/templates/stage-manifests.yaml`). Argo CD prunes it in the sync phase, after the hook,
+  and ESO's owner reference takes its Secret with it.
 
 In pgAdmin's sync, the hook wrote the Secret at 09:00:26Z, before the new pod started at 09:00:33Z.
 Afterwards the namespace held `keycloak-client`, with no owner, and no `pgadmin-oidc`.
@@ -283,6 +305,11 @@ Afterwards the namespace held `keycloak-client`, with no owner, and no `pgadmin-
    EOF
    ```
 
+   A container without Python makes the same request with curl, each secret on stdin
+   (`--data-urlencode client_secret@-`), printing only the status and the `error`. Grafana's
+   `grafana` container holds the credentials in `GF_AUTH_GENERIC_OAUTH_CLIENT_ID` and
+   `GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET`.
+
 2. **The old leaf.** Once the check holds and the ExternalSecret and its Secret are gone, check that
    no ExternalSecret and no deploy-repo file names the leaf, then delete it whole, with its
    versions:
@@ -299,7 +326,8 @@ Afterwards the namespace held `keycloak-client`, with no owner, and no `pgadmin-
 3. **SecretRotator and the catalog.** The leaf's entry leaves SecretRotator's
    `src/secret_rotator/seed.yaml`, and `store-keys.json` and the `keycloak-client` seed-row tests
    (`tests/test_keycloak_client.py`) follow. The catalog marks the leaf's row deleted, and the
-   client's marker comes in ([§ Rotating the client secret](#rotating-the-client-secret)). The
+   client's marker comes in where the kind can rotate the app's stage
+   ([§ Rotating the client secret](#rotating-the-client-secret)). The
    [go-live runbook](secret-rotator-go-live.md)'s `keycloak-client` loops drop the leaf.
 4. **The sign-in.** The operator signs in to the app through Keycloak once.
 
@@ -322,20 +350,24 @@ A rotation is a keeper commit, the `terraform` kind's (secret-rotation R163).
   token, whose repositories `rotator/terraform/credentials`' notes list. The seed refuses notes
   longer than 512 bytes on a leaf with an `expires_at`, and these notes are near that limit, so a
   repo added to them needs shorter wording.
+- The kind reads the hook's parameters from the Application's `spec.source`, which a multi-source
+  Application lacks. So Grafana's client, behind the multi-source `grafana-prd`, has no marker yet,
+  and rotates by a hand keeper commit.
 - The kind refuses an Application that tracks a branch other than `main`. A stage that reaches prd
   only by promotion rotates by a hand keeper commit and a promotion.
 
-**By hand, until SecretRotator's `terraform` kind is enabled.** It is the operator's call: nobody
-makes one unasked.
+**By hand, until SecretRotator's `terraform` kind is enabled and holds the client's marker.** It
+is the operator's call: nobody makes one unasked.
 
 1. On a topic branch, commit the keeper's new value in the form the kind writes, a UTC timestamp,
    in `rotation_epoch = { "keycloak_client" = "<YYYY-MM-DDTHH:MM:SSZ>" }`.
 2. Its plan Job reads an in-place update of the client and one of the Secret, and nothing else.
 3. `main` takes that SHA, the stage syncs, and the hook re-mints the secret.
-4. Restart the Secret's readers at once. pgAdmin's:
+4. Restart the Secret's readers at once. pgAdmin's and Grafana's:
 
    ```sh
    cexec iac kubectl $KC rollout restart -n pgadmin-prd deployment/pgadmin
+   cexec iac kubectl $KC rollout restart -n grafana-prd deployment/grafana
    ```
 
 5. Run [§ After the sync](#after-the-sync)'s token check.

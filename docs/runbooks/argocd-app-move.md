@@ -13,9 +13,9 @@ app then is: its registry entry in
 
 **In slices 057 to 059 every step was Claude's and the operator answered the stops.** Slice 057's
 ruling D1, which held for 058 and 059, gave Claude the whole move: the pushes, the state move, the
-plan Job, the registry switch, the sync, the job deletion and the archive. It was the one exception
-to [argocd.md](argocd.md#conventions)'s operator keystroke, and it reached no other sync. It does
-not reach a later move (an app reclassified, a dedicated app retired into a monorepo): who runs
+plan Job, the registry switch, the sync, the job deletion and the archive. It was an exception to
+[argocd.md](argocd.md#conventions)'s operator keystroke that reached no other sync. It does not
+reach a later move (an app reclassified, a dedicated app retired into a monorepo): who runs
 which step of one is the operator's to rule when it comes, and until they have, the keystroke
 holds. A stop halts
 the move where the table below says and leaves what it says; the operator decides what follows. A

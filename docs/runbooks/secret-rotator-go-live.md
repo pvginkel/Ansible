@@ -705,7 +705,7 @@ srviac 'secret-rotator annotate'
   - Where step 6 ran on the seed before slice 047, also the entries slice 047 changed, each a
     `change`:
     - the `realm` in the args of the `keycloak-client` keys of
-      `eso/prd/{dnsmasq,electronics-inventory,fieldnotes,grafana,iot,zigbee2mqtt}/prd/oidc` and
+      `eso/prd/{dnsmasq,electronics-inventory,fieldnotes,iot,zigbee2mqtt}/prd/oidc` and
       `jenkins/iotsupport-pipeline-oidc`;
     - `"job":"AaC/IoTSupport"` on `eso/prd/iot/prd/architecture-pipeline`;
     - `shared/jenkins/admin-password`'s `password`, now `manual` at interval `never`.
@@ -713,7 +713,7 @@ srviac 'secret-rotator annotate'
     jenkins-mcp's leaf then reads `add     rotation_token=…`, `add     rotation_user=…` and
     `remove  rotation_authorization=…`.
   - `jenkins/grafana-api` (slice 046), where it was stored after step 6 and not annotated since.
-- The last line counts those leaves: 15 where step 6 ran on the seed before slice 047. Where it ran
+- The last line counts those leaves: 14 where step 6 ran on the seed before slice 047. Where it ran
   on slice 047's seed, it counts the four new leaves less those step 6 found already created: 4
   where step 6 ran before W2, none where it ran after W4. Then `0 live leaf(s) not in the seed`.
 - No `absent from the store` line but `jenkins/grafana-api`'s while that leaf is not stored, and
@@ -2585,7 +2585,7 @@ takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, 
    `site-openbao.yml` run has read `rotator/oidc-auth-client`:
 
    ```sh
-   for l in eso/prd/{argocd,dnsmasq,electronics-inventory,fieldnotes,grafana,iot,kerstdiner,zigbee2mqtt}/prd/oidc \
+   for l in eso/prd/{argocd,dnsmasq,electronics-inventory,fieldnotes,iot,kerstdiner,zigbee2mqtt}/prd/oidc \
        eso/prd/iot/prd/keycloak-admin eso/dev/electronics-inventory/dev/oidc \
        eso/prd/argocd-hooks/keycloak/homelab eso/prd/pilot/{dev,prd}/service-user \
        jenkins/{iotsupport-pipeline-oidc,keycloak-da-admin,keycloak-iotsupport-admin} \
@@ -2601,7 +2601,7 @@ takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, 
    - `eso/prd/argocd-hooks/keycloak/homelab`'s plan syncs `argocd-hooks/argocd-hook-credentials`
      and restarts nothing. A hook run between its regenerate and that sync fails its Keycloak
      login, and Argo retries it.
-   - Its 19 keys at 14 days, the two `shared/keycloak-review` accounts among them until they are
+   - Its 18 keys at 14 days, the two `shared/keycloak-review` accounts among them until they are
      deleted, have no stamp and are all due at once, so at 10 a night the first pass takes two
      nights.
    - `jenkins/keycloak-iotsupport-admin`'s copies roll the KubeCoder controllers of `prd` and
