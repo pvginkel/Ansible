@@ -40,13 +40,16 @@
 			"path": "../HomelabAppsDeploy"
 		},
 		{
-			"path": "../PilotDeploy"
-		},
-		{
 			"path": "../PipelinesDeploy"
 		},
 		{
 			"path": "../DevGuidesDeploy"
+		},
+		{
+			"path": "../PilotDeploy"
+		},
+		{
+			"path": "../PilotApp"
 		}
 	],
 	"settings": {}
