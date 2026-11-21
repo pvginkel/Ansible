@@ -2585,10 +2585,11 @@ takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, 
    `site-openbao.yml` run has read `rotator/oidc-auth-client`:
 
    ```sh
-   for l in eso/prd/{argocd,dnsmasq,electronics-inventory,fieldnotes,grafana,iot,zigbee2mqtt}/prd/oidc \
+   for l in eso/prd/{argocd,dnsmasq,electronics-inventory,fieldnotes,grafana,iot,kerstdiner,zigbee2mqtt}/prd/oidc \
        eso/prd/iot/prd/keycloak-admin eso/dev/electronics-inventory/dev/oidc \
-       eso/prd/argocd-hooks/keycloak/homelab \
+       eso/prd/argocd-hooks/keycloak/homelab eso/prd/pilot/{dev,prd}/service-user \
        jenkins/{iotsupport-pipeline-oidc,keycloak-da-admin,keycloak-iotsupport-admin} \
+       shared/keycloak-review/{homelab,homelab-dev} \
        rotator/keycloak-client/{homelab,homelab-dev} rotator/oidc-auth-client; do srviac "secret-rotator plan $l"; done
    ```
 
@@ -2600,8 +2601,9 @@ takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, 
    - `eso/prd/argocd-hooks/keycloak/homelab`'s plan syncs `argocd-hooks/argocd-hook-credentials`
      and restarts nothing. A hook run between its regenerate and that sync fails its Keycloak
      login, and Argo retries it.
-   - Its 14 keys at 14 days have no stamp and are all due at once, so at 10 a night the first pass
-     takes two nights.
+   - Its 19 keys at 14 days, the two `shared/keycloak-review` accounts among them until they are
+     deleted, have no stamp and are all due at once, so at 10 a night the first pass takes two
+     nights.
    - `jenkins/keycloak-iotsupport-admin`'s copies roll the KubeCoder controllers of `prd` and
      `dev`, which restarts every KubeCoder environment (design R65).
    - `jenkins/keycloak-da-admin` rotates only while it exists; it is to be deleted. Once it is
