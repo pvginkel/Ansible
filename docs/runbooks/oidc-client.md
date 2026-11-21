@@ -11,13 +11,16 @@ adopted so far, each by import, are:
   `grafana/`);
 - in an app's own deploy repo, at its root, DHCPApp's `dhcp-app` (DnsmasqDeploy),
   ElectronicsInventory's `electronics-inventory`, FieldnotesApp's `fieldnotes-app`,
-  ZigbeeControl's `zigbee-control` (Zigbee2mqttDeploy) and MyDownloads' `mydownloads`
-  (MediaDeploy).
+  ZigbeeControl's `zigbee-control` (Zigbee2mqttDeploy), MyDownloads' `mydownloads`
+  (MediaDeploy), and IoTSupport's three, `iotsupport`, `iotsupport-admin` and
+  `iotsupport-pipeline`, with its client scope `iot-device-audience` (IotDeploy).
 
 Copy the one whose case is yours: pgAdmin's, or DnsmasqDeploy's in an app's own repo, for a
 secret its own chart reads; Grafana's for one an upstream chart reads through its values; Jenkins'
 or YouTrack's for a secret held outside Kubernetes; Guacamole's, or MediaDeploy's in an app's own
-repo, for a public client.
+repo, for a public client. IotDeploy's is the one for a service-account client, a service-account
+role on another client, a built-in's included, two owned secrets in one namespace, or a client
+scope of the app's own.
 
 Context:
 
@@ -59,6 +62,12 @@ shorthand for the prd-write kubeconfig.
   `keycloak_user_roles`. Nor is there a data source on another app's client, which would pull that
   client's secret into this state. A grantee is looked up by username and never managed. A grant
   maps one role to one user, so an assignment the call does not declare is left alone.
+- **A client scope that serves only the app's clients** is the app's, declared in its root beside
+  the calls rather than by the module: a `keycloak_openid_client_scope` with `prevent_destroy`,
+  since a replacement would detach it from every client that holds it, and a
+  `keycloak_generic_protocol_mapper` on it per mapper. IotDeploy's `iot-device-audience` is no
+  realm default scope. IoTSupport attaches it by name to each `iotdevice-*` client it makes, so its
+  name stays, and those clients stay out.
 - **Its inputs** are in its `variables.tf`. The settings the provider would otherwise reset default
   to the realm's shared baseline, so a call names one only where its client differs.
 - **The app names its realm.** Each stage's `config/<stage>/terraform.tfvars` sets
@@ -98,7 +107,8 @@ The app's Terraform owns the secret of a client whose secret only Kubernetes rea
 `secret`, and the module writes the client's id and secret to a Secret in the stage's namespace,
 named `keycloak-client`, with keys `client_id` and `client_secret` unless the call names others:
 Grafana's names `GF_AUTH_GENERIC_OAUTH_CLIENT_ID` and `GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET`, the
-environment keys Grafana reads. A second client in the same namespace takes a name of its own.
+environment keys Grafana reads. A second client in the same namespace takes a name of its own:
+IotDeploy's `iotsupport-admin` writes `keycloak-client-admin`.
 The provider reads the secret back as empty where it may not read it, so a precondition fails the
 plan on an empty secret.
 
@@ -149,7 +159,12 @@ Keycloak's own app, HomelabAppsDeploy `keycloak/`, declares no Keycloak resource
    ([§ Which secret the app owns](#which-secret-the-app-owns)), `secret` and
    `secret_rotation = lookup(var.rotation_epoch, "keycloak_client", null)`. A keeper is named
    after the label of the block it re-mints, so a second client's call takes a label and a keeper
-   of its own. Leave `scopes` null, so the new client gets the realm's default scopes.
+   of its own: IotDeploy's `module "keycloak_client_admin"` and `keycloak_client_admin`. Leave
+   `scopes` null, so the new client gets the realm's default scopes. A service-account role on
+   another client names that client by its internal id: another call's `id` output for a client of
+   the same root, as `iotsupport-pipeline`'s `pipeline` on `iotsupport`, and the literal id from a
+   read of the realm for a built-in no call declares, as `iotsupport-admin`'s `realm-management`
+   `manage-clients`.
 3. The chart reads the Secret by name: pgAdmin's through `secretKeyRef` `name: keycloak-client`,
    Grafana's upstream chart through `envFromSecret: keycloak-client` in its stage values, which
    takes every key. The hook writes it before the sync phase starts the pods.
@@ -173,7 +188,8 @@ adoption so far ran this way on 2026-11-21, the import commit first:
 - DHCPApp's in DnsmasqDeploy `aa30b54` and `240c6c2`, ElectronicsInventory's in
   ElectronicsInventoryDeploy `dc908b4` and `3ba9eea`, FieldnotesApp's in FieldnotesDeploy
   `1274470` and `9783bcf`, ZigbeeControl's in Zigbee2mqttDeploy `611dcc3` and `3e6cf49`, and
-  MyDownloads' in MediaDeploy `b0653f0` and `184e0f4`.
+  MyDownloads' in MediaDeploy `b0653f0` and `184e0f4`;
+- IoTSupport's three clients and its scope in IotDeploy `2db3618` and `5630c1a`.
 
 ### 1. The fresh read
 
@@ -194,14 +210,16 @@ Diff the read against the review's dump,
 since 2026-11-20 is restated in the call as it now is, and reported. The read also gives the ids
 the import blocks name: the client's, each role's and mapper's, and each grantee's user id. For a
 service-account client it also gives its service account user's id and the id of each other
-client whose role it holds.
+client whose role it holds. Its `client-scopes.json` gives a client scope's id and its mappers'.
 
 A mapper's config is restated as the mapper's own endpoint returns it,
 `/admin/realms/<realm>/clients/<client uuid>/protocol-mappers/models/<mapper uuid>`, which is what
 the provider reads. The client's representation, which the dump writes, can leave keys out: it
 lacked `"userinfo.token.claim": "false"` on DHCPApp's, ElectronicsInventory's and ZigbeeControl's
 audience mappers, and a call restated from it plans the mapper `update, import`. GET each mapper
-through the same account.
+through the same account. A client scope's mapper is at
+`/admin/realms/<realm>/client-scopes/<scope uuid>/protocol-mappers/models/<mapper uuid>`, and the
+scope's representation leaves the same key out.
 
 ### 2. The import commit, on a topic branch
 
@@ -230,6 +248,10 @@ The commit holds:
 | `keycloak_openid_client_service_account_role.grant["<username>/<role>"]` | `<realm>/<grantee's user uuid>/<client uuid>/<role uuid>` |
 | `keycloak_openid_client_service_account_role.service_account["<key>"]` | `<realm>/<service account user uuid>/<uuid of the role's client>/<role uuid>` |
 | `keycloak_client_scope_assignments.this[0]` | `client/<realm>/<client uuid>` |
+
+A second call's resources sit under its own address, as `module.keycloak_client_admin.`. A client
+scope the root declares imports as `<realm>/<scope uuid>`, and its mapper as
+`<realm>/client-scope/<scope uuid>/<mapper uuid>`.
 
 What bites on import, and how the call meets it:
 
@@ -264,6 +286,10 @@ What bites on import, and how the call meets it:
 - **Mappers** are the generic `keycloak_generic_protocol_mapper`, with Keycloak's config exactly. A
   typed mapper would drop keys such as `lightweight.claim` on its first update. A generic mapper's
   name cannot change in place, so the call keys each mapper by its live name.
+- **A client scope's two derived settings.** The provider defaults `include_in_token_scope` to
+  true, and derives `display_on_consent_screen` from `consent_screen_text`, false while that is
+  unset. A scope that holds otherwise restates its live values: `iot-device-audience` sets
+  `include_in_token_scope = false` and `display_on_consent_screen = true`.
 - **The secret** is read into state on import and stays out of the config. With no keeper set,
   nothing re-mints it: the import plans no change on it, and no `client_secret` is known only
   after apply.
@@ -276,6 +302,10 @@ of the change list reads `<address>: import`. An import that would also change s
 the operator. pgAdmin's plan read `presync: the plan carries 4 change(s):`, then the client, the
 role, the mapper and the grant, each `: import`, and Terraform's `Plan: 4 to import, 0 to add, 0
 to change, 0 to destroy.`
+
+IotDeploy's plans, one at `main` included, also carry `module.readonly.postgresql_grant.connect:
+update`, its read-only Postgres role's CONNECT grant, which each sync applies again. It is no
+change of a client, and like any other line it comes to the operator.
 
 ### 4. `main` and the sync
 
@@ -296,21 +326,26 @@ stops the adoption.
 - `imports.tf` dropped, with the root test's overrides.
 
 A takeover's plan reads `module.keycloak_client.kubernetes_secret_v1.this[0]: create` alone.
-MyDownloads' read `module.keycloak_client.keycloak_openid_client.this: update` alone, its diff
-`valid_redirect_uris` alone. A commit that only drops the import blocks plans `presync: the plan
-carries no changes`, and the adoption ends at its sync.
+IoTSupport's read both its Secrets' creates and an update of each of its two service-account
+clients, each client's diff `valid_redirect_uris` and `web_origins` alone. MyDownloads' read
+`module.keycloak_client.keycloak_openid_client.this: update` alone, its diff `valid_redirect_uris`
+alone. A commit that only drops the import blocks plans `presync: the plan carries no changes`,
+and the adoption ends at its sync.
 
 **The takeover.**
 
 - The call sets `secret = { name = "keycloak-client", namespace = var.namespace }`, with
-  `client_id_key` and `client_secret_key` where the app reads other key names, as Grafana's does.
+  `client_id_key` and `client_secret_key` where the app reads other key names, as Grafana's does,
+  and a second client's call its own name, as IotDeploy's `keycloak-client-admin`.
   The name differs from the ExternalSecret's target (pgAdmin's was `pgadmin-oidc`, Grafana's
   `grafana-oidc`), so the PreSync apply can create the Secret while the ESO-owned one still exists.
-- The app's references switch to `keycloak-client`, which rolls the pods: pgAdmin's chart's
+- The app's references switch to the call's Secret, which rolls the pods: pgAdmin's chart's
   `secretKeyRef`s, Grafana's `envFromSecret`. Where a template falls back to chart values while
-  the ExternalSecret's entry is absent, as DnsmasqDeploy's, ElectronicsInventoryDeploy's and
-  Zigbee2mqttDeploy's did, the fallback and its `oidc.clientID` and `oidc.clientSecret` defaults
-  go too: dropping the entry alone renders both variables empty.
+  the ExternalSecret's entry is absent, as DnsmasqDeploy's, ElectronicsInventoryDeploy's,
+  Zigbee2mqttDeploy's and IotDeploy's did, the fallback and its `oidc.clientID` and
+  `oidc.clientSecret` defaults go too, and IotDeploy's `keycloak.clientID` and
+  `keycloak.clientSecret` for its admin client: dropping the entry alone renders both variables
+  empty.
 - The ExternalSecret leaves the chart: pgAdmin's stage values, Grafana's companion chart
   (`chart/templates/stage-manifests.yaml`). Argo CD prunes it in the sync phase, after the hook,
   and ESO's owner reference takes its Secret with it.
@@ -355,6 +390,10 @@ Afterwards the namespace held `keycloak-client`, with no owner, and no `pgadmin-
    | ElectronicsInventory | `electronics-inventory-prd` `electronics-inventory`, `electronics-inventory-app` | `python3` |
    | FieldnotesApp | `fieldnotes-prd` `fieldnotes`, `app` | `python` |
    | ZigbeeControl | `zigbee2mqtt-prd` `zigbee-control`, `zigbee-control-app` | `/app/.venv/bin/python3` |
+   | IoTSupport | `iot-prd` `iotsupport`, `iotsupport-app` | `/app/.venv/bin/python3` |
+
+   IoTSupport's container also holds its admin client's credentials, in `KEYCLOAK_ADMIN_CLIENT_ID`
+   and `KEYCLOAK_ADMIN_CLIENT_SECRET`, for the client-credentials check.
 
    After a takeover, run it in the new pod by name, once `kubectl rollout status` returns: the old
    pod, still Terminating then, holds the ESO Secret's copy in its environment.
@@ -400,17 +439,21 @@ first update it also shows boolean attributes the client lacked, which the provi
 update: `fieldnotes-app` gained `use.refresh.tokens` at `"true"`,
 `client_credentials.use_refresh_token` at `"false"`, and `exclude.issuer.from.auth.response` and
 `exclude.session.state.from.auth.response` at `"false"`, and `mydownloads` the last two. Each is
-the value Keycloak 26.7.3 applies to the absent key. `post.logout.redirect.uris` can come back in
-another order.
+the value Keycloak 26.7.3 applies to the absent key. `iotsupport-admin` and `iotsupport-pipeline`
+gained those four, and `display.on.consent.screen` and `oauth2.jwt.authorization.grant.enabled`
+at `"false"` too, the value every client that already held either key holds.
+`post.logout.redirect.uris` can come back in another order.
 
 ## Rotating the client secret
 
 A rotation is a keeper commit, the `terraform` kind's (secret-rotation R163).
 
 - `[<app>/]config/<stage>/rotation.tfvars` maps the keeper, `keycloak_client` for an app's one
-  client, to a value. A new value regenerates the secret in the hook's apply, which rewrites the
-  Secret in the same apply. Then the Secret's readers restart. A keeper once set is never removed,
-  because dropping it re-mints the secret too.
+  client and the call's own for a second, as IotDeploy's `keycloak_client_admin`, to a value. A
+  new value regenerates the secret in the hook's apply, which rewrites the Secret in the same
+  apply. Then the Secret's readers restart. A CronJob that reads it, as IoTSupport's
+  `iotsupport-rotation-cronjob` reads both its Secrets, takes the new secret at its next run. A
+  keeper once set is never removed, because dropping it re-mints the secret too.
 - Keycloak ends the old secret as it makes the new one, so the app's sign-in fails from the hook's
   apply until its pods restart.
 - Each owned client has a marker in SecretRotator's seed,
