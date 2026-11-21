@@ -77,7 +77,11 @@ The kubectl lines work from KubeCoder (`cexec iac kubectl --kubeconfig ~/.kube/c
    is stuck, check them in that order: `kubectl -n postgres-pas-prd get cluster,pods`, then
    `kubectl -n keycloak-prd describe pod -l app=keycloak` for the pull or mount error.
 8. **Apps**: `kubectl get pods -A | grep -vE 'Running|Completed'` is short and shrinking, and
-   `kubectl -n argocd-prd get applications` shows everything Synced/Healthy.
+   `kubectl -n argocd-prd get applications` shows everything Synced/Healthy. An app whose
+   Terraform declares a Keycloak client, pgAdmin's among them, syncs only once Keycloak answers
+   (step 7): until then its hook fails its refresh, even for a chart-only change. A sync whose
+   retries ran out meanwhile is synced again by hand
+   ([`oidc-client.md`](oidc-client.md#while-keycloak-is-down)).
 
 ## Break-glass
 

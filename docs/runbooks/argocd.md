@@ -76,7 +76,7 @@ Every credential arrives through ESO from OpenBao (`kv/` mount), refreshed hourl
 | `argocd-prd/argocd-repo-creds-github` | `eso/prd/argocd/prd/git#token` | Argo's own repo clones (classic PAT, `repo`) |
 | `argocd-prd/argocd-webhook` | `eso/prd/argocd/prd/webhook#github_secret` | argocd-server and the relay; the same value GitHub holds on every hook |
 | `argocd-prd/argocd-oidc` | `eso/prd/argocd/prd/oidc#client_secret` | SSO |
-| `argocd-hooks/argocd-hook-credentials` | `eso/prd/argocd-hooks/git#token` plus nine more leaves, 23 keys — `webhook#github_secret` above among them, as `TF_VAR_github_webhook_secret` | the PreSync hook: its clone, state pushes, provider credentials, the secret a deploy repo's webhook is signed with; the Destroy Stage Job, the same way |
+| `argocd-hooks/argocd-hook-credentials` | `eso/prd/argocd-hooks/git#token` plus eight more leaves, 27 keys with the literals — `webhook#github_secret` above among them, as `TF_VAR_github_webhook_secret`, and `eso/prd/argocd-hooks/keycloak/homelab#client_id` and `#client_secret`, the Keycloak admin client `argocd-hook`, as `TF_VAR_keycloak_homelab_client_id` and `_client_secret` beside the literal `TF_VAR_keycloak_homelab_url` | the PreSync hook: its clone, state pushes, provider credentials, the secret a deploy repo's webhook is signed with; the plan Job and the Destroy Stage Job, the same way |
 
 The two PATs are deliberately separate and rotate independently. Regenerating a
 classic PAT on GitHub invalidates its old value, so a PAT backing more than one
@@ -322,7 +322,8 @@ the app goes OutOfSync and an auto-synced stage syncs, its apply then a no-op
 
 ## Rotating a token or secret
 
-Argo's own credentials, the leaves in the table above:
+Argo's own credentials, the leaves in the table above. The hook's Keycloak leaf is regenerated in
+Keycloak first and patched, not put: [`oidc-client.md`](oidc-client.md#the-hooks-credential).
 
 1. Write the new value to its leaf, from stdin so it never lands in a history:
 

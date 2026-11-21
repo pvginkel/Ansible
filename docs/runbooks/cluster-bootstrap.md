@@ -105,8 +105,8 @@ passes the hook `hook.path`, as Argo does.
 
 3. **Argo CD**: [`argocd.md`](argocd.md#bootstrapping-argo-from-nothing), steps 1 to 8. At
    step 4, every Application but Argo's own shows a `ComparisonError` until step 10 below; that
-   is expected. Its hooks' credential Secret, `argocd-hooks/argocd-hook-credentials`, takes eight
-   OpenBao leaves and is made only if all eight exist: check it is there before step 10.
+   is expected. Its hooks' credential Secret, `argocd-hooks/argocd-hook-credentials`, takes nine
+   OpenBao leaves and is made only if all nine exist: check it is there before step 10.
 
 4. **CephFS CSI**: render and apply `ceph-csi-cephfs`. External Secrets then makes
    `csi-cephfs-secret` and `csi-cephfs-secret-user` in `ceph-csi-cephfs-prd`. Wait for both, and
@@ -183,7 +183,8 @@ passes the hook `hook.path`, as Argo does.
     hooks' Terraform finds the PVs from step 5 and changes nothing. A hook gets six retries
     (30s, 60s, 120s, then 3 min apart), of which every other one runs it again, so four runs in
     all ([`argocd.md`](argocd.md#diagnosing-a-failed-sync)); an app whose hook failed through
-    them waits for a manual sync. Everything
+    them waits for a manual sync. An app whose Terraform declares a Keycloak client fails its hook
+    until Keycloak answers ([`oidc-client.md`](oidc-client.md#while-keycloak-is-down)). Everything
     else in the registry deploys in the same pass. Done when every Application is Synced and
     Healthy ([`cold-boot.md`](cold-boot.md) step 8).
 
