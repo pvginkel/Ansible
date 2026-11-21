@@ -163,6 +163,9 @@ client whose role it holds.
 
 The commit holds:
 
+- where the app has no client yet, the root's setup of [§ A new client](#a-new-client) step 1:
+  the module copy and its test line, the provider block and its variables, `keycloak_realm` in
+  each stage's tfvars, the root test, and the keeper variable and file;
 - the module call, restating the client whole from the fresh read, every field the module
   models, so that a later commit's diff is exactly its change;
 - its grants and service-account roles;
@@ -379,9 +382,10 @@ makes one unasked.
   about 12 minutes ([`argocd.md`](argocd.md#diagnosing-a-failed-sync)). An app whose retries ran
   out is synced again by hand. **Reading:** a plan Job of an adopted app at its `main` reads
   `presync: the plan carries no changes`.
-- **Keycloak 26.8 and later** make the provider's admin client also need the `kc-admin-api` scope.
-  `argocd-hook` takes the scope before such a bump rolls, or every adopted app's hook fails. The
-  SOP for bumping Keycloak's version carries the step.
+- **Keycloak 26.8.2 and later** make the provider's admin client also need the `kc-admin-api`
+  scope. The upgrade to 26.8.2 creates the scope, so `argocd-hook` takes it right after that roll,
+  and until it has it every adopted app's hook fails. The SOP for bumping Keycloak's version
+  carries the step.
 
 ## The provider's version
 

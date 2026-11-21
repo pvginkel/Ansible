@@ -10,7 +10,6 @@ Planned roles (in rough build order):
 4. `microceph` — install, configure, join a cluster node.
 5. `proxmox_host` — Proxmox PVE host config.
 6. `openbao` — OpenBao 3-node Raft cluster bring-up with static-seal auto-unseal (Phase 2).
-7. `keycloak` — realm / client / user management against a running Keycloak.
 
 Reusable sub-roles — no host-class of their own, consumed by the roles above via `include_role` with per-call vars:
 
