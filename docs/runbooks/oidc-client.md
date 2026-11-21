@@ -4,11 +4,20 @@ When to use this runbook: an app's deploy repo gains a Keycloak client, adopts o
 already holds, or rotates its client's secret, or the Keycloak provider is bumped. An app's
 Keycloak clients belong to its deploy repo's Terraform. They are declared through the app's copy
 of the `keycloak-client` module and applied by the app's Argo CD PreSync hook. The clients
-adopted so far, each by import, are pgAdmin's, Guacamole's, Jenkins' and YouTrack's
-(HomelabAppsDeploy `pgadmin/`, `guacamole/`, `jenkins/` and `youtrack/`) and Grafana's
-(PlatformAddOnsDeploy `grafana/`). Copy the one whose case is yours: pgAdmin's for a secret its
-own chart reads, Grafana's for one an upstream chart reads through its values, Jenkins' or
-YouTrack's for a secret held outside Kubernetes, Guacamole's for a public client.
+adopted so far, each by import, are:
+
+- in the monorepos, pgAdmin's, Guacamole's, Jenkins' and YouTrack's (HomelabAppsDeploy
+  `pgadmin/`, `guacamole/`, `jenkins/` and `youtrack/`) and Grafana's (PlatformAddOnsDeploy
+  `grafana/`);
+- in an app's own deploy repo, at its root, DHCPApp's `dhcp-app` (DnsmasqDeploy),
+  ElectronicsInventory's `electronics-inventory`, FieldnotesApp's `fieldnotes-app`,
+  ZigbeeControl's `zigbee-control` (Zigbee2mqttDeploy) and MyDownloads' `mydownloads`
+  (MediaDeploy).
+
+Copy the one whose case is yours: pgAdmin's, or DnsmasqDeploy's in an app's own repo, for a
+secret its own chart reads; Grafana's for one an upstream chart reads through its values; Jenkins'
+or YouTrack's for a secret held outside Kubernetes; Guacamole's, or MediaDeploy's in an app's own
+repo, for a public client.
 
 Context:
 
@@ -22,8 +31,9 @@ Context:
 it, so a commit that touches an app's clients goes to a topic branch first. It reaches `main` only
 after a plan Job has read it at its SHA, for each stage it touches
 ([`argocd.md`](argocd.md#planning-a-stages-terraform-as-its-hook-applies-it)). Fixes land the same
-way. Starting the plan Job is a write, like every push, sync and OpenBao write here: the operator
-runs it, or says Claude may ([`argocd.md`](argocd.md#conventions)). `$KC` below is that page's
+way. In an app's own deploy repo the app's directory is the whole repo, so every commit there, a
+README's included, lands this way, its plan Job with `APP_PATH` empty. Starting the plan Job is a
+write, like every push, sync and OpenBao write here: the operator runs it, or says Claude may ([`argocd.md`](argocd.md#conventions)). `$KC` below is that page's
 shorthand for the prd-write kubeconfig.
 
 ## The convention
@@ -31,11 +41,11 @@ shorthand for the prd-write kubeconfig.
 - **The module.** An app's directory carries a copy at `terraform/modules/keycloak-client/`, as
   it does each module it uses (AnsibleSpecs `decisions.md`, Tool split). Copy an adopted app's.
   Every copy is byte-identical. Each monorepo's root test asserts its own copies identical, and no
-  test compares HomelabAppsDeploy's with PlatformAddOnsDeploy's, so a change to the module is a
-  commit to every copy in both. The provider's pin travels with each copy. The module's mocked
-  tests run only from the app's test verb, in a copy outside the checkout: copy an adopted app's
-  line in its monorepo's `.kubecoder/project.yaml`, "The keycloak-client module's tests, run in a
-  copy outside the checkout".
+  test compares one repo's copies with another's, so a change to the module is a commit to every
+  copy in every deploy repo that carries one. The provider's pin travels with each copy. The
+  module's mocked tests run only from the app's test verb, in a copy outside the checkout: copy an
+  adopted app's line in its repo's `.kubecoder/project.yaml`, "The keycloak-client module's tests,
+  run in a copy outside the checkout".
 - **What it declares** is one client and what hangs on it:
   - `keycloak_openid_client`, with `prevent_destroy`, so a change that would replace the client
     fails the plan;
@@ -56,8 +66,9 @@ shorthand for the prd-write kubeconfig.
   Destroy Stage plans without the stage's tfvars once `config/<stage>/` is gone. The root test
   `terraform/tests/stage_tfvars.tftest.hcl` plans the root that way, on mock providers, and the
   app's test verb runs it after `tf-check`. Where a name the provider validates derives from
-  `var.namespace`, which the sync hook sets, the test sets the namespace too, as YouTrack's does
-  for its volume. A stage whose realm holds none of the app's clients declares none.
+  `var.namespace`, which the sync hook sets, the test sets the namespace too, as YouTrack's and
+  FieldnotesDeploy's do for a volume. A stage whose realm holds none of the app's clients
+  declares none.
 - **The provider block** configures itself from variables and literals alone: a Destroy Stage
   keeps a root's `terraform`, `provider` and `variable` blocks and drops every other block. Every
   adopted app's `terraform/providers.tf` carries it:
@@ -154,9 +165,15 @@ Keycloak's own app, HomelabAppsDeploy `keycloak/`, declares no Keycloak resource
 The client already exists in the realm. It is imported, never recreated: the import commit plans
 imports alone, and the commit after it drops the import blocks. Where the app owns the secret, that
 commit also takes it over from the ExternalSecret and the OpenBao leaf the app read it from. Each
-adoption so far ran this way on 2026-11-21: pgAdmin's in HomelabAppsDeploy `1c6efc6` and
-`737fd52`, Guacamole's in `c63cd5f` and `4a3919c`, Jenkins' and YouTrack's together in `42c6e64`
-and `221d5ba`, and Grafana's in PlatformAddOnsDeploy `bb0cb74` and `d6cd7cb`.
+adoption so far ran this way on 2026-11-21, the import commit first:
+
+- pgAdmin's in HomelabAppsDeploy `1c6efc6` and `737fd52`, Guacamole's in `c63cd5f` and `4a3919c`,
+  and Jenkins' and YouTrack's together in `42c6e64` and `221d5ba`;
+- Grafana's in PlatformAddOnsDeploy `bb0cb74` and `d6cd7cb`;
+- DHCPApp's in DnsmasqDeploy `aa30b54` and `240c6c2`, ElectronicsInventory's in
+  ElectronicsInventoryDeploy `dc908b4` and `3ba9eea`, FieldnotesApp's in FieldnotesDeploy
+  `1274470` and `9783bcf`, ZigbeeControl's in Zigbee2mqttDeploy `611dcc3` and `3e6cf49`, and
+  MyDownloads' in MediaDeploy `b0653f0` and `184e0f4`.
 
 ### 1. The fresh read
 
@@ -165,7 +182,12 @@ client (realm-management's view roles alone). Use AnsibleSpecs
 `handovers/keycloak-access/tools/keycloak_dump.py`, which only GETs and calls no secret endpoint.
 It reads the account's secret from `kv/shared/keycloak-review/<realm>` into its token request and
 nowhere else. An agent reads that leaf only with the operator's permission for that path. Keep the
-output out of every repository, in `/tmp`.
+output out of every repository, in `/tmp`. From `/work/Ansible`, in bash, since the login script
+finds the repo root through bash's `BASH_SOURCE`:
+
+```sh
+bash -c '. scripts/bao-login.sh && python3 -I ../AnsibleSpecs/handovers/keycloak-access/tools/keycloak_dump.py homelab /tmp/<dir>'
+```
 
 Diff the read against the review's dump,
 `handovers/keycloak-access/dump-2026-11-20/<realm>/clients/<client>.json`. Anything that changed
@@ -173,6 +195,13 @@ since 2026-11-20 is restated in the call as it now is, and reported. The read al
 the import blocks name: the client's, each role's and mapper's, and each grantee's user id. For a
 service-account client it also gives its service account user's id and the id of each other
 client whose role it holds.
+
+A mapper's config is restated as the mapper's own endpoint returns it,
+`/admin/realms/<realm>/clients/<client uuid>/protocol-mappers/models/<mapper uuid>`, which is what
+the provider reads. The client's representation, which the dump writes, can leave keys out: it
+lacked `"userinfo.token.claim": "false"` on DHCPApp's, ElectronicsInventory's and ZigbeeControl's
+audience mappers, and a call restated from it plans the mapper `update, import`. GET each mapper
+through the same account.
 
 ### 2. The import commit, on a topic branch
 
@@ -217,13 +246,17 @@ What bites on import, and how the call meets it:
 - **The `authorization` block** stays out, because no client uses authorization services. Declared,
   it would switch them on. Left out, an update switches them off, so a client that uses them would
   import as `update, import`, and the gate stops it.
-- **A flow override** is restated with both keys, each flow's id from the fresh read. Left out, the
-  plan removes the override, and a block with one key clears the other. The flow stays the realm's.
-- **The `/*` on a service-account-only client.** The console's default `/*` stands in the redirect
-  URIs and web origins of a client whose one flow is service accounts. The provider refuses it on a
-  create or an update, and checks for it only then, so the import restates it and plans zero. The
-  commit after the import sets both lists empty. Until that commit lands, no change to the client
-  can apply.
+- **A flow override** is restated with each key the client binds, each flow's id from the fresh
+  read. Left out, the plan removes the override. The module writes both keys, so one left null
+  clears that override. `mydownloads` binds `direct_grant` alone, to the realm's `direct grant no
+  OTP`. The flow stays the realm's.
+- **URL lists the provider refuses.** It refuses redirect URIs on a client with neither the
+  standard nor the implicit flow, and web origins on one that also has direct access grants off.
+  It checks only on a create or an update, so the import restates them and plans zero. The
+  console's default `/*` stands in both lists of a client whose one flow is service accounts, and
+  `/*` stood in the redirect URIs of `mydownloads`, on direct access grants alone. The commit after
+  the import sets the refused lists empty. Until that commit lands, no change to the client can
+  apply.
 - **Scope assignments are authoritative.** `keycloak_client_scope_assignments` detaches whatever
   its two lists leave out, built-ins included. A create on an existing client does so without
   showing it. So a call sets `scopes` only where its app names its scopes, writes both lists whole
@@ -258,12 +291,14 @@ The commit holds exactly the following, and its plan lists exactly their changes
 stops the adoption.
 
 - for a client whose secret the app owns, the takeover (below);
-- on a service-account-only client, both URL lists set empty;
+- the URL lists the provider refuses set empty: both on a service-account-only client, the
+  redirect URIs alone on one on direct access grants alone, whose web origins pass;
 - `imports.tf` dropped, with the root test's overrides.
 
-pgAdmin's and Grafana's plans read `module.keycloak_client.kubernetes_secret_v1.this[0]: create`
-alone. A commit that only drops the import blocks plans `presync: the plan carries no changes`, and
-the adoption ends at its sync.
+A takeover's plan reads `module.keycloak_client.kubernetes_secret_v1.this[0]: create` alone.
+MyDownloads' read `module.keycloak_client.keycloak_openid_client.this: update` alone, its diff
+`valid_redirect_uris` alone. A commit that only drops the import blocks plans `presync: the plan
+carries no changes`, and the adoption ends at its sync.
 
 **The takeover.**
 
@@ -272,7 +307,10 @@ the adoption ends at its sync.
   The name differs from the ExternalSecret's target (pgAdmin's was `pgadmin-oidc`, Grafana's
   `grafana-oidc`), so the PreSync apply can create the Secret while the ESO-owned one still exists.
 - The app's references switch to `keycloak-client`, which rolls the pods: pgAdmin's chart's
-  `secretKeyRef`s, Grafana's `envFromSecret`.
+  `secretKeyRef`s, Grafana's `envFromSecret`. Where a template falls back to chart values while
+  the ExternalSecret's entry is absent, as DnsmasqDeploy's, ElectronicsInventoryDeploy's and
+  Zigbee2mqttDeploy's did, the fallback and its `oidc.clientID` and `oidc.clientSecret` defaults
+  go too: dropping the entry alone renders both variables empty.
 - The ExternalSecret leaves the chart: pgAdmin's stage values, Grafana's companion chart
   (`chart/templates/stage-manifests.yaml`). Argo CD prunes it in the sync phase, after the hook,
   and ESO's owner reference takes its Secret with it.
@@ -308,7 +346,23 @@ Afterwards the namespace held `keycloak-client`, with no owner, and no `pgadmin-
    A container without Python makes the same request with curl, each secret on stdin
    (`--data-urlencode client_secret@-`), printing only the status and the `error`. Grafana's
    `grafana` container holds the credentials in `GF_AUTH_GENERIC_OAUTH_CLIENT_ID` and
-   `GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET`.
+   `GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET`. The containers below hold them in `OIDC_CLIENT_ID` and
+   `OIDC_CLIENT_SECRET`:
+
+   | App | Deployment, container | Python |
+   | --- | --- | --- |
+   | DHCPApp | `dnsmasq-prd` `dhcp-app`, `dhcpapp-app` | `/app/.venv/bin/python3` |
+   | ElectronicsInventory | `electronics-inventory-prd` `electronics-inventory`, `electronics-inventory-app` | `python3` |
+   | FieldnotesApp | `fieldnotes-prd` `fieldnotes`, `app` | `python` |
+   | ZigbeeControl | `zigbee2mqtt-prd` `zigbee-control`, `zigbee-control-app` | `/app/.venv/bin/python3` |
+
+   After a takeover, run it in the new pod by name, once `kubectl rollout status` returns: the old
+   pod, still Terminating then, holds the ESO Secret's copy in its environment.
+
+   A public client on the password grant, `mydownloads`, posts `grant_type` `password` with its
+   `client_id` and a username and password no user holds. `400 invalid_grant` means Keycloak took
+   the client and refused the user; a client with direct access grants off answers `400
+   unauthorized_client`. Only a user's own sign-in shows such a client's token.
 
 2. **The old leaf.** Once the check holds and the ExternalSecret and its Secret are gone, check that
    no ExternalSecret and no deploy-repo file names the leaf, then delete it whole, with its
@@ -328,8 +382,26 @@ Afterwards the namespace held `keycloak-client`, with no owner, and no `pgadmin-
    (`tests/test_keycloak_client.py`) follow. The catalog marks the leaf's row deleted, and the
    client's marker comes in where the kind can rotate the app's stage
    ([§ Rotating the client secret](#rotating-the-client-secret)). The
-   [go-live runbook](secret-rotator-go-live.md)'s `keycloak-client` loops drop the leaf.
+   [go-live runbook](secret-rotator-go-live.md)'s `keycloak-client` loops drop the leaf, and the
+   marker joins its wave 4 lists and the stagger of its item 13.
 4. **The sign-in.** The operator signs in to the app through Keycloak once.
+
+## A change to an adopted client
+
+A change to the client, its roles, mappers or grants is a commit to the call, planned at its SHA
+on a topic branch before `main` takes it, as every commit is. FieldnotesApp's web origins losing
+their trailing slash, FieldnotesDeploy `ccbfb29`, planned
+`module.keycloak_client.keycloak_openid_client.this: update` alone, its diff `web_origins` alone.
+With no keeper changed the secret is not regenerated, so the Secret and the app's pods are left
+alone.
+
+A fresh read after the sync, diffed against one from before, shows the change. On a client's
+first update it also shows boolean attributes the client lacked, which the provider sends on every
+update: `fieldnotes-app` gained `use.refresh.tokens` at `"true"`,
+`client_credentials.use_refresh_token` at `"false"`, and `exclude.issuer.from.auth.response` and
+`exclude.session.state.from.auth.response` at `"false"`, and `mydownloads` the last two. Each is
+the value Keycloak 26.7.3 applies to the absent key. `post.logout.redirect.uris` can come back in
+another order.
 
 ## Rotating the client secret
 
@@ -344,9 +416,11 @@ A rotation is a keeper commit, the `terraform` kind's (secret-rotation R163).
 - Each owned client has a marker in SecretRotator's seed,
   `rotator/terraform/<app>-<stage>/<keeper>`:
   - key `client_secret`, 14 d, `activate: none`;
-  - its args: the repo, the app's directory, the Application, the keeper and the Secret.
+  - its args: the repo, the app's directory (`""` at a repo's root), the Application, the keeper
+    and the Secret.
 
-  pgAdmin's is `rotator/terraform/pgadmin-prd/keycloak_client`. The client's repo is on the kind's
+  pgAdmin's is `rotator/terraform/pgadmin-prd/keycloak_client`, and DHCPApp's, at DnsmasqDeploy's
+  root, `rotator/terraform/dnsmasq-prd/keycloak_client`. The client's repo is on the kind's
   token, whose repositories `rotator/terraform/credentials`' notes list. The seed refuses notes
   longer than 512 bytes on a leaf with an `expires_at`, and these notes are near that limit, so a
   repo added to them needs shorter wording.
@@ -363,7 +437,9 @@ is the operator's call: nobody makes one unasked.
    in `rotation_epoch = { "keycloak_client" = "<YYYY-MM-DDTHH:MM:SSZ>" }`.
 2. Its plan Job reads an in-place update of the client and one of the Secret, and nothing else.
 3. `main` takes that SHA, the stage syncs, and the hook re-mints the secret.
-4. Restart the Secret's readers at once. pgAdmin's and Grafana's:
+4. Restart the Secret's readers at once: the Deployments the secret-rotation catalog's `terraform`
+   marker table lists for the client's marker, and Grafana's, which has none. pgAdmin's and
+   Grafana's:
 
    ```sh
    cexec iac kubectl $KC rollout restart -n pgadmin-prd deployment/pgadmin
@@ -438,6 +514,12 @@ is the operator's call: nobody makes one unasked.
 - **Keycloak never waits on itself.** Keycloak's own app declares no Keycloak resource. No app
   Keycloak's cold start rests on declares a client either: the shared Postgres cluster, the
   registry, storage, nginx, OpenBao and ESO, and Argo CD. `argocd` and `openbao` stay by hand.
+- **dnsmasq waits only to deploy.** DnsmasqDeploy declares DHCPApp's client, and dnsmasq serves
+  `.home` DNS and DHCP. On a cold boot its pods come back without a sync, and Keycloak's needs
+  resolve through names CoreDNS pins. So while Keycloak is down DNS and DHCP serve, and only a
+  DnsmasqDeploy change waits. After a full cluster loss its hand render carries no hook, so
+  `dhcp-app` starts only once the hook has written `keycloak-client`
+  ([`cluster-bootstrap.md`](cluster-bootstrap.md) step 10).
 - **A Destroy Stage** of an adopted app deletes its clients, on the plan the operator confirms. Its
   reduced root binds no `prevent_destroy`
   ([`argocd.md`](argocd.md#destroying-a-retired-stage)).

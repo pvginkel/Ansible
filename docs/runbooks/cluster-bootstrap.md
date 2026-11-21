@@ -167,7 +167,9 @@ passes the hook `hook.path`, as Argo does.
    from `registry:5000` work again.
 
 7. **dnsmasq**: render and apply `dnsmasq`. `dns-0`/`dns-1` come up on 10.2.1.2/.3 and `dhcp`
-   on 10.2.1.10 ([`cold-boot.md`](cold-boot.md) step 6 has the checks).
+   on 10.2.1.10 ([`cold-boot.md`](cold-boot.md) step 6 has the checks). `dhcp-app`, DHCPApp,
+   waits for its Secret `keycloak-client`, which only its hook writes (step 10); DNS and DHCP do
+   not need it.
 
 8. **nginx**, then **tfmirror**: render and apply each, and wait for its rollout. nginx's
    certificates for `charts.home` and `tfmirror.home` are on its volume. If they have expired,
@@ -184,7 +186,8 @@ passes the hook `hook.path`, as Argo does.
     (30s, 60s, 120s, then 3 min apart), of which every other one runs it again, so four runs in
     all ([`argocd.md`](argocd.md#diagnosing-a-failed-sync)); an app whose hook failed through
     them waits for a manual sync. An app whose Terraform declares a Keycloak client fails its hook
-    until Keycloak answers ([`oidc-client.md`](oidc-client.md#while-keycloak-is-down)). Everything
+    until Keycloak answers ([`oidc-client.md`](oidc-client.md#while-keycloak-is-down)), dnsmasq's
+    among them: its hook then writes `keycloak-client`, and `dhcp-app` starts. Everything
     else in the registry deploys in the same pass. Done when every Application is Synced and
     Healthy ([`cold-boot.md`](cold-boot.md) step 8).
 
