@@ -193,8 +193,10 @@ What bites on import, and how the call meets it:
   overrides. The call names each one where the fresh read differs from the module's default.
 - **Kept as Keycloak holds them.** The provider's update never sends the attributes it does not
   model, such as CIBA, `frontchannel.logout.session.required` and `logout.confirmation.enabled`.
-  `extra_config` stays empty. No `authorization` block is declared, since declaring one would
-  switch authorization services on.
+  `extra_config` stays empty.
+- **The `authorization` block** stays out, because no client uses authorization services. Declared,
+  it would switch them on. Left out, an update switches them off, so a client that uses them would
+  import as `update, import`, and the gate stops it.
 - **A flow override** is restated with both keys, each flow's id from the fresh read. Left out, the
   plan removes the override, and a block with one key clears the other. The flow stays the realm's.
 - **The `/*` on a service-account-only client.** The console's default `/*` stands in the redirect
