@@ -78,8 +78,9 @@ The kubectl lines work from KubeCoder (`cexec iac kubectl --kubeconfig ~/.kube/c
    `kubectl -n keycloak-prd describe pod -l app=keycloak` for the pull or mount error.
 8. **Apps**: `kubectl get pods -A | grep -vE 'Running|Completed'` is short and shrinking, and
    `kubectl -n argocd-prd get applications` shows everything Synced/Healthy. An app whose
-   Terraform declares a Keycloak client, dnsmasq's, Grafana's, Jenkins' and pgAdmin's among them,
-   syncs only once Keycloak answers (step 7): until then its hook fails its refresh, even for a
+   Terraform declares a Keycloak client, dnsmasq's, Grafana's, Jenkins', pgAdmin's and Pilot's
+   among them, and KubeCoder's prd once a promotion has carried its client, syncs only once
+   Keycloak answers (step 7): until then its hook fails its refresh, even for a
    chart-only change, and its pods run on as they came back. A sync whose retries ran out
    meanwhile is synced again by hand
    ([`oidc-client.md`](oidc-client.md#while-keycloak-is-down)).

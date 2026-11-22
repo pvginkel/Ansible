@@ -99,7 +99,8 @@ named after its registry key; slices 056–059 cite them as `/work/scratch/<Mono
 `/work/<Monorepo>`. Three dedicated app deploy repos are declared too, the ones this environment's
 work rolls through, so `track_build.py` follows their Argo CD roll: `PilotDeploy` (a PilotApp
 promotion), `PipelinesDeploy` (a JenkinsPipelineUtils build) and `DevGuidesDeploy` (a DevGuides
-build). The set is
+build). `PilotApp` is declared beside `PilotDeploy`, whose test verb overlays PilotApp's
+architecture model from `../PilotApp`. The set is
 declared in `.kubecoder/config.yaml`; adding an ordinary entry needs no restart — clone it to the
 path the entry resolves to, run `kc project setup` in it, and add it to `Ansible.code-workspace` in
 the same commit (a `shared: true` entry is mounted, so it takes `kc env restart` and is never

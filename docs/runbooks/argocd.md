@@ -32,7 +32,10 @@ actually ran and the Phase A proof drill are recorded in slice 009's
   - the Keycloak client adoptions ([`oidc-client.md`](oidc-client.md)): their
     rulings give the run each commit's plan Job, the fast-forward of `main` to
     the SHA the plan read, and the deletion of an app's old OpenBao leaf once a
-    token request shows its new Secret authenticates.
+    token request shows its new Secret authenticates. Pilot's adoption also
+    gave it Pilot's two promotions to prd, `PilotApp/Promote-PRD` at each of
+    its commits once prd's plan at that SHA read as ruled; KubeCoder's
+    promotion stays the operator's.
 - A prd KubeCoder environment reads Argo through the `argocd` CLI in its `iac`
   sidecar, as the read-only `kubecoder` account and with no login step
   ([Reading Argo with the CLI](#reading-argo-with-the-cli)). It writes nothing.

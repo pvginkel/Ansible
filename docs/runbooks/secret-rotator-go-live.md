@@ -361,6 +361,15 @@ two fewer in the last line's leaf count. The `rotator/terraform/*` markers are s
 `rotator/terraform/iot-prd/keycloak_client` and `rotator/terraform/iot-prd/keycloak_client_admin`
 among them: two more in its leaf count and its new marker leaves.
 
+**With slice 075's seed.** Where `prd` carries slice 075, the secrets of Pilot's two service
+clients in `homelab`, `pilot-app-dev-service`'s and `pilot-app-service`'s, are PilotDeploy's
+Terraform's, and the review's read-only accounts are retired. Their leaves,
+`eso/prd/pilot/{dev,prd}/service-user` and `shared/keycloak-review/{homelab,homelab-dev}`, are
+gone from the seed and the store: four fewer in the last line's leaf count. The
+`rotator/terraform/*` markers are nineteen, `rotator/terraform/pilot-dev/keycloak_client` and
+`rotator/terraform/pilot-dev/keycloak_client_service` among them: two more in its leaf count and
+its new marker leaves. Pilot's prd stage has no marker.
+
 ```sh
 srviac 'secret-rotator annotate --apply'
 srviac 'secret-rotator annotate' | tail -n 1
@@ -1349,7 +1358,7 @@ Slice 048's kind is `terraform`, for the credentials Terraform mints in an app's
 hook. Its plan commits a new keeper to the app's `config/<stage>/rotation.tfvars` on the deploy
 repo's `main`, under the app's directory in HomelabAppsDeploy, and waits for the sync whose hook
 re-mints the credential. Then it proves that the Secret Terraform writes changed, and restarts
-every workload that reads that Secret. Its keys are seventeen
+every workload that reads that Secret. Its keys are nineteen
 marker leaves, `rotator/terraform/<Application>/<keeper>`. It ships switched off. The sections
 below create its GitHub token, annotate, read its plans and check the token from srviac. Item 13 of
 [§ Going live](#going-live) then staggers the markers' first nights and enables the kind.
@@ -1360,7 +1369,9 @@ into HomelabAppsDeploy, keeper files included. Slice 071 added pgAdmin's,
 `pgadmin/config/prd/rotation.tfvars`, and slice 073 DnsmasqDeploy's, FieldnotesDeploy's and
 Zigbee2mqttDeploy's `config/prd/rotation.tfvars`. Their `keycloak_client` keepers, and
 ElectronicsInventoryDeploy's and IotDeploy's, re-mint the apps' Keycloak client secrets, and
-IotDeploy's `keycloak_client_admin` (slice 074) that of IoTSupport's admin client.
+IotDeploy's `keycloak_client_admin` (slice 074) that of IoTSupport's admin client. PilotDeploy's
+`config/dev/rotation.tfvars` takes `keycloak_client` and `keycloak_client_service` (slice 075),
+for Pilot dev's sign-in client and service client.
 [The token](#the-terraform-kinds-token) needs only OpenBao and GitHub.
 [Wave 4's annotations](#wave-4s-annotations) come after step 6: they run `secret-rotator` on
 srviac, which needs steps 1 to 3, and they stamp with step 6's `stamp`. The plans and the check
@@ -1386,9 +1397,9 @@ Fine-grained tokens:
 - repository access only these nine: `pvginkel/ElectronicsInventoryDeploy`, `pvginkel/IotDeploy`,
   `pvginkel/HomelabAppsDeploy`, `pvginkel/DnsmasqDeploy`, `pvginkel/FieldnotesDeploy`,
   `pvginkel/Zigbee2mqttDeploy`, `pvginkel/KerstDinerDeploy`, `pvginkel/PlatformAddOnsDeploy` and
-  `pvginkel/PilotDeploy`, for its dev stage. The markers sit in the first six. The other three are
-  on the token for the Keycloak client secrets their apps' Terraform takes over, which have no
-  marker yet (secret-rotation R163);
+  `pvginkel/PilotDeploy`, for its dev stage. The markers sit in the first six and in
+  PilotDeploy. KerstDinerDeploy and PlatformAddOnsDeploy are on the token for the Keycloak client
+  secrets their apps' Terraform takes over, which have no marker yet (secret-rotation R163);
 - of the repository permissions only Contents, read and write. GitHub adds Metadata, read-only, to
   every token.
 
@@ -1408,7 +1419,8 @@ reaches.
 
 Slice 048 adds eleven leaves to the seed: the token's and the ten markers, which the apply creates.
 Slice 071 adds one more marker, pgAdmin's, slice 073 four, DHCPApp's, ElectronicsInventory's,
-FieldnotesApp's and ZigbeeControl's, and slice 074 two, IoTSupport's and its admin client's.
+FieldnotesApp's and ZigbeeControl's, slice 074 two, IoTSupport's and its admin client's, and
+slice 075 two, Pilot dev's sign-in and service clients'.
 
 ```sh
 srviac 'secret-rotator annotate'
@@ -1427,12 +1439,12 @@ srviac 'secret-rotator annotate'
     "path":"<path>","app":"<app>","keeper":"<keeper>","secret":"<app>/<Secret>"},"activate":"none"}`,
     on one line, `<Repo>` and `<path>` the table's of [wave 4's plans](#wave-4s-plans);
   - `set     max_versions=20  (was 0)`.
-- Where step 6, or an apply after it, ran on slice 074's seed, none of these: that apply wrote
+- Where step 6, or an apply after it, ran on slice 075's seed, none of these: that apply wrote
   them. One that ran on an earlier seed wrote the markers of that seed alone.
-- The last line's `<n> of them new marker leaves` counts the markers no apply has created yet: 17
-  where step 6 ran on a seed before slice 048, 7 where it ran on slice 048's before slice 071's,
-  6 where it ran on slice 071's before slice 073's, and 2 where it ran on slice 073's before
-  slice 074's.
+- The last line's `<n> of them new marker leaves` counts the markers no apply has created yet: 19
+  where step 6 ran on a seed before slice 048, 9 where it ran on slice 048's before slice 071's,
+  8 where it ran on slice 071's before slice 073's, 4 where it ran on slice 073's before slice
+  074's, and 2 where it ran on slice 074's before slice 075's.
 - No `absent from the store` line for `rotator/terraform/credentials`, and no `cannot write:` line.
 
 ```sh
@@ -1476,7 +1488,8 @@ markers='electronics-inventory-prd/db#password iot-prd/db#password keycloak-dev/
   iot-prd/keycloak_client#client_secret
   dnsmasq-prd/keycloak_client#client_secret electronics-inventory-prd/keycloak_client#client_secret
   fieldnotes-prd/keycloak_client#client_secret zigbee2mqtt-prd/keycloak_client#client_secret
-  iot-prd/keycloak_client_admin#client_secret'
+  iot-prd/keycloak_client_admin#client_secret pilot-dev/keycloak_client#client_secret
+  pilot-dev/keycloak_client_service#client_secret'
 for m in credentials#token $markers; do srviac "secret-rotator plan rotator/terraform/${m%#*}"; done
 ```
 
@@ -1492,8 +1505,8 @@ for m in credentials#token $markers; do srviac "secret-rotator plan rotator/terr
   pvginkel/<Repo>`), `argocd.sync` (`sync Argo CD Application <app>`), `terraform.prove_remint`
   (`prove Terraform re-minted Secret <app>/<Secret>`), `kv.write`, one `k8s.rollout` per restart
   below, and `kv.stamp` (silent). Each Secret is in the namespace named after the Application. The
-  restarts are the workloads that read the Secret on 2026-10-10, and the seven Keycloak client
-  secrets' on 2026-11-21:
+  restarts are the workloads that read the Secret on 2026-10-10, the seven Keycloak client
+  secrets' on 2026-11-21, and Pilot dev's two on 2026-11-22:
 
   | Leaf under `rotator/terraform/` | Key | Repo | Path | Secret | Restarts |
   | --- | --- | --- | --- | --- | --- |
@@ -1514,6 +1527,8 @@ for m in credentials#token $markers; do srviac "secret-rotator plan rotator/terr
   | `fieldnotes-prd/keycloak_client` | `client_secret` | FieldnotesDeploy | `""` | `keycloak-client` | `fieldnotes-prd/deployment/fieldnotes` |
   | `zigbee2mqtt-prd/keycloak_client` | `client_secret` | Zigbee2mqttDeploy | `""` | `keycloak-client` | `zigbee2mqtt-prd/deployment/zigbee-control` |
   | `iot-prd/keycloak_client_admin` | `client_secret` | IotDeploy | `""` | `keycloak-client-admin` | `iot-prd/deployment/iotsupport` |
+  | `pilot-dev/keycloak_client` | `client_secret` | PilotDeploy | `""` | `keycloak-client` | `pilot-dev/deployment/pilot` |
+  | `pilot-dev/keycloak_client_service` | `client_secret` | PilotDeploy | `""` | `keycloak-client-service` | `pilot-dev/deployment/pilot` |
 
   The path is the app's directory in the repo, `""` for the repo's root. The keeper file is
   `config/<stage>/rotation.tfvars` in it.
@@ -1533,15 +1548,16 @@ Each Application's source, from the workstation:
 
 ```sh
 for a in electronics-inventory-prd iot-prd keycloak-dev keycloak-prd guacamole-prd storage-prd youtrack-prd postgres-pas-prd pgadmin-prd \
-    dnsmasq-prd fieldnotes-prd zigbee2mqtt-prd; do
+    dnsmasq-prd fieldnotes-prd zigbee2mqtt-prd pilot-dev; do
   k -n argocd-prd get application "$a" -o json \
     | jq -r '[.metadata.name, .spec.source.targetRevision, (.spec.source.helm.parameters[] | select(.name | IN("hook.repo", "hook.path", "hook.stage")) | "\(.name)=\(.value)")] | join(" ")'
 done
 ```
 
-**Reading:** twelve lines, each `<app> main hook.repo=https://github.com/pvginkel/<Repo>.git
+**Reading:** thirteen lines, each `<app> main hook.repo=https://github.com/pvginkel/<Repo>.git
 hook.stage=<stage> hook.path=<path>`, `<Repo>` and `<path>` the table's, `<stage>` `dev` for
-`keycloak-dev` and `prd` for the others, as on 2026-10-11, and the last four's on 2026-11-21.
+`keycloak-dev` and `pilot-dev`, `prd` for the others, as on 2026-10-11, the next four's on
+2026-11-21 and `pilot-dev`'s on 2026-11-22.
 Where the table's path is `""`, the line ends at `hook.stage=<stage>`. Another repo, another
 `hook.path` or another branch than `main` fails that marker's commit step with `Argo Application
 <app>'s hook applies …` or `Argo Application <app> tracks …`: stop and read it.
@@ -1559,14 +1575,15 @@ for repo, file in [("ElectronicsInventoryDeploy", "config/prd"), ("IotDeploy", "
                    ("HomelabAppsDeploy", "guacamole/config/prd"), ("HomelabAppsDeploy", "storage/config/prd"),
                    ("HomelabAppsDeploy", "youtrack/config/prd"), ("HomelabAppsDeploy", "postgres-pas/config/prd"),
                    ("HomelabAppsDeploy", "pgadmin/config/prd"), ("DnsmasqDeploy", "config/prd"),
-                   ("FieldnotesDeploy", "config/prd"), ("Zigbee2mqttDeploy", "config/prd")]:
+                   ("FieldnotesDeploy", "config/prd"), ("Zigbee2mqttDeploy", "config/prd"),
+                   ("PilotDeploy", "config/dev")]:
     found = github.contents(f"pvginkel/{repo}", f"{file}/rotation.tfvars", "main")
     print(repo, file, "not found" if found is None else keepers.parse(found[0])[1])'
 ```
 
 **Reading.**
 
-- Twelve lines, each a repo, the keeper file's directory and `{}`: the file's keeper map, empty
+- Thirteen lines, each a repo, the keeper file's directory and `{}`: the file's keeper map, empty
   until the app's first rotation.
 - `not found`: the repositories are private, and GitHub answers a token that lacks one as if the
   file were not there. The file is on `main` since the slice that wired its keeper, so the token
@@ -2618,9 +2635,8 @@ takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, 
 
    ```sh
    for l in eso/prd/{argocd,kerstdiner}/prd/oidc eso/dev/electronics-inventory/dev/oidc \
-       eso/prd/argocd-hooks/keycloak/homelab eso/prd/pilot/{dev,prd}/service-user \
+       eso/prd/argocd-hooks/keycloak/homelab \
        jenkins/{iotsupport-pipeline-oidc,keycloak-da-admin,keycloak-iotsupport-admin} \
-       shared/keycloak-review/{homelab,homelab-dev} \
        rotator/keycloak-client/{homelab,homelab-dev} rotator/oidc-auth-client; do srviac "secret-rotator plan $l"; done
    ```
 
@@ -2632,9 +2648,8 @@ takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, 
    - `eso/prd/argocd-hooks/keycloak/homelab`'s plan syncs `argocd-hooks/argocd-hook-credentials`
      and restarts nothing. A hook run between its regenerate and that sync fails its Keycloak
      login, and Argo retries it.
-   - Its 12 keys at 14 days, the two `shared/keycloak-review` accounts among them until they are
-     deleted, have no stamp and are all due at once, so at 10 a night the first pass takes two
-     nights.
+   - Its 8 keys at 14 days have no stamp and are all due at once, within the cap of 10 a night,
+     so the first pass takes one night.
    - `jenkins/keycloak-iotsupport-admin`'s copies roll the KubeCoder controllers of `prd` and
      `dev`, which restarts every KubeCoder environment (design R65).
    - `jenkins/keycloak-da-admin` rotates only while it exists; it is to be deleted. Once it is
@@ -2940,14 +2955,15 @@ takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, 
     [its check](#wave-4s-check-from-srviac) again, then stagger the markers' first nights.
 
     **The stagger** (slice 048's ruling F5). A marker without a stamp is due at once, so on the
-    kind's first night all seventeen would rotate, and again every 14 days: seventeen commits, and
-    nine apps restarted in one night. Stamp each marker instead as if it had rotated 14 days before
+    kind's first night all nineteen would rotate, and again every 14 days: nineteen commits, and
+    ten apps restarted in one night. Stamp each marker instead as if it had rotated 14 days before
     its own first night, one night apart, in the order of `markers`: the five Postgres roles, the
-    three S3 keys, the two backup tokens, then the seven Keycloak client secrets, `keycloak-dev` two
-    nights before `keycloak-prd`. Seventeen markers do not fit in fourteen nights, so the last three
-    share the first three nights, each with another app's database password: FieldnotesApp's with
-    ElectronicsInventory's, ZigbeeControl's with IoTSupport's, and IoTSupport's admin client's with
-    `keycloak-dev`'s. A rotation stamps the night it runs, so the 14-day interval keeps them apart.
+    three S3 keys, the two backup tokens, then the nine Keycloak client secrets, `keycloak-dev` two
+    nights before `keycloak-prd`. Nineteen markers do not fit in fourteen nights, so the last five
+    share the first five nights, each with another app's database password: FieldnotesApp's with
+    ElectronicsInventory's, ZigbeeControl's with IoTSupport's, IoTSupport's admin client's with
+    `keycloak-dev`'s, Pilot dev's sign-in client's with Guacamole's, and its service client's with
+    `keycloak-prd`'s. A rotation stamps the night it runs, so the 14-day interval keeps them apart.
     `first` is the kind's first night: the night after the commit, whose build and image rebuild
     finish that day.
     Stamp on the day of the commit, before it, with `markers` as [wave 4's plans](#wave-4s-plans)
@@ -2965,12 +2981,12 @@ takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, 
 
     **Reading.**
 
-    - Seventeen `rotator/terraform/<leaf>#<key>: rotation stamp <date>, was none` lines, the first
-      dated 14 days before `first`, each next one a day later, and the last three dated as the
-      first three. `--rotated-at` takes no date after today, so `first` is at most a day out. An
+    - Nineteen `rotator/terraform/<leaf>#<key>: rotation stamp <date>, was none` lines, the first
+      dated 14 days before `first`, each next one a day later, and the last five dated as the
+      first five. `--rotated-at` takes no date after today, so `first` is at most a day out. An
       `error:` line wrote nothing for that marker: wave 4's annotations create its leaf and key.
-    - Seventeen `terraform plan of <key> · due <date>` lines, from `first` to 13 days after it, in
-      the same order, the last three due on `first` and the two nights after it.
+    - Nineteen `terraform plan of <key> · due <date>` lines, from `first` to 13 days after it, in
+      the same order, the last five due on `first` and the four nights after it.
 
     Then commit `terraform` into `kinds_enabled`. The morning after `first`, the night's console
     names that commit in `secret-rotator run, commit <sha>`, and `terraform` among the kinds of the
@@ -2979,7 +2995,7 @@ takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, 
 
     What its nights do:
 
-    - One marker a night, two on each of the first three nights and on each fourteenth night after
+    - One marker a night, two on each of the first five nights and on each fourteenth night after
       one of them, then each one 14 days after its rotation. A plan that fails before its
       commit is rolled back and due again the next night, beside that night's own marker.
     - The commit, `rotate <keeper> (secret-rotator)`, lands on the deploy repo's `main`. Its push
@@ -3030,6 +3046,8 @@ takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, 
     tfwatch fieldnotes-prd keycloak_client FieldnotesDeploy config/prd/rotation.tfvars module.keycloak_client.keycloak_openid_client.this deployment/fieldnotes
     tfwatch zigbee2mqtt-prd keycloak_client Zigbee2mqttDeploy config/prd/rotation.tfvars module.keycloak_client.keycloak_openid_client.this deployment/zigbee-control
     tfwatch iot-prd keycloak_client_admin IotDeploy config/prd/rotation.tfvars module.keycloak_client_admin.keycloak_openid_client.this deployment/iotsupport
+    tfwatch pilot-dev keycloak_client PilotDeploy config/dev/rotation.tfvars module.keycloak_client.keycloak_openid_client.this deployment/pilot
+    tfwatch pilot-dev keycloak_client_service PilotDeploy config/dev/rotation.tfvars module.keycloak_client_service.keycloak_openid_client.this deployment/pilot
     ```
 
     **Hand back:** the full output.
@@ -3092,9 +3110,10 @@ takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, 
         log, as above, and [`argocd.md`](argocd.md). A backup token's `was deleted but not
         re-created` is mended by the next sync, which creates the token again.
       - `Secret <app>/<Secret> did not change: the sync of <sha7> took <keeper> = <value> in
-        pvginkel/<Repo> <keeper file>, and its Terraform re-minted nothing`: the `terraform/main.tf`
-        beside the keeper file's `config/` on `main` does not pass `lookup(var.rotation_epoch,
-        "<keeper>", null)` to the credential's resource.
+        pvginkel/<Repo> <keeper file>, and its Terraform re-minted nothing`: the `terraform/` beside
+        the keeper file's `config/` on `main` does not pass `lookup(var.rotation_epoch,
+        "<keeper>", null)` to the credential's resource, in `main.tf` or, for a Keycloak client of
+        IotDeploy's or PilotDeploy's, `keycloak.tf`.
       - A `roll out` that did not come Ready: the workload's pods and events.
 
       Then `srviac 'secret-rotator run rotator/terraform/<app>/<keeper>'` takes the plan up where it
