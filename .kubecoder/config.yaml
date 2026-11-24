@@ -27,25 +27,16 @@ repos:
   # The two app deploy monorepos, one directory per app named after its registry
   # key: PlatformAddOnsDeploy for apps deployed from an upstream Helm chart,
   # HomelabAppsDeploy for apps with a chart of their own and no source repo.
-  # Dedicated <App>Deploy repos stay under /work/scratch, except the three in the
+  # Dedicated <App>Deploy repos stay under /work/scratch, except the two in the
   # next block.
   - url: https://github.com/pvginkel/PlatformAddOnsDeploy
   - url: https://github.com/pvginkel/HomelabAppsDeploy
   # The dedicated deploy repos this environment's work rolls through, declared so
   # that track_build.py finds their clones and follows the Argo CD roll (ANS-388):
   # PipelinesDeploy for a JenkinsPipelineUtils build, DevGuidesDeploy for a
-  # DevGuides build, PilotDeploy for a PilotApp promotion. PilotApp, after them,
-  # is a source repo, not a deploy repo.
+  # DevGuides build.
   - url: https://github.com/pvginkel/PipelinesDeploy
   - url: https://github.com/pvginkel/DevGuidesDeploy
-  - url: https://github.com/pvginkel/PilotDeploy
-  # PilotApp, beside PilotDeploy because PilotDeploy's test gate overlays
-  # ../PilotApp/docs/architecture/architecture.yaml on each stage's architecture
-  # (AnsibleSpecs slice 075, D1). Not shared: the gate resolves ../PilotApp from
-  # /work/PilotDeploy, so it is this environment's own clone, as PilotDeploy is.
-  # Pod start's setup of it fails at its backend, which wants a postgres this
-  # environment does not run; the gate reads only the file.
-  - url: https://github.com/pvginkel/PilotApp
 
 capabilities:
   github: rw
