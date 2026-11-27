@@ -1,9 +1,9 @@
 # Backup freshness runbook
 
-Triage for the two backup alerts, retiring a backup that is not coming back, and renewing a Drive
+Triage for the two backup alerts, retiring a backup that is not coming back, and renewing a cloud
 remote's login. Read this when `BackupOverdue` or `BackupWatcherBlind` fires, when a
 `backup-server` scope is retired on purpose, when a database is dropped from `postgres-pas`, or
-when a Google Drive remote in storage-prd's `rclone.conf` needs a new login.
+when a Google Drive or OneDrive remote in storage-prd's `rclone.conf` needs a new login.
 
 Design context: "OpenBao backup / DR" and §"Backup" in
 [`../../../AnsibleSpecs/decisions.md`](../../../AnsibleSpecs/decisions.md). `backup-server` is
@@ -261,10 +261,10 @@ after about ten nights. The backups themselves may stay.
    q 'backup_server_stream_valid_until_timestamp_seconds{scope="<scope>"}'
    ```
 
-## 4 — Renew a Drive remote's login
+## 4 — Renew a Drive or OneDrive remote's login
 
-For a Google Drive remote in storage-prd's `rclone.conf` whose login no longer works, and for a
-remote moving onto another OAuth client. The file is `/data/rclone.conf` on the
+For a Google Drive or OneDrive remote in storage-prd's `rclone.conf` whose login no longer works,
+and for a Drive remote moving onto another OAuth client. The file is `/data/rclone.conf` on the
 `rclone-backup-pvc` volume, root `0600`. Four things read it:
 
 - `backup-server`, for its uploads and reads, on `gdrive-pieter`;
@@ -285,8 +285,18 @@ Each logs in under the operator's own Google OAuth client, `rclone-backup`: a De
 the Google Cloud project `rclone-backup`, its consent screen External and In production. Its
 client ID and secret are in Roboform, entry "Rclone backup Google Drive client", and in each
 remote's section. `gdrive-mariska` still uses rclone's shared client, which is being retired,
-until it moves (ANS-359). The file's two OneDrive remotes are not Google's; this section does not
-renew them.
+until it moves (ANS-359).
+
+Its OneDrive remotes:
+
+| Remote | Microsoft account | `drive_type` | Read by |
+|---|---|---|---|
+| `onedrive-pieter` | the operator's | `personal` | `storage-sync-cronjob`, `storage-refresh-keys-cronjob` |
+| `onedrive-mariska` | Mariska's | `personal` | `storage-sync-cronjob`, `storage-refresh-keys-cronjob` |
+
+Each section holds its `token`, `drive_id` and `drive_type`, and no `client_id` or
+`client_secret`: both log in on rclone's built-in OneDrive client. A renewal writes the token
+alone. The drive stays the one the section names.
 
 1. **Read what failed.** The hourly refresh logs one block per remote:
 
@@ -305,12 +315,20 @@ renew them.
    - `NOTICE: <remote>: This remote uses rclone's shared Google Drive client_id` — the remote
      has no client of its own yet. Move it with the steps below.
 
+   A OneDrive remote shows `Total:`, `Used:`, `Free:` and `Trashed:` while it logs in. A dead one
+   shows `Failed to create file system for "<remote>:": failed to get root: … couldn't fetch
+   token: invalid_grant: maybe token expired?`. The hourly refresh keeps its token in use, so a
+   dead one was revoked, not left to lapse. Renew it, as for Drive not with `rclone config
+   reconnect`.
+
    For `gdrive-pieter`, §2 step 2's `freshness refresh` lines carry the same errors. A login that
    dies again a week after each renewal means the consent screen is back in Testing, where Google
    ends logins after 7 days: publish it again (Google Auth Platform, Audience).
 
-2. **Log in on your machine**, with rclone and a browser, in bash. The client ID and secret come
-   from Roboform. The scope is the remote's, from the table:
+2. **Log in on your machine**, with rclone and a browser, in bash.
+
+   For a Drive remote, the client ID and secret come from Roboform. The scope is the remote's,
+   from the table:
 
    ```bash
    read -rp 'client ID: ' RCLONE_DRIVE_CLIENT_ID
@@ -328,9 +346,20 @@ renew them.
    rclone-backup (unsafe)". If the access screen shows a checkbox for your Google Drive files, tick
    it, then Continue.
 
-   The terminal prints `Paste the following into your remote machine --->`, one line starting
-   `{"access_token"`, then `<---End paste`. That line is the account's login: copy it into step
-   3's prompt and nowhere else. It keeps, so step 3 can follow hours later.
+   For a OneDrive remote, no client is given, in a shell with no `RCLONE_ONEDRIVE_*` variable set:
+
+   ```bash
+   rclone authorize onedrive
+   ```
+
+   rclone then logs in on its built-in OneDrive client, the one the sections use. A token made on
+   any other client would not renew under it. A browser opens on Microsoft's sign-in. Sign in as
+   the remote's Microsoft account: for `onedrive-mariska`, Mariska signs in. Accept the access
+   rclone asks for.
+
+   Either way, the terminal prints `Paste the following into your remote machine --->`, one line
+   starting `{"access_token"`, then `<---End paste`. That line is the account's login: copy it into
+   step 3's prompt and nowhere else. It keeps, so step 3 can follow hours later.
 
 3. **Write it into `rclone.conf`**, from a terminal in the Ansible KubeCoder pod, between 07:00 and
    22:00 UTC at a minute from :05 to :55, which keeps clear of the nightly jobs and the hourly
@@ -340,21 +369,27 @@ renew them.
    /work/Ansible/scripts/renew-drive-login.sh <remote>
    ```
 
-   It asks for the client ID, then, without echoing, for the client secret and the token line.
-   They travel on stdin into `backup-server`'s container, with the pod's
-   `~/.kube/config-prd-write`, and never onto a command line. It refuses, writing nothing:
+   It reads the remote's type from the file. For a Drive remote it asks for the client ID, then,
+   without echoing, for the client secret and the token line. For a OneDrive remote it asks,
+   without echoing, for the token line alone. They travel on stdin into `backup-server`'s
+   container, with the pod's `~/.kube/config-prd-write`, and never onto a command line. It refuses,
+   writing nothing:
 
    - outside those times, while a Job in `storage-prd` runs, or while an rclone process runs in
      `backup-server` (its hourly read takes seconds). Run it again a few minutes later. An rclone
      process that read the file before the write and renewed the token after it would write the
      old login back;
-   - on a remote that is not a Drive section of the file;
+   - on a remote that is not a Drive or OneDrive section of the file;
+   - on a OneDrive section that names a `client_id` or `client_secret` of its own: step 2's token
+     is made on rclone's built-in client;
    - on a client ID not ending in `.apps.googleusercontent.com`, a secret not starting `GOCSPX-`,
      or a token that is not one line of JSON with an `access_token` and a `refresh_token`.
 
-   Otherwise it copies the file to `rclone.conf.pre-<remote>-<UTC stamp>` beside it. Then it sets
-   the remote's `client_id`, `client_secret` and `token` in one `rclone config update`, which
-   leaves the remote's `scope` and every other section as they are. It prints only checks:
+   Otherwise it copies the file to `rclone.conf.pre-<remote>-<UTC stamp>` beside it. Then it
+   writes in one `rclone config update`. For a Drive remote, it sets `client_id`, `client_secret`
+   and `token`, which leaves the remote's `scope` and every other section as they are. For a
+   OneDrive remote, it sets `token` alone, which leaves its `drive_id`, `drive_type` and every
+   other section as they are. It prints only checks:
 
    ```
    written at 2026-11-08T09:54:31Z
@@ -366,9 +401,17 @@ renew them.
    -rw------- root root /data/rclone.conf.pre-gdrive-pieter-20261108T095431Z
    ```
 
-   A count that changed, `WRONG`, `MISSING` or `DIFFERS` means the write went wrong. Put the copy
-   back at once, before the next hourly refresh, while no other remote's token has moved since the
-   copy was taken:
+   For a OneDrive remote, the fourth line differs, and a line follows it that compares the file,
+   all but the remote's token line, with the copy:
+
+   ```
+   [onedrive-pieter] type=onedrive drive_type=personal client_id=none
+   the file but [onedrive-pieter]'s token: unchanged
+   ```
+
+   A count that changed, `WRONG`, `MISSING`, `SET`, `CHANGED` or `DIFFERS` means the write went
+   wrong. Put the copy back at once, before the next hourly refresh, while no other remote's token
+   has moved since the copy was taken:
 
    ```bash
    kubectl --context prd -n storage-prd exec deploy/backup-server -- cp -p /data/rclone.conf.pre-<remote>-<stamp> /data/rclone.conf
@@ -382,10 +425,12 @@ renew them.
 
    It prints the account's quota, with no `NOTICE: … shared Google Drive client_id` line and no
    error. Then read the next two hourly refresh runs as in step 1: both show the quota lines, with
-   no notice and no error. By the second, rclone has renewed the token with the secret just
-   written. For `gdrive-pieter`, `BackupWatcherBlind` also clears at the first scrape that reports
-   a successful full read (§2 step 3), and the next night's uploads land. A check that fails takes
-   a fresh login: steps 2 and 3 again, the second run taking a copy of its own.
+   no notice and no error. By the second, rclone has renewed the token, a Drive remote's with the
+   secret just written. For `gdrive-pieter`, `BackupWatcherBlind` also clears at the first scrape
+   that reports a successful full read (§2 step 3), and the next night's uploads land. For every
+   remote, the next night's `storage-sync-cronjob` log shows no error under `Syncing <remote>`. A
+   check that fails takes a fresh login: steps 2 and 3 again, the second run taking a copy of its
+   own.
 
 5. **Delete the copies** once step 4's checks pass: each holds the remote's login from before a
    write. Put back later, a copy would also set the other remotes' tokens back, and a OneDrive
