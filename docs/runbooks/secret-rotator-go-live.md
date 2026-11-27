@@ -82,9 +82,8 @@ cd /work/Ansible/ansible && cexec iac poetry run ansible-playbook playbooks/site
 - The first run reads `failed=0`. Its closing message names `tmp/openbao-credentials/` with
   `rotator → kv/iac/rotator-approle (keys role_id / secret_id)`, and no other AppRole.
 - The second run's recap reads `changed=0` on every host.
-- Where Ansible's `main` carries slice 047, the check and both runs print `kv/rotator/oidc-auth-client
-  holds no client_secret (HTTP 404)` and `OIDC provisioning skipped; the OIDC config is left
-  untouched`. That is expected until W4 of [§ Wave 1](#wave-1) stores the secret. OpenBao's OIDC
+- The check and both runs print `kv/rotator/oidc-auth-client holds no client_secret (HTTP 404)` and
+  `OIDC provisioning skipped; the OIDC config is left untouched`. That is expected until W4 of [§ Wave 1](#wave-1) stores the secret. OpenBao's OIDC
   login keeps the config it has.
 
 Capture the credentials into their leaf, then wipe the staging files:
@@ -100,8 +99,8 @@ shred -u tmp/openbao-credentials/*
 
 SecretRotator's `k8s/cluster-identity.yaml` declares the `secret-rotator` ServiceAccount, its
 binding to `cluster-admin`, and the Secret holding its long-lived token. Nothing reconciles it, so
-it is created once, by hand. Since slice 049 the Secret has a `generateName` in place of a name,
-which `apply` refuses: the `k8s-sa-token` kind replaces it yearly with one named the same way. So
+it is created once, by hand. The Secret has a `generateName` in place of a name, which `apply`
+refuses: the `k8s-sa-token` kind replaces it yearly with one named the same way. So
 it is created with `create`, and the token is read from the Secret the create names:
 
 ```sh
@@ -115,15 +114,13 @@ k -n kube-system get "$s" -o jsonpath='{.data.token}' | base64 -d | wc -c
 **Reading.**
 
 - `serviceaccount/secret-rotator`, `clusterrolebinding.rbac.authorization.k8s.io/secret-rotator-admin`
-  and `secret/secret-rotator-token-<5 characters>`. A checkout before slice 049 names the Secret
-  `secret/secret-rotator-token`.
+  and `secret/secret-rotator-token-<5 characters>`.
 - The token's length in bytes, not `0`. `0` means the token controller has not filled the Secret
   yet: run that line again, then the `kv put`.
 - The last `kv put` answers with `version 1`, one more for each `kv put` that ran before it.
-- `AlreadyExists` on the ServiceAccount and the binding means step 2 ran before. A checkout
-  before slice 049 reports it on the Secret too, leaves `$s` empty and writes nothing: keep the
-  leaf as it is. Since slice 049 the create has still made one more token Secret, which `$s`
-  names, and the `kv put` has written its token to the leaf. Delete the account's other token
+- `AlreadyExists` on the ServiceAccount and the binding means step 2 ran before. The create has
+  still made one more token Secret, which `$s` names, and the `kv put` has written its token to
+  the leaf. Delete the account's other token
   Secrets:
 
   ```sh
@@ -255,8 +252,20 @@ yt 'admin/projects?fields=shortName&$top=500' | jq -r '.[].shortName' | grep -x 
 
 The seed is the one SecretRotator's `prd` carries, transcribed from the catalog. Its apply makes
 each seed leaf's custom metadata exactly the layout of design §5: one `rotation_<key>` entry per
-data key, and nothing else. It also creates the 12 marker leaves, `rotator/approle/*` and
-`rotator/bootstrap/*`. Dry run first:
+data key, and nothing else. It also creates the 32 marker leaves: `rotator/approle/*` and
+`rotator/bootstrap/*`, six each, and the twenty `rotator/terraform/*` of [§ Wave 4](#wave-4).
+
+The counts of this step and of the waves are those of the seed at SecretRotator 0b8abcf: 156
+leaves, 32 of them marker leaves. Check that `prd` still carries that seed:
+
+```sh
+git -C /work/SecretRotator fetch -q && git -C /work/SecretRotator log -1 --format=%h origin/prd -- src/secret_rotator/seed.yaml
+```
+
+**Reading:** `0b8abcf`. Another hash is a seed change since: stop, and have the counts re-derived
+from it first.
+
+Dry run first:
 
 ```sh
 srviac 'secret-rotator annotate'
@@ -285,90 +294,50 @@ write:
     `"notes":"…"`. The rest go: the "Transcript-migrated" provenance and the sweep's "at slice
     close" plans, those of `eso/prd/filebeat/prd/elastic-credentials` and
     `eso/prd/iot/prd/elastic-credentials` among them.
-- `set     max_versions=20  (was 0)` on the automatic leaves, the 12 marker leaves among them: the
-  `rotator/approle/*` markers are `approle`, the `rotator/bootstrap/*` markers `external`.
-- The last line reads `would patch (dry run; --apply writes) 123 leaf(s), 12 of them new marker
-  leaves; 0 unchanged, 1 absent from the store, 0 live leaf(s) not in the seed`. That is every leaf
-  of the seed's 124 but the absent one, since none holds an entry yet.
+- `set     max_versions=20  (was 0)` on the automatic leaves, the 32 marker leaves among them: the
+  `rotator/approle/*` markers are `approle`, the `rotator/bootstrap/*` markers `external` and the
+  `rotator/terraform/*` markers `terraform`.
+- Each `rotator/terraform/*` marker reads `create  marker leaf, data key <key>`, then `add
+  rotation_<key>={"kind":"terraform","interval":"14d","args":{"repo":"pvginkel/<Repo>",
+  "path":"<path>","app":"<app>","keeper":"<keeper>","secret":"<app>/<Secret>"},"activate":"none"}`,
+  on one line, `<Repo>` and `<path>` the table's of [wave 4's plans](#wave-4s-plans). The apply
+  leaves the markers unstamped: item 13 of [§ Going live](#going-live) stamps them.
+- The last line reads `would patch (dry run; --apply writes) 148 leaf(s), 32 of them new marker
+  leaves; 0 unchanged, 8 absent from the store, 4 live leaf(s) not in the seed`. That is every leaf
+  of the seed's 156 but the eight absent ones, since none holds an entry yet.
 - An `absent from the store` line names a seed leaf the store lacks. When it is one of the leaves
-  of steps 1 to 5, finish that step first. One is expected, `jenkins/grafana-api`: Jenkins' Grafana
-  token for publishing dashboards, absent until the operator creates it in Grafana and stores it,
-  which the go-live does not wait for. Stored before this step, it is written with the others, and
-  the last line reads `124 leaf(s)` and `0 absent from the store`. Stored after it, it is a new leaf
-  ([`openbao.md`](openbao.md#a-new-leaf)).
+  of steps 1 to 5, finish that step first. Eight are expected, leaves the go-live stores later,
+  which this step does not wait for:
+  - `eso/prd/infra-statistics/prd/jenkins` (W2), `rotator/keycloak-client/homelab` and
+    `rotator/keycloak-client/homelab-dev` (W3) and `rotator/oidc-auth-client` (W4) of
+    [§ Wave 1](#wave-1);
+  - `rotator/github` and `rotator/youtrack-token/credentials`, which
+    [§ Wave 2](#the-counterparts-and-the-grants) stores;
+  - `rotator/terraform/credentials`, [§ Wave 4](#the-terraform-kinds-token)'s token;
+  - `rotator/ssh-key/credentials`, [§ The `ssh-key` kind](#the-ssh-key-kinds-token)'s token.
+
+  Each one stored before this step is written with the others: one more in the last line's leaf
+  count, one fewer absent from the store. Its wave's annotations stamp it. `jenkins/grafana-api`,
+  Jenkins' Grafana token for publishing dashboards, is stored since 2026-10-09 and written with the
+  others.
 - A `not in the seed` line names a leaf the seed does not cover yet. The apply leaves it whole, old
   keys included, and the audit reports it until the seed covers it
-  ([`openbao.md`](openbao.md#a-new-leaf)).
+  ([`openbao.md`](openbao.md#a-new-leaf)). On 2026-11-27 the store held four, the last line's:
+  `eso/prd/pilot/dev/kubecoder`, `eso/prd/pilot/dev/sync`, `eso/prd/pilot/prd/kubecoder` and
+  `eso/prd/pilot/prd/sync`.
 - A `no kind in the seed, no entry: <leaf>#<key>` or `named in the seed, not held by the leaf:
   <leaf>#<key>` line names a key on which the seed and the leaf disagree: fix the seed first. The
   first is a key the apply writes no entry for, which the audit then reports as `missing`; the
   second, a seed key the leaf lacks, which gets no entry.
+- One disagreement is wave 1's by design, and asks for no seed fix: on jenkins-mcp's leaf,
+  `named in the seed, not held by the leaf: eso/prd/jenkins-mcp/prd/config#token` and `…#user`,
+  and among the leaf's writes `add     rotation_authorization={"kind":"random",…}`. **Do W1 before
+  the apply**, then run the dry run again. The seed has no entry for the stored header
+  `authorization`, so the apply would give it the leaf's kind, `random`, and `random`'s first live
+  night would replace the header jenkins-mcp sends to Jenkins. After W1 the leaf reads `add
+  rotation_token=…` (kind `jenkins-token`) and `add     rotation_user={"kind":"none"}`, and these
+  three lines are gone.
 - No `cannot write:` line. With one, the dry run ends `nothing written` and exits 1.
-
-**With slice 047's seed.** Where `prd` carries slice 047, the dry run also prints what wave 1
-changes by design ([§ Wave 1](#wave-1)). These lines are expected, and none of them asks for a
-seed fix:
-
-- `absent from the store, skipped:` for `eso/prd/infra-statistics/prd/jenkins`,
-  `rotator/keycloak-client/homelab`, `rotator/keycloak-client/homelab-dev` and
-  `rotator/oidc-auth-client`, which W2 to W4 create. The four add four leaves to the seed. Each
-  the store lacks adds one to the last line's `absent from the store`, and leaves its leaf count
-  as it is. One the store already holds is written with the others.
-- On jenkins-mcp's leaf: `named in the seed, not held by the leaf:
-  eso/prd/jenkins-mcp/prd/config#token` and `…#user`, and among the leaf's writes
-  `add     rotation_authorization={"kind":"random",…}`. **Do W1 before the apply**, then run the
-  dry run again. The seed has no entry for the stored header `authorization`, so the apply would
-  give it the leaf's kind, `random`, and `random`'s first live night would replace the header
-  jenkins-mcp sends to Jenkins. After W1 the leaf reads `add     rotation_token=…` (kind
-  `jenkins-token`) and `add     rotation_user={"kind":"none"}`, and these three lines are gone.
-
-**With slice 049's seed.** Where `prd` carries slice 049, the dry run also prints `absent from the
-store, skipped:` for `rotator/github` and `rotator/youtrack-token/credentials`, which
-[§ Wave 2](#the-counterparts-and-the-grants) creates. Each the store lacks adds one to the last
-line's `absent from the store`, and leaves its leaf count as it is. One the store already holds is
-written with the others, and [wave 2's annotations](#wave-2s-annotations) stamp it. Neither asks
-for a seed fix.
-
-**With slice 048's seed.** Where `prd` carries slice 048, the dry run also writes the ten
-`rotator/terraform/*` marker leaves, each with `create  marker leaf, data key <key>`. They add ten
-to the last line's leaf count and to its new marker leaves. It prints `absent from the store,
-skipped: rotator/terraform/credentials` while the store lacks that leaf, which
-[§ Wave 4](#the-terraform-kinds-token) creates, and which adds one to the last line's `absent from
-the store`. Stored already, it is written with the others, and
-[wave 4's annotations](#wave-4s-annotations) stamp it. None of these asks for a seed fix. The apply
-leaves the markers unstamped: item 13 of [§ Going live](#going-live) stamps them.
-
-**With slice 071's seed.** Where `prd` carries slice 071, pgAdmin's client secret is its
-Terraform's ([`oidc-client.md`](oidc-client.md)). `eso/prd/pgadmin/prd/oidc` is gone from the
-seed and the store, and the hook's Keycloak leaf `eso/prd/argocd-hooks/keycloak/homelab` is
-written with the others, so the leaf count is as it was. The `rotator/terraform/*` markers are
-eleven, pgAdmin's `rotator/terraform/pgadmin-prd/keycloak_client` among them: one more in the last
-line's leaf count and its new marker leaves. Where step 6 ran on a seed before slice 071, the next
-annotations write the hook's leaf as well, and count it among their leaves.
-
-**With slice 072's and 073's seeds.** Where `prd` carries slice 073, the client secrets of Grafana
-(slice 072), DHCPApp, ElectronicsInventory, FieldnotesApp and ZigbeeControl are their Terraform's.
-Their leaves, `eso/prd/{grafana,dnsmasq,electronics-inventory,fieldnotes,zigbee2mqtt}/prd/oidc`,
-are gone from the seed and the store: five fewer in the last line's leaf count. The
-`rotator/terraform/*` markers are fifteen, the four
-`rotator/terraform/{dnsmasq,electronics-inventory,fieldnotes,zigbee2mqtt}-prd/keycloak_client`
-among them: four more in its leaf count and its new marker leaves. Grafana's client has no marker.
-
-**With slice 074's seed.** Where `prd` carries slice 074, IoTSupport's two client secrets in
-`homelab`, `iotsupport`'s and `iotsupport-admin`'s, are its Terraform's. Their leaves,
-`eso/prd/iot/prd/oidc` and `eso/prd/iot/prd/keycloak-admin`, are gone from the seed and the store:
-two fewer in the last line's leaf count. The `rotator/terraform/*` markers are seventeen,
-`rotator/terraform/iot-prd/keycloak_client` and `rotator/terraform/iot-prd/keycloak_client_admin`
-among them: two more in its leaf count and its new marker leaves.
-
-**With slice 075's seed.** Where `prd` carries slice 075, the secrets of Pilot's two service
-clients in `homelab`, `pilot-app-dev-service`'s and `pilot-app-service`'s, are PilotDeploy's
-Terraform's, and the review's read-only accounts are retired. Their leaves,
-`eso/prd/pilot/{dev,prd}/service-user` and `shared/keycloak-review/{homelab,homelab-dev}`, are
-gone from the seed and the store: four fewer in the last line's leaf count. The
-`rotator/terraform/*` markers are nineteen, `rotator/terraform/pilot-dev/keycloak_client` and
-`rotator/terraform/pilot-dev/keycloak_client_service` among them: two more in its leaf count and
-its new marker leaves. Pilot's prd stage has no marker.
 
 ```sh
 srviac 'secret-rotator annotate --apply'
@@ -379,7 +348,7 @@ srviac 'secret-rotator annotate' | tail -n 1
 
 **Reading.**
 
-- The apply lists the dry run's writes again, then prints `patching <n> leaf(s), 12 of them new
+- The apply lists the dry run's writes again, then prints `patching <n> leaf(s), 32 of them new
   marker leaves; …`, `<n>` the dry run's count. Then it prints one `patched <leaf>` or `created and
   patched <leaf>` line per leaf, and exits 0.
 - The dry run after it reads `would patch (dry run; --apply writes) 0 leaf(s), 0 of them new
