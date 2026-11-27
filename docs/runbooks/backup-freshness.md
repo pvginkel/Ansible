@@ -284,8 +284,7 @@ Its Google Drive remotes:
 Each logs in under the operator's own Google OAuth client, `rclone-backup`: a Desktop client in
 the Google Cloud project `rclone-backup`, its consent screen External and In production. Its
 client ID and secret are in Roboform, entry "Rclone backup Google Drive client", and in each
-remote's section. `gdrive-mariska` still uses rclone's shared client, which is being retired,
-until it moves (ANS-359).
+remote's section.
 
 Its OneDrive remotes:
 
