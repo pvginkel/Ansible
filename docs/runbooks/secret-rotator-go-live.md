@@ -491,25 +491,17 @@ Slice 047's kinds are `keycloak-client`, `cnpg-role`, `jenkins-token`, `jenkins-
 held for them, and annotate. Item 5 of [§ Going live](#going-live) then enables them one at a
 time.
 
-Wave 1 starts once SecretRotator's `prd` carries slice 047, before step 6 or at any point after
-it. Until W4, `srviac 'secret-rotator annotate'` then prints `absent from the store, skipped:
-rotator/oidc-auth-client`. From then on, W1 comes before any `annotate --apply`, step 6's
-included. W4 comes after step 1, whose check expects the converge to declare the `rotator` AppRole
-and its policy, and W5 after step 6: it runs `secret-rotator` on srviac, which needs steps 1 to 3,
-and it stamps with step 6's `stamp`.
+Wave 1 runs before step 6 or at any point after it. Until W4, `srviac 'secret-rotator annotate'`
+then prints `absent from the store, skipped: rotator/oidc-auth-client`. From then on, W1 comes
+before any `annotate --apply`, step 6's included. W4 comes after step 1, whose check expects the
+converge to declare the `rotator` AppRole and its policy, and W5 after step 6: it runs
+`secret-rotator` on srviac, which needs steps 1 to 3, and it stamps with step 6's `stamp`.
 
 Until W5's apply, the audit and the nightly card report on wave 1's keys. None of these findings
 touches an enabled kind:
 
 - `rotation_<key>: missing` on each key W1 to W4 add, and `(consumers): an orphan: …` on
   `eso/prd/infra-statistics/prd/jenkins` until W2's push has synced.
-- Where step 6 ran on the seed before slice 047, also:
-  - `args: realm: not homelab or homelab-dev` on each `keycloak-client` key whose entry names no
-    realm;
-  - `args: job: not a Jenkins job's full name` on `eso/prd/iot/prd/architecture-pipeline`;
-  - `kind: unknown kind 'jenkins-admin-password': …` on `shared/jenkins/admin-password`;
-  - `args: type: 'jenkins-basic-auth' is not a credential type manual documents` on jenkins-mcp's
-    `rotation_authorization`, which W1 turns into `stale: the leaf has no key 'authorization'`.
 
 ### W1 — jenkins-mcp's header becomes a template
 
@@ -696,18 +688,9 @@ srviac 'secret-rotator annotate'
     `rotator/keycloak-client/homelab-dev` and `rotator/oidc-auth-client`. Each reads an `add` per
     key, a counterpart's `client_id` with kind `none` and its `client_secret` with
     `keycloak-client` at `365d`, and `set     max_versions=20  (was 0)`.
-  - Where step 6 ran on the seed before slice 047, also the entries slice 047 changed, each a
-    `change`:
-    - the `realm` in the args of `jenkins/iotsupport-pipeline-oidc`'s `keycloak-client` key;
-    - `"job":"AaC/IoTSupport"` on `eso/prd/iot/prd/architecture-pipeline`;
-    - `shared/jenkins/admin-password`'s `password`, now `manual` at interval `never`.
-
-    jenkins-mcp's leaf then reads `add     rotation_token=…`, `add     rotation_user=…` and
-    `remove  rotation_authorization=…`.
   - `jenkins/grafana-api` (slice 046), where it was stored after step 6 and not annotated since.
-- The last line counts those leaves: 9 where step 6 ran on the seed before slice 047. Where it ran
-  on slice 047's seed, it counts the four new leaves less those step 6 found already created: 4
-  where step 6 ran before W2, none where it ran after W4. Then `0 live leaf(s) not in the seed`.
+- The last line counts those leaves: the four less those step 6 found already stored, 4 where step
+  6 ran before W2, none where it ran after W4. Then `4 live leaf(s) not in the seed`, step 6's.
 - No `absent from the store` line but `jenkins/grafana-api`'s while that leaf is not stored, and
   `jenkins/keycloak-da-admin`'s once it is deleted. No
   `no kind in the seed`, `named in the seed, not held by the leaf` or `cannot write:` line.
@@ -744,30 +727,21 @@ sections below create the two leaves and the grants they need, annotate, read th
 from srviac what no offline run could reach. Item 11 of [§ Going live](#going-live) then enables
 them one at a time.
 
-Wave 2 starts once SecretRotator's `prd` carries slice 049, before step 6 or at any point after it.
+Wave 2 runs before step 6 or at any point after it.
 [The counterparts and the grants](#the-counterparts-and-the-grants) need only OpenBao and three
 consoles. [Wave 2's annotations](#wave-2s-annotations) come after step 6: they run `secret-rotator`
 on srviac, which needs steps 1 to 3, and they stamp with step 6's `stamp`. The plans and the checks
 from srviac come after them.
 
-`kinds_enabled` gates the nightly run alone. `secret-rotator run <leaf>` runs a wave-2 plan as soon
-as the image carries slice 049, whatever `switches.yaml` holds, built from the store's entries. Run
-none by hand before [the checks from srviac](#the-checks-from-srviac) read as they should.
+`kinds_enabled` gates the nightly run alone. `secret-rotator run <leaf>` runs a wave-2 plan whatever
+`switches.yaml` holds, built from the store's entries. Run none by hand before
+[the checks from srviac](#the-checks-from-srviac) read as they should.
 
 Until wave 2's apply, the audit and the nightly card report on wave 2's keys. None of these findings
 touches an enabled kind:
 
 - `rotation_token: missing` on `rotator/github` and `rotator/youtrack-token/credentials`, once they
   are stored.
-- Where step 6 ran on the seed before slice 049, also these, each blocking its key's plan:
-  - `args: clusters: missing; the clusters whose tokens the key holds, of dev and prd` on
-    `eso/prd/kubecoder/prd/catalog`'s `rotation_kubeconfig`, `rotation_kubeconfig-dev-write` and
-    `rotation_kubeconfig-prd-write`, and on `iac/rotator-k8s-token`'s `rotation_token`;
-  - `args: client: missing; the KubeCoder client whose credential it is` on
-    `eso/prd/fieldnotes/prd/kubecoder-controller`'s `rotation_token`.
-
-  `eso/prd/fieldnotes/prd/github-webhook-secret` raises no finding, but until the apply its `plan`
-  reads `cannot be built: … no entry the plan writes names the GitHub hook …`.
 
 ### The counterparts and the grants
 
@@ -835,7 +809,8 @@ console of its project:
 
 ### Wave 2's annotations
 
-Slice 049 adds two leaves to the seed and changes six entries.
+Step 6 wrote every wave-2 entry of the leaves it found. These annotations write the two leaves
+above, where step 6 found them absent.
 
 ```sh
 srviac 'secret-rotator annotate'
@@ -850,18 +825,7 @@ srviac 'secret-rotator annotate'
   `{"kind":"manual","interval":"365d","args":{"type":"github-pat"},…`, the other's
   `{"kind":"youtrack-token","interval":"365d",…`, which alone also reads `set     max_versions=20
   (was 0)`.
-- Where step 6, or an apply after it, ran on a seed before slice 049, also these, each a `change`:
-  - `eso/prd/fieldnotes/prd/github-webhook-secret`: `rotation_secret`, whose `activate` is now
-    `eso,k8s-rollout,github-webhook:pvginkel/Fieldnotes/682399688`, was `auto`;
-  - `eso/prd/fieldnotes/prd/kubecoder-controller`: `rotation_token`, now with
-    `"args":{"client":"fieldnotes"}`;
-  - `eso/prd/kubecoder/prd/catalog`: `rotation_kubeconfig` with `"args":{"clusters":["dev","prd"]}`,
-    `rotation_kubeconfig-dev-write` with `"args":{"clusters":["dev"]}` and
-    `rotation_kubeconfig-prd-write` with `"args":{"clusters":["prd"]}`;
-  - `iac/rotator-k8s-token`: `rotation_token`, with `"args":{"clusters":["prd"]}`.
-
-  Until these are applied, the four `k8s-sa-token` plans stay blocked by `args: clusters: missing`.
-- Where it ran on slice 049's seed, none of the six: that apply wrote them.
+- No other wave-2 leaf: step 6's apply wrote them.
 - No `absent from the store` line for the two leaves above, and no `cannot write:` line.
 
 ```sh
@@ -1161,15 +1125,14 @@ off. The three sections below annotate their entries, make the media Samba serve
 `mydownloads-user`, and put `secret-rotator-ui` on srviac. Item 12 of [§ Going live](#going-live)
 then enables the kinds one at a time.
 
-Wave 3 starts once SecretRotator's `prd` carries slice 052, before step 6 or at any point after it.
+Wave 3 runs before step 6 or at any point after it.
 [Wave 3's annotations](#wave-3s-annotations) come after step 6: they run `secret-rotator` on
 srviac, which needs steps 1 to 3.
 
 `kinds_enabled` gates the nightly run and its manual-due lines, never the UI. `secret-rotator ui`
-and `run <leaf>` build and run a wave-3 plan as soon as the image carries slice 052, whatever
-`switches.yaml` holds. They build it from the store's entries, not from the seed: until
-[wave 3's annotations](#wave-3s-annotations) are applied, they build a wave-3 plan from the leaf's
-older entry, as that section's readings describe. Start none before then.
+and `run <leaf>` build and run a wave-3 plan whatever `switches.yaml` holds. They build it from the
+store's entries, not from the seed, and step 6 writes those. Start none before
+[wave 3's annotations](#wave-3s-annotations) read as they should.
 
 - `iac/proxmox#password` (`pve-root-password`), `shared/samba/users#pvginkel` (`samba-user`, the
   personal account) and `eso/prd/kubecoder/prd/step-ca-provisioner-password#password`
@@ -1179,8 +1142,9 @@ older entry, as that section's readings describe. Start none before then.
 
 ### Wave 3's annotations
 
-Slice 052 changes three entries of the seed. `iac/proxmox` already holds `pve-root-password`, so
-its entry is unchanged.
+Step 6 wrote the entries of wave 3's four leaves, `iac/proxmox`,
+`eso/prd/kubecoder/prd/step-ca-provisioner-password`, `eso/prd/media/prd/mydownloads-user` and
+`shared/samba/users`. The dry run confirms it.
 
 ```sh
 srviac 'secret-rotator annotate'
@@ -1190,18 +1154,8 @@ srviac 'secret-rotator annotate'
 
 **Reading.**
 
-- Where step 6, or an apply after it, ran on a seed before slice 052, the dry run writes these three
-  leaves, each with one `change` line:
-  - `eso/prd/kubecoder/prd/step-ca-provisioner-password`: `rotation_password`, whose `activate` is
-    now `auto`, was `eso,k8s-rollout,manual:deploy StepCaDeploy and roll step-ca`. Until the apply,
-    the plan ends with that stale `operator.confirm` after the controllers' restart.
-  - `eso/prd/media/prd/mydownloads-user`: `rotation_password`, now with `"args":{"account":"app"}`
-    and the activate `k8s-rollout:media-prd/deployment/media,media-prd/deployment/mydownloads`.
-    Until the apply, the plan asks the operator to type the password, as the personal account's
-    does, and restarts mydownloads alone.
-  - `shared/samba/users`: `rotation_pvginkel`, whose `manual:` text gains `and restart the
-    KubeCoder environments that mount them`.
-- Where it ran on slice 052's seed, none of the three: that apply wrote them.
+- None of wave 3's four leaves: step 6's apply wrote them. A wave-3 leaf among the writes is an
+  entry changed since step 6: read it.
 - No `cannot write:` line.
 
 ```sh
@@ -1583,21 +1537,20 @@ Neither kind restarts anything: CSI reads its Secret at each operation, and the 
 run. A dev plan starts srvk8sdev through `pve` when it is off, and shuts it down again after.
 
 The sections below annotate, check from srviac what no offline run reached, bring dev up for its own
-checks and the dev `microceph` role's converge, then switch the kinds on one at a time. They start
-once SecretRotator's `prd` and Ansible's `main` carry slice 061, before step 6 or at any point
-after it. [The Ceph kinds' annotations](#the-ceph-kinds-annotations) come after step 6: they run
-`secret-rotator` on srviac, which needs steps 1 to 3.
+checks and the dev `microceph` role's converge, then switch the kinds on one at a time. They run
+before step 6 or at any point after it. [The Ceph kinds' annotations](#the-ceph-kinds-annotations)
+come after step 6: they run `secret-rotator` on srviac, which needs steps 1 to 3.
 
-`kinds_enabled` gates the nightly run alone. `secret-rotator run <leaf>` runs a Ceph plan as soon
-as the image carries slice 061, whatever `switches.yaml` holds. Run none by hand before
+`kinds_enabled` gates the nightly run alone. `secret-rotator run <leaf>` runs a Ceph plan whatever
+`switches.yaml` holds. Run none by hand before
 [the Ceph checks](#the-ceph-checks-from-srviac) and [the dev cluster's](#the-dev-clusters-ceph) read
 as they should.
 
 ### The Ceph kinds' annotations
 
-Slice 061 changes one entry of each Ceph leaf: the `user_id` and `access_key_id` the seed marked
-`none` now rotate with their secret, since each rotation moves the leaf to another Ceph client or
-another S3 key.
+Step 6 wrote the four Ceph leaves' entries. Each leaf's `user_id` or `access_key_id` rotates with
+its secret, since each rotation moves the leaf to another Ceph client or another S3 key. The dry
+run confirms it.
 
 ```sh
 srviac 'secret-rotator annotate'
@@ -1607,18 +1560,8 @@ srviac 'secret-rotator annotate'
 
 **Reading.**
 
-- Where step 6, or an apply after it, ran on a seed before slice 061, the dry run writes these four
-  leaves, each with one `change` line:
-  - `shared/prd/ceph-csi` and `shared/dev/ceph-csi`: `change
-    rotation_user_id={"kind":"cephx","interval":"365d","activate":"none"}  (was {"kind":"none"})`;
-  - `shared/prd/ceph-rgw/s3` and `shared/dev/ceph-rgw/s3`: `change
-    rotation_access_key_id={"kind":"rgw-admin","interval":"365d","activate":"none"}  (was
-    {"kind":"none"})`.
-
-  Each leaf's other key keeps its entry, and step 6 already set its `max_versions`. Until the
-  apply, each leaf's `plan` reads `cannot be built: <leaf>: a cephx plan rotates user_id and
-  user_key together, not user_key`, or the `rgw-admin` equivalent for `secret_access_key`.
-- Where it ran on slice 061's seed, none of the four: that apply wrote them.
+- None of the four Ceph leaves: step 6's apply wrote them. A Ceph leaf among the writes is an entry
+  changed since step 6: read it.
 - No `cannot write:` line.
 
 ```sh
@@ -2100,12 +2043,12 @@ Once the plan ends, the run shuts down again each VM the plan started, whatever 
 It ships switched off. The sections below create its GitHub token, converge srviac and seed its
 copy of the key, annotate, and check from srviac what no offline run reached. Item 15 of
 [§ Going live](#going-live) then enables it, once ANS-316 is done, and retires the copies of the key
-outside OpenBao. They start once SecretRotator's `prd` and Ansible's `main` carry slice 060, before
-step 6 or at any point after it. [The annotations](#the-ssh-key-kinds-annotations) come after step
-6: they run `secret-rotator` on srviac, which needs steps 1 to 3.
+outside OpenBao. They run before step 6 or at any point after it.
+[The annotations](#the-ssh-key-kinds-annotations) come after step 6: they run `secret-rotator` on
+srviac, which needs steps 1 to 3.
 
 `kinds_enabled` gates the nightly run alone. `secret-rotator run iac/ansible-ssh-key` runs the plan
-as soon as the image carries slice 060, whatever `switches.yaml` holds. Do not run it by hand before
+whatever `switches.yaml` holds. Do not run it by hand before
 item 15 of [§ Going live](#going-live). Until then, the copy of `id_ed25519_ansible` in RoboForm and
 in the cloud-synced attachments folder is the working key, and the bootstrap role's manual rotation
 stands ([`README.md`](../../ansible/roles/bootstrap/README.md#ssh-key-rotation)).
@@ -2196,7 +2139,8 @@ before item 15 leaves the copy on the old key: seed it again after it.
 
 ### The `ssh-key` kind's annotations
 
-Slice 060 changes `iac/ansible-ssh-key`'s interval from 365 days to 14, and adds the token's leaf.
+Step 6 wrote `iac/ansible-ssh-key`'s entry, at 14 days. These annotations write the token's leaf,
+where step 6 found it absent.
 
 ```sh
 srviac 'secret-rotator annotate'
@@ -2206,10 +2150,7 @@ srviac 'secret-rotator annotate'
 
 **Reading.**
 
-- Where step 6, or an apply after it, ran on a seed before slice 060, `iac/ansible-ssh-key` reads
-  `change rotation_private={"kind":"ssh-key","interval":"14d","activate":"none"}  (was
-  {"kind":"ssh-key","interval":"365d","activate":"none"})`, on one line. Where it ran on slice
-  060's seed, none: that apply wrote it.
+- Not `iac/ansible-ssh-key`: step 6's apply wrote it.
 - `rotator/ssh-key/credentials`, where no apply has written it yet, reads `add
   rotation_token={"kind":"manual","interval":"365d","args":{"type":"github-pat"},…` and no `set`
   line.
@@ -2843,8 +2784,8 @@ takes effect once its build (`IaC/SecretRotator`), green at its lint and tests, 
       ```
 
       Then Retry, in `srviac 'secret-rotator run eso/prd/fieldnotes/prd/kubecoder-controller'`.
-    - **`k8s-sa-token`**, once step 2 is done and wave 2's annotations gave its four entries their
-      `clusters`. Its first night rotates `kubeconfig-prd-write`. It mints a token Secret
+    - **`k8s-sa-token`**, once step 2 is done. Step 6 gave its four entries their `clusters`. Its
+      first night rotates `kubeconfig-prd-write`. It mints a token Secret
       `kube-system/kubecoder-rw-token-<5 characters>` on prd and rolls both stages' KubeCoder
       controllers, which restarts every KubeCoder environment of both stages (design R65), each
       then with the new kubeconfig. Last it deletes the old Secret. That plan is the proof that the
