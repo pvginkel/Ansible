@@ -355,8 +355,8 @@ alone. The drive stays the one the section names.
      — the file was missing while the run read the remote. The next run that finds the file reads
      the remote again; one that does not reports nothing (§5).
    - Any other error, a provider that does not answer among them — the run cannot tell, and
-     reports the remote `unknown`. A refusal in other words than those two lands here too:
-     `couldn't fetch token:` followed by another code.
+     reports the remote `unknown`. A refusal rclone words otherwise than those two lands here
+     too.
 
    A OneDrive remote shows `Total:`, `Used:`, `Free:` and `Trashed:` while it logs in. A dead one
    shows `Failed to create file system for "<remote>:": failed to get root: … couldn't fetch
