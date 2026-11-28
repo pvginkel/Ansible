@@ -1,18 +1,19 @@
 # Backup freshness runbook
 
-Triage for the two backup alerts, retiring a backup that is not coming back, and renewing a cloud
-remote's login. Read this when `BackupOverdue` or `BackupWatcherBlind` fires, when a
+Triage for the backup and cloud-login alerts, retiring a backup that is not coming back, and
+renewing a cloud remote's login. Read this when `BackupOverdue`, `BackupWatcherBlind`,
+`CloudLoginRefused`, `CloudLoginUnknown` or `CloudLoginWatcherBlind` fires, when a
 `backup-server` scope is retired on purpose, when a database is dropped from `postgres-pas`, or
 when a Google Drive or OneDrive remote in storage-prd's `rclone.conf` needs a new login.
 
 Design context: "OpenBao backup / DR" and §"Backup" in
 [`../../../AnsibleSpecs/decisions.md`](../../../AnsibleSpecs/decisions.md). `backup-server` is
 DockerImages `backup-server/`, run as the `backup-server` Deployment in `storage-prd`
-(HomelabAppsDeploy `storage/chart/`). Both rules are in the `backup-freshness` group of
-PlatformAddOnsDeploy `prometheus/config/prd/values.yaml`, and its
-`kc project test --project prometheus` unit-tests them
-(`prometheus/tests/alert-rules/backup-freshness.yml`). Restoring OpenBao from its backup is
-[`openbao.md`](openbao.md) §3.
+(HomelabAppsDeploy `storage/chart/`). The backup rules are the `backup-freshness` group of
+PlatformAddOnsDeploy `prometheus/config/prd/values.yaml` and the cloud-login rules its
+`cloud-logins` group, and its `kc project test --project prometheus` unit-tests both
+(`prometheus/tests/alert-rules/backup-freshness.yml` and `cloud-logins.yml`). Restoring OpenBao
+from its backup is [`openbao.md`](openbao.md) §3.
 
 ## Conventions
 
@@ -75,6 +76,41 @@ q 'up{service="backup-server"}'                                                 
 q '(time() - backup_server_refresh_last_success_timestamp_seconds) / 3600'         # hours since the last full read
 kubectl --context prd -n storage-prd exec deploy/backup-server -- curl -s localhost:8081/metrics
 kubectl --context prd -n storage-prd exec deploy/backup-server -- rclone lsf 'gdrive-pieter:Homelab Backups/<scope>/' | sort
+```
+
+## How the cloud logins are watched
+
+- `storage-refresh-keys-cronjob`, DockerImages `rclone-backup/`'s `refresh-keys` mode, runs
+  `rclone about` on every remote in storage-prd's `rclone.conf` hourly at :00 (§4). It reads each
+  remote's login as `working` where rclone prints the quota lines, `refused` where the provider's
+  token endpoint answers `invalid_grant` or `invalid_client`, and `unknown` otherwise. Its log
+  ends on a line saying so, `Logins: gdrive-pieter working, gdrive-mariska working, …`, then
+  `Done`.
+- Once every remote is read, the run PUTs one group to the Pushgateway in `prometheus-prd`, under
+  job `rclone-refresh-keys`: `rclone_login_status{remote,status}`, `1` for the remote's status
+  and `0` for the other two, and `rclone_refresh_run_timestamp_seconds`, the run's end. The PUT
+  replaces the group, so a remote that left the file leaves it too. A run that finds no remote in
+  the file, or whose push fails, pushes nothing, and the last report stands. The Pushgateway keeps
+  the group on an `emptyDir`, which a restart of its pod drops until the next run pushes.
+- The `cloud-logins` rules raise three critical alerts on it:
+  - `CloudLoginRefused`, labelled `remote`, from the first run that reports the remote refused.
+    It holds while the remote reports `unknown`, and resolves at the first run that reports it
+    `working`, or once it has left the file. §4 renews the login.
+  - `CloudLoginUnknown`, labelled `remote`, once the remote has reported `unknown` for 90 m: one
+    such run between told ones stays quiet, and two in a row fire before the third reports. It
+    resolves at the first run that tells the remote. §4 step 1 reads why.
+  - `CloudLoginWatcherBlind` once the newest run end Prometheus scraped in the last 2 h 30 m is
+    itself 2 h 30 m old, or there is none: half an hour after the second of two runs in a row
+    that did not report. §5.
+
+  A Pushgateway restart neither resolves the first two nor restarts `CloudLoginUnknown`'s 90 m,
+  and does not fire `CloudLoginWatcherBlind` by itself.
+
+What Prometheus holds:
+
+```bash
+q 'rclone_login_status{job="rclone-refresh-keys"} == 1'                                  # each remote's login at the last report
+q '(time() - rclone_refresh_run_timestamp_seconds{job="rclone-refresh-keys"}) / 3600'    # hours since the last run that reported
 ```
 
 ## 1 — `BackupOverdue` fires
@@ -264,15 +300,17 @@ after about ten nights. The backups themselves may stay.
 ## 4 — Renew a Drive or OneDrive remote's login
 
 For a Google Drive or OneDrive remote in storage-prd's `rclone.conf` whose login no longer works,
-and for a Drive remote moving onto another OAuth client. The file is `/data/rclone.conf` on the
-`rclone-backup-pvc` volume, root `0600`. Four things read it:
+as `CloudLoginRefused` names one, and for a Drive remote moving onto another OAuth client.
+`CloudLoginUnknown` names a remote the hourly refresh cannot tell: start at step 1. The file is
+`/data/rclone.conf` on the `rclone-backup-pvc` volume, root `0600`. Four things read it:
 
 - `backup-server`, for its uploads and reads, on `gdrive-pieter`;
 - the `s3-mirror` CronJob, 03:30, from its own copy of the file, on `gdrive-pieter`;
 - `storage-sync-cronjob`, 01:10: an `rclone sync` of every remote in the file to ZFS, then a
   snapshot. Its Job completes even when a remote fails;
 - `storage-refresh-keys-cronjob`, hourly at :00: `rclone about` on every remote, which renews each
-  remote's token and writes it back.
+  remote's token and writes it back, then reports each login to Prometheus ("How the cloud logins
+  are watched").
 
 Its Google Drive remotes:
 
@@ -313,6 +351,12 @@ alone. The drive stays the one the section names.
      Every remote under it fails alike: renew each, with the client's current ID and secret.
    - `NOTICE: <remote>: This remote uses rclone's shared Google Drive client_id` — the remote
      has no client of its own yet. Move it with the steps below.
+   - `NOTICE: Config file "/data/rclone.conf" not found` and `didn't find section in config file`
+     — the file was missing while the run read the remote. The next run that finds the file reads
+     the remote again; one that does not reports nothing (§5).
+   - Any other error, a provider that does not answer among them — the run cannot tell, and
+     reports the remote `unknown`. A refusal in other words than those two lands here too:
+     `couldn't fetch token:` followed by another code.
 
    A OneDrive remote shows `Total:`, `Used:`, `Free:` and `Trashed:` while it logs in. A dead one
    shows `Failed to create file system for "<remote>:": failed to get root: … couldn't fetch
@@ -371,8 +415,8 @@ alone. The drive stays the one the section names.
    It reads the remote's type from the file. For a Drive remote it asks for the client ID, then,
    without echoing, for the client secret and the token line. For a OneDrive remote it asks,
    without echoing, for the token line alone. They travel on stdin into `backup-server`'s
-   container, with the pod's `~/.kube/config-prd-write`, and never onto a command line. It refuses,
-   writing nothing:
+   container, with the pod's `~/.kube/config-prd-write`, and onto no command line outside it:
+   inside, they are the arguments of its `rclone config update`. It refuses, writing nothing:
 
    - outside those times, while a Job in `storage-prd` runs, or while an rclone process runs in
      `backup-server` (its hourly read takes seconds). Run it again a few minutes later. An rclone
@@ -425,7 +469,8 @@ alone. The drive stays the one the section names.
    It prints the account's quota, with no `NOTICE: … shared Google Drive client_id` line and no
    error. Then read the next two hourly refresh runs as in step 1: both show the quota lines, with
    no notice and no error. By the second, rclone has renewed the token, a Drive remote's with the
-   secret just written. For `gdrive-pieter`, `BackupWatcherBlind` also clears at the first scrape
+   secret just written. `CloudLoginRefused` or `CloudLoginUnknown` for the remote resolves at the
+   first. For `gdrive-pieter`, `BackupWatcherBlind` also clears at the first scrape
    that reports a successful full read (§2 step 3), and the next night's uploads land. For every
    remote, the next night's `storage-sync-cronjob` log shows no error under `Syncing <remote>`. A
    check that fails takes a fresh login: steps 2 and 3 again, the second run taking a copy of its
@@ -438,4 +483,48 @@ alone. The drive stays the one the section names.
    ```bash
    kubectl --context prd -n storage-prd exec deploy/backup-server -- ls -l /data
    kubectl --context prd -n storage-prd exec deploy/backup-server -- rm /data/rclone.conf.pre-<remote>-<stamp>
+   ```
+
+## 5 — `CloudLoginWatcherBlind` fires
+
+No `storage-refresh-keys-cronjob` run has pushed its report for 2 h 30 m, so `CloudLoginRefused`
+and `CloudLoginUnknown` show the last report, or none: a login that fails meanwhile raises
+nothing.
+
+1. **Do the runs start?**
+
+   ```bash
+   kubectl --context prd -n storage-prd get cronjob storage-refresh-keys-cronjob
+   kubectl --context prd -n storage-prd get jobs --sort-by=.metadata.creationTimestamp | grep refresh-keys
+   ```
+
+   `SUSPEND` `True`, or no Job in the last two hours, means no run started. A Job still short of
+   `Complete` well after its :00 failed or hangs: `kubectl describe` it.
+
+2. **Read the newest run's log**, its last lines:
+
+   ```bash
+   kubectl --context prd -n storage-prd logs job/<newest storage-refresh-keys-cronjob-…> | tail -n 5
+   ```
+
+   - `No remote in /data/rclone.conf: no login refreshed or reported` — the file holds no section,
+     or is gone. §4 lists what else reads it.
+   - A `curl: (…)` error after the `Logins:` line, and no `Done` — the push failed: the
+     Pushgateway refused it or did not answer. Step 3.
+   - `Logins: …`, then `Done` — the run pushed. Step 3.
+
+3. **Is the Pushgateway up and scraped?**
+
+   ```bash
+   kubectl --context prd -n prometheus-prd get pods | grep pushgateway
+   q 'up{job="prometheus-pushgateway"}'
+   ```
+
+   `1` is a working scrape. `0`, or nothing, means Prometheus does not reach it.
+
+4. **Cleared** — at the first scrape after a run pushes, at the next :00. To push one now, at a
+   minute clear of :00:
+
+   ```bash
+   kubectl --context prd -n storage-prd create job --from=cronjob/storage-refresh-keys-cronjob storage-refresh-keys-manual
    ```

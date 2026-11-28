@@ -14,8 +14,9 @@
 # client") and for the token; for a onedrive section, without echoing, for the token alone. The
 # token is the one line between "Paste the following into your remote machine --->" and "<---End
 # paste". The values travel on stdin into backup-server's container, which has rclone and the claim
-# mounted read-write; the secret and the token are never printed, put on a command line or written
-# anywhere but the remote's section.
+# mounted read-write; the secret and the token are never printed, put on a command line outside
+# that container (inside it, they are its rclone config update's arguments) or written anywhere
+# but the remote's section.
 #
 # It refuses, writing nothing, unless: the time is 07:00-22:00 UTC at minute :05-:55; no Job in
 # storage-prd is active; no rclone process runs in backup-server; the remote is a drive or a
