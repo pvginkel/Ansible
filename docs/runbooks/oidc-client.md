@@ -520,18 +520,19 @@ Afterwards the namespace held `keycloak-client`, with no owner, and no `pgadmin-
      | jq -r --arg l "<leaf>" '.items[] | select(tostring | contains($l)) | .metadata.namespace + "/" + .metadata.name'
    ```
 
-   The deploy repos: a fresh shallow clone of every live deploy repo's `main`, and of its `prd`
-   where it has one, searched for the leaf and for a control string known to be there. GitHub's
-   code search is no witness: it found nothing for strings known to be on a private repo's `main`.
-   In the dev container:
+   The deploy repos and SecretRotator: a fresh shallow clone of the `main` of every live deploy
+   repo and of SecretRotator, and of its `prd` where it has one, searched with `git grep` for the
+   leaf and for a control string known to be there. Never `gh search code`: it found nothing for
+   strings known to be on a private repo's `main`. In the dev container:
 
    ```sh
    d=$(mktemp -d)
-   for r in $(gh repo list pvginkel --no-archived --limit 300 --json name -q '.[].name | select(endswith("Deploy"))'); do
+   for r in $(gh repo list pvginkel --no-archived --limit 300 --json name -q '.[].name | select(endswith("Deploy"))') SecretRotator; do
      git clone -q --depth 1 "https://github.com/pvginkel/$r.git" "$d/$r" || echo "clone failed: $r"
-     git -C "$d/$r" ls-remote --exit-code -q origin prd >/dev/null 2>&1 &&
-       git clone -q --depth 1 --branch prd "https://github.com/pvginkel/$r.git" "$d/$r@prd"; done
-   command grep -rlF "<leaf>" "$d" --exclude-dir=.git; command grep -rlF "eso/prd/" "$d" --exclude-dir=.git | wc -l
+     git -C "$d/$r" ls-remote --exit-code -q origin prd >/dev/null 2>&1 && {
+       git clone -q --depth 1 --branch prd "https://github.com/pvginkel/$r.git" "$d/$r@prd" || echo "clone failed: $r@prd"; }; done
+   for c in "$d"/*; do git -C "$c" grep -lF "<leaf>" | sed "s|^|${c##*/}: |"; done
+   for c in "$d"/*; do git -C "$c" grep -lF "eso/prd/"; done | wc -l
    rm -rf "$d"
    ```
 
