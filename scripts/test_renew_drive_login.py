@@ -73,7 +73,8 @@ sys.exit("fake cexec: unexpected call")
 """
 
 # rclone --config <conf> config update <remote> <key> <value>... config_refresh_token false
-# [--non-interactive]. FAKE_RCLONE_ALSO=<key>=<value> writes one key more, as a write gone wrong.
+# [--non-interactive]. FAKE_RCLONE_ALSO=<key>=<value> writes one key more, as a write gone wrong,
+# into the section FAKE_RCLONE_ALSO_IN names, the remote's own when it is unset.
 FAKE_RCLONE = f"""#!{sys.executable}
 import json, os, re, sys
 args = sys.argv[1:]
@@ -86,11 +87,20 @@ kv = [a for a in args[5:] if a != "--non-interactive"]
 pairs = dict(zip(kv[0::2], kv[1::2]))
 if len(kv) % 2 or pairs.pop("config_refresh_token") != "false":
     sys.exit("fake rclone: unexpected call")
+edits = {{remote: pairs}}
 if "FAKE_RCLONE_ALSO" in os.environ:
     key, value = os.environ["FAKE_RCLONE_ALSO"].split("=", 1)
-    pairs[key] = value
+    edits.setdefault(os.environ.get("FAKE_RCLONE_ALSO_IN", remote), {{}})[key] = value
 parts = re.split(r"(?m)^(?=\\[)", open(conf).read())
 for i, part in enumerate(parts):
+    other = [n for n in edits if n != remote and part.startswith("[" + n + "]\\n")]
+    if other:
+        lines = part.rstrip("\\n").split("\\n")
+        for j, line in enumerate(lines):
+            key = line.split(" = ", 1)[0]
+            if j and key in edits[other[0]]:
+                lines[j] = key + " = " + edits[other[0]][key]
+        parts[i] = "\\n".join(lines) + "\\n\\n"
     if part.startswith("[" + remote + "]\\n"):
         lines = part.rstrip("\\n").split("\\n")
         for j, line in enumerate(lines):
@@ -250,15 +260,22 @@ class RenewDriveLogin(unittest.TestCase):
             self.assertNotIn(value, result.stdout + result.stderr)
 
     def test_onedrive_checks_show_a_write_that_touched_more_than_the_token(self):
+        # The last case changes another remote's token line: the check compares the whole file,
+        # all but [onedrive-x]'s token line, not [onedrive-x]'s section alone.
         cases = (
-            ("drive_type=business", "drive_type=business client_id=none"),
-            ("client_id=abc", "drive_type=personal client_id=SET"),
+            ("onedrive-x", "drive_type=business", "drive_type=business client_id=none"),
+            ("onedrive-x", "client_id=abc", "drive_type=personal client_id=SET"),
+            ("gdrive-x", 'token={"access_token":"ya29.other","refresh_token":"1//other"}',
+             "drive_type=personal client_id=none"),
         )
-        for i, (also, line) in enumerate(cases):
-            with self.subTest(also=also):
+        for i, (section, also, line) in enumerate(cases):
+            with self.subTest(section=section, also=also):
                 self.write_conf(CONF)
-                result = self.run_onedrive(FAKE_RCLONE_ALSO=also, FAKE_NOW=f"2026-11-08T10:3{i}:00Z")
+                result = self.run_onedrive(FAKE_RCLONE_ALSO=also, FAKE_RCLONE_ALSO_IN=section,
+                                           FAKE_NOW=f"2026-11-08T10:3{i}:00Z")
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertNotEqual(sections(self.conf.read_text())[f"[{section}]"],
+                                    sections(CONF)[f"[{section}]"])
                 self.assertIn(f"[onedrive-x] type=onedrive {line}\n", result.stdout)
                 self.assertIn("the file but [onedrive-x]'s token: CHANGED\n", result.stdout)
 
